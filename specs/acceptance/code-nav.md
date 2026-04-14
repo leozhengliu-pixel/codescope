@@ -1,0 +1,34 @@
+# Acceptance Spec: Code Navigation
+
+## Scope
+- Definitions lookup
+- References lookup
+- Symbol-aware navigation from file views
+
+## Inputs
+- Repository identifier
+- Revision identifier
+- File path
+- Cursor position or symbol token
+- Authenticated user context
+
+## Expected behavior
+1. A supported language returns one or more symbol definitions with file path and range.
+2. References lookup returns a deduplicated, navigable list of usages.
+3. Navigation requests are revision-aware and stable for a given indexed revision.
+4. Unsupported languages fail gracefully with a capability message instead of a server error.
+5. Symbol results link back to browseable source locations.
+
+## Permission behavior
+- Definitions and references only return locations inside repositories the caller can access.
+- Cross-repo references must honor the same permission boundary as search.
+
+## Edge cases
+- Multiple definitions should surface an ordered candidate list.
+- Stale indexes should show degraded/stale status instead of silently mixing revisions.
+- Generated files may be excluded from navigation indexes based on policy.
+
+## Black-box examples
+- Clicking a function symbol in a Rust file opens definition candidates.
+- Requesting references for a helper function returns usages across accessible repositories.
+- Requesting navigation in an unsupported file type returns a non-fatal capability response.

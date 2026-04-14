@@ -521,6 +521,7 @@ dependencies = [
  "sourcebot-core",
  "sourcebot-models",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
