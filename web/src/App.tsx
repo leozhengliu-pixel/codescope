@@ -27,7 +27,7 @@ type RepoDetail = {
 type BrowseEntry = {
   name: string;
   path: string;
-  kind: 'tree' | 'blob';
+  kind: 'dir' | 'file';
 };
 
 type TreeResponse = {
@@ -41,6 +41,19 @@ type BlobResponse = {
   path: string;
   content: string;
   size_bytes: number;
+};
+
+type SearchResult = {
+  repo_id: string;
+  path: string;
+  line_number: number;
+  line: string;
+};
+
+type SearchResponse = {
+  query: string;
+  repo_id: string | null;
+  results: SearchResult[];
 };
 
 function useHashLocation() {
@@ -92,6 +105,12 @@ function RepoListPage() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [selectedRepoId, setSelectedRepoId] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,36 +138,136 @@ function RepoListPage() {
     };
   }, []);
 
+  const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
+
+  const runSearch = async () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      setSubmittedQuery(null);
+      setSearchResults([]);
+      setSearchError(null);
+      return;
+    }
+
+    setSearchLoading(true);
+
+    try {
+      const params = new URLSearchParams({ q: trimmedQuery, repo_id: selectedRepoId });
+      const data = await fetchJson<SearchResponse>(`/api/v1/search?${params.toString()}`);
+      setSearchResults(data.results);
+      setSubmittedQuery(data.query);
+      setSearchError(null);
+    } catch (err) {
+      setSearchResults([]);
+      setSubmittedQuery(trimmedQuery);
+      setSearchError((err as Error).message);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   if (loading) return <Panel title="Repositories">Loading repositories…</Panel>;
   if (error) return <Panel title="Repositories">Failed to load: {error}</Panel>;
 
   return (
-    <Panel title="Repositories" subtitle="Seeded repository inventory from the clean-room API.">
-      <div style={{ display: 'grid', gap: 12 }}>
-        {repos.map((repo) => (
-          <a
-            key={repo.id}
-            href={`#/repos/${repo.id}`}
-            style={{
-              padding: 16,
-              border: '1px solid #d0d7de',
-              borderRadius: 12,
-              color: 'inherit',
-              textDecoration: 'none',
-              background: '#fff',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{repo.name}</div>
-                <div style={{ color: '#57606a', marginTop: 4 }}>Default branch: {repo.default_branch}</div>
-              </div>
-              <StatusBadge state={repo.sync_state} />
+    <div style={{ display: 'grid', gap: 20 }}>
+      <Panel title="Search" subtitle="Search indexed code across repositories using the clean-room API.">
+        <form
+          style={{ display: 'grid', gap: 12 }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runSearch();
+          }}
+        >
+          <div style={searchFormGridStyle}>
+            <label style={fieldLabelStyle}>
+              <span>Search query</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search for symbols, strings, or snippets"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              <span>Repository filter</span>
+              <select
+                value={selectedRepoId}
+                onChange={(event) => setSelectedRepoId(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="">All repositories</option>
+                {repos.map((repo) => (
+                  <option key={repo.id} value={repo.id}>
+                    {repo.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div>
+            <button type="submit" style={primaryButtonStyle} disabled={searchLoading || query.trim().length === 0}>
+              {searchLoading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+        </form>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Results</div>
+          {searchLoading ? <div>Searching code…</div> : null}
+          {!searchLoading && searchError ? <div>Search failed: {searchError}</div> : null}
+          {!searchLoading && !searchError && submittedQuery && searchResults.length === 0 ? (
+            <div>No matches found for “{submittedQuery}”.</div>
+          ) : null}
+          {!searchLoading && !searchError && searchResults.length > 0 ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {searchResults.map((result, index) => (
+                <div key={`${result.repo_id}:${result.path}:${result.line_number}:${index}`} style={searchResultCardStyle}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    <span style={searchMetaBadgeStyle}>{repoNamesById.get(result.repo_id) ?? result.repo_id}</span>
+                    <span style={searchMetaBadgeStyle}>{result.path}</span>
+                    <span style={searchMetaBadgeStyle}>Line {result.line_number}</span>
+                  </div>
+                  <pre style={searchLineStyle}>{result.line}</pre>
+                </div>
+              ))}
             </div>
-          </a>
-        ))}
-      </div>
-    </Panel>
+          ) : null}
+          {!searchLoading && !searchError && !submittedQuery ? (
+            <div style={{ color: '#57606a' }}>Enter a query to search indexed code.</div>
+          ) : null}
+        </div>
+      </Panel>
+
+      <Panel title="Repositories" subtitle="Seeded repository inventory from the clean-room API.">
+        <div style={{ display: 'grid', gap: 12 }}>
+          {repos.map((repo) => (
+            <a
+              key={repo.id}
+              href={`#/repos/${repo.id}`}
+              style={{
+                padding: 16,
+                border: '1px solid #d0d7de',
+                borderRadius: 12,
+                color: 'inherit',
+                textDecoration: 'none',
+                background: '#fff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{repo.name}</div>
+                  <div style={{ color: '#57606a', marginTop: 4 }}>Default branch: {repo.default_branch}</div>
+                </div>
+                <StatusBadge state={repo.sync_state} />
+              </div>
+            </a>
+          ))}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -293,7 +412,7 @@ function BrowsePanel({ repoId }: { repoId: string }) {
   }, [treePath]);
 
   const openEntry = (entry: BrowseEntry) => {
-    if (entry.kind === 'tree') {
+    if (entry.kind === 'dir') {
       setTreePath(entry.path);
       setSelectedFilePath(null);
       setBlob(null);
@@ -336,8 +455,8 @@ function BrowsePanel({ repoId }: { repoId: string }) {
                     background: selectedFilePath === entry.path ? '#ddf4ff' : '#fff',
                   }}
                 >
-                  <span>{entry.kind === 'tree' ? '📁' : '📄'}</span>
-                  <span>{entry.kind === 'tree' ? `${entry.name}/` : entry.name}</span>
+                  <span>{entry.kind === 'dir' ? '📁' : '📄'}</span>
+                  <span>{entry.kind === 'dir' ? `${entry.name}/` : entry.name}</span>
                 </button>
               ))}
             </div>
@@ -471,6 +590,63 @@ const secondaryButtonStyle: CSSProperties = {
   cursor: 'pointer',
   color: '#1f2328',
   fontWeight: 600,
+};
+
+const primaryButtonStyle: CSSProperties = {
+  ...secondaryButtonStyle,
+  background: '#0969da',
+  border: '1px solid #0969da',
+  color: '#fff',
+};
+
+const searchFormGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 12,
+};
+
+const fieldLabelStyle: CSSProperties = {
+  display: 'grid',
+  gap: 8,
+  fontSize: 14,
+  fontWeight: 600,
+};
+
+const inputStyle: CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  borderRadius: 10,
+  border: '1px solid #d0d7de',
+  background: '#fff',
+  color: '#1f2328',
+  font: 'inherit',
+  boxSizing: 'border-box',
+};
+
+const searchResultCardStyle: CSSProperties = {
+  padding: 16,
+  border: '1px solid #d8dee4',
+  borderRadius: 12,
+  background: '#fff',
+};
+
+const searchMetaBadgeStyle: CSSProperties = {
+  display: 'inline-block',
+  padding: '4px 10px',
+  borderRadius: 999,
+  background: '#ddf4ff',
+  color: '#0969da',
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const searchLineStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: 'ui-monospace, SFMono-Regular, SFMono-Regular, Consolas, monospace',
+  fontSize: 13,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  color: '#1f2328',
 };
 
 export function App() {

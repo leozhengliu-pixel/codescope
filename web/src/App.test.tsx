@@ -31,8 +31,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('alpha-repo')).toBeInTheDocument();
-    expect(screen.getByText('Default branch: main')).toBeInTheDocument();
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
   });
 
   it('loads repository detail and browses directories and files from the browse api', async () => {
@@ -63,8 +62,8 @@ describe('App', () => {
           repo_id: 'repo-42',
           path: '',
           entries: [
-            { name: 'src', path: 'src', kind: 'tree' },
-            { name: 'README.md', path: 'README.md', kind: 'blob' },
+            { name: 'src', path: 'src', kind: 'dir' },
+            { name: 'README.md', path: 'README.md', kind: 'file' },
           ],
         });
       }
@@ -73,7 +72,7 @@ describe('App', () => {
         return jsonResponse({
           repo_id: 'repo-42',
           path: 'src',
-          entries: [{ name: 'App.tsx', path: 'src/App.tsx', kind: 'blob' }],
+          entries: [{ name: 'App.tsx', path: 'src/App.tsx', kind: 'file' }],
         });
       }
 
@@ -151,6 +150,96 @@ describe('App', () => {
 
     expect(await screen.findByText('beta-repo')).toBeInTheDocument();
     expect(await screen.findByText('Unable to load files: Request failed: 503')).toBeInTheDocument();
+  });
+
+  it('searches code and filters results by repository from the home page', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            sync_state: 'pending',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/search?q=needle&repo_id=repo-2') {
+        return jsonResponse({
+          query: 'needle',
+          repo_id: 'repo-2',
+          results: [
+            {
+              repo_id: 'repo-2',
+              path: 'src/search.ts',
+              line_number: 12,
+              line: 'const needle = true;',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
+    fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByText('src/search.ts')).toBeInTheDocument();
+    expect(screen.getAllByText('beta-repo').length).toBeGreaterThan(0);
+    expect(screen.getByText('Line 12')).toBeInTheDocument();
+    expect(screen.getByText('const needle = true;')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=repo-2');
+  });
+
+  it('shows an empty search state when no matches are returned', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/search?q=missing&repo_id=') {
+        return jsonResponse({
+          query: 'missing',
+          repo_id: null,
+          results: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'missing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByText('No matches found for “missing”.')).toBeInTheDocument();
   });
 
   it('shows an error state when the repository list request fails', async () => {

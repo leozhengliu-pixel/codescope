@@ -17,3 +17,4 @@ tower = { version = "0.5", features = ["util"] }
 sourcebot-core = { path = "../core" }
 sourcebot-config = { path = "../config" }
 sourcebot-models = { path = "../models" }
+sourcebot-search = { path = "../search" }

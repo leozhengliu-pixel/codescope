@@ -11,6 +11,7 @@ use browse::{build_browse_store, BlobResponse, DynBrowseStore, TreeResponse};
 use serde::Serialize;
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
+use sourcebot_search::{build_search_store, DynSearchStore, SearchResponse};
 use std::net::SocketAddr;
 use storage::{build_catalog_store, DynCatalogStore};
 use tracing::info;
@@ -20,6 +21,7 @@ struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
     browse: DynBrowseStore,
+    search: DynSearchStore,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,8 +42,9 @@ async fn main() -> anyhow::Result<()> {
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let browse = build_browse_store();
+    let search = build_search_store();
 
-    let app = build_router(config, catalog, browse);
+    let app = build_router(config, catalog, browse, search);
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -50,7 +53,12 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_router(config: AppConfig, catalog: DynCatalogStore, browse: DynBrowseStore) -> Router {
+fn build_router(
+    config: AppConfig,
+    catalog: DynCatalogStore,
+    browse: DynBrowseStore,
+    search: DynSearchStore,
+) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/api/v1/config", get(public_config))
@@ -58,10 +66,12 @@ fn build_router(config: AppConfig, catalog: DynCatalogStore, browse: DynBrowseSt
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
         .route("/api/v1/repos/{repo_id}/tree", get(get_repository_tree))
         .route("/api/v1/repos/{repo_id}/blob", get(get_repository_blob))
+        .route("/api/v1/search", get(search_repository_contents))
         .with_state(AppState {
             config,
             catalog,
             browse,
+            search,
         })
 }
 
@@ -69,6 +79,13 @@ fn build_router(config: AppConfig, catalog: DynCatalogStore, browse: DynBrowseSt
 struct BrowseQuery {
     #[serde(default)]
     path: String,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+    repo_id: Option<String>,
 }
 
 async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -134,6 +151,22 @@ async fn get_repository_blob(
     Ok(Json(blob))
 }
 
+async fn search_repository_contents(
+    State(state): State<AppState>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, StatusCode> {
+    if query.q.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let response = state
+        .search
+        .search(&query.q, query.repo_id.as_deref())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(response))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,11 +199,27 @@ mod tests {
         size_bytes: u64,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct SearchResultResponse {
+        repo_id: String,
+        path: String,
+        line_number: usize,
+        line: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct SearchResponse {
+        query: String,
+        repo_id: Option<String>,
+        results: Vec<SearchResultResponse>,
+    }
+
     fn test_app() -> Router {
         build_router(
             AppConfig::default(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
+            build_search_store(),
         )
     }
 
@@ -204,6 +253,7 @@ mod tests {
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
+            build_search_store(),
         );
 
         let response = app
@@ -369,5 +419,46 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn search_returns_bad_request_for_empty_query() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=&repo_id=repo_sourcebot_rewrite")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn search_returns_matches_for_seeded_local_repository() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.query, "build_router");
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
+        assert!(!payload.results.is_empty());
+        assert!(payload.results.iter().any(|result| {
+            result.repo_id == "repo_sourcebot_rewrite"
+                && result.path == "crates/api/src/main.rs"
+                && result.line.contains("build_router")
+                && result.line_number > 0
+        }));
     }
 }
