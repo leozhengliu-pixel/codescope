@@ -13,10 +13,12 @@ use commits::{
     build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse,
     DynCommitStore,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
-use sourcebot_search::{build_search_store, DynSearchStore, SearchResponse};
+use sourcebot_search::{
+    build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
+};
 use std::net::SocketAddr;
 use storage::{build_catalog_store, DynCatalogStore};
 use tracing::info;
@@ -75,6 +77,10 @@ fn build_router(
         .route("/api/v1/repos/{repo_id}/tree", get(get_repository_tree))
         .route("/api/v1/repos/{repo_id}/blob", get(get_repository_blob))
         .route(
+            "/api/v1/repos/{repo_id}/definitions",
+            get(get_repository_definitions),
+        )
+        .route(
             "/api/v1/repos/{repo_id}/commits",
             get(list_repository_commits),
         )
@@ -102,11 +108,55 @@ struct BrowseQuery {
     path: String,
 }
 
-#[derive(Debug, serde::Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 struct SearchQuery {
     #[serde(default)]
     q: String,
     repo_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct DefinitionsQuery {
+    path: Option<String>,
+    symbol: Option<String>,
+    revision: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct DefinitionRangeResponse {
+    start_line: usize,
+    end_line: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct DefinitionResponse {
+    path: String,
+    name: String,
+    kind: SymbolKind,
+    range: DefinitionRangeResponse,
+    browse_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status")]
+enum DefinitionsResponse {
+    #[serde(rename = "supported")]
+    Supported {
+        repo_id: String,
+        path: String,
+        revision: Option<String>,
+        symbol: String,
+        definitions: Vec<DefinitionResponse>,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        repo_id: String,
+        path: String,
+        revision: Option<String>,
+        symbol: String,
+        capability: String,
+        definitions: Vec<DefinitionResponse>,
+    },
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -180,6 +230,84 @@ async fn get_repository_blob(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(blob))
+}
+
+async fn get_repository_definitions(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(query): Query<DefinitionsQuery>,
+) -> Result<Json<DefinitionsResponse>, StatusCode> {
+    let path = query
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let symbol = query
+        .symbol
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let revision = query
+        .revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let blob = state
+        .browse
+        .get_blob(&repo_id, path)
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let response = match extract_symbols(path, &blob.content) {
+        sourcebot_search::SymbolExtraction::Supported { symbols } => {
+            let definitions = symbols
+                .into_iter()
+                .filter(|candidate| candidate.name == symbol)
+                .map(|candidate| DefinitionResponse {
+                    browse_url: build_definition_browse_url(
+                        &repo_id,
+                        path,
+                        candidate.range.start_line,
+                    ),
+                    path: candidate.path,
+                    name: candidate.name,
+                    kind: candidate.kind,
+                    range: DefinitionRangeResponse {
+                        start_line: candidate.range.start_line,
+                        end_line: candidate.range.end_line,
+                    },
+                })
+                .collect();
+
+            DefinitionsResponse::Supported {
+                repo_id,
+                path: path.to_string(),
+                revision,
+                symbol: symbol.to_string(),
+                definitions,
+            }
+        }
+        sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
+            DefinitionsResponse::Unsupported {
+                repo_id,
+                path: path.to_string(),
+                revision,
+                symbol: symbol.to_string(),
+                capability,
+                definitions: Vec::new(),
+            }
+        }
+    };
+
+    Ok(Json(response))
+}
+
+fn build_definition_browse_url(repo_id: &str, path: &str, start_line: usize) -> String {
+    format!("/api/v1/repos/{repo_id}/blob?path={path}#L{start_line}")
 }
 
 async fn list_repository_commits(
@@ -779,5 +907,139 @@ mod tests {
                 && result.line.contains("build_router")
                 && result.line_number > 0
         }));
+    }
+
+    #[tokio::test]
+    async fn definitions_returns_bad_request_for_missing_required_query_parameters() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn definitions_returns_not_found_for_unknown_repo_or_path() {
+        let unknown_repo = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/missing/definitions?path=crates/api/src/main.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown_repo.status(), StatusCode::NOT_FOUND);
+
+        let unknown_path = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=missing.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown_path.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn definitions_returns_supported_rust_definitions_and_echoes_revision() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=build_router&revision=HEAD",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: DefinitionsResponse = read_json(response).await;
+        match payload {
+            DefinitionsResponse::Supported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                definitions,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "crates/api/src/main.rs");
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert_eq!(symbol, "build_router");
+                assert!(!definitions.is_empty());
+                assert_eq!(definitions[0].name, "build_router");
+                assert_eq!(definitions[0].path, "crates/api/src/main.rs");
+                assert!(definitions[0].range.start_line > 0);
+                assert!(definitions[0].range.end_line >= definitions[0].range.start_line);
+                assert_eq!(
+                    definitions[0].browse_url,
+                    format!(
+                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs#L{}",
+                        definitions[0].range.start_line
+                    )
+                );
+            }
+            DefinitionsResponse::Unsupported { .. } => {
+                panic!("expected supported definitions response")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn definitions_returns_unsupported_capability_for_non_rust_files() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=README.md&symbol=sourcebot",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: DefinitionsResponse = read_json(response).await;
+        match payload {
+            DefinitionsResponse::Unsupported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                capability,
+                definitions,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "README.md");
+                assert_eq!(revision, None);
+                assert_eq!(symbol, "sourcebot");
+                assert_eq!(
+                    capability,
+                    "symbol extraction is not supported for .md files"
+                );
+                assert!(definitions.is_empty());
+            }
+            DefinitionsResponse::Supported { .. } => {
+                panic!("expected unsupported definitions response")
+            }
+        }
     }
 }
