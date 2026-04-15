@@ -297,16 +297,18 @@ async fn get_repository_definitions(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let revision = query
+    let requested_revision = query
         .revision
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
+    let response_revision = Some(effective_revision.to_string());
 
     let blob = state
         .browse
-        .get_blob_at_revision(&repo_id, path, revision.as_deref())
+        .get_blob_at_revision(&repo_id, path, Some(effective_revision))
         .map_err(map_browse_error_to_status)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -319,7 +321,7 @@ async fn get_repository_definitions(
                     browse_url: build_definition_browse_url(
                         &repo_id,
                         &candidate.path,
-                        revision.as_deref(),
+                        Some(effective_revision),
                         candidate.range.start_line,
                     ),
                     path: candidate.path,
@@ -335,7 +337,7 @@ async fn get_repository_definitions(
             DefinitionsResponse::Supported {
                 repo_id,
                 path: path.to_string(),
-                revision,
+                revision: response_revision,
                 symbol: symbol.to_string(),
                 definitions,
             }
@@ -344,7 +346,7 @@ async fn get_repository_definitions(
             DefinitionsResponse::Unsupported {
                 repo_id,
                 path: path.to_string(),
-                revision,
+                revision: response_revision,
                 symbol: symbol.to_string(),
                 capability,
                 definitions: Vec::new(),
@@ -372,13 +374,14 @@ async fn get_repository_references(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let revision = query
+    let requested_revision = query
         .revision
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    let effective_revision = revision.as_deref().unwrap_or("HEAD");
+    let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
+    let response_revision = Some(effective_revision.to_string());
 
     let blob = state
         .browse
@@ -393,12 +396,13 @@ async fn get_repository_references(
                 .find_text_references_at_revision(&repo_id, symbol, effective_revision)
                 .map_err(map_browse_error_to_status)?
                 .ok_or(StatusCode::NOT_FOUND)?;
-            let references = build_reference_responses(&repo_id, revision.as_deref(), references);
+            let references =
+                build_reference_responses(&repo_id, Some(effective_revision), references);
 
             ReferencesResponse::Supported {
                 repo_id,
                 path: path.to_string(),
-                revision,
+                revision: response_revision.clone(),
                 symbol: symbol.to_string(),
                 references,
             }
@@ -407,7 +411,7 @@ async fn get_repository_references(
             ReferencesResponse::Unsupported {
                 repo_id,
                 path: path.to_string(),
-                revision,
+                revision: response_revision,
                 symbol: symbol.to_string(),
                 capability,
                 references: Vec::new(),
@@ -1261,6 +1265,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn definitions_default_revision_resolves_to_head_in_response_and_browse_url() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: DefinitionsResponse = read_json(response).await;
+        match payload {
+            DefinitionsResponse::Supported {
+                revision,
+                definitions,
+                ..
+            } => {
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert!(!definitions.is_empty());
+                assert!(definitions
+                    .iter()
+                    .all(|definition| definition.browse_url.contains("revision=HEAD")));
+            }
+            DefinitionsResponse::Unsupported { .. } => {
+                panic!("expected supported definitions response")
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn definitions_reject_parent_directory_traversal_with_bad_request() {
         let response = test_app()
             .oneshot(
@@ -1349,7 +1388,7 @@ mod tests {
             } => {
                 assert_eq!(repo_id, "repo_sourcebot_rewrite");
                 assert_eq!(path, "README.md");
-                assert_eq!(revision, None);
+                assert_eq!(revision.as_deref(), Some("HEAD"));
                 assert_eq!(symbol, "sourcebot");
                 assert_eq!(
                     capability,
@@ -1435,7 +1474,7 @@ mod tests {
             } => {
                 assert_eq!(repo_id, "repo_sourcebot_rewrite");
                 assert_eq!(path, "README.md");
-                assert_eq!(revision, None);
+                assert_eq!(revision.as_deref(), Some("HEAD"));
                 assert_eq!(symbol, "sourcebot");
                 assert_eq!(
                     capability,
@@ -1516,6 +1555,41 @@ mod tests {
                     sorted
                 );
                 assert_eq!(sorted, deduped);
+            }
+            ReferencesResponse::Unsupported { .. } => {
+                panic!("expected supported references response")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn references_default_revision_resolves_to_head_in_response_and_browse_urls() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: ReferencesResponse = read_json(response).await;
+        match payload {
+            ReferencesResponse::Supported {
+                revision,
+                references,
+                ..
+            } => {
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert!(!references.is_empty());
+                assert!(references
+                    .iter()
+                    .all(|reference| reference.browse_url.contains("revision=HEAD")));
             }
             ReferencesResponse::Unsupported { .. } => {
                 panic!("expected supported references response")
