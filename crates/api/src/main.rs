@@ -106,6 +106,7 @@ fn build_router(
 struct BrowseQuery {
     #[serde(default)]
     path: String,
+    revision: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -223,10 +224,16 @@ async fn get_repository_blob(
     Path(repo_id): Path<String>,
     Query(query): Query<BrowseQuery>,
 ) -> Result<Json<BlobResponse>, StatusCode> {
+    let revision = query
+        .revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
     let blob = state
         .browse
-        .get_blob(&repo_id, &query.path)
-        .map_err(|_| StatusCode::NOT_FOUND)?
+        .get_blob_at_revision(&repo_id, &query.path, revision)
+        .map_err(map_browse_error_to_status)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(blob))
@@ -258,8 +265,8 @@ async fn get_repository_definitions(
 
     let blob = state
         .browse
-        .get_blob(&repo_id, path)
-        .map_err(|_| StatusCode::NOT_FOUND)?
+        .get_blob_at_revision(&repo_id, path, revision.as_deref())
+        .map_err(map_browse_error_to_status)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     let response = match extract_symbols(path, &blob.content) {
@@ -270,7 +277,8 @@ async fn get_repository_definitions(
                 .map(|candidate| DefinitionResponse {
                     browse_url: build_definition_browse_url(
                         &repo_id,
-                        path,
+                        &candidate.path,
+                        revision.as_deref(),
                         candidate.range.start_line,
                     ),
                     path: candidate.path,
@@ -306,8 +314,38 @@ async fn get_repository_definitions(
     Ok(Json(response))
 }
 
-fn build_definition_browse_url(repo_id: &str, path: &str, start_line: usize) -> String {
-    format!("/api/v1/repos/{repo_id}/blob?path={path}#L{start_line}")
+fn build_definition_browse_url(
+    repo_id: &str,
+    path: &str,
+    revision: Option<&str>,
+    start_line: usize,
+) -> String {
+    let encoded_path = encode_query_value(path);
+    let revision_suffix = revision
+        .map(|revision| format!("&revision={}", encode_query_value(revision)))
+        .unwrap_or_default();
+    format!("/api/v1/repos/{repo_id}/blob?path={encoded_path}{revision_suffix}#L{start_line}")
+}
+
+fn encode_query_value(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char);
+            }
+            _ => encoded.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+    encoded
+}
+
+fn map_browse_error_to_status(error: anyhow::Error) -> StatusCode {
+    if error.to_string().contains("invalid relative path") {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }
 
 async fn list_repository_commits(
@@ -612,6 +650,44 @@ mod tests {
         assert_eq!(payload.path, "Cargo.toml");
         assert!(payload.content.contains("[workspace]"));
         assert!(payload.size_bytes > 0);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_requested_revision_contents() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs&revision=HEAD~1",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: BlobResponse = read_json(response).await;
+        assert_eq!(payload.path, "crates/api/src/main.rs");
+        assert!(!payload
+            .content
+            .contains("async fn get_repository_definitions("));
+    }
+
+    #[tokio::test]
+    async fn repo_blob_rejects_parent_directory_traversal_with_bad_request() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=..")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -990,7 +1066,7 @@ mod tests {
                 assert_eq!(
                     definitions[0].browse_url,
                     format!(
-                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs#L{}",
+                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates%2Fapi%2Fsrc%2Fmain.rs&revision=HEAD#L{}",
                         definitions[0].range.start_line
                     )
                 );
@@ -1001,6 +1077,67 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn definitions_reject_parent_directory_traversal_with_bad_request() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=../README.md&symbol=sourcebot",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn definitions_use_requested_revision_for_lookup() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=get_repository_definitions&revision=HEAD~1",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: DefinitionsResponse = read_json(response).await;
+        match payload {
+            DefinitionsResponse::Supported {
+                revision,
+                definitions,
+                ..
+            } => {
+                assert_eq!(revision.as_deref(), Some("HEAD~1"));
+                assert!(definitions.is_empty());
+            }
+            DefinitionsResponse::Unsupported { .. } => {
+                panic!("expected supported definitions response")
+            }
+        }
+    }
+
+    #[test]
+    fn definition_browse_url_encodes_path_and_revision_query_values() {
+        assert_eq!(
+            build_definition_browse_url(
+                "repo_sourcebot_rewrite",
+                "dir/hello world?#.rs",
+                Some("feature/test branch"),
+                42,
+            ),
+            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
+        );
+    }
     #[tokio::test]
     async fn definitions_returns_unsupported_capability_for_non_rust_files() {
         let response = test_app()

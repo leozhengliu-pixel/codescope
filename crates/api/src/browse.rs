@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Component, Path, PathBuf},
+    process::{Command, Output},
     sync::Arc,
 };
 
@@ -14,7 +15,14 @@ const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 
 pub trait BrowseStore: Send + Sync {
     fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<TreeResponse>>;
+    #[allow(dead_code)]
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>>;
+    fn get_blob_at_revision(
+        &self,
+        repo_id: &str,
+        path: &str,
+        revision: Option<&str>,
+    ) -> Result<Option<BlobResponse>>;
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -114,19 +122,46 @@ impl BrowseStore for LocalBrowseStore {
     }
 
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>> {
+        self.get_blob_at_revision(repo_id, path, None)
+    }
+
+    fn get_blob_at_revision(
+        &self,
+        repo_id: &str,
+        path: &str,
+        revision: Option<&str>,
+    ) -> Result<Option<BlobResponse>> {
         let Some(full_path) = self.resolve_path(repo_id, path)? else {
             return Ok(None);
         };
 
-        if !full_path.exists() || !full_path.is_file() {
-            return Ok(None);
-        }
+        let (content, size_bytes) = match revision {
+            Some(revision) => {
+                let Some(repo_root) = self.repo_roots.get(repo_id) else {
+                    return Ok(None);
+                };
 
-        let content = fs::read_to_string(&full_path)
-            .with_context(|| format!("failed to read file {}", full_path.display()))?;
-        let size_bytes = fs::metadata(&full_path)
-            .with_context(|| format!("failed to read metadata for {}", full_path.display()))?
-            .len();
+                let Some(content) = run_git_show_blob(repo_root, revision, path)? else {
+                    return Ok(None);
+                };
+                let size_bytes = content.len() as u64;
+                (content, size_bytes)
+            }
+            None => {
+                if !full_path.exists() || !full_path.is_file() {
+                    return Ok(None);
+                }
+
+                let content = fs::read_to_string(&full_path)
+                    .with_context(|| format!("failed to read file {}", full_path.display()))?;
+                let size_bytes = fs::metadata(&full_path)
+                    .with_context(|| {
+                        format!("failed to read metadata for {}", full_path.display())
+                    })?
+                    .len();
+                (content, size_bytes)
+            }
+        };
 
         Ok(Some(BlobResponse {
             repo_id: repo_id.to_string(),
@@ -135,6 +170,50 @@ impl BrowseStore for LocalBrowseStore {
             size_bytes,
         }))
     }
+}
+
+fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
+    let object = format!("{revision}:{path}");
+    let output = Command::new("git")
+        .args(["show", &object])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git show in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        return Ok(Some(
+            String::from_utf8(output.stdout).context("git output was not utf-8")?,
+        ));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["show", "<revision>:<path>"],
+        &output,
+    ))
+}
+
+fn git_object_not_found_output(output: &Output) -> bool {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    stderr.contains("exists on disk, but not in")
+        || stderr.contains("pathspec")
+        || stderr.contains("unknown revision")
+        || stderr.contains("bad object")
+        || stderr.contains("fatal: invalid object name")
+        || stderr.contains("ambiguous argument")
+}
+
+fn git_command_error(repo_root: &PathBuf, args: &[&str], output: &Output) -> anyhow::Error {
+    anyhow::anyhow!(
+        "git {:?} failed in {}: {}",
+        args,
+        repo_root.display(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf> {
