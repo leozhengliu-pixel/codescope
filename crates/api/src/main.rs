@@ -9,7 +9,10 @@ use axum::{
     Json, Router,
 };
 use browse::{build_browse_store, BlobResponse, DynBrowseStore, TreeResponse};
-use commits::{build_commit_store, CommitDetailResponse, CommitListResponse, DynCommitStore};
+use commits::{
+    build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse,
+    DynCommitStore,
+};
 use serde::Serialize;
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
@@ -78,6 +81,10 @@ fn build_router(
         .route(
             "/api/v1/repos/{repo_id}/commits/{commit_id}",
             get(get_repository_commit),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/commits/{commit_id}/diff",
+            get(get_repository_commit_diff),
         )
         .route("/api/v1/search", get(search_repository_contents))
         .with_state(AppState {
@@ -202,6 +209,19 @@ async fn get_repository_commit(
     Ok(Json(commit))
 }
 
+async fn get_repository_commit_diff(
+    State(state): State<AppState>,
+    Path((repo_id, commit_id)): Path<(String, String)>,
+) -> Result<Json<CommitDiffResponse>, StatusCode> {
+    let diff = state
+        .commits
+        .get_commit_diff(&repo_id, &commit_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(diff))
+}
+
 async fn search_repository_contents(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
@@ -295,6 +315,23 @@ mod tests {
     struct CommitDetailResponse {
         repo_id: String,
         commit: CommitDetailDataResponse,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CommitDiffFileResponse {
+        path: String,
+        change_type: String,
+        old_path: Option<String>,
+        additions: usize,
+        deletions: usize,
+        patch: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CommitDiffResponse {
+        repo_id: String,
+        commit_id: String,
+        files: Vec<CommitDiffFileResponse>,
     }
 
     fn test_app() -> Router {
@@ -523,10 +560,10 @@ mod tests {
         let payload: CommitListResponse = read_json(response).await;
         assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.commits.len(), 2);
-        assert_eq!(payload.commits[0].short_id, "556fb45");
+        assert_eq!(payload.commits[0].short_id, "fe7f21f");
         assert_eq!(
             payload.commits[0].summary,
-            "feat: add minimal search api and web ui"
+            "feat: add commit history api and web ui"
         );
         assert_eq!(payload.commits[0].author_name, "Hermes Agent");
         assert_eq!(payload.commits[0].id.len(), 40);
@@ -604,6 +641,74 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/HEAD~1..HEAD")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commit_diff_returns_real_git_files() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/fe7f21f/diff")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: CommitDiffResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(
+            payload.commit_id,
+            "fe7f21fca594b0dd76988dbaa1ac18bd0c03ce78"
+        );
+        assert_eq!(payload.files.len(), 5);
+
+        let commits_file = payload
+            .files
+            .iter()
+            .find(|file| file.path == "crates/api/src/commits.rs")
+            .unwrap();
+        assert_eq!(commits_file.change_type, "added");
+        assert_eq!(commits_file.old_path, None);
+        assert_eq!(commits_file.additions, 343);
+        assert_eq!(commits_file.deletions, 0);
+        assert!(commits_file
+            .patch
+            .as_deref()
+            .unwrap()
+            .contains("diff --git a/crates/api/src/commits.rs b/crates/api/src/commits.rs"));
+    }
+
+    #[tokio::test]
+    async fn repo_commit_diff_returns_not_found_for_repo_without_local_history() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_demo_docs/commits/fe7f21f/diff")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commit_diff_rejects_revision_ranges() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/HEAD~1..HEAD/diff")
                     .body(Body::empty())
                     .unwrap(),
             )

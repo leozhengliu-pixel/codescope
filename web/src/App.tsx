@@ -79,6 +79,21 @@ type CommitResponse = {
   commit: CommitDetail;
 };
 
+type CommitDiffFile = {
+  path: string;
+  change_type: 'added' | 'modified' | 'deleted' | 'renamed';
+  old_path: string | null;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+};
+
+type CommitDiffResponse = {
+  repo_id: string;
+  commit_id: string;
+  files: CommitDiffFile[];
+};
+
 function useHashLocation() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
 
@@ -362,6 +377,9 @@ function CommitsPanel({ repoId }: { repoId: string }) {
   const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const [commitDiff, setCommitDiff] = useState<CommitDiffResponse | null>(null);
+  const [commitDiffLoading, setCommitDiffLoading] = useState(false);
+  const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -370,6 +388,9 @@ function CommitsPanel({ repoId }: { repoId: string }) {
     setCommitDetail(null);
     setCommitError(null);
     setCommitLoading(false);
+    setCommitDiff(null);
+    setCommitDiffError(null);
+    setCommitDiffLoading(false);
 
     fetchJson<CommitsResponse>(`/api/v1/repos/${repoId}/commits?limit=20`)
       .then((data) => {
@@ -425,6 +446,45 @@ function CommitsPanel({ repoId }: { repoId: string }) {
       .finally(() => {
         if (!cancelled) {
           setCommitLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, selectedCommitId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedCommitId) {
+      setCommitDiff(null);
+      setCommitDiffError(null);
+      setCommitDiffLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setCommitDiffLoading(true);
+    setCommitDiffError(null);
+    setCommitDiff(null);
+
+    fetchJson<CommitDiffResponse>(`/api/v1/repos/${repoId}/commits/${encodeURIComponent(selectedCommitId)}/diff`)
+      .then((data) => {
+        if (!cancelled) {
+          setCommitDiff(data);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setCommitDiff(null);
+          setCommitDiffError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCommitDiffLoading(false);
         }
       });
 
@@ -504,6 +564,36 @@ function CommitsPanel({ repoId }: { repoId: string }) {
                   )
                 }
               />
+            </div>
+            <div style={detailCardStyle}>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Changed files</div>
+              {commitDiffLoading ? <div>Loading diff…</div> : null}
+              {!commitDiffLoading && commitDiffError ? <div>Unable to load diff: {commitDiffError}</div> : null}
+              {!commitDiffLoading && !commitDiffError && commitDiff ? (
+                commitDiff.files.length > 0 ? (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {commitDiff.files.map((file, index) => (
+                      <div key={`${file.path}:${index}`} style={diffFileCardStyle}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                          <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
+                            {file.change_type === 'renamed' && file.old_path ? `${file.old_path} → ${file.path}` : file.path}
+                          </div>
+                          <span style={diffTypeBadgeStyle(file.change_type)}>{file.change_type}</span>
+                          <span style={diffStatAdditionsStyle}>+{file.additions}</span>
+                          <span style={diffStatDeletionsStyle}>-{file.deletions}</span>
+                        </div>
+                        {file.patch ? (
+                          <pre style={diffPatchStyle}>{file.patch}</pre>
+                        ) : (
+                          <div style={browseSectionMetaStyle}>Binary file or patch unavailable.</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: '#57606a' }}>No changed files reported for this commit.</div>
+                )
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -726,6 +816,22 @@ function shortCommitId(commitId: string) {
   return commitId.slice(0, 7);
 }
 
+function diffTypeBadgeStyle(changeType: CommitDiffFile['change_type']): CSSProperties {
+  const palette: Record<CommitDiffFile['change_type'], { background: string; color: string }> = {
+    added: { background: '#dafbe1', color: '#1a7f37' },
+    modified: { background: '#ddf4ff', color: '#0969da' },
+    deleted: { background: '#ffebe9', color: '#cf222e' },
+    renamed: { background: '#fff8c5', color: '#9a6700' },
+  };
+
+  return {
+    ...searchMetaBadgeStyle,
+    background: palette[changeType].background,
+    color: palette[changeType].color,
+    textTransform: 'uppercase',
+  };
+}
+
 const detailGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -836,6 +942,40 @@ const searchMetaBadgeStyle: CSSProperties = {
   color: '#0969da',
   fontSize: 12,
   fontWeight: 700,
+};
+
+const diffFileCardStyle: CSSProperties = {
+  padding: 12,
+  border: '1px solid #d8dee4',
+  borderRadius: 12,
+  background: '#f6f8fa',
+  display: 'grid',
+  gap: 10,
+};
+
+const diffStatAdditionsStyle: CSSProperties = {
+  ...searchMetaBadgeStyle,
+  background: '#dafbe1',
+  color: '#1a7f37',
+};
+
+const diffStatDeletionsStyle: CSSProperties = {
+  ...searchMetaBadgeStyle,
+  background: '#ffebe9',
+  color: '#cf222e',
+};
+
+const diffPatchStyle: CSSProperties = {
+  margin: 0,
+  padding: 12,
+  borderRadius: 10,
+  background: '#0d1117',
+  color: '#e6edf3',
+  overflowX: 'auto',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  fontFamily: 'ui-monospace, SFMono-Regular, SFMono-Regular, Consolas, monospace',
+  fontSize: 12,
 };
 
 const searchLineStyle: CSSProperties = {

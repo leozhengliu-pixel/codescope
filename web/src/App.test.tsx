@@ -220,6 +220,31 @@ describe('App', () => {
         });
       }
 
+      if (url === '/api/v1/repos/repo-42/commits/abc123def456/diff') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commit_id: 'abc123def456abc123def456abc123def456abcd',
+          files: [
+            {
+              path: 'web/src/App.tsx',
+              change_type: 'modified',
+              old_path: null,
+              additions: 12,
+              deletions: 3,
+              patch: '@@ -1,3 +1,4 @@\n-import oldThing\n+import newThing',
+            },
+            {
+              path: 'web/src/NewName.tsx',
+              change_type: 'renamed',
+              old_path: 'web/src/OldName.tsx',
+              additions: 0,
+              deletions: 0,
+              patch: '@@ -1 +1 @@\n-export * from "./OldName"\n+export * from "./NewName"',
+            },
+          ],
+        });
+      }
+
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
@@ -238,8 +263,107 @@ describe('App', () => {
     expect(screen.getByText('2026-04-15T00:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('parent-1')).toBeInTheDocument();
     expect(screen.getByText('parent-2')).toBeInTheDocument();
+    expect(await screen.findByText('Changed files')).toBeInTheDocument();
+    expect(screen.getByText('web/src/App.tsx')).toBeInTheDocument();
+    expect(screen.getByText('modified')).toBeInTheDocument();
+    expect(screen.getByText('+12')).toBeInTheDocument();
+    expect(screen.getByText('-3')).toBeInTheDocument();
+    expect(screen.getByText('web/src/OldName.tsx → web/src/NewName.tsx')).toBeInTheDocument();
+    expect(screen.getByText(/@@ -1,3 \+1,4 @@/)).toBeInTheDocument();
+    expect(screen.getByText(/\+import newThing/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20');
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits/abc123def456');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits/abc123def456/diff');
+  });
+
+  it('shows a friendly fallback when a changed file has no patch text', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'abc123def456',
+              short_id: 'abc123d',
+              summary: 'Add binary asset',
+              author_name: 'Alice Example',
+              authored_at: '2026-04-15T00:00:00Z',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits/abc123def456') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commit: {
+            id: 'abc123def456',
+            short_id: 'abc123d',
+            summary: 'Add binary asset',
+            author_name: 'Alice Example',
+            authored_at: '2026-04-15T00:00:00Z',
+            parents: ['parent-1'],
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits/abc123def456/diff') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commit_id: 'abc123def456abc123def456abc123def456abcd',
+          files: [
+            {
+              path: 'assets/logo.png',
+              change_type: 'added',
+              old_path: null,
+              additions: 0,
+              deletions: 0,
+              patch: null,
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Add binary asset')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Add binary asset/i }));
+
+    expect(await screen.findByText('assets/logo.png')).toBeInTheDocument();
+    expect(screen.getByText('Binary file or patch unavailable.')).toBeInTheDocument();
   });
 
   it('searches code and filters results by repository from the home page', async () => {

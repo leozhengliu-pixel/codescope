@@ -18,6 +18,8 @@ const RECORD_SEPARATOR: char = '\u{1e}';
 pub trait CommitStore: Send + Sync {
     fn list_commits(&self, repo_id: &str, limit: usize) -> Result<Option<CommitListResponse>>;
     fn get_commit(&self, repo_id: &str, commit_id: &str) -> Result<Option<CommitDetailResponse>>;
+    fn get_commit_diff(&self, repo_id: &str, commit_id: &str)
+        -> Result<Option<CommitDiffResponse>>;
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -50,6 +52,47 @@ pub struct CommitListResponse {
 pub struct CommitDetailResponse {
     pub repo_id: String,
     pub commit: CommitDetail,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitDiffChangeType {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CommitDiffFile {
+    pub path: String,
+    pub change_type: CommitDiffChangeType,
+    pub old_path: Option<String>,
+    pub additions: usize,
+    pub deletions: usize,
+    pub patch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CommitDiffResponse {
+    pub repo_id: String,
+    pub commit_id: String,
+    pub files: Vec<CommitDiffFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RawDiffStatus {
+    path: String,
+    change_type: CommitDiffChangeType,
+    old_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RawNumstat {
+    path: String,
+    old_path: Option<String>,
+    additions: usize,
+    deletions: usize,
 }
 
 #[derive(Clone, Default)]
@@ -170,6 +213,94 @@ impl CommitStore for LocalCommitStore {
             commit: self.parse_detail_record(record)?,
         }))
     }
+
+    fn get_commit_diff(
+        &self,
+        repo_id: &str,
+        commit_id: &str,
+    ) -> Result<Option<CommitDiffResponse>> {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let Some(commit_id) = resolve_single_commit(repo_root, commit_id)? else {
+            return Ok(None);
+        };
+
+        let status_output = run_git_allow_not_found(
+            repo_root,
+            &[
+                "diff-tree",
+                "--root",
+                "-r",
+                "--find-renames",
+                "-M",
+                "--name-status",
+                "-z",
+                &commit_id,
+            ],
+        )?;
+        let Some(status_output) = status_output else {
+            return Ok(None);
+        };
+
+        let numstat_output = run_git_allow_not_found(
+            repo_root,
+            &[
+                "diff-tree",
+                "--root",
+                "-r",
+                "--find-renames",
+                "-M",
+                "--numstat",
+                "-z",
+                &commit_id,
+            ],
+        )?;
+        let Some(numstat_output) = numstat_output else {
+            return Ok(None);
+        };
+
+        let statuses = parse_diff_name_status(&status_output)?;
+        let numstats = parse_diff_numstat(&numstat_output)?;
+        if statuses.len() != numstats.len() {
+            return Err(anyhow!(
+                "mismatched git diff metadata for commit {commit_id}: {} status entries vs {} numstat entries",
+                statuses.len(),
+                numstats.len()
+            ));
+        }
+
+        let files = statuses
+            .into_iter()
+            .zip(numstats)
+            .map(|(status, numstat)| {
+                if status.path != numstat.path || status.old_path != numstat.old_path {
+                    return Err(anyhow!(
+                        "mismatched git diff entry for commit {commit_id}: {:?} vs {:?}",
+                        status,
+                        numstat
+                    ));
+                }
+
+                let patch = load_patch_for_diff_entry(repo_root, &commit_id, &status)?;
+                Ok(CommitDiffFile {
+                    path: status.path.clone(),
+                    change_type: status.change_type,
+                    old_path: status.old_path,
+                    additions: numstat.additions,
+                    deletions: numstat.deletions,
+                    patch,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Some(CommitDiffResponse {
+            repo_id: repo_id.to_string(),
+            commit_id,
+            files,
+        }))
+    }
 }
 
 fn split_record(record: &str, expected_parts: usize) -> Result<Vec<&str>> {
@@ -189,6 +320,167 @@ fn parse_records(output: &str) -> Vec<&str> {
         .map(|record| record.trim_matches('\n'))
         .filter(|record| !record.is_empty())
         .collect()
+}
+
+fn parse_diff_name_status(output: &str) -> Result<Vec<RawDiffStatus>> {
+    let mut fields = output.split('\0');
+    let _commit_id = fields.next();
+    let tokens = fields.filter(|field| !field.is_empty()).collect::<Vec<_>>();
+
+    let mut index = 0;
+    let mut entries = Vec::new();
+    while index < tokens.len() {
+        let status = tokens[index];
+        index += 1;
+
+        let entry = match status.chars().next() {
+            Some('A') => RawDiffStatus {
+                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                change_type: CommitDiffChangeType::Added,
+                old_path: None,
+            },
+            Some('M') | Some('T') => RawDiffStatus {
+                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                change_type: CommitDiffChangeType::Modified,
+                old_path: None,
+            },
+            Some('D') => RawDiffStatus {
+                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                change_type: CommitDiffChangeType::Deleted,
+                old_path: None,
+            },
+            Some('R') => {
+                let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
+                let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+                RawDiffStatus {
+                    path: new_path,
+                    change_type: CommitDiffChangeType::Renamed,
+                    old_path: Some(old_path),
+                }
+            }
+            other => return Err(anyhow!("unsupported git name-status entry: {:?}", other)),
+        };
+        entries.push(entry);
+    }
+
+    Ok(entries)
+}
+
+fn parse_diff_numstat(output: &str) -> Result<Vec<RawNumstat>> {
+    let mut fields = output.split('\0');
+    let _commit_id = fields.next();
+    let tokens = fields.collect::<Vec<_>>();
+
+    let mut index = 0;
+    let mut entries = Vec::new();
+    while index < tokens.len() {
+        let token = tokens[index];
+        index += 1;
+
+        if token.is_empty() {
+            continue;
+        }
+
+        if let Some((additions, deletions, path)) = parse_regular_numstat(token)? {
+            entries.push(RawNumstat {
+                path: path.to_string(),
+                old_path: None,
+                additions,
+                deletions,
+            });
+            continue;
+        }
+
+        let (additions, deletions) = parse_rename_numstat_header(token)?;
+        let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
+        let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+        entries.push(RawNumstat {
+            path: new_path,
+            old_path: Some(old_path),
+            additions,
+            deletions,
+        });
+    }
+
+    Ok(entries)
+}
+
+fn parse_regular_numstat(token: &str) -> Result<Option<(usize, usize, &str)>> {
+    let parts = token.splitn(3, '\t').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[2].is_empty() {
+        return Ok(None);
+    }
+
+    let additions = parse_numstat_count(parts[0])?;
+    let deletions = parse_numstat_count(parts[1])?;
+    Ok(Some((additions, deletions, parts[2])))
+}
+
+fn parse_rename_numstat_header(token: &str) -> Result<(usize, usize)> {
+    let parts = token.splitn(3, '\t').collect::<Vec<_>>();
+    if parts.len() != 3 || !parts[2].is_empty() {
+        return Err(anyhow!("unexpected git numstat rename entry: {token:?}"));
+    }
+
+    Ok((
+        parse_numstat_count(parts[0])?,
+        parse_numstat_count(parts[1])?,
+    ))
+}
+
+fn parse_numstat_count(value: &str) -> Result<usize> {
+    if value == "-" {
+        return Ok(0);
+    }
+
+    value
+        .parse::<usize>()
+        .with_context(|| format!("invalid git numstat count: {value}"))
+}
+
+fn load_patch_for_diff_entry(
+    repo_root: &PathBuf,
+    commit_id: &str,
+    status: &RawDiffStatus,
+) -> Result<Option<String>> {
+    let mut args = vec![
+        "show".to_string(),
+        "--format=".to_string(),
+        "--find-renames".to_string(),
+        "-M".to_string(),
+        "--unified=3".to_string(),
+        commit_id.to_string(),
+        "--".to_string(),
+    ];
+
+    if let Some(old_path) = &status.old_path {
+        args.push(old_path.clone());
+    }
+    args.push(status.path.clone());
+
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let patch = run_git(repo_root, &arg_refs)?;
+    Ok(normalize_patch_output(&patch))
+}
+
+fn normalize_patch_output(patch: &str) -> Option<String> {
+    if patch.trim().is_empty()
+        || patch.contains("Binary files ")
+        || patch.contains("GIT binary patch")
+    {
+        None
+    } else {
+        Some(format!("{patch}"))
+    }
+}
+
+fn next_token<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<&'a str> {
+    let value = tokens
+        .get(*index)
+        .copied()
+        .ok_or_else(|| anyhow!("missing git diff {label}"))?;
+    *index += 1;
+    Ok(value)
 }
 
 fn run_git(repo_root: &PathBuf, args: &[&str]) -> Result<String> {
@@ -282,6 +574,12 @@ pub fn build_commit_store() -> DynCommitStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        os::unix::fs::symlink,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn local_commit_store_lists_real_seeded_repository_commits() {
@@ -294,10 +592,10 @@ mod tests {
 
         assert_eq!(response.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(response.commits.len(), 2);
-        assert_eq!(response.commits[0].short_id, "556fb45");
+        assert_eq!(response.commits[0].short_id, "fe7f21f");
         assert_eq!(
             response.commits[0].summary,
-            "feat: add minimal search api and web ui"
+            "feat: add commit history api and web ui"
         );
     }
 
@@ -339,5 +637,171 @@ mod tests {
             .get_commit("repo_sourcebot_rewrite", "HEAD~1..HEAD")
             .unwrap()
             .is_none());
+        assert!(store
+            .get_commit_diff("missing", "fe7f21f")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit_diff("repo_sourcebot_rewrite", "definitely-missing")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit_diff("repo_sourcebot_rewrite", "HEAD~1..HEAD")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn parse_diff_name_status_accepts_type_changes_as_modified() {
+        let entries = parse_diff_name_status("fe7f21f\0T\0path/to/file\0").unwrap();
+
+        assert_eq!(
+            entries,
+            vec![RawDiffStatus {
+                path: "path/to/file".to_string(),
+                change_type: CommitDiffChangeType::Modified,
+                old_path: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn normalize_patch_output_marks_binary_patches_as_unavailable() {
+        assert_eq!(
+            normalize_patch_output(
+                "diff --git a/assets/logo.png b/assets/logo.png\nBinary files a/assets/logo.png and b/assets/logo.png differ\n",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn local_commit_store_handles_type_changes_as_single_diff_entry() {
+        let repo_root = create_temp_git_repo("type-change");
+        write_text_file(&repo_root.join("demo"), "hello\n");
+        git_in(&repo_root, &["add", "demo"]);
+        git_in(&repo_root, &["commit", "-m", "init"]);
+
+        fs::remove_file(repo_root.join("demo")).unwrap();
+        symlink("target", repo_root.join("demo")).unwrap();
+        git_in(&repo_root, &["add", "-A"]);
+        git_in(&repo_root, &["commit", "-m", "typechange"]);
+
+        let commit_id = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let response = store
+            .get_commit_diff("repo_temp", &commit_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.files.len(), 1);
+        let file = &response.files[0];
+        assert_eq!(file.path, "demo");
+        assert_eq!(file.change_type, CommitDiffChangeType::Modified);
+        assert_eq!(file.additions, 1);
+        assert_eq!(file.deletions, 1);
+        assert!(file
+            .patch
+            .as_deref()
+            .unwrap()
+            .contains("deleted file mode 100644"));
+        assert!(file
+            .patch
+            .as_deref()
+            .unwrap()
+            .contains("new file mode 120000"));
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_reads_real_commit_diff() {
+        let store = LocalCommitStore::seeded();
+
+        let response = store
+            .get_commit_diff("repo_sourcebot_rewrite", "fe7f21f")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(
+            response.commit_id,
+            "fe7f21fca594b0dd76988dbaa1ac18bd0c03ce78"
+        );
+        assert_eq!(response.files.len(), 5);
+
+        let commits_file = response
+            .files
+            .iter()
+            .find(|file| file.path == "crates/api/src/commits.rs")
+            .unwrap();
+        assert_eq!(commits_file.change_type, CommitDiffChangeType::Added);
+        assert_eq!(commits_file.old_path, None);
+        assert_eq!(commits_file.additions, 343);
+        assert_eq!(commits_file.deletions, 0);
+        assert!(commits_file
+            .patch
+            .as_deref()
+            .unwrap()
+            .contains("diff --git a/crates/api/src/commits.rs b/crates/api/src/commits.rs"));
+
+        let cargo_lock = response
+            .files
+            .iter()
+            .find(|file| file.path == "Cargo.lock")
+            .unwrap();
+        assert_eq!(cargo_lock.change_type, CommitDiffChangeType::Modified);
+        assert_eq!(cargo_lock.additions, 1);
+        assert_eq!(cargo_lock.deletions, 1);
+    }
+
+    fn create_temp_git_repo(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("sourcebot-api-{label}-{unique}"));
+        fs::create_dir_all(&path).unwrap();
+        git_in(&path, &["init"]);
+        git_in(&path, &["config", "user.name", "Hermes Test"]);
+        git_in(&path, &["config", "user.email", "hermes-test@example.com"]);
+        path
+    }
+
+    fn write_text_file(path: &Path, content: &str) {
+        fs::write(path, content).unwrap();
+    }
+
+    fn git_in(repo_root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn git_stdout_trimmed(repo_root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
     }
 }
