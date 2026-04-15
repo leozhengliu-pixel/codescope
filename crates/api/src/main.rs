@@ -1,11 +1,13 @@
+mod browse;
 mod storage;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
     Json, Router,
 };
+use browse::{build_browse_store, BlobResponse, DynBrowseStore, TreeResponse};
 use serde::Serialize;
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
@@ -17,6 +19,7 @@ use tracing::info;
 struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
+    browse: DynBrowseStore,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,8 +39,9 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = config.bind_addr.parse()?;
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
+    let browse = build_browse_store();
 
-    let app = build_router(config, catalog);
+    let app = build_router(config, catalog, browse);
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -46,13 +50,25 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_router(config: AppConfig, catalog: DynCatalogStore) -> Router {
+fn build_router(config: AppConfig, catalog: DynCatalogStore, browse: DynBrowseStore) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
-        .with_state(AppState { config, catalog })
+        .route("/api/v1/repos/{repo_id}/tree", get(get_repository_tree))
+        .route("/api/v1/repos/{repo_id}/blob", get(get_repository_blob))
+        .with_state(AppState {
+            config,
+            catalog,
+            browse,
+        })
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct BrowseQuery {
+    #[serde(default)]
+    path: String,
 }
 
 async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -90,20 +106,77 @@ async fn get_repository_detail(
     Ok(Json(detail))
 }
 
+async fn get_repository_tree(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(query): Query<BrowseQuery>,
+) -> Result<Json<TreeResponse>, StatusCode> {
+    let tree = state
+        .browse
+        .get_tree(&repo_id, &query.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(tree))
+}
+
+async fn get_repository_blob(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(query): Query<BrowseQuery>,
+) -> Result<Json<BlobResponse>, StatusCode> {
+    let blob = state
+        .browse
+        .get_blob(&repo_id, &query.path)
+        .map_err(|_| StatusCode::NOT_FOUND)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(blob))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::storage::InMemoryCatalogStore;
-    use axum::body::Body;
+    use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
+    use serde::Deserialize;
     use std::sync::Arc;
     use tower::util::ServiceExt;
+
+    #[derive(Debug, Deserialize)]
+    struct TreeEntryResponse {
+        name: String,
+        path: String,
+        kind: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TreeResponse {
+        repo_id: String,
+        path: String,
+        entries: Vec<TreeEntryResponse>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct BlobResponse {
+        repo_id: String,
+        path: String,
+        content: String,
+        size_bytes: u64,
+    }
 
     fn test_app() -> Router {
         build_router(
             AppConfig::default(),
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_browse_store(),
         )
+    }
+
+    async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
 
     #[tokio::test]
@@ -130,6 +203,7 @@ mod tests {
                 database_url: Some("postgres://secret@localhost/sourcebot".into()),
             },
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_browse_store(),
         );
 
         let response = app
@@ -188,5 +262,112 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn repo_tree_returns_root_directory_entries() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: TreeResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.path, "");
+        assert!(payload.entries.iter().any(|entry| {
+            entry.name == "Cargo.toml" && entry.path == "Cargo.toml" && entry.kind == "file"
+        }));
+        assert!(payload
+            .entries
+            .iter()
+            .any(|entry| entry.name == "crates" && entry.path == "crates" && entry.kind == "dir"));
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_file_contents() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: BlobResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.path, "Cargo.toml");
+        assert!(payload.content.contains("[workspace]"));
+        assert!(payload.size_bytes > 0);
+    }
+
+    #[tokio::test]
+    async fn repo_tree_rejects_parent_directory_traversal() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree?path=..")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_not_found_for_unknown_repo() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_demo_docs/blob?path=README.md")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_not_found_for_missing_path() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=definitely-missing-file")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_not_found_for_directory_path() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

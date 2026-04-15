@@ -24,6 +24,25 @@ type RepoDetail = {
   };
 };
 
+type BrowseEntry = {
+  name: string;
+  path: string;
+  kind: 'tree' | 'blob';
+};
+
+type TreeResponse = {
+  repo_id: string;
+  path: string;
+  entries: BrowseEntry[];
+};
+
+type BlobResponse = {
+  repo_id: string;
+  path: string;
+  content: string;
+  size_bytes: number;
+};
+
 function useHashLocation() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
 
@@ -178,12 +197,186 @@ function RepoDetailPage({ repoId }: { repoId: string }) {
         <Detail label="Connection" value={repo.connection.name} />
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
+      <div style={{ marginTop: 20 }}>
+        <BrowsePanel repoId={repoId} />
+      </div>
       <div style={{ marginTop: 16 }}>
         <a href="#/" style={{ color: '#0969da', textDecoration: 'none', fontWeight: 600 }}>
           ← Back to repositories
         </a>
       </div>
     </Panel>
+  );
+}
+
+function BrowsePanel({ repoId }: { repoId: string }) {
+  const [treePath, setTreePath] = useState('');
+  const [tree, setTree] = useState<TreeResponse | null>(null);
+  const [treeLoading, setTreeLoading] = useState(true);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [blob, setBlob] = useState<BlobResponse | null>(null);
+  const [blobLoading, setBlobLoading] = useState(false);
+  const [blobError, setBlobError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTreeLoading(true);
+
+    fetchJson<TreeResponse>(`/api/v1/repos/${repoId}/tree?path=${encodeURIComponent(treePath)}`)
+      .then((data) => {
+        if (!cancelled) {
+          setTree(data);
+          setTreeError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setTree(null);
+          setTreeError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setTreeLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, treePath]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedFilePath) {
+      setBlob(null);
+      setBlobError(null);
+      setBlobLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setBlobLoading(true);
+
+    fetchJson<BlobResponse>(`/api/v1/repos/${repoId}/blob?path=${encodeURIComponent(selectedFilePath)}`)
+      .then((data) => {
+        if (!cancelled) {
+          setBlob(data);
+          setBlobError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setBlob(null);
+          setBlobError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBlobLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, selectedFilePath]);
+
+  const parentPath = useMemo(() => {
+    if (!treePath) return null;
+    const segments = treePath.split('/');
+    segments.pop();
+    return segments.join('/');
+  }, [treePath]);
+
+  const openEntry = (entry: BrowseEntry) => {
+    if (entry.kind === 'tree') {
+      setTreePath(entry.path);
+      setSelectedFilePath(null);
+      setBlob(null);
+      setBlobError(null);
+      return;
+    }
+
+    setSelectedFilePath(entry.path);
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(0, 2fr)', gap: 12 }}>
+      <section style={browseSectionStyle}>
+        <div style={browseSectionHeaderStyle}>
+          <div>
+            <div style={browseSectionTitleStyle}>Files</div>
+            <div style={browseSectionMetaStyle}>Current path: {treePath || '/'}</div>
+          </div>
+          {parentPath !== null ? (
+            <button type="button" style={secondaryButtonStyle} onClick={() => setTreePath(parentPath)}>
+              Up
+            </button>
+          ) : null}
+        </div>
+
+        {treeLoading ? <div>Loading files…</div> : null}
+        {!treeLoading && treeError ? <div>Unable to load files: {treeError}</div> : null}
+
+        {!treeLoading && !treeError && tree ? (
+          tree.entries.length > 0 ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {tree.entries.map((entry) => (
+                <button
+                  key={entry.path}
+                  type="button"
+                  onClick={() => openEntry(entry)}
+                  style={{
+                    ...entryButtonStyle,
+                    fontWeight: selectedFilePath === entry.path ? 700 : 500,
+                    background: selectedFilePath === entry.path ? '#ddf4ff' : '#fff',
+                  }}
+                >
+                  <span>{entry.kind === 'tree' ? '📁' : '📄'}</span>
+                  <span>{entry.kind === 'tree' ? `${entry.name}/` : entry.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div>This directory is empty.</div>
+          )
+        ) : null}
+      </section>
+
+      <section style={browseSectionStyle}>
+        <div style={browseSectionHeaderStyle}>
+          <div>
+            <div style={browseSectionTitleStyle}>Source</div>
+            <div style={browseSectionMetaStyle}>{blob?.path ?? selectedFilePath ?? 'Select a file to inspect its contents.'}</div>
+          </div>
+          {blob ? <div style={browseSectionMetaStyle}>{blob.size_bytes} bytes</div> : null}
+        </div>
+
+        {blobLoading ? <div>Loading source…</div> : null}
+        {!blobLoading && blobError ? <div>Unable to load source: {blobError}</div> : null}
+        {!blobLoading && !blobError && blob ? (
+          <pre
+            style={{
+              margin: 0,
+              padding: 16,
+              borderRadius: 12,
+              background: '#0d1117',
+              color: '#e6edf3',
+              overflowX: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {blob.content}
+          </pre>
+        ) : null}
+        {!blobLoading && !blobError && !blob ? <div style={{ color: '#57606a' }}>Select a file to inspect its contents.</div> : null}
+      </section>
+    </div>
   );
 }
 
@@ -227,6 +420,57 @@ const detailGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
   gap: 12,
+};
+
+const browseSectionStyle: CSSProperties = {
+  background: '#fff',
+  border: '1px solid #d8dee4',
+  borderRadius: 12,
+  padding: 16,
+  minHeight: 260,
+};
+
+const browseSectionHeaderStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 12,
+};
+
+const browseSectionTitleStyle: CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+};
+
+const browseSectionMetaStyle: CSSProperties = {
+  color: '#57606a',
+  fontSize: 13,
+  marginTop: 4,
+};
+
+const entryButtonStyle: CSSProperties = {
+  width: '100%',
+  textAlign: 'left',
+  padding: '10px 12px',
+  borderRadius: 10,
+  border: '1px solid #d8dee4',
+  background: '#fff',
+  color: '#1f2328',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  cursor: 'pointer',
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  padding: '8px 12px',
+  borderRadius: 10,
+  border: '1px solid #d0d7de',
+  background: '#fff',
+  cursor: 'pointer',
+  color: '#1f2328',
+  fontWeight: 600,
 };
 
 export function App() {
