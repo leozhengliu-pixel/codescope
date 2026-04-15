@@ -56,6 +56,29 @@ type SearchResponse = {
   results: SearchResult[];
 };
 
+type CommitSummary = {
+  id: string;
+  short_id: string;
+  summary: string;
+  author_name: string;
+  authored_at: string;
+};
+
+type CommitsResponse = {
+  repo_id: string;
+  commits: CommitSummary[];
+};
+
+type CommitDetail = CommitSummary & {
+  body?: string;
+  parents: string[];
+};
+
+type CommitResponse = {
+  repo_id: string;
+  commit: CommitDetail;
+};
+
 function useHashLocation() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
 
@@ -317,6 +340,9 @@ function RepoDetailPage({ repoId }: { repoId: string }) {
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
       <div style={{ marginTop: 20 }}>
+        <CommitsPanel repoId={repoId} />
+      </div>
+      <div style={{ marginTop: 20 }}>
         <BrowsePanel repoId={repoId} />
       </div>
       <div style={{ marginTop: 16 }}>
@@ -325,6 +351,167 @@ function RepoDetailPage({ repoId }: { repoId: string }) {
         </a>
       </div>
     </Panel>
+  );
+}
+
+function CommitsPanel({ repoId }: { repoId: string }) {
+  const [commits, setCommits] = useState<CommitSummary[]>([]);
+  const [commitsLoading, setCommitsLoading] = useState(true);
+  const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
+  const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
+  const [commitLoading, setCommitLoading] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCommitsLoading(true);
+    setSelectedCommitId(null);
+    setCommitDetail(null);
+    setCommitError(null);
+    setCommitLoading(false);
+
+    fetchJson<CommitsResponse>(`/api/v1/repos/${repoId}/commits?limit=20`)
+      .then((data) => {
+        if (!cancelled) {
+          setCommits(data.commits);
+          setCommitsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setCommits([]);
+          setCommitsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCommitsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedCommitId) {
+      setCommitDetail(null);
+      setCommitError(null);
+      setCommitLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setCommitLoading(true);
+    setCommitError(null);
+
+    fetchJson<CommitResponse>(`/api/v1/repos/${repoId}/commits/${encodeURIComponent(selectedCommitId)}`)
+      .then((data) => {
+        if (!cancelled) {
+          setCommitDetail(data.commit);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setCommitDetail(null);
+          setCommitError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCommitLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, selectedCommitId]);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(0, 2fr)', gap: 12 }}>
+      <section style={browseSectionStyle}>
+        <div style={browseSectionHeaderStyle}>
+          <div>
+            <div style={browseSectionTitleStyle}>Recent commits</div>
+            <div style={browseSectionMetaStyle}>Latest 20 commits from the repository API.</div>
+          </div>
+        </div>
+
+        {commitsLoading ? <div>Loading commits…</div> : null}
+        {!commitsLoading && commitsError ? <div>Unable to load commits: {commitsError}</div> : null}
+        {!commitsLoading && !commitsError && commits.length === 0 ? <div>No commits found.</div> : null}
+        {!commitsLoading && !commitsError && commits.length > 0 ? (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {commits.map((commit) => (
+              <button
+                key={commit.id}
+                type="button"
+                onClick={() => setSelectedCommitId(commit.id)}
+                style={{
+                  ...entryButtonStyle,
+                  alignItems: 'flex-start',
+                  flexDirection: 'column',
+                  background: selectedCommitId === commit.id ? '#ddf4ff' : '#fff',
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>{commit.summary}</div>
+                <div style={browseSectionMetaStyle}>{commit.author_name}</div>
+                <div style={{ ...browseSectionMetaStyle, marginTop: 0 }}>{shortCommitId(commit.id)}</div>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section style={browseSectionStyle}>
+        <div style={browseSectionHeaderStyle}>
+          <div>
+            <div style={browseSectionTitleStyle}>Commit details</div>
+            <div style={browseSectionMetaStyle}>{commitDetail?.id ?? selectedCommitId ?? 'No commit selected yet.'}</div>
+          </div>
+        </div>
+
+        {commitLoading ? <div>Loading commit…</div> : null}
+        {!commitLoading && commitError ? <div>Unable to load commit: {commitError}</div> : null}
+        {!commitLoading && !commitError && commitDetail ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={detailCardStyle}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{commitDetail.summary}</div>
+              {commitDetail.body ? <div style={{ ...browseSectionMetaStyle, whiteSpace: 'pre-wrap' }}>{commitDetail.body}</div> : null}
+            </div>
+            <div style={detailGridStyle}>
+              <Detail label="Author" value={commitDetail.author_name} />
+              <Detail label="Time" value={commitDetail.authored_at} />
+              <Detail
+                label="Parents"
+                value={
+                  commitDetail.parents.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {commitDetail.parents.map((parent) => (
+                        <span key={parent} style={searchMetaBadgeStyle}>
+                          {parent}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    'None'
+                  )
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+        {!commitLoading && !commitError && !commitDetail ? (
+          <div style={{ color: '#57606a' }}>Select a commit to inspect its details.</div>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
@@ -535,6 +722,10 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function shortCommitId(commitId: string) {
+  return commitId.slice(0, 7);
+}
+
 const detailGridStyle: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
@@ -547,6 +738,13 @@ const browseSectionStyle: CSSProperties = {
   borderRadius: 12,
   padding: 16,
   minHeight: 260,
+};
+
+const detailCardStyle: CSSProperties = {
+  padding: 16,
+  borderRadius: 12,
+  background: '#fff',
+  border: '1px solid #d8dee4',
 };
 
 const browseSectionHeaderStyle: CSSProperties = {

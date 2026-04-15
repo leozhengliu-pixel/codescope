@@ -152,6 +152,96 @@ describe('App', () => {
     expect(await screen.findByText('Unable to load files: Request failed: 503')).toBeInTheDocument();
   });
 
+  it('loads recent commits and shows commit details when a commit is selected', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'abc123def456',
+              short_id: 'abc123d',
+              summary: 'Add commit browser',
+              author_name: 'Alice Example',
+              authored_at: '2026-04-15T00:00:00Z',
+            },
+            {
+              id: 'fedcba654321',
+              short_id: 'fedcba6',
+              summary: 'Tidy search UI',
+              author_name: 'Bob Example',
+              authored_at: '2026-04-14T12:30:00Z',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits/abc123def456') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commit: {
+            id: 'abc123def456',
+            short_id: 'abc123d',
+            summary: 'Add commit browser',
+            body: 'Adds a minimal recent commits panel.\n\nIncludes commit metadata.',
+            author_name: 'Alice Example',
+            authored_at: '2026-04-15T00:00:00Z',
+            parents: ['parent-1', 'parent-2'],
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Recent commits')).toBeInTheDocument();
+    expect(screen.getByText('Add commit browser')).toBeInTheDocument();
+    expect(screen.getByText('Alice Example')).toBeInTheDocument();
+    expect(screen.getByText('abc123d')).toBeInTheDocument();
+    expect(screen.getByText('Select a commit to inspect its details.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Add commit browser/i }));
+
+    expect(await screen.findByText('Commit details')).toBeInTheDocument();
+    expect(screen.getByText('Adds a minimal recent commits panel. Includes commit metadata.')).toBeInTheDocument();
+    expect(screen.getByText('2026-04-15T00:00:00Z')).toBeInTheDocument();
+    expect(screen.getByText('parent-1')).toBeInTheDocument();
+    expect(screen.getByText('parent-2')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits/abc123def456');
+  });
+
   it('searches code and filters results by repository from the home page', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);

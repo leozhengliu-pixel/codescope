@@ -1,4 +1,5 @@
 mod browse;
+mod commits;
 mod storage;
 
 use axum::{
@@ -8,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use browse::{build_browse_store, BlobResponse, DynBrowseStore, TreeResponse};
+use commits::{build_commit_store, CommitDetailResponse, CommitListResponse, DynCommitStore};
 use serde::Serialize;
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
@@ -21,6 +23,7 @@ struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
     browse: DynBrowseStore,
+    commits: DynCommitStore,
     search: DynSearchStore,
 }
 
@@ -42,9 +45,10 @@ async fn main() -> anyhow::Result<()> {
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let browse = build_browse_store();
+    let commits = build_commit_store();
     let search = build_search_store();
 
-    let app = build_router(config, catalog, browse, search);
+    let app = build_router(config, catalog, browse, commits, search);
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -57,6 +61,7 @@ fn build_router(
     config: AppConfig,
     catalog: DynCatalogStore,
     browse: DynBrowseStore,
+    commits: DynCommitStore,
     search: DynSearchStore,
 ) -> Router {
     Router::new()
@@ -66,11 +71,20 @@ fn build_router(
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
         .route("/api/v1/repos/{repo_id}/tree", get(get_repository_tree))
         .route("/api/v1/repos/{repo_id}/blob", get(get_repository_blob))
+        .route(
+            "/api/v1/repos/{repo_id}/commits",
+            get(list_repository_commits),
+        )
+        .route(
+            "/api/v1/repos/{repo_id}/commits/{commit_id}",
+            get(get_repository_commit),
+        )
         .route("/api/v1/search", get(search_repository_contents))
         .with_state(AppState {
             config,
             catalog,
             browse,
+            commits,
             search,
         })
 }
@@ -86,6 +100,16 @@ struct SearchQuery {
     #[serde(default)]
     q: String,
     repo_id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CommitListQuery {
+    #[serde(default = "default_commit_limit")]
+    limit: usize,
+}
+
+fn default_commit_limit() -> usize {
+    20
 }
 
 async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -151,6 +175,33 @@ async fn get_repository_blob(
     Ok(Json(blob))
 }
 
+async fn list_repository_commits(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(query): Query<CommitListQuery>,
+) -> Result<Json<CommitListResponse>, StatusCode> {
+    let commits = state
+        .commits
+        .list_commits(&repo_id, query.limit)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(commits))
+}
+
+async fn get_repository_commit(
+    State(state): State<AppState>,
+    Path((repo_id, commit_id)): Path<(String, String)>,
+) -> Result<Json<CommitDetailResponse>, StatusCode> {
+    let commit = state
+        .commits
+        .get_commit(&repo_id, &commit_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(commit))
+}
+
 async fn search_repository_contents(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
@@ -214,11 +265,44 @@ mod tests {
         results: Vec<SearchResultResponse>,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct CommitSummaryResponse {
+        id: String,
+        short_id: String,
+        summary: String,
+        author_name: String,
+        authored_at: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CommitListResponse {
+        repo_id: String,
+        commits: Vec<CommitSummaryResponse>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CommitDetailDataResponse {
+        id: String,
+        short_id: String,
+        summary: String,
+        author_name: String,
+        authored_at: String,
+        body: String,
+        parents: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CommitDetailResponse {
+        repo_id: String,
+        commit: CommitDetailDataResponse,
+    }
+
     fn test_app() -> Router {
         build_router(
             AppConfig::default(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
+            build_commit_store(),
             build_search_store(),
         )
     }
@@ -253,6 +337,7 @@ mod tests {
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
+            build_commit_store(),
             build_search_store(),
         );
 
@@ -412,6 +497,113 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commits_returns_real_git_history() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits?limit=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: CommitListResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.commits.len(), 2);
+        assert_eq!(payload.commits[0].short_id, "556fb45");
+        assert_eq!(
+            payload.commits[0].summary,
+            "feat: add minimal search api and web ui"
+        );
+        assert_eq!(payload.commits[0].author_name, "Hermes Agent");
+        assert_eq!(payload.commits[0].id.len(), 40);
+        assert!(payload.commits[0].authored_at.ends_with('Z'));
+    }
+
+    #[tokio::test]
+    async fn repo_commit_detail_returns_real_git_commit() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/556fb45")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: CommitDetailResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.commit.short_id, "556fb45");
+        assert_eq!(
+            payload.commit.summary,
+            "feat: add minimal search api and web ui"
+        );
+        assert_eq!(payload.commit.author_name, "Hermes Agent");
+        assert_eq!(
+            payload.commit.parents,
+            vec!["c22186448cc5b760e83b5a759d105409f1a15e6e".to_string()]
+        );
+        assert_eq!(payload.commit.body, "");
+        assert_eq!(payload.commit.id.len(), 40);
+        assert!(payload.commit.authored_at.ends_with('Z'));
+    }
+
+    #[tokio::test]
+    async fn repo_commits_returns_empty_list_for_supported_repo_without_local_history() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_demo_docs/commits")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: CommitListResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_demo_docs");
+        assert!(payload.commits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn repo_commit_detail_returns_not_found_for_repo_without_local_history() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_demo_docs/commits/556fb45")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commit_detail_rejects_revision_ranges() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/HEAD~1..HEAD")
                     .body(Body::empty())
                     .unwrap(),
             )

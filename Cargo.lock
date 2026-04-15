@@ -1289,6 +1289,7 @@ dependencies = [
  "sourcebot-config",
  "sourcebot-core",
  "sourcebot-models",
+ "sourcebot-search",
  "sqlx",
  "tokio",
  "tower",
@@ -1336,7 +1337,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde",
- "sourcebot-core",
 ]
 
 [[package]]
