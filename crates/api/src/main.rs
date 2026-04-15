@@ -1,3 +1,5 @@
+mod storage;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -6,18 +8,15 @@ use axum::{
 };
 use serde::Serialize;
 use sourcebot_config::{AppConfig, PublicAppConfig};
-use sourcebot_models::{
-    seed_connections, seed_repositories, Connection, Repository, RepositoryDetail,
-    RepositorySummary,
-};
+use sourcebot_models::{RepositoryDetail, RepositorySummary};
 use std::net::SocketAddr;
+use storage::{build_catalog_store, DynCatalogStore};
 use tracing::info;
 
 #[derive(Clone)]
 struct AppState {
     config: AppConfig,
-    repositories: Vec<Repository>,
-    connections: Vec<Connection>,
+    catalog: DynCatalogStore,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,8 +35,9 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::from_env();
     let addr: SocketAddr = config.bind_addr.parse()?;
     let service_name = config.service_name.clone();
+    let catalog = build_catalog_store(config.database_url.as_deref()).await?;
 
-    let app = build_router(config);
+    let app = build_router(config, catalog);
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -46,17 +46,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn build_router(config: AppConfig) -> Router {
+fn build_router(config: AppConfig, catalog: DynCatalogStore) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
-        .with_state(AppState {
-            config,
-            repositories: seed_repositories(),
-            connections: seed_connections(),
-        })
+        .with_state(AppState { config, catalog })
 }
 
 async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -70,46 +66,49 @@ async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
     Json(state.config.public_view())
 }
 
-async fn list_repositories(State(state): State<AppState>) -> Json<Vec<RepositorySummary>> {
-    Json(state.repositories.iter().map(Repository::summary).collect())
+async fn list_repositories(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<RepositorySummary>>, StatusCode> {
+    let repositories = state
+        .catalog
+        .list_repositories()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(repositories))
 }
 
 async fn get_repository_detail(
     State(state): State<AppState>,
     Path(repo_id): Path<String>,
 ) -> Result<Json<RepositoryDetail>, StatusCode> {
-    let repository = state
-        .repositories
-        .iter()
-        .find(|repo| repo.id == repo_id)
-        .cloned()
+    let detail = state
+        .catalog
+        .get_repository_detail(&repo_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let connection = state
-        .connections
-        .iter()
-        .find(|conn| conn.id == repository.connection_id)
-        .cloned()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(RepositoryDetail {
-        repository,
-        connection,
-    }))
+    Ok(Json(detail))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::InMemoryCatalogStore;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
     use tower::util::ServiceExt;
+
+    fn test_app() -> Router {
+        build_router(
+            AppConfig::default(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+        )
+    }
 
     #[tokio::test]
     async fn healthz_returns_ok() {
-        let app = build_router(AppConfig::default());
-
-        let response = app
+        let response = test_app()
             .oneshot(
                 Request::builder()
                     .uri("/healthz")
@@ -124,11 +123,14 @@ mod tests {
 
     #[tokio::test]
     async fn config_endpoint_hides_database_url_value() {
-        let app = build_router(AppConfig {
-            service_name: "sourcebot-api".into(),
-            bind_addr: "127.0.0.1:3000".into(),
-            database_url: Some("postgres://secret@localhost/sourcebot".into()),
-        });
+        let app = build_router(
+            AppConfig {
+                service_name: "sourcebot-api".into(),
+                bind_addr: "127.0.0.1:3000".into(),
+                database_url: Some("postgres://secret@localhost/sourcebot".into()),
+            },
+            Arc::new(InMemoryCatalogStore::seeded()),
+        );
 
         let response = app
             .oneshot(
@@ -145,9 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn repo_list_returns_seeded_repositories() {
-        let app = build_router(AppConfig::default());
-
-        let response = app
+        let response = test_app()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos")
@@ -162,9 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn repo_detail_returns_not_found_for_unknown_repo() {
-        let app = build_router(AppConfig::default());
-
-        let response = app
+        let response = test_app()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/missing")
@@ -175,5 +173,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_detail_returns_seeded_repository() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
