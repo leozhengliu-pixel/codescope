@@ -33,6 +33,41 @@ pub struct SearchResponse {
     pub results: Vec<SearchResult>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolKind {
+    Function,
+    Struct,
+    Enum,
+    Trait,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SymbolRange {
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SymbolDefinition {
+    pub path: String,
+    pub name: String,
+    pub kind: SymbolKind,
+    pub range: SymbolRange,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status")]
+pub enum SymbolExtraction {
+    #[serde(rename = "supported")]
+    Supported { symbols: Vec<SymbolDefinition> },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        capability: String,
+        symbols: Vec<SymbolDefinition>,
+    },
+}
+
 #[derive(Clone)]
 pub struct LocalSearchStore {
     repo_roots: HashMap<String, PathBuf>,
@@ -205,6 +240,129 @@ pub fn build_search_store() -> DynSearchStore {
     Arc::new(LocalSearchStore::seeded())
 }
 
+pub fn extract_symbols(path: &str, content: &str) -> SymbolExtraction {
+    let extension = Path::new(path).extension().and_then(|value| value.to_str());
+
+    match extension {
+        Some("rs") => SymbolExtraction::Supported {
+            symbols: extract_rust_symbols(path, content),
+        },
+        Some(ext) => SymbolExtraction::Unsupported {
+            capability: format!("symbol extraction is not supported for .{ext} files"),
+            symbols: Vec::new(),
+        },
+        None => SymbolExtraction::Unsupported {
+            capability: "symbol extraction is not supported for files without an extension"
+                .to_string(),
+            symbols: Vec::new(),
+        },
+    }
+}
+
+fn extract_rust_symbols(path: &str, content: &str) -> Vec<SymbolDefinition> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut symbols = Vec::new();
+
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.trim_start() != *line {
+            continue;
+        }
+
+        let Some((kind, name)) = parse_rust_symbol_line(line) else {
+            continue;
+        };
+
+        symbols.push(SymbolDefinition {
+            path: path.to_string(),
+            name,
+            kind,
+            range: SymbolRange {
+                start_line: index + 1,
+                end_line: find_rust_symbol_end_line(&lines, index),
+            },
+        });
+    }
+
+    symbols
+}
+
+fn parse_rust_symbol_line(line: &str) -> Option<(SymbolKind, String)> {
+    let trimmed = line.trim();
+
+    for (keyword, kind) in [
+        ("fn", SymbolKind::Function),
+        ("struct", SymbolKind::Struct),
+        ("enum", SymbolKind::Enum),
+        ("trait", SymbolKind::Trait),
+    ] {
+        if let Some(name) = extract_rust_symbol_name(trimmed, keyword) {
+            return Some((kind, name));
+        }
+    }
+
+    None
+}
+
+fn extract_rust_symbol_name(line: &str, keyword: &str) -> Option<String> {
+    let remainder = strip_rust_visibility(line).unwrap_or(line).trim_start();
+    let remainder = remainder.strip_prefix("async ").unwrap_or(remainder);
+    let remainder = remainder.strip_prefix(keyword)?;
+
+    let name = remainder
+        .trim_start()
+        .chars()
+        .take_while(|ch| ch.is_alphanumeric() || *ch == '_')
+        .collect::<String>();
+
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn strip_rust_visibility(line: &str) -> Option<&str> {
+    if let Some(remainder) = line.strip_prefix("pub ") {
+        Some(remainder)
+    } else if let Some(remainder) = line.strip_prefix("pub(crate) ") {
+        Some(remainder)
+    } else if let Some(remainder) = line.strip_prefix("pub(super) ") {
+        Some(remainder)
+    } else if let Some(remainder) = line.strip_prefix("pub(self) ") {
+        Some(remainder)
+    } else if let Some(remainder) = line.strip_prefix("pub(in ") {
+        Some(remainder.split_once(')')?.1.trim_start())
+    } else {
+        None
+    }
+}
+
+fn find_rust_symbol_end_line(lines: &[&str], start_index: usize) -> usize {
+    let mut brace_depth = 0usize;
+    let mut saw_open_brace = false;
+
+    for (index, line) in lines.iter().enumerate().skip(start_index) {
+        for ch in line.chars() {
+            match ch {
+                '{' => {
+                    brace_depth += 1;
+                    saw_open_brace = true;
+                }
+                '}' => {
+                    brace_depth = brace_depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+
+        if saw_open_brace && brace_depth == 0 {
+            return index + 1;
+        }
+    }
+
+    start_index + 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +471,104 @@ mod tests {
         assert_eq!(response.repo_id.as_deref(), Some("missing_repo"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extract_symbols_returns_top_level_rust_definitions() {
+        let extraction = extract_symbols(
+            "src/lib.rs",
+            r#"pub fn top_level_function() {
+    let _value = 1;
+}
+
+pub async fn fetch_widget() {
+    let _value = 2;
+}
+
+struct Widget {
+    name: String,
+}
+
+enum Mode {
+    Fast,
+}
+
+trait Runner {
+    fn run(&self);
+}
+
+impl Widget {
+    fn helper(&self) {}
+}
+
+    fn nested_like_indent() {}
+"#,
+        );
+
+        assert_eq!(
+            extraction,
+            SymbolExtraction::Supported {
+                symbols: vec![
+                    SymbolDefinition {
+                        path: "src/lib.rs".to_string(),
+                        name: "top_level_function".to_string(),
+                        kind: SymbolKind::Function,
+                        range: SymbolRange {
+                            start_line: 1,
+                            end_line: 3,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/lib.rs".to_string(),
+                        name: "fetch_widget".to_string(),
+                        kind: SymbolKind::Function,
+                        range: SymbolRange {
+                            start_line: 5,
+                            end_line: 7,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/lib.rs".to_string(),
+                        name: "Widget".to_string(),
+                        kind: SymbolKind::Struct,
+                        range: SymbolRange {
+                            start_line: 9,
+                            end_line: 11,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/lib.rs".to_string(),
+                        name: "Mode".to_string(),
+                        kind: SymbolKind::Enum,
+                        range: SymbolRange {
+                            start_line: 13,
+                            end_line: 15,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/lib.rs".to_string(),
+                        name: "Runner".to_string(),
+                        kind: SymbolKind::Trait,
+                        range: SymbolRange {
+                            start_line: 17,
+                            end_line: 19,
+                        },
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn extract_symbols_returns_capability_response_for_unsupported_extensions() {
+        let extraction = extract_symbols("docs/readme.md", "# Heading\n");
+
+        assert_eq!(
+            extraction,
+            SymbolExtraction::Unsupported {
+                capability: "symbol extraction is not supported for .md files".to_string(),
+                symbols: Vec::new(),
+            }
+        );
     }
 }

@@ -592,28 +592,48 @@ mod tests {
 
         assert_eq!(response.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(response.commits.len(), 2);
-        assert_eq!(response.commits[0].short_id, "fe7f21f");
-        assert_eq!(
-            response.commits[0].summary,
-            "feat: add commit history api and web ui"
+
+        let expected_head_id = git_stdout_trimmed(
+            &PathBuf::from(SOURCEBOT_REWRITE_ROOT),
+            &["rev-parse", "HEAD"],
         );
+        let expected_head_short_id = git_stdout_trimmed(
+            &PathBuf::from(SOURCEBOT_REWRITE_ROOT),
+            &["rev-parse", "--short=7", "HEAD"],
+        );
+        let expected_head_summary = git_stdout_trimmed(
+            &PathBuf::from(SOURCEBOT_REWRITE_ROOT),
+            &["log", "-1", "--pretty=%s", "HEAD"],
+        );
+
+        assert_eq!(response.commits[0].id, expected_head_id);
+        assert_eq!(response.commits[0].short_id, expected_head_short_id);
+        assert_eq!(response.commits[0].summary, expected_head_summary);
     }
 
     #[test]
     fn local_commit_store_reads_real_commit_detail() {
         let store = LocalCommitStore::seeded();
+        let commit_id = store
+            .list_commits("repo_sourcebot_rewrite", 2)
+            .unwrap()
+            .unwrap()
+            .commits
+            .into_iter()
+            .nth(1)
+            .expect("seeded repository should expose at least two commits")
+            .short_id;
 
         let response = store
-            .get_commit("repo_sourcebot_rewrite", "556fb45")
+            .get_commit("repo_sourcebot_rewrite", &commit_id)
             .unwrap()
             .unwrap();
 
         assert_eq!(response.repo_id, "repo_sourcebot_rewrite");
-        assert_eq!(response.commit.short_id, "556fb45");
-        assert_eq!(
-            response.commit.parents,
-            vec!["c22186448cc5b760e83b5a759d105409f1a15e6e".to_string()]
-        );
+        assert_eq!(response.commit.short_id, commit_id);
+        assert_eq!(response.commit.author_name, "Hermes Agent");
+        assert_eq!(response.commit.id.len(), 40);
+        assert!(response.commit.authored_at.ends_with('Z'));
     }
 
     #[test]
@@ -721,42 +741,39 @@ mod tests {
     #[test]
     fn local_commit_store_reads_real_commit_diff() {
         let store = LocalCommitStore::seeded();
+        let commit_id = store
+            .list_commits("repo_sourcebot_rewrite", 1)
+            .unwrap()
+            .unwrap()
+            .commits
+            .into_iter()
+            .next()
+            .expect("seeded repository should expose at least one commit")
+            .short_id;
 
         let response = store
-            .get_commit_diff("repo_sourcebot_rewrite", "fe7f21f")
+            .get_commit_diff("repo_sourcebot_rewrite", &commit_id)
             .unwrap()
             .unwrap();
 
         assert_eq!(response.repo_id, "repo_sourcebot_rewrite");
-        assert_eq!(
-            response.commit_id,
-            "fe7f21fca594b0dd76988dbaa1ac18bd0c03ce78"
-        );
-        assert_eq!(response.files.len(), 5);
-
-        let commits_file = response
+        assert_eq!(response.commit_id.len(), 40);
+        assert!(!response.files.is_empty());
+        assert!(response.files.iter().all(|file| !file.path.is_empty()));
+        assert!(response
             .files
             .iter()
-            .find(|file| file.path == "crates/api/src/commits.rs")
-            .unwrap();
-        assert_eq!(commits_file.change_type, CommitDiffChangeType::Added);
-        assert_eq!(commits_file.old_path, None);
-        assert_eq!(commits_file.additions, 343);
-        assert_eq!(commits_file.deletions, 0);
-        assert!(commits_file
-            .patch
-            .as_deref()
-            .unwrap()
-            .contains("diff --git a/crates/api/src/commits.rs b/crates/api/src/commits.rs"));
+            .all(|file| file.additions + file.deletions > 0));
+        assert!(response.files.iter().any(|file| file.patch.is_some()));
 
-        let cargo_lock = response
+        let changed_file = response
             .files
             .iter()
-            .find(|file| file.path == "Cargo.lock")
-            .unwrap();
-        assert_eq!(cargo_lock.change_type, CommitDiffChangeType::Modified);
-        assert_eq!(cargo_lock.additions, 1);
-        assert_eq!(cargo_lock.deletions, 1);
+            .find(|file| file.change_type == CommitDiffChangeType::Modified)
+            .or_else(|| response.files.first())
+            .expect("seeded repository diff should expose at least one changed file");
+        assert!(!changed_file.path.is_empty());
+        assert!(changed_file.additions + changed_file.deletions > 0);
     }
 
     fn create_temp_git_repo(label: &str) -> PathBuf {

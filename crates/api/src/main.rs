@@ -241,10 +241,13 @@ async fn search_repository_contents(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::InMemoryCatalogStore;
+    use crate::{
+        commits::{CommitStore, LocalCommitStore},
+        storage::InMemoryCatalogStore,
+    };
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use tower::util::ServiceExt;
 
@@ -270,7 +273,7 @@ mod tests {
         size_bytes: u64,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct SearchResultResponse {
         repo_id: String,
         path: String,
@@ -278,14 +281,14 @@ mod tests {
         line: String,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct SearchResponse {
         query: String,
         repo_id: Option<String>,
         results: Vec<SearchResultResponse>,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitSummaryResponse {
         id: String,
         short_id: String,
@@ -294,13 +297,13 @@ mod tests {
         authored_at: String,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitListResponse {
         repo_id: String,
         commits: Vec<CommitSummaryResponse>,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitDetailDataResponse {
         id: String,
         short_id: String,
@@ -311,13 +314,13 @@ mod tests {
         parents: Vec<String>,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitDetailResponse {
         repo_id: String,
         commit: CommitDetailDataResponse,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitDiffFileResponse {
         path: String,
         change_type: String,
@@ -327,7 +330,7 @@ mod tests {
         patch: Option<String>,
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitDiffResponse {
         repo_id: String,
         commit_id: String,
@@ -545,6 +548,11 @@ mod tests {
 
     #[tokio::test]
     async fn repo_commits_returns_real_git_history() {
+        let expected = LocalCommitStore::seeded()
+            .list_commits("repo_sourcebot_rewrite", 2)
+            .unwrap()
+            .unwrap();
+
         let response = test_app()
             .oneshot(
                 Request::builder()
@@ -558,13 +566,12 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let payload: CommitListResponse = read_json(response).await;
+        assert_eq!(
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
         assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.commits.len(), 2);
-        assert_eq!(payload.commits[0].short_id, "fe7f21f");
-        assert_eq!(
-            payload.commits[0].summary,
-            "feat: add commit history api and web ui"
-        );
         assert_eq!(payload.commits[0].author_name, "Hermes Agent");
         assert_eq!(payload.commits[0].id.len(), 40);
         assert!(payload.commits[0].authored_at.ends_with('Z'));
@@ -572,10 +579,26 @@ mod tests {
 
     #[tokio::test]
     async fn repo_commit_detail_returns_real_git_commit() {
+        let commit_id = LocalCommitStore::seeded()
+            .list_commits("repo_sourcebot_rewrite", 2)
+            .unwrap()
+            .unwrap()
+            .commits
+            .into_iter()
+            .nth(1)
+            .expect("seeded repository should expose at least two commits")
+            .short_id;
+        let expected = LocalCommitStore::seeded()
+            .get_commit("repo_sourcebot_rewrite", &commit_id)
+            .unwrap()
+            .unwrap();
+
         let response = test_app()
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/556fb45")
+                    .uri(format!(
+                        "/api/v1/repos/repo_sourcebot_rewrite/commits/{commit_id}"
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -585,17 +608,12 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let payload: CommitDetailResponse = read_json(response).await;
+        assert_eq!(
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
         assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
-        assert_eq!(payload.commit.short_id, "556fb45");
-        assert_eq!(
-            payload.commit.summary,
-            "feat: add minimal search api and web ui"
-        );
         assert_eq!(payload.commit.author_name, "Hermes Agent");
-        assert_eq!(
-            payload.commit.parents,
-            vec!["c22186448cc5b760e83b5a759d105409f1a15e6e".to_string()]
-        );
         assert_eq!(payload.commit.body, "");
         assert_eq!(payload.commit.id.len(), 40);
         assert!(payload.commit.authored_at.ends_with('Z'));
@@ -652,10 +670,26 @@ mod tests {
 
     #[tokio::test]
     async fn repo_commit_diff_returns_real_git_files() {
+        let commit_id = LocalCommitStore::seeded()
+            .list_commits("repo_sourcebot_rewrite", 1)
+            .unwrap()
+            .unwrap()
+            .commits
+            .into_iter()
+            .next()
+            .expect("seeded repository should expose at least one commit")
+            .short_id;
+        let expected = LocalCommitStore::seeded()
+            .get_commit_diff("repo_sourcebot_rewrite", &commit_id)
+            .unwrap()
+            .unwrap();
+
         let response = test_app()
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits/fe7f21f/diff")
+                    .uri(format!(
+                        "/api/v1/repos/repo_sourcebot_rewrite/commits/{commit_id}/diff"
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -665,27 +699,15 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let payload: CommitDiffResponse = read_json(response).await;
-        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(
-            payload.commit_id,
-            "fe7f21fca594b0dd76988dbaa1ac18bd0c03ce78"
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::to_value(&expected).unwrap()
         );
-        assert_eq!(payload.files.len(), 5);
-
-        let commits_file = payload
-            .files
-            .iter()
-            .find(|file| file.path == "crates/api/src/commits.rs")
-            .unwrap();
-        assert_eq!(commits_file.change_type, "added");
-        assert_eq!(commits_file.old_path, None);
-        assert_eq!(commits_file.additions, 343);
-        assert_eq!(commits_file.deletions, 0);
-        assert!(commits_file
-            .patch
-            .as_deref()
-            .unwrap()
-            .contains("diff --git a/crates/api/src/commits.rs b/crates/api/src/commits.rs"));
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.commit_id.len(), 40);
+        assert!(!payload.files.is_empty());
+        assert!(payload.files.iter().all(|file| !file.path.is_empty()));
+        assert!(payload.files.iter().any(|file| file.patch.is_some()));
     }
 
     #[tokio::test]
