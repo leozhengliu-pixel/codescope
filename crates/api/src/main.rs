@@ -8,7 +8,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use browse::{build_browse_store, BlobResponse, DynBrowseStore, TreeResponse};
+use browse::{build_browse_store, BlobResponse, DynBrowseStore, ReferenceMatch, TreeResponse};
 use commits::{
     build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse,
     DynCommitStore,
@@ -81,6 +81,10 @@ fn build_router(
             get(get_repository_definitions),
         )
         .route(
+            "/api/v1/repos/{repo_id}/references",
+            get(get_repository_references),
+        )
+        .route(
             "/api/v1/repos/{repo_id}/commits",
             get(list_repository_commits),
         )
@@ -123,6 +127,13 @@ struct DefinitionsQuery {
     revision: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ReferencesQuery {
+    path: Option<String>,
+    symbol: Option<String>,
+    revision: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct DefinitionRangeResponse {
     start_line: usize,
@@ -157,6 +168,36 @@ enum DefinitionsResponse {
         symbol: String,
         capability: String,
         definitions: Vec<DefinitionResponse>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct ReferenceResponse {
+    path: String,
+    line_number: usize,
+    line: String,
+    browse_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status")]
+enum ReferencesResponse {
+    #[serde(rename = "supported")]
+    Supported {
+        repo_id: String,
+        path: String,
+        revision: Option<String>,
+        symbol: String,
+        references: Vec<ReferenceResponse>,
+    },
+    #[serde(rename = "unsupported")]
+    Unsupported {
+        repo_id: String,
+        path: String,
+        revision: Option<String>,
+        symbol: String,
+        capability: String,
+        references: Vec<ReferenceResponse>,
     },
 }
 
@@ -314,17 +355,129 @@ async fn get_repository_definitions(
     Ok(Json(response))
 }
 
+async fn get_repository_references(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(query): Query<ReferencesQuery>,
+) -> Result<Json<ReferencesResponse>, StatusCode> {
+    let path = query
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let symbol = query
+        .symbol
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let revision = query
+        .revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let effective_revision = revision.as_deref().unwrap_or("HEAD");
+
+    let blob = state
+        .browse
+        .get_blob_at_revision(&repo_id, path, Some(effective_revision))
+        .map_err(map_browse_error_to_status)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let response = match extract_symbols(path, &blob.content) {
+        sourcebot_search::SymbolExtraction::Supported { .. } => {
+            let references = state
+                .browse
+                .find_text_references_at_revision(&repo_id, symbol, effective_revision)
+                .map_err(map_browse_error_to_status)?
+                .ok_or(StatusCode::NOT_FOUND)?;
+            let references = build_reference_responses(&repo_id, revision.as_deref(), references);
+
+            ReferencesResponse::Supported {
+                repo_id,
+                path: path.to_string(),
+                revision,
+                symbol: symbol.to_string(),
+                references,
+            }
+        }
+        sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
+            ReferencesResponse::Unsupported {
+                repo_id,
+                path: path.to_string(),
+                revision,
+                symbol: symbol.to_string(),
+                capability,
+                references: Vec::new(),
+            }
+        }
+    };
+
+    Ok(Json(response))
+}
+
 fn build_definition_browse_url(
     repo_id: &str,
     path: &str,
     revision: Option<&str>,
     start_line: usize,
 ) -> String {
+    build_blob_browse_url(repo_id, path, revision, start_line)
+}
+
+fn build_reference_browse_url(
+    repo_id: &str,
+    path: &str,
+    revision: Option<&str>,
+    line_number: usize,
+) -> String {
+    build_blob_browse_url(repo_id, path, revision, line_number)
+}
+
+fn build_blob_browse_url(
+    repo_id: &str,
+    path: &str,
+    revision: Option<&str>,
+    line_number: usize,
+) -> String {
     let encoded_path = encode_query_value(path);
     let revision_suffix = revision
         .map(|revision| format!("&revision={}", encode_query_value(revision)))
         .unwrap_or_default();
-    format!("/api/v1/repos/{repo_id}/blob?path={encoded_path}{revision_suffix}#L{start_line}")
+    format!("/api/v1/repos/{repo_id}/blob?path={encoded_path}{revision_suffix}#L{line_number}")
+}
+
+fn build_reference_responses(
+    repo_id: &str,
+    revision: Option<&str>,
+    references: Vec<ReferenceMatch>,
+) -> Vec<ReferenceResponse> {
+    let mut references = references
+        .into_iter()
+        .map(|reference| ReferenceResponse {
+            browse_url: build_reference_browse_url(
+                repo_id,
+                &reference.path,
+                revision,
+                reference.line_number,
+            ),
+            path: reference.path,
+            line_number: reference.line_number,
+            line: reference.line,
+        })
+        .collect::<Vec<_>>();
+
+    references.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.line_number.cmp(&right.line_number))
+            .then(left.line.cmp(&right.line))
+            .then(left.browse_url.cmp(&right.browse_url))
+    });
+    references.dedup();
+    references
 }
 
 fn encode_query_value(value: &str) -> String {
@@ -452,6 +605,36 @@ mod tests {
         query: String,
         repo_id: Option<String>,
         results: Vec<SearchResultResponse>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ReferenceResponse {
+        path: String,
+        line_number: usize,
+        line: String,
+        browse_url: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "status")]
+    enum ReferencesResponse {
+        #[serde(rename = "supported")]
+        Supported {
+            repo_id: String,
+            path: String,
+            revision: Option<String>,
+            symbol: String,
+            references: Vec<ReferenceResponse>,
+        },
+        #[serde(rename = "unsupported")]
+        Unsupported {
+            repo_id: String,
+            path: String,
+            revision: Option<String>,
+            symbol: String,
+            capability: String,
+            references: Vec<ReferenceResponse>,
+        },
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -672,7 +855,7 @@ mod tests {
         assert_eq!(payload.path, "crates/api/src/main.rs");
         assert!(!payload
             .content
-            .contains("async fn get_repository_definitions("));
+            .contains("async fn get_repository_references("));
     }
 
     #[tokio::test]
@@ -1100,7 +1283,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri(
-                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=get_repository_definitions&revision=HEAD~1",
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=get_repository_references&revision=HEAD~1",
                     )
                     .body(Body::empty())
                     .unwrap(),
@@ -1178,5 +1361,227 @@ mod tests {
                 panic!("expected unsupported definitions response")
             }
         }
+    }
+
+    #[tokio::test]
+    async fn references_returns_bad_request_for_missing_required_query_parameters() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn references_returns_not_found_for_unknown_repo_or_path() {
+        let unknown_repo = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/missing/references?path=crates/api/src/main.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown_repo.status(), StatusCode::NOT_FOUND);
+
+        let unknown_path = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=missing.rs&symbol=build_router",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown_path.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn references_returns_unsupported_capability_for_non_rust_files() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=README.md&symbol=sourcebot",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: ReferencesResponse = read_json(response).await;
+        match payload {
+            ReferencesResponse::Unsupported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                capability,
+                references,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "README.md");
+                assert_eq!(revision, None);
+                assert_eq!(symbol, "sourcebot");
+                assert_eq!(
+                    capability,
+                    "symbol extraction is not supported for .md files"
+                );
+                assert!(references.is_empty());
+            }
+            ReferencesResponse::Supported { .. } => {
+                panic!("expected unsupported references response")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn references_return_supported_rust_hits_with_browse_urls_ordering_and_deduplication() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=build_router&revision=HEAD",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: ReferencesResponse = read_json(response).await;
+        match payload {
+            ReferencesResponse::Supported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                references,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "crates/api/src/main.rs");
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert_eq!(symbol, "build_router");
+                assert!(!references.is_empty());
+                assert!(references.iter().any(|reference| {
+                    reference.path == "crates/api/src/main.rs"
+                        && reference.line.contains("build_router")
+                        && reference.line_number > 0
+                        && reference.browse_url.starts_with(
+                            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates%2Fapi%2Fsrc%2Fmain.rs&revision=HEAD#L",
+                        )
+                }));
+
+                let mut sorted = references
+                    .iter()
+                    .map(|reference| {
+                        (
+                            reference.path.clone(),
+                            reference.line_number,
+                            reference.line.clone(),
+                            reference.browse_url.clone(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let mut deduped = sorted.clone();
+                sorted.sort();
+                deduped.sort();
+                deduped.dedup();
+                assert_eq!(
+                    references
+                        .iter()
+                        .map(|reference| (
+                            reference.path.clone(),
+                            reference.line_number,
+                            reference.line.clone(),
+                            reference.browse_url.clone(),
+                        ))
+                        .collect::<Vec<_>>(),
+                    sorted
+                );
+                assert_eq!(sorted, deduped);
+            }
+            ReferencesResponse::Unsupported { .. } => {
+                panic!("expected supported references response")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn references_use_requested_revision_for_lookup() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=get_repository_references&revision=HEAD~1",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: ReferencesResponse = read_json(response).await;
+        match payload {
+            ReferencesResponse::Supported {
+                revision,
+                references,
+                ..
+            } => {
+                assert_eq!(revision.as_deref(), Some("HEAD~1"));
+                assert!(references.is_empty());
+            }
+            ReferencesResponse::Unsupported { .. } => {
+                panic!("expected supported references response")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn references_reject_parent_directory_traversal_with_bad_request() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=../README.md&symbol=sourcebot",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn reference_browse_url_encodes_path_and_revision_query_values() {
+        assert_eq!(
+            build_reference_browse_url(
+                "repo_sourcebot_rewrite",
+                "dir/hello world?#.rs",
+                Some("feature/test branch"),
+                42,
+            ),
+            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
+        );
     }
 }

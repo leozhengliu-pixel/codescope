@@ -23,6 +23,12 @@ pub trait BrowseStore: Send + Sync {
         path: &str,
         revision: Option<&str>,
     ) -> Result<Option<BlobResponse>>;
+    fn find_text_references_at_revision(
+        &self,
+        repo_id: &str,
+        symbol: &str,
+        revision: &str,
+    ) -> Result<Option<Vec<ReferenceMatch>>>;
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -54,6 +60,13 @@ pub struct BlobResponse {
     pub size_bytes: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceMatch {
+    pub path: String,
+    pub line_number: usize,
+    pub line: String,
+}
+
 #[derive(Clone, Default)]
 pub struct LocalBrowseStore {
     repo_roots: HashMap<String, PathBuf>,
@@ -78,6 +91,10 @@ impl LocalBrowseStore {
 
         let safe_relative = normalize_relative_path(relative_path)?;
         Ok(Some(root.join(safe_relative)))
+    }
+
+    fn repo_root(&self, repo_id: &str) -> Option<&PathBuf> {
+        self.repo_roots.get(repo_id)
     }
 }
 
@@ -170,6 +187,40 @@ impl BrowseStore for LocalBrowseStore {
             size_bytes,
         }))
     }
+
+    fn find_text_references_at_revision(
+        &self,
+        repo_id: &str,
+        symbol: &str,
+        revision: &str,
+    ) -> Result<Option<Vec<ReferenceMatch>>> {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let Some(paths) = run_git_list_files_at_revision(repo_root, revision)? else {
+            return Ok(None);
+        };
+
+        let mut matches = Vec::new();
+        for path in paths.into_iter().filter(|path| path.ends_with(".rs")) {
+            let Some(content) = run_git_show_blob(repo_root, revision, &path)? else {
+                continue;
+            };
+
+            for (index, line) in content.lines().enumerate() {
+                if line.contains(symbol) {
+                    matches.push(ReferenceMatch {
+                        path: path.clone(),
+                        line_number: index + 1,
+                        line: line.to_string(),
+                    });
+                }
+            }
+        }
+
+        Ok(Some(matches))
+    }
 }
 
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
@@ -193,6 +244,38 @@ fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<
     Err(git_command_error(
         repo_root,
         &["show", "<revision>:<path>"],
+        &output,
+    ))
+}
+
+fn run_git_list_files_at_revision(
+    repo_root: &PathBuf,
+    revision: &str,
+) -> Result<Option<Vec<String>>> {
+    let output = Command::new("git")
+        .args(["ls-tree", "-r", "--name-only", revision])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let files = stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        return Ok(Some(files));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["ls-tree", "-r", "--name-only", "<revision>"],
         &output,
     ))
 }
