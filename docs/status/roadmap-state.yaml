@@ -5,39 +5,53 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0fb3e49d73bd2c24f9683882b8d0e61e22998e64
+  head: fe626a60b1be7e88cbd7d117380bea38ca6da6e5
 last_completed_task:
-  id: task28a
-  title: Add the minimal shared repo permission binding model
+  id: task28b
+  title: Resolve user-visible repo ids from org memberships and repo permission bindings
   status: done
   summary: >-
-    Split task28 and completed the first repo-permission slice by adding a
-    shared RepositoryPermissionBinding model plus OrganizationState
-    repo_permissions persistence-ready storage in sourcebot-models, then
-    tightening model, file-backed organization-store, and app-state wiring tests
-    so populated repo permission bindings round-trip cleanly without adding any
-    permission enforcement, routes, or sync orchestration yet.
+    Completed the second task28 slice by adding a shared sourcebot-core helper
+    that derives a user's visible repository ids from OrganizationState
+    memberships plus repo permission bindings with deterministic first-seen
+    ordering and duplicate suppression, while still deferring API enforcement
+    across search, browse, and ask until task29.
   tests:
-    - cargo test -p sourcebot-models organization_state_serializes_repo_permission_bindings_for_persistence -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (6 tests)
-    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-core visible_repo_ids_for_user -- --nocapture: passed (2 tests)
+    - cargo test -p sourcebot-core -- --nocapture: passed (23 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent confirming review after one verification-coverage fix; reviewer confirmed the slice stays scoped to the shared repo permission binding model plus persistence coverage updates, remains backward-compatible for OrganizationState serde/storage, and found no blocking correctness or security issues
-  commit: 0fb3e49d73bd2c24f9683882b8d0e61e22998e64
-  next_task: task28b
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the minimal deterministic helper for deriving visible repository ids from memberships plus repo permission bindings, stays scoped away from API enforcement, and found no blocking correctness or security issues
+  commit: fe626a60b1be7e88cbd7d117380bea38ca6da6e5
+  next_task: task29
 current_task:
-  id: task28b
-  title: Resolve user-visible repo ids from org memberships and repo permission bindings
+  id: task29
+  title: Search/file/ask permission enforcement
   status: pending
   summary: >-
-    Continue task28 with the next smallest shared-contract slice by adding a
-    core/domain helper that derives a user's visible repository ids from
-    OrganizationState memberships plus repo permission bindings, while still
-    deferring API enforcement across search, browse, and ask until task29.
+    Start the permission-enforcement phase by wiring the new shared visible-repo
+    resolver into the API request flow so authenticated users only reach search,
+    browse, and ask data for repositories granted through their org memberships
+    and repo permission bindings.
 history:
+  - id: task28b
+    status: done
+    summary: >-
+      Completed the second task28 slice by adding a shared sourcebot-core helper
+      that derives a user's visible repository ids from OrganizationState
+      memberships plus repo permission bindings with deterministic first-seen
+      ordering and duplicate suppression, while still deferring API enforcement
+      across search, browse, and ask until task29.
+    tests:
+      - cargo test -p sourcebot-core visible_repo_ids_for_user -- --nocapture: passed (2 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (23 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the minimal deterministic helper for deriving visible repository ids from memberships plus repo permission bindings, stays scoped away from API enforcement, and found no blocking correctness or security issues
+    commit: fe626a60b1be7e88cbd7d117380bea38ca6da6e5
+    next_task: task29
   - id: task28a
     status: done
     summary: >-
