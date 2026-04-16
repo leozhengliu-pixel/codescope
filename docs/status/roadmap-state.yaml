@@ -5,30 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f9f136a3494a5d1b3df441a7b0b03f88f71d4520
+  head: 73d3d5c80fe5bc2de64e8b946a507b17a9ceb352
 last_completed_task:
-  id: task22b2a
-  title: Citation renderer shared rendered payload for ask surfaces
+  id: task22b2b1
+  title: Add rendered citations to ask thread response DTOs
   status: done
   summary: >-
-    Split task22b2 and completed the first response-shaping slice by adding a
-    shared AskRenderedCitation payload plus AskCitation::rendered() so later ask
-    API and UI surfaces can reuse canonical machine-readable and human-facing
-    citation metadata without recomputing labels or pinned locations.
+    Split task22b2b and completed the first ask API slice by adding API-layer
+    AskMessageResponse and AskThreadResponse converters that preserve raw
+    citations while exposing derived rendered_citations for persisted ask thread
+    messages without changing storage models or adding routes.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_rendered_payload_includes_machine_and_human_facing_fields -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_message_response_includes_rendered_citations_alongside_raw_citations -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_thread_response_maps_message_rendered_citations -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by single independent review with no blocking spec, security, or logic issues; noted only that approval was based on diff inspection rather than rerunning commands inside the reviewer context
-  commit: f9f136a3494a5d1b3df441a7b0b03f88f71d4520
-  next_task: task22b2b
+    code: approved by a single independent diff review with no blocking spec gaps, security concerns, or logic errors
+  commit: 73d3d5c80fe5bc2de64e8b946a507b17a9ceb352
+  next_task: task22b2b2
 current_task:
-  id: task22b2b
-  title: Wire rendered citation payloads into ask API response surfaces
+  id: task22b2b2
+  title: Wire rendered citations into the top-level ask completion response surface
   status: pending
 history:
+  - id: task22b2b1
+    status: done
+    summary: >-
+      Split task22b2b and completed the first ask API slice by adding API-layer
+      AskMessageResponse and AskThreadResponse converters that preserve raw
+      citations while exposing derived rendered_citations for persisted ask thread
+      messages without changing storage models or adding routes.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_message_response_includes_rendered_citations_alongside_raw_citations -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_thread_response_maps_message_rendered_citations -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    commit: 73d3d5c80fe5bc2de64e8b946a507b17a9ceb352
+    next_task: task22b2b2
   - id: task22b2a
     status: done
     summary: >-
