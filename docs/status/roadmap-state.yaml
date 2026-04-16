@@ -5,30 +5,44 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 68dccd538026e36e4801bc26e9e5cac92201c287
+  head: f9f136a3494a5d1b3df441a7b0b03f88f71d4520
 last_completed_task:
-  id: task22b1
-  title: Citation renderer labels and pinned location strings
+  id: task22b2a
+  title: Citation renderer shared rendered payload for ask surfaces
   status: done
   summary: >-
-    Split task22b and completed the first renderer slice by adding shared
-    AskCitation helpers for display labels, line fragments, and revision-pinned
-    location strings so later ask API/UI work can reuse canonical citation text.
+    Split task22b2 and completed the first response-shaping slice by adding a
+    shared AskRenderedCitation payload plus AskCitation::rendered() so later ask
+    API and UI surfaces can reuse canonical machine-readable and human-facing
+    citation metadata without recomputing labels or pinned locations.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_display_labels_for_single_lines_and_ranges -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_pinned_locations_with_revision_and_line_fragments -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_rendered_payload_includes_machine_and_human_facing_fields -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by single independent review with no blocking spec, security, or logic issues; noted only a non-blocking single-line pinned-location coverage gap
-  commit: 68dccd538026e36e4801bc26e9e5cac92201c287
-  next_task: task22b2
+    code: approved by single independent review with no blocking spec, security, or logic issues; noted only that approval was based on diff inspection rather than rerunning commands inside the reviewer context
+  commit: f9f136a3494a5d1b3df441a7b0b03f88f71d4520
+  next_task: task22b2b
 current_task:
-  id: task22b2
-  title: Citation renderer response shaping for ask surfaces
+  id: task22b2b
+  title: Wire rendered citation payloads into ask API response surfaces
   status: pending
 history:
+  - id: task22b2a
+    status: done
+    summary: >-
+      Split task22b2 and completed the first response-shaping slice by adding a
+      shared AskRenderedCitation payload plus AskCitation::rendered() so later ask
+      API and UI surfaces can reuse canonical machine-readable and human-facing
+      citation metadata without recomputing labels or pinned locations.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_rendered_payload_includes_machine_and_human_facing_fields -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    commit: f9f136a3494a5d1b3df441a7b0b03f88f71d4520
+    next_task: task22b2b
   - id: task22b1
     status: done
     summary: >-
