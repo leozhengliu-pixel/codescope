@@ -5,34 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0d70cbc1561fe9165e1e807b4296610d6eeb43d8
+  head: c0aac20c4d8e783eafa6793b13ba4375dc868dad
 last_completed_task:
-  id: task25c2b2b1
-  title: Local-session logout endpoint that revokes the current bearer session
+  id: task25c2b2b2
+  title: Targeted local-session revocation endpoint for explicit session invalidation
   status: done
   summary: >-
-    Split task25c2b2b and completed the first follow-up local-session slice by
-    adding POST /api/v1/auth/logout, extending the local-session store with
-    minimal deletion support, revoking only the currently authenticated Bearer
-    <session_id>:<session_secret> session, returning 204 No Content on success,
-    and leaving revoked, missing, malformed, or otherwise invalid tokens
-    fail-closed without adding session listing or arbitrary revocation yet.
+    Completed the second follow-up local-session slice by adding POST
+    /api/v1/auth/revoke with an explicit session_id body, authenticating via the
+    existing Bearer <session_id>:<session_secret> flow, revoking only the
+    requested local bootstrap-admin session, returning 204 No Content on
+    success, and failing closed for blank payloads, missing or malformed auth,
+    missing targets, already revoked targets, foreign-user targets, or
+    malformed persisted target session records without changing logout behavior
+    or adding session listing.
   tests:
-    - cargo test -p sourcebot-api file_local_session_store_deletes_only_the_requested_session -- --nocapture: passed
+    - cargo test -p sourcebot-api revoke_ -- --nocapture: passed (1 test)
     - cargo test -p sourcebot-api logout_ -- --nocapture: passed (2 tests)
     - cargo test -p sourcebot-api auth_ -- --nocapture: passed (5 tests)
     - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the logout slice is spec-compliant for the planned scope, found no blocking security or logic issues, and noted only a non-blocking follow-up to lock in second-logout behavior after revocation
-  commit: 0d70cbc1561fe9165e1e807b4296610d6eeb43d8
-  next_task: task25c2b2b2
+    code: approved by one independent post-implementation review; reviewer confirmed the new targeted revocation slice is roadmap-compliant, found no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add a focused missing/malformed Authorization test for /api/v1/auth/revoke
+  commit: c0aac20c4d8e783eafa6793b13ba4375dc868dad
+  next_task: task26
 current_task:
-  id: task25c2b2b2
-  title: Targeted local-session revocation endpoint for explicit session invalidation
+  id: task26
+  title: Org/member/role model
   status: pending
 history:
+  - id: task25c2b2b2
+    status: done
+    summary: >-
+      Completed the second follow-up local-session slice by adding POST
+      /api/v1/auth/revoke with an explicit session_id body, authenticating via
+      the existing Bearer <session_id>:<session_secret> flow, revoking only the
+      requested local bootstrap-admin session, returning 204 No Content on
+      success, and failing closed for blank payloads, missing or malformed
+      auth, missing targets, already revoked targets, foreign-user targets, or
+      malformed persisted target session records without changing logout
+      behavior or adding session listing.
+    tests:
+      - cargo test -p sourcebot-api revoke_ -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api logout_ -- --nocapture: passed (2 tests)
+      - cargo test -p sourcebot-api auth_ -- --nocapture: passed (5 tests)
+      - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the new targeted revocation slice is roadmap-compliant, found no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add a focused missing/malformed Authorization test for /api/v1/auth/revoke
+    commit: c0aac20c4d8e783eafa6793b13ba4375dc868dad
+    next_task: task26
   - id: task25c2b2b1
     status: done
     summary: >-
