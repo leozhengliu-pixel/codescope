@@ -5,35 +5,56 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3cd536da8a70227934649fe9b76ccfe2da1d68e9
+  head: 14f3d059e128c95c74e673042686d9d322363d2f
 last_completed_task:
-  id: task27a
-  title: Add shared organization invite and account-linking models
+  id: task27b1
+  title: Cover organization account/invite persistence in focused store tests
   status: done
   summary: >-
-    Split the broader invite/account-linking roadmap item and completed the first
-    slice by adding shared LocalAccount and OrganizationInvite models plus
-    OrganizationState accounts/invites collections in sourcebot-models, keeping
-    the work limited to reusable domain data without adding API routes, stores,
-    or permission enforcement yet.
+    Split task27b and completed the first persistence slice by extending the
+    file-backed organization store regression test and app-state wiring test to
+    round-trip OrganizationState accounts and invites, proving the shared
+    LocalAccount and OrganizationInvite data survives the existing persistence
+    layer without adding invite routes, acceptance handlers, or permission
+    enforcement.
   tests:
-    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-models -- --nocapture: passed (9 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the models-only task27a slice, adds the expected reusable invite/account state with sensible serde behavior, and found no blocking correctness or security issues
-  commit: 145c012272b593ee03d020b00d76fba4ba7a8b36
-  next_task: task27b
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the first task27b persistence slice, meaningfully covers LocalAccount and OrganizationInvite round-tripping in the existing file-backed organization store and app-state test path, and found no blocking correctness or security issues
+  commit: 14f3d059e128c95c74e673042686d9d322363d2f
+  next_task: task27b2
 current_task:
-  id: task27b
-  title: Persist organization invite/account state through the organization store
+  id: task27b2
+  title: Tighten organization app-state persistence coverage for the expanded account/invite state
   status: pending
   summary: >-
-    Next slice should wire the expanded OrganizationState accounts/invites data
-    through the existing organization store and its focused tests without adding
-    invite routes, acceptance handlers, or permission enforcement yet.
+    Follow up on task27b1 by deciding whether the current app-state test should
+    stay as a store-preservation regression only or be tightened to prove
+    build_app_state constructs the file-backed organization store from config for
+    the expanded OrganizationState fields, still without adding invite routes,
+    acceptance handlers, or permission enforcement.
 history:
+  - id: task27b1
+    status: done
+    summary: >-
+      Split task27b and completed the first persistence slice by extending the
+      file-backed organization store regression test and app-state wiring test to
+      round-trip OrganizationState accounts and invites, proving the shared
+      LocalAccount and OrganizationInvite data survives the existing persistence
+      layer without adding invite routes, acceptance handlers, or permission
+      enforcement.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the first task27b persistence slice, meaningfully covers LocalAccount and OrganizationInvite round-tripping in the existing file-backed organization store and app-state test path, and found no blocking correctness or security issues
+    commit: 14f3d059e128c95c74e673042686d9d322363d2f
+    next_task: task27b2
   - id: task27a
     status: done
     summary: >-
