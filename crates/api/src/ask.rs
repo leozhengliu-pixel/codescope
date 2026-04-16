@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::Serialize;
-use sourcebot_core::AskThreadStore;
+use sourcebot_core::{AskResponse, AskThreadStore};
 use sourcebot_models::{
     AskCitation, AskMessage, AskMessageRole, AskRenderedCitation, AskThread, AskThreadSummary,
     AskThreadVisibility,
@@ -344,6 +344,38 @@ impl From<&AskThread> for AskThreadResponse {
 impl From<AskThread> for AskThreadResponse {
     fn from(thread: AskThread) -> Self {
         Self::from(&thread)
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AskCompletionResponse {
+    pub provider: String,
+    pub model: Option<String>,
+    pub answer: String,
+    pub citations: Vec<AskCitation>,
+    pub rendered_citations: Vec<AskRenderedCitation>,
+}
+
+impl From<&AskResponse> for AskCompletionResponse {
+    fn from(response: &AskResponse) -> Self {
+        Self {
+            provider: response.provider.clone(),
+            model: response.model.clone(),
+            answer: response.answer.clone(),
+            citations: response.citations.clone(),
+            rendered_citations: response
+                .citations
+                .iter()
+                .map(|citation| citation.rendered())
+                .collect(),
+        }
+    }
+}
+
+impl From<AskResponse> for AskCompletionResponse {
+    fn from(response: AskResponse) -> Self {
+        Self::from(&response)
     }
 }
 
@@ -1158,6 +1190,28 @@ mod tests {
         assert_eq!(
             response.messages[1].rendered_citations,
             vec![thread.messages[1].citations[0].rendered()]
+        );
+    }
+
+    #[test]
+    fn ask_completion_response_includes_rendered_citations_alongside_raw_citations() {
+        let completion = sourcebot_core::AskResponse {
+            provider: "openai".into(),
+            model: Some("gpt-4.1-mini".into()),
+            answer: "healthz lives in crates/api/src/main.rs".into(),
+            citations: vec![citation("crates/api/src/main.rs", "main", 10, 18)],
+        };
+
+        let response = AskCompletionResponse::from(&completion);
+
+        assert_eq!(response.provider, completion.provider);
+        assert_eq!(response.model, completion.model);
+        assert_eq!(response.answer, completion.answer);
+        assert_eq!(response.citations, completion.citations);
+        assert_eq!(response.rendered_citations.len(), 1);
+        assert_eq!(
+            response.rendered_citations[0],
+            completion.citations[0].rendered()
         );
     }
 
