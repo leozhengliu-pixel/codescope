@@ -22,6 +22,15 @@ pub trait BootstrapStore: Send + Sync {
     async fn initialize_bootstrap(&self, state: sourcebot_models::BootstrapState) -> Result<()>;
 }
 
+#[async_trait]
+pub trait LocalSessionStore: Send + Sync {
+    async fn local_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<sourcebot_models::LocalSession>>;
+    async fn store_local_session(&self, session: sourcebot_models::LocalSession) -> Result<()>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetrievalToolDefinition {
     pub name: String,

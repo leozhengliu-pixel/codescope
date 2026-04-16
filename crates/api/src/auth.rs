@@ -1,23 +1,43 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use sourcebot_core::BootstrapStore;
-use sourcebot_models::{BootstrapState, BootstrapStatus};
+use sourcebot_core::{BootstrapStore, LocalSessionStore};
+use sourcebot_models::{BootstrapState, BootstrapStatus, LocalSession, LocalSessionState};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
 pub type DynBootstrapStore = Arc<dyn BootstrapStore>;
+pub type DynLocalSessionStore = Arc<dyn LocalSessionStore>;
 
 #[derive(Clone, Debug)]
 pub struct FileBootstrapStore {
     state_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct FileLocalSessionStore {
+    state_path: PathBuf,
+}
+
+#[derive(Debug)]
+struct LocalSessionWriteLock {
+    file: File,
+    lock_path: PathBuf,
+}
+
+impl Drop for LocalSessionWriteLock {
+    fn drop(&mut self) {
+        let _ = self.file.sync_all();
+        let _ = fs::remove_file(&self.lock_path);
+    }
 }
 
 impl FileBootstrapStore {
@@ -25,20 +45,6 @@ impl FileBootstrapStore {
         Self {
             state_path: state_path.into(),
         }
-    }
-
-    fn temporary_state_path(&self) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let file_name = self
-            .state_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("bootstrap-state.json");
-        self.state_path
-            .with_file_name(format!(".{file_name}.{nanos}.tmp"))
     }
 
     fn read_persisted_state(&self) -> Result<Option<BootstrapState>> {
@@ -54,7 +60,73 @@ impl FileBootstrapStore {
     }
 }
 
-fn open_new_bootstrap_file(path: &Path) -> std::io::Result<File> {
+impl FileLocalSessionStore {
+    pub fn new(state_path: impl Into<PathBuf>) -> Self {
+        Self {
+            state_path: state_path.into(),
+        }
+    }
+
+    fn lock_path(&self) -> PathBuf {
+        let file_name = self
+            .state_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("local-sessions.json");
+        self.state_path.with_file_name(format!(".{file_name}.lock"))
+    }
+
+    fn acquire_write_lock(&self) -> Result<LocalSessionWriteLock> {
+        const MAX_LOCK_WAIT: Duration = Duration::from_millis(100);
+        const LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+        ensure_parent_directory(&self.state_path)?;
+        let lock_path = self.lock_path();
+        let start = SystemTime::now();
+
+        loop {
+            match open_new_private_file(&lock_path) {
+                Ok(file) => return Ok(LocalSessionWriteLock { file, lock_path }),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if start.elapsed().unwrap_or_default() >= MAX_LOCK_WAIT {
+                        return Err(anyhow!(
+                            "timed out waiting for local session lock at {}",
+                            lock_path.display()
+                        ));
+                    }
+                    thread::sleep(LOCK_RETRY_DELAY);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
+    fn read_persisted_state(&self) -> Result<LocalSessionState> {
+        if !self.state_path.is_file() {
+            return Ok(LocalSessionState::default());
+        }
+
+        match fs::read(&self.state_path) {
+            Ok(bytes) => Ok(serde_json::from_slice::<LocalSessionState>(&bytes)?),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(LocalSessionState::default()),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+fn temporary_state_path(state_path: &Path, fallback_name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let file_name = state_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(fallback_name);
+    state_path.with_file_name(format!(".{file_name}.{nanos}.tmp"))
+}
+
+fn open_new_private_file(path: &Path) -> std::io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -74,6 +146,50 @@ fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn ensure_parent_directory(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_json_file(path: &Path, payload: &[u8], replace_existing: bool) -> std::io::Result<()> {
+    ensure_parent_directory(path)?;
+
+    let temp_path = temporary_state_path(path, "state.json");
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = open_new_private_file(&temp_path)?;
+        file.write_all(payload)?;
+        file.write_all(b"\n")?;
+        file.sync_all()?;
+        drop(file);
+
+        if replace_existing {
+            fs::rename(&temp_path, path)?;
+        } else {
+            fs::hard_link(&temp_path, path)?;
+            fs::remove_file(&temp_path)?;
+        }
+
+        sync_parent_directory(path)?;
+        Ok(())
+    })();
+
+    if let Err(error) = write_result {
+        match fs::remove_file(&temp_path) {
+            Ok(()) => {}
+            Err(remove_error) if remove_error.kind() == ErrorKind::NotFound => {}
+            Err(remove_error) => return Err(remove_error),
+        }
+        return Err(error);
+    }
+
+    Ok(())
+}
+
 #[async_trait]
 impl BootstrapStore for FileBootstrapStore {
     async fn bootstrap_status(&self) -> Result<BootstrapStatus> {
@@ -87,42 +203,42 @@ impl BootstrapStore for FileBootstrapStore {
     }
 
     async fn initialize_bootstrap(&self, state: BootstrapState) -> Result<()> {
-        if let Some(parent) = self.state_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
-        }
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, false)?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl LocalSessionStore for FileLocalSessionStore {
+    async fn local_session(&self, session_id: &str) -> Result<Option<LocalSession>> {
+        let state = self.read_persisted_state()?;
+        Ok(state
+            .sessions
+            .into_iter()
+            .find(|session| session.id == session_id))
+    }
+
+    async fn store_local_session(&self, session: LocalSession) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        state
+            .sessions
+            .retain(|persisted| persisted.id != session.id);
+        state.sessions.push(session);
 
         let payload = serde_json::to_vec_pretty(&state)?;
-        let temp_path = self.temporary_state_path();
-        let write_result = (|| -> std::io::Result<()> {
-            let mut file = open_new_bootstrap_file(&temp_path)?;
-            file.write_all(&payload)?;
-            file.write_all(b"\n")?;
-            file.sync_all()?;
-            drop(file);
-
-            fs::hard_link(&temp_path, &self.state_path)?;
-            sync_parent_directory(&self.state_path)?;
-            fs::remove_file(&temp_path)?;
-            Ok(())
-        })();
-
-        if let Err(error) = write_result {
-            match fs::remove_file(&temp_path) {
-                Ok(()) => {}
-                Err(remove_error) if remove_error.kind() == ErrorKind::NotFound => {}
-                Err(remove_error) => return Err(remove_error.into()),
-            }
-            return Err(error.into());
-        }
-
+        write_json_file(&self.state_path, &payload, true)?;
         Ok(())
     }
 }
 
 pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStore {
     Arc::new(FileBootstrapStore::new(state_path))
+}
+
+pub fn build_local_session_store(state_path: impl Into<PathBuf>) -> DynLocalSessionStore {
+    Arc::new(FileLocalSessionStore::new(state_path))
 }
 
 #[cfg(test)]
@@ -253,5 +369,170 @@ mod tests {
         );
 
         fs::remove_file(valid_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_returns_none_when_session_file_is_missing() {
+        let path = unique_test_path("session-missing");
+        let store = FileLocalSessionStore::new(&path);
+
+        assert_eq!(store.local_session("session_1").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_persists_and_reads_local_sessions() {
+        let path = unique_test_path("session-persist");
+        let store = FileLocalSessionStore::new(&path);
+        let session = LocalSession {
+            id: "session_1".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$session-secret".into(),
+            created_at: "2026-04-16T18:00:00Z".into(),
+        };
+
+        store.store_local_session(session.clone()).await.unwrap();
+
+        let persisted: LocalSessionState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted.sessions, vec![session.clone()]);
+        assert_eq!(
+            store.local_session(&session.id).await.unwrap(),
+            Some(session)
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_rewrites_existing_session_with_same_id() {
+        let path = unique_test_path("session-update");
+        let store = FileLocalSessionStore::new(&path);
+
+        store
+            .store_local_session(LocalSession {
+                id: "session_1".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                secret_hash: "$argon2id$original".into(),
+                created_at: "2026-04-16T18:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        let updated = LocalSession {
+            id: "session_1".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$rotated".into(),
+            created_at: "2026-04-16T19:00:00Z".into(),
+        };
+
+        store.store_local_session(updated.clone()).await.unwrap();
+
+        let persisted: LocalSessionState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted.sessions, vec![updated.clone()]);
+        assert_eq!(
+            store.local_session("session_1").await.unwrap(),
+            Some(updated)
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_rejects_invalid_json_without_overwriting_existing_file() {
+        let path = unique_test_path("session-invalid-json");
+        fs::write(&path, b"{\"sessions\":").unwrap();
+        let store = FileLocalSessionStore::new(&path);
+
+        let error = store
+            .store_local_session(LocalSession {
+                id: "session_1".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                secret_hash: "$argon2id$session-secret".into(),
+                created_at: "2026-04-16T18:00:00Z".into(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("EOF while parsing"));
+        assert_eq!(fs::read(&path).unwrap(), b"{\"sessions\":".to_vec());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn file_local_session_store_preserves_distinct_sessions_across_concurrent_writes() {
+        let path = unique_test_path("session-concurrent");
+        let store_a = FileLocalSessionStore::new(&path);
+        let store_b = FileLocalSessionStore::new(&path);
+        let session_a = LocalSession {
+            id: "session_1".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$session-a".into(),
+            created_at: "2026-04-16T18:00:00Z".into(),
+        };
+        let session_b = LocalSession {
+            id: "session_2".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$session-b".into(),
+            created_at: "2026-04-16T18:01:00Z".into(),
+        };
+
+        let writer_a = {
+            let session = session_a.clone();
+            tokio::spawn(async move { store_a.store_local_session(session).await.unwrap() })
+        };
+        let writer_b = {
+            let session = session_b.clone();
+            tokio::spawn(async move { store_b.store_local_session(session).await.unwrap() })
+        };
+
+        writer_a.await.unwrap();
+        writer_b.await.unwrap();
+
+        let mut persisted = serde_json::from_slice::<LocalSessionState>(&fs::read(&path).unwrap())
+            .unwrap()
+            .sessions;
+        persisted.sort_by(|left, right| left.id.cmp(&right.id));
+
+        assert_eq!(persisted, vec![session_a, session_b]);
+        assert!(!path
+            .with_file_name(format!(
+                ".{}.lock",
+                path.file_name().unwrap().to_string_lossy()
+            ))
+            .exists());
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_times_out_when_lock_file_is_stale() {
+        let path = unique_test_path("session-stale-lock");
+        let lock_path = path.with_file_name(format!(
+            ".{}.lock",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+        open_new_private_file(&lock_path).unwrap();
+        let store = FileLocalSessionStore::new(&path);
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(150),
+            store.store_local_session(LocalSession {
+                id: "session_1".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                secret_hash: "$argon2id$session-secret".into(),
+                created_at: "2026-04-16T18:00:00Z".into(),
+            }),
+        )
+        .await
+        .expect("stale lock should fail instead of hanging forever")
+        .expect_err("stale lock should return an error");
+
+        assert!(result.to_string().contains("timed out"));
+        assert!(lock_path.exists());
+        assert!(!path.exists());
+
+        fs::remove_file(lock_path).unwrap();
     }
 }

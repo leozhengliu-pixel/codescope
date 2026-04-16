@@ -7,6 +7,7 @@ pub struct AppConfig {
     pub bind_addr: String,
     pub database_url: Option<String>,
     pub bootstrap_state_path: String,
+    pub local_session_state_path: String,
     pub llm_provider: Option<String>,
     pub llm_model: Option<String>,
     pub llm_api_base: Option<String>,
@@ -20,6 +21,7 @@ impl Default for AppConfig {
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: None,
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".to_string(),
+            local_session_state_path: ".sourcebot/local-sessions.json".to_string(),
             llm_provider: Some("disabled".to_string()),
             llm_model: None,
             llm_api_base: None,
@@ -38,6 +40,8 @@ impl AppConfig {
             database_url: env::var("DATABASE_URL").ok(),
             bootstrap_state_path: env::var("SOURCEBOT_BOOTSTRAP_STATE_PATH")
                 .unwrap_or_else(|_| ".sourcebot/bootstrap-state.json".to_string()),
+            local_session_state_path: env::var("SOURCEBOT_LOCAL_SESSION_STATE_PATH")
+                .unwrap_or_else(|_| ".sourcebot/local-sessions.json".to_string()),
             llm_provider: env::var("SOURCEBOT_LLM_PROVIDER")
                 .ok()
                 .or_else(|| Some("disabled".to_string())),
@@ -82,6 +86,10 @@ mod tests {
             config.bootstrap_state_path,
             ".sourcebot/bootstrap-state.json"
         );
+        assert_eq!(
+            config.local_session_state_path,
+            ".sourcebot/local-sessions.json"
+        );
         assert_eq!(config.llm_model, None);
         assert_eq!(config.llm_api_base, None);
         assert_eq!(config.llm_api_key, None);
@@ -94,6 +102,7 @@ mod tests {
             bind_addr: "127.0.0.1:3000".into(),
             database_url: None,
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".into(),
+            local_session_state_path: ".sourcebot/local-sessions.json".into(),
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
             llm_api_base: Some("https://llm.invalid".into()),

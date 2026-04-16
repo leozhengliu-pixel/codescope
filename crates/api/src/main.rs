@@ -9,7 +9,9 @@ use argon2::{
     Argon2,
 };
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
-use auth::{build_bootstrap_store, DynBootstrapStore};
+use auth::{
+    build_bootstrap_store, build_local_session_store, DynBootstrapStore, DynLocalSessionStore,
+};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -43,6 +45,7 @@ struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
+    _local_sessions: DynLocalSessionStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -70,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
+    let local_sessions = build_local_session_store(config.local_session_state_path.clone());
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
@@ -79,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
         config,
         catalog,
         bootstrap,
+        local_sessions,
         browse,
         commits,
         search,
@@ -96,6 +101,7 @@ fn build_router(
     config: AppConfig,
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
+    local_sessions: DynLocalSessionStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -138,6 +144,7 @@ fn build_router(
             config,
             catalog,
             bootstrap,
+            _local_sessions: local_sessions,
             browse,
             commits,
             search,
@@ -982,10 +989,12 @@ mod tests {
 
     fn test_app_with_config(config: AppConfig) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
+        let local_session_state_path = config.local_session_state_path.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(bootstrap_state_path),
+            build_local_session_store(local_session_state_path),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1070,6 +1079,7 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1166,6 +1176,7 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1508,6 +1519,7 @@ mod tests {
             AppConfig::default(),
             Arc::new(InMemoryCatalogStore::seeded()),
             Arc::new(AlreadyInitializedBootstrapStore),
+            build_local_session_store(unique_test_path("already-initialized-sessions")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1544,6 +1556,9 @@ mod tests {
                 bind_addr: "127.0.0.1:3000".into(),
                 database_url: Some("postgres://secret@localhost/sourcebot".into()),
                 bootstrap_state_path: unique_test_path("config").display().to_string(),
+                local_session_state_path: unique_test_path("config-local-sessions")
+                    .display()
+                    .to_string(),
                 llm_provider: Some("stub".into()),
                 llm_model: Some("stub-model".into()),
                 llm_api_base: Some("https://llm.invalid".into()),
@@ -1551,6 +1566,7 @@ mod tests {
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("config-store")),
+            build_local_session_store(unique_test_path("config-session-store")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),

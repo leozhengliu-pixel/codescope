@@ -74,6 +74,20 @@ pub struct BootstrapState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalSession {
+    pub id: String,
+    pub user_id: String,
+    pub secret_hash: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalSessionState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<LocalSession>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskCitation {
     pub repo_id: String,
     pub path: String,
