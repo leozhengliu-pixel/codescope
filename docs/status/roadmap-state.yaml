@@ -5,31 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fec0206fe345c6281769cd3bcddcc92f760aef63
+  head: 4a7e1fbb4be7d457f767315d6529fdb707c4d5b4
 last_completed_task:
-  id: task26a
-  title: Shared organization/member/role domain models
+  id: task26b1
+  title: Organization state store contract and basic file-backed read/write scaffolding
   status: done
   summary: >-
-    Split task26 and completed the first org/auth slice by adding shared
-    OrganizationRole, Organization, OrganizationMembership, and
-    OrganizationState models in sourcebot-models, plus a minimal
-    can_manage_members helper for admin-vs-viewer behavior, without adding any
-    API routes, stores, config, invites, or permission enforcement yet.
+    Split the broader task26b persistence work and completed the first slice by
+    adding an OrganizationStore contract in sourcebot-core, implementing a
+    file-backed FileOrganizationStore in sourcebot-api with default-empty
+    read/write JSON persistence, plumbing a dedicated organization_state_path
+    through config, and minimally constructing the store at startup without yet
+    wiring organization state into app state, routes, invites, or permission
+    enforcement.
   tests:
-    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (3 tests)
-    - cargo test -p sourcebot-models -- --nocapture: passed (8 tests)
+    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff is appropriately scoped to sourcebot-models, matches the task26a model-only spec with no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add an explicit deserialize-from-empty-object regression test for OrganizationState later
-  commit: fec0206fe345c6281769cd3bcddcc92f760aef63
-  next_task: task26b
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the organization store contract, file-backed persistence, config path plumbing, minimal startup construction, and tests with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around explicit env-override coverage and future AppState wiring
+  commit: 4a7e1fbb4be7d457f767315d6529fdb707c4d5b4
+  next_task: task26b2
 current_task:
-  id: task26b
-  title: File-backed organization state store contract and persistence scaffolding
+  id: task26b2
+  title: Wire the organization store through API state/builders without adding org routes
   status: pending
 history:
+  - id: task26b1
+    status: done
+    summary: >-
+      Split the broader task26b persistence work and completed the first slice
+      by adding an OrganizationStore contract in sourcebot-core, implementing a
+      file-backed FileOrganizationStore in sourcebot-api with default-empty
+      read/write JSON persistence, plumbing a dedicated organization_state_path
+      through config, and minimally constructing the store at startup without
+      yet wiring organization state into app state, routes, invites, or
+      permission enforcement.
+    tests:
+      - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the organization store contract, file-backed persistence, config path plumbing, minimal startup construction, and tests with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around explicit env-override coverage and future AppState wiring
+    commit: 4a7e1fbb4be7d457f767315d6529fdb707c4d5b4
+    next_task: task26b2
   - id: task26a
     status: done
     summary: >-
