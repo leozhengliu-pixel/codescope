@@ -4,6 +4,10 @@ mod browse;
 mod commits;
 mod storage;
 
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2,
+};
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
 use auth::{build_bootstrap_store, DynBootstrapStore};
 use axum::{
@@ -21,12 +25,13 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, LlmProviderConfig};
 use sourcebot_models::{
-    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapStatus, RepositoryDetail,
-    RepositorySummary,
+    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapState, BootstrapStatus,
+    RepositoryDetail, RepositorySummary,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
 };
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use storage::{build_catalog_store, DynCatalogStore};
@@ -98,7 +103,10 @@ fn build_router(
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .route("/api/v1/auth/bootstrap", get(get_bootstrap_status))
+        .route(
+            "/api/v1/auth/bootstrap",
+            get(get_bootstrap_status).post(create_bootstrap_admin),
+        )
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -142,7 +150,7 @@ fn next_ask_entity_id(prefix: &str) -> String {
     format!("{prefix}_{sequence}")
 }
 
-fn current_ask_timestamp() -> String {
+fn current_timestamp() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .expect("current UTC time should format as RFC3339")
@@ -166,6 +174,13 @@ struct SearchQuery {
     #[serde(default)]
     q: String,
     repo_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BootstrapCreateBody {
+    email: String,
+    name: String,
+    password: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -280,6 +295,62 @@ async fn get_bootstrap_status(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(status))
+}
+
+async fn create_bootstrap_admin(
+    State(state): State<AppState>,
+    Json(payload): Json<BootstrapCreateBody>,
+) -> Result<(StatusCode, Json<BootstrapStatus>), StatusCode> {
+    let email = payload.email.trim();
+    let name = payload.name.trim();
+    if email.is_empty() || name.is_empty() || payload.password.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let status = state
+        .bootstrap
+        .bootstrap_status()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !status.bootstrap_required {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let salt = SaltString::generate(&mut OsRng);
+    let password_hash = Argon2::default()
+        .hash_password(payload.password.as_bytes(), &salt)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let bootstrap_state = BootstrapState {
+        initialized_at: current_timestamp(),
+        admin_email: email.to_string(),
+        admin_name: name.to_string(),
+        password_hash,
+    };
+
+    state
+        .bootstrap
+        .initialize_bootstrap(bootstrap_state)
+        .await
+        .map_err(map_bootstrap_initialize_error)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(BootstrapStatus {
+            bootstrap_required: false,
+        }),
+    ))
+}
+
+fn map_bootstrap_initialize_error(error: anyhow::Error) -> StatusCode {
+    if error
+        .downcast_ref::<std::io::Error>()
+        .is_some_and(|io_error| io_error.kind() == ErrorKind::AlreadyExists)
+    {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
 }
 
 async fn list_repositories(
@@ -653,7 +724,7 @@ async fn create_ask_completion(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Some(thread_id) = request.thread_id.as_deref() {
-        let timestamp = current_ask_timestamp();
+        let timestamp = current_timestamp();
         state
             .ask_threads
             .append_message_for_user(
@@ -687,7 +758,7 @@ async fn create_ask_completion(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::NOT_FOUND)?;
     } else {
-        let timestamp = current_ask_timestamp();
+        let timestamp = current_timestamp();
         state
             .ask_threads
             .create_thread(AskThread {
@@ -729,10 +800,11 @@ mod tests {
         commits::{CommitStore, LocalCommitStore},
         storage::InMemoryCatalogStore,
     };
+    use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
-    use sourcebot_core::AskThreadStore;
+    use sourcebot_core::{AskThreadStore, BootstrapStore};
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
     use std::{
@@ -872,6 +944,21 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
+    struct BootstrapCreateRequest {
+        email: String,
+        name: String,
+        password: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    struct BootstrapStateResponse {
+        initialized_at: String,
+        admin_email: String,
+        admin_name: String,
+        password_hash: String,
+    }
+
+    #[derive(Debug, Serialize)]
     struct AskCompletionRequest {
         prompt: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -909,6 +996,25 @@ mod tests {
     async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[derive(Debug)]
+    struct AlreadyInitializedBootstrapStore;
+
+    #[async_trait]
+    impl BootstrapStore for AlreadyInitializedBootstrapStore {
+        async fn bootstrap_status(&self) -> anyhow::Result<BootstrapStatus> {
+            Ok(BootstrapStatus {
+                bootstrap_required: true,
+            })
+        }
+
+        async fn initialize_bootstrap(&self, _state: BootstrapState) -> anyhow::Result<()> {
+            Err(
+                std::io::Error::new(ErrorKind::AlreadyExists, "bootstrap already initialized")
+                    .into(),
+            )
+        }
     }
 
     #[tokio::test]
@@ -1238,7 +1344,17 @@ mod tests {
     #[tokio::test]
     async fn bootstrap_status_returns_not_required_after_initialization_state_exists() {
         let bootstrap_state_path = unique_test_path("present");
-        fs::write(&bootstrap_state_path, b"initialized").unwrap();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash: "$argon2id$example".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
         let app = test_app_with_config(AppConfig {
             bootstrap_state_path: bootstrap_state_path.display().to_string(),
             ..AppConfig::default()
@@ -1263,6 +1379,157 @@ mod tests {
         );
 
         fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn bootstrap_create_persists_admin_state_and_closes_bootstrap() {
+        let bootstrap_state_path = unique_test_path("create");
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+
+        let persisted: BootstrapStateResponse =
+            serde_json::from_slice(&fs::read(&bootstrap_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.admin_email, "admin@example.com");
+        assert_eq!(persisted.admin_name, "Admin User");
+        assert_ne!(persisted.password_hash, "correct horse battery staple");
+        assert!(persisted.password_hash.starts_with("$argon2"));
+        assert!(OffsetDateTime::parse(&persisted.initialized_at, &Rfc3339).is_ok());
+
+        let status_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status_response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(status_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn bootstrap_create_returns_conflict_on_second_post_after_initialization() {
+        let bootstrap_state_path = unique_test_path("conflict");
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let first_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first_response.status(), StatusCode::CREATED);
+
+        let second_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(second_response.status(), StatusCode::CONFLICT);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn bootstrap_create_returns_conflict_when_initialize_races_with_existing_state() {
+        let app = build_router(
+            AppConfig::default(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            Arc::new(AlreadyInitializedBootstrapStore),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

@@ -18,6 +18,7 @@ pub trait CatalogStore: Send + Sync {
 #[async_trait]
 pub trait BootstrapStore: Send + Sync {
     async fn bootstrap_status(&self) -> Result<sourcebot_models::BootstrapStatus>;
+    async fn initialize_bootstrap(&self, state: sourcebot_models::BootstrapState) -> Result<()>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

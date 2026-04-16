@@ -1,8 +1,17 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use sourcebot_core::BootstrapStore;
-use sourcebot_models::BootstrapStatus;
-use std::{path::PathBuf, sync::Arc};
+use sourcebot_models::{BootstrapState, BootstrapStatus};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{ErrorKind, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 pub type DynBootstrapStore = Arc<dyn BootstrapStore>;
 
@@ -17,14 +26,90 @@ impl FileBootstrapStore {
             state_path: state_path.into(),
         }
     }
+
+    fn temporary_state_path(&self) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let file_name = self
+            .state_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("bootstrap-state.json");
+        self.state_path
+            .with_file_name(format!(".{file_name}.{nanos}.tmp"))
+    }
+}
+
+fn open_new_bootstrap_file(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
+fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            File::open(parent)?.sync_all()?;
+        }
+    }
+
+    Ok(())
 }
 
 #[async_trait]
 impl BootstrapStore for FileBootstrapStore {
     async fn bootstrap_status(&self) -> Result<BootstrapStatus> {
-        Ok(BootstrapStatus {
-            bootstrap_required: !self.state_path.is_file(),
-        })
+        let bootstrap_required = if !self.state_path.is_file() {
+            true
+        } else {
+            match fs::read(&self.state_path) {
+                Ok(bytes) => serde_json::from_slice::<BootstrapState>(&bytes).is_err(),
+                Err(error) if error.kind() == ErrorKind::NotFound => true,
+                Err(error) => return Err(error.into()),
+            }
+        };
+
+        Ok(BootstrapStatus { bootstrap_required })
+    }
+
+    async fn initialize_bootstrap(&self, state: BootstrapState) -> Result<()> {
+        if let Some(parent) = self.state_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+
+        let payload = serde_json::to_vec_pretty(&state)?;
+        let temp_path = self.temporary_state_path();
+        let write_result = (|| -> std::io::Result<()> {
+            let mut file = open_new_bootstrap_file(&temp_path)?;
+            file.write_all(&payload)?;
+            file.write_all(b"\n")?;
+            file.sync_all()?;
+            drop(file);
+
+            fs::hard_link(&temp_path, &self.state_path)?;
+            sync_parent_directory(&self.state_path)?;
+            fs::remove_file(&temp_path)?;
+            Ok(())
+        })();
+
+        if let Err(error) = write_result {
+            match fs::remove_file(&temp_path) {
+                Ok(()) => {}
+                Err(remove_error) if remove_error.kind() == ErrorKind::NotFound => {}
+                Err(remove_error) => return Err(remove_error.into()),
+            }
+            return Err(error.into());
+        }
+
+        Ok(())
     }
 }
 
@@ -57,9 +142,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_bootstrap_store_requires_bootstrap_when_state_file_is_invalid_json() {
+        let path = unique_test_path("invalid-json");
+        fs::write(&path, b"{\"initialized_at\":").unwrap();
+        let store = FileBootstrapStore::new(&path);
+
+        assert!(store.bootstrap_status().await.unwrap().bootstrap_required);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn file_bootstrap_store_disables_bootstrap_when_state_file_exists() {
         let path = unique_test_path("present");
-        fs::write(&path, b"initialized").unwrap();
+        fs::write(
+            &path,
+            serde_json::to_vec(&BootstrapState {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash: "$argon2id$example".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
 
         let store = FileBootstrapStore::new(&path);
 
@@ -78,5 +184,33 @@ mod tests {
         assert!(store.bootstrap_status().await.unwrap().bootstrap_required);
 
         fs::remove_dir(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_bootstrap_store_persists_initial_admin_state() {
+        let path = unique_test_path("persisted-state");
+        let store = FileBootstrapStore::new(&path);
+        let state = BootstrapState {
+            initialized_at: "2026-04-16T17:00:00Z".into(),
+            admin_email: "admin@example.com".into(),
+            admin_name: "Admin User".into(),
+            password_hash: "$argon2id$example".into(),
+        };
+
+        store.initialize_bootstrap(state.clone()).await.unwrap();
+
+        let persisted: BootstrapState = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted, state);
+        assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+
+        fs::remove_file(path).unwrap();
     }
 }

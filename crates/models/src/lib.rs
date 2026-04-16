@@ -66,6 +66,14 @@ pub struct BootstrapStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BootstrapState {
+    pub initialized_at: String,
+    pub admin_email: String,
+    pub admin_name: String,
+    pub password_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskCitation {
     pub repo_id: String,
     pub path: String,
