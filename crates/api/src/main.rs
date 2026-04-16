@@ -1,9 +1,11 @@
 mod ask;
+mod auth;
 mod browse;
 mod commits;
 mod storage;
 
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
+use auth::{build_bootstrap_store, DynBootstrapStore};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -19,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, LlmProviderConfig};
 use sourcebot_models::{
-    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, RepositoryDetail, RepositorySummary,
+    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapStatus, RepositoryDetail,
+    RepositorySummary,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -34,6 +37,7 @@ use tracing::info;
 struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
+    bootstrap: DynBootstrapStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -60,12 +64,21 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = config.bind_addr.parse()?;
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
+    let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
     let ask_threads = build_ask_thread_store();
 
-    let app = build_router(config, catalog, browse, commits, search, ask_threads);
+    let app = build_router(
+        config,
+        catalog,
+        bootstrap,
+        browse,
+        commits,
+        search,
+        ask_threads,
+    );
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -77,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
 fn build_router(
     config: AppConfig,
     catalog: DynCatalogStore,
+    bootstrap: DynBootstrapStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -84,6 +98,7 @@ fn build_router(
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/api/v1/auth/bootstrap", get(get_bootstrap_status))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -114,6 +129,7 @@ fn build_router(
         .with_state(AppState {
             config,
             catalog,
+            bootstrap,
             browse,
             commits,
             search,
@@ -252,6 +268,18 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
 
 async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
     Json(state.config.public_view())
+}
+
+async fn get_bootstrap_status(
+    State(state): State<AppState>,
+) -> Result<Json<BootstrapStatus>, StatusCode> {
+    let status = state
+        .bootstrap
+        .bootstrap_status()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(status))
 }
 
 async fn list_repositories(
@@ -705,9 +733,15 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
     use sourcebot_core::AskThreadStore;
+    use sourcebot_search::build_search_store;
     use std::sync::Arc;
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
-    use tower::util::ServiceExt;
+    use tower::ServiceExt;
 
     #[derive(Debug, Deserialize)]
     struct TreeEntryResponse {
@@ -832,6 +866,11 @@ mod tests {
         answer: String,
     }
 
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct BootstrapStatusResponse {
+        bootstrap_required: bool,
+    }
+
     #[derive(Debug, Serialize)]
     struct AskCompletionRequest {
         prompt: String,
@@ -846,10 +885,20 @@ mod tests {
         test_app_with_config(AppConfig::default())
     }
 
+    fn unique_test_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("sourcebot-bootstrap-{name}-{nanos}.json"))
+    }
+
     fn test_app_with_config(config: AppConfig) -> Router {
+        let bootstrap_state_path = config.bootstrap_state_path.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(bootstrap_state_path),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -902,13 +951,15 @@ mod tests {
     #[tokio::test]
     async fn ask_completions_persists_new_repo_scoped_threads() {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let config = AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            ..AppConfig::default()
+        };
         let app = build_router(
-            AppConfig {
-                llm_provider: Some("stub".into()),
-                llm_model: Some("stub-model".into()),
-                ..AppConfig::default()
-            },
+            config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -996,13 +1047,15 @@ mod tests {
             .await
             .unwrap();
 
+        let config = AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            ..AppConfig::default()
+        };
         let app = build_router(
-            AppConfig {
-                llm_provider: Some("stub".into()),
-                llm_model: Some("stub-model".into()),
-                ..AppConfig::default()
-            },
+            config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1157,18 +1210,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bootstrap_status_returns_required_when_state_file_is_missing() {
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: unique_test_path("missing").display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: true,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_status_returns_not_required_after_initialization_state_exists() {
+        let bootstrap_state_path = unique_test_path("present");
+        fs::write(&bootstrap_state_path, b"initialized").unwrap();
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn config_endpoint_hides_database_url_value() {
         let app = build_router(
             AppConfig {
                 service_name: "sourcebot-api".into(),
                 bind_addr: "127.0.0.1:3000".into(),
                 database_url: Some("postgres://secret@localhost/sourcebot".into()),
+                bootstrap_state_path: unique_test_path("config").display().to_string(),
                 llm_provider: Some("stub".into()),
                 llm_model: Some("stub-model".into()),
                 llm_api_base: Some("https://llm.invalid".into()),
                 llm_api_key: Some("super-secret".into()),
             },
             Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(unique_test_path("config-store")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),

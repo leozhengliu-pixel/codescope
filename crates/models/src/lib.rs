@@ -61,6 +61,11 @@ pub struct RepositoryDetail {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BootstrapStatus {
+    pub bootstrap_required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskCitation {
     pub repo_id: String,
     pub path: String,

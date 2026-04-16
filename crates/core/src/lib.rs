@@ -15,6 +15,11 @@ pub trait CatalogStore: Send + Sync {
     async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>>;
 }
 
+#[async_trait]
+pub trait BootstrapStore: Send + Sync {
+    async fn bootstrap_status(&self) -> Result<sourcebot_models::BootstrapStatus>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetrievalToolDefinition {
     pub name: String,
