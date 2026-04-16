@@ -1,12 +1,93 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use sourcebot_models::{Connection, Repository, RepositoryDetail, RepositorySummary};
 
 pub const PROJECT_NAME: &str = "sourcebot-rewrite";
 
+#[async_trait]
 pub trait CatalogStore: Send + Sync {
-    fn list_repositories(&self) -> Result<Vec<RepositorySummary>>;
-    fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>>;
+    async fn list_repositories(&self) -> Result<Vec<RepositorySummary>>;
+    async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetrievalToolDefinition {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RetrievalToolContext {
+    pub active_repo_id: Option<String>,
+    pub repo_scope: Vec<String>,
+    pub visible_repo_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tool", content = "payload", rename_all = "snake_case")]
+pub enum RetrievalToolResult {
+    ListRepos(ListReposResult),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListReposResult {
+    pub repositories: Vec<RepositorySummary>,
+}
+
+#[async_trait]
+pub trait RetrievalTool: Send + Sync {
+    fn definition(&self) -> RetrievalToolDefinition;
+    async fn run(
+        &self,
+        catalog: &dyn CatalogStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ListReposTool;
+
+#[async_trait]
+impl RetrievalTool for ListReposTool {
+    fn definition(&self) -> RetrievalToolDefinition {
+        RetrievalToolDefinition {
+            name: "list_repos".into(),
+            description: "List repositories available to the retrieval scope.".into(),
+        }
+    }
+
+    async fn run(
+        &self,
+        catalog: &dyn CatalogStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult> {
+        let repositories = catalog.list_repositories().await?;
+        let scoped_repo_ids = if !context.repo_scope.is_empty() {
+            context.repo_scope.as_slice()
+        } else if let Some(active_repo_id) = context.active_repo_id.as_ref() {
+            std::slice::from_ref(active_repo_id)
+        } else {
+            context.visible_repo_ids.as_slice()
+        };
+
+        let repositories = repositories
+            .into_iter()
+            .filter(|repository| {
+                context
+                    .visible_repo_ids
+                    .iter()
+                    .any(|repo_id| repo_id == &repository.id)
+                    && scoped_repo_ids
+                        .iter()
+                        .any(|repo_id| repo_id == &repository.id)
+            })
+            .collect();
+
+        Ok(RetrievalToolResult::ListRepos(ListReposResult {
+            repositories,
+        }))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +216,134 @@ pub fn build_repository_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sourcebot_models::SyncState;
+
+    struct StaticCatalogStore {
+        repositories: Vec<RepositorySummary>,
+    }
+
+    #[async_trait]
+    impl CatalogStore for StaticCatalogStore {
+        async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
+            Ok(self.repositories.clone())
+        }
+
+        async fn get_repository_detail(&self, _repo_id: &str) -> Result<Option<RepositoryDetail>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn list_repos_tool_definition_is_machine_readable() {
+        let tool = ListReposTool;
+
+        assert_eq!(
+            tool.definition(),
+            RetrievalToolDefinition {
+                name: "list_repos".into(),
+                description: "List repositories available to the retrieval scope.".into(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn list_repos_tool_returns_only_visible_repositories_in_scope() {
+        let tool = ListReposTool;
+        let store = StaticCatalogStore {
+            repositories: vec![
+                RepositorySummary {
+                    id: "repo_sourcebot_rewrite".into(),
+                    name: "sourcebot-rewrite".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Ready,
+                },
+                RepositorySummary {
+                    id: "repo_demo_docs".into(),
+                    name: "demo-docs".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Pending,
+                },
+                RepositorySummary {
+                    id: "repo_secret".into(),
+                    name: "secret".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Ready,
+                },
+            ],
+        };
+
+        let result = tool
+            .run(
+                &store,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into(), "repo_secret".into()],
+                },
+            )
+            .await
+            .expect("list_repos should succeed");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::ListRepos(ListReposResult {
+                repositories: vec![RepositorySummary {
+                    id: "repo_sourcebot_rewrite".into(),
+                    name: "sourcebot-rewrite".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Ready,
+                }],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn list_repos_tool_falls_back_to_active_repo_when_scope_is_empty() {
+        let tool = ListReposTool;
+        let store = StaticCatalogStore {
+            repositories: vec![
+                RepositorySummary {
+                    id: "repo_sourcebot_rewrite".into(),
+                    name: "sourcebot-rewrite".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Ready,
+                },
+                RepositorySummary {
+                    id: "repo_demo_docs".into(),
+                    name: "demo-docs".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Pending,
+                },
+            ],
+        };
+
+        let result = tool
+            .run(
+                &store,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_demo_docs".into()),
+                    repo_scope: Vec::new(),
+                    visible_repo_ids: vec![
+                        "repo_sourcebot_rewrite".into(),
+                        "repo_demo_docs".into(),
+                    ],
+                },
+            )
+            .await
+            .expect("list_repos should use the active repo fallback");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::ListRepos(ListReposResult {
+                repositories: vec![RepositorySummary {
+                    id: "repo_demo_docs".into(),
+                    name: "demo-docs".into(),
+                    default_branch: "main".into(),
+                    sync_state: SyncState::Pending,
+                }],
+            })
+        );
+    }
 
     #[tokio::test]
     async fn disabled_provider_returns_actionable_error() {

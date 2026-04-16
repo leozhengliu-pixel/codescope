@@ -228,6 +228,7 @@ async fn list_repositories(
     let repositories = state
         .catalog
         .list_repositories()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(repositories))
@@ -240,6 +241,7 @@ async fn get_repository_detail(
     let detail = state
         .catalog
         .get_repository_detail(&repo_id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 

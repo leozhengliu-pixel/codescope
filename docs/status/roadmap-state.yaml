@@ -1,0 +1,61 @@
+version: 1
+roadmap:
+  path: docs/plans/2026-04-14-sourcebot-rewrite-plan.md
+  total_tasks: 35
+project:
+  repo_path: /opt/data/projects/sourcebot-rewrite
+  branch: master
+  head: b96a193b0a4c9a985eb6e3a79dfa231c8bd555cf
+last_completed_task:
+  id: task20a
+  title: Retrieval tool contracts and first list_repos tool slice
+  status: done
+  summary: >-
+    Added async retrieval-tool and catalog contracts, a structured list_repos
+    tool result, scope-aware repository filtering, and async catalog call sites
+    in the API so future retrieval tools can reuse the same boundary.
+  tests:
+    - cargo test -p sourcebot-core: passed (5 tests)
+    - cargo test -p sourcebot-api repos: passed (4 tests)
+    - cargo test -p sourcebot-api storage: passed (3 tests)
+    - cargo check: passed
+  review:
+    spec: pass
+    code: approved
+  commit: b96a193
+  next_task: task20b
+current_task:
+  id: task20b
+  parent_task: task20
+  title: Retrieval list_tree tool slice
+  status: pending
+history:
+  - id: task19
+    status: done
+    summary: >-
+      Added async LLM provider abstraction and safe public config metadata.
+    tests:
+      - cargo test: passed
+      - cargo check: passed
+    commit: 842f68f
+    next_task: task20a
+  - id: task20a
+    status: done
+    summary: >-
+      Added reusable async retrieval-tool contracts and the first scoped
+      list_repos tool slice with API/catalog async alignment.
+    tests:
+      - cargo test -p sourcebot-core: passed (5 tests)
+      - cargo test -p sourcebot-api repos: passed (4 tests)
+      - cargo test -p sourcebot-api storage: passed (3 tests)
+      - cargo check: passed
+    commit: b96a193
+    next_task: task20b
+notes:
+  execution_rules:
+    - docs/status/roadmap-state.yaml is the single source of project status.
+    - Execute exactly one smallest deliverable task per execution unit.
+    - A task is complete only after implementation, tests, docs, review, and commit.
+    - After each task, update this file with status, summary, tests, commit, and next task.
+    - If a task is too large, split it and only do the first subtask.
+    - If blocked, write blocked reason and suggested workaround, then pick another task in the next unit.

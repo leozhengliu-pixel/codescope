@@ -1,4 +1,5 @@
 use anyhow::Result;
+use async_trait::async_trait;
 use sourcebot_core::{build_repository_detail, CatalogStore};
 use sourcebot_models::{
     seed_connections, seed_repositories, Connection, Repository, RepositoryDetail,
@@ -28,12 +29,13 @@ impl InMemoryCatalogStore {
     }
 }
 
+#[async_trait]
 impl CatalogStore for InMemoryCatalogStore {
-    fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
+    async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
         Ok(self.repositories.iter().map(Repository::summary).collect())
     }
 
-    fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
+    async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
         build_repository_detail(&self.repositories, &self.connections, repo_id)
     }
 }
@@ -58,8 +60,9 @@ impl PgCatalogStore {
     }
 }
 
+#[async_trait]
 impl CatalogStore for PgCatalogStore {
-    fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
+    async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
         anyhow::bail!(
             "postgres catalog store list_repositories is not implemented yet for pool {}",
             self.pool
@@ -69,7 +72,7 @@ impl CatalogStore for PgCatalogStore {
         )
     }
 
-    fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
+    async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
         anyhow::bail!(
             "postgres catalog store get_repository_detail is not implemented yet for repo {repo_id}"
         )
@@ -91,8 +94,8 @@ mod tests {
     use super::*;
     use sourcebot_models::{ConnectionKind, SyncState};
 
-    #[test]
-    fn in_memory_store_uses_provided_catalog_data() {
+    #[tokio::test]
+    async fn in_memory_store_uses_provided_catalog_data() {
         let store = InMemoryCatalogStore::new(
             vec![Repository {
                 id: "repo_custom".into(),
@@ -109,7 +112,7 @@ mod tests {
         );
 
         assert_eq!(
-            store.list_repositories().unwrap(),
+            store.list_repositories().await.unwrap(),
             vec![RepositorySummary {
                 id: "repo_custom".into(),
                 name: "custom".into(),
@@ -119,7 +122,7 @@ mod tests {
         );
 
         assert_eq!(
-            store.get_repository_detail("repo_custom").unwrap(),
+            store.get_repository_detail("repo_custom").await.unwrap(),
             Some(RepositoryDetail {
                 repository: Repository {
                     id: "repo_custom".into(),
@@ -140,7 +143,7 @@ mod tests {
     #[tokio::test]
     async fn build_catalog_store_without_database_uses_seeded_in_memory_store() {
         let store = build_catalog_store(None).await.unwrap();
-        let repositories = store.list_repositories().unwrap();
+        let repositories = store.list_repositories().await.unwrap();
 
         assert!(repositories
             .iter()
@@ -154,7 +157,7 @@ mod tests {
         ))
         .await
         .unwrap();
-        let repositories = store.list_repositories().unwrap();
+        let repositories = store.list_repositories().await.unwrap();
 
         assert!(repositories
             .iter()

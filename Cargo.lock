@@ -1294,6 +1294,7 @@ name = "sourcebot-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "serde",
  "serde_json",
