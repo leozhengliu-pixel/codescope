@@ -40,6 +40,18 @@ impl FileBootstrapStore {
         self.state_path
             .with_file_name(format!(".{file_name}.{nanos}.tmp"))
     }
+
+    fn read_persisted_state(&self) -> Result<Option<BootstrapState>> {
+        if !self.state_path.is_file() {
+            return Ok(None);
+        }
+
+        match fs::read(&self.state_path) {
+            Ok(bytes) => Ok(serde_json::from_slice::<BootstrapState>(&bytes).ok()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 fn open_new_bootstrap_file(path: &Path) -> std::io::Result<File> {
@@ -65,17 +77,13 @@ fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
 #[async_trait]
 impl BootstrapStore for FileBootstrapStore {
     async fn bootstrap_status(&self) -> Result<BootstrapStatus> {
-        let bootstrap_required = if !self.state_path.is_file() {
-            true
-        } else {
-            match fs::read(&self.state_path) {
-                Ok(bytes) => serde_json::from_slice::<BootstrapState>(&bytes).is_err(),
-                Err(error) if error.kind() == ErrorKind::NotFound => true,
-                Err(error) => return Err(error.into()),
-            }
-        };
+        let bootstrap_required = self.read_persisted_state()?.is_none();
 
         Ok(BootstrapStatus { bootstrap_required })
+    }
+
+    async fn bootstrap_state(&self) -> Result<Option<BootstrapState>> {
+        self.read_persisted_state()
     }
 
     async fn initialize_bootstrap(&self, state: BootstrapState) -> Result<()> {
@@ -212,5 +220,38 @@ mod tests {
         }
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_bootstrap_store_reads_bootstrap_state_only_when_persisted_state_is_valid() {
+        let missing_path = unique_test_path("read-missing");
+        let missing_store = FileBootstrapStore::new(&missing_path);
+        assert_eq!(missing_store.bootstrap_state().await.unwrap(), None);
+
+        let invalid_path = unique_test_path("read-invalid");
+        fs::write(&invalid_path, b"{\"initialized_at\":").unwrap();
+        let invalid_store = FileBootstrapStore::new(&invalid_path);
+        assert_eq!(invalid_store.bootstrap_state().await.unwrap(), None);
+        fs::remove_file(&invalid_path).unwrap();
+
+        let valid_path = unique_test_path("read-valid");
+        let valid_store = FileBootstrapStore::new(&valid_path);
+        let expected_state = BootstrapState {
+            initialized_at: "2026-04-16T17:00:00Z".into(),
+            admin_email: "admin@example.com".into(),
+            admin_name: "Admin User".into(),
+            password_hash: "$argon2id$example".into(),
+        };
+        valid_store
+            .initialize_bootstrap(expected_state.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            valid_store.bootstrap_state().await.unwrap(),
+            Some(expected_state)
+        );
+
+        fs::remove_file(valid_path).unwrap();
     }
 }

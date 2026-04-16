@@ -1009,6 +1009,10 @@ mod tests {
             })
         }
 
+        async fn bootstrap_state(&self) -> anyhow::Result<Option<BootstrapState>> {
+            Ok(None)
+        }
+
         async fn initialize_bootstrap(&self, _state: BootstrapState) -> anyhow::Result<()> {
             Err(
                 std::io::Error::new(ErrorKind::AlreadyExists, "bootstrap already initialized")
