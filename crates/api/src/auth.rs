@@ -306,7 +306,9 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_models::{Organization, OrganizationMembership, OrganizationRole};
+    use sourcebot_models::{
+        LocalAccount, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
+    };
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -648,6 +650,23 @@ mod tests {
                 user_id: "local_user_bootstrap_admin".into(),
                 role: OrganizationRole::Admin,
                 joined_at: "2026-04-16T20:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: "local_user_bootstrap_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Bootstrap Admin".into(),
+                created_at: "2026-04-16T19:58:00Z".into(),
+            }],
+            invites: vec![OrganizationInvite {
+                id: "invite_member".into(),
+                organization_id: "org_acme".into(),
+                email: "member@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "local_user_bootstrap_admin".into(),
+                created_at: "2026-04-16T20:05:00Z".into(),
+                expires_at: "2026-04-23T20:05:00Z".into(),
+                accepted_by_user_id: Some("local_user_member".into()),
+                accepted_at: Some("2026-04-17T08:00:00Z".into()),
             }],
         };
 

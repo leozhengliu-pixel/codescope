@@ -1075,8 +1075,8 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore};
     use sourcebot_models::{
-        LocalSessionState, Organization, OrganizationMembership, OrganizationRole,
-        OrganizationState,
+        LocalAccount, LocalSessionState, Organization, OrganizationInvite, OrganizationMembership,
+        OrganizationRole, OrganizationState,
     };
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
@@ -1312,6 +1312,23 @@ mod tests {
                 user_id: "user_admin".into(),
                 role: OrganizationRole::Admin,
                 joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: "user_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            invites: vec![OrganizationInvite {
+                id: "invite_reviewer".into(),
+                organization_id: "org_acme".into(),
+                email: "reviewer@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "user_admin".into(),
+                created_at: "2026-04-21T00:05:00Z".into(),
+                expires_at: "2026-04-28T00:05:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
             }],
         };
         fs::write(
