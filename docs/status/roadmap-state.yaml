@@ -5,36 +5,48 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c0aac20c4d8e783eafa6793b13ba4375dc868dad
+  head: fec0206fe345c6281769cd3bcddcc92f760aef63
 last_completed_task:
-  id: task25c2b2b2
-  title: Targeted local-session revocation endpoint for explicit session invalidation
+  id: task26a
+  title: Shared organization/member/role domain models
   status: done
   summary: >-
-    Completed the second follow-up local-session slice by adding POST
-    /api/v1/auth/revoke with an explicit session_id body, authenticating via the
-    existing Bearer <session_id>:<session_secret> flow, revoking only the
-    requested local bootstrap-admin session, returning 204 No Content on
-    success, and failing closed for blank payloads, missing or malformed auth,
-    missing targets, already revoked targets, foreign-user targets, or
-    malformed persisted target session records without changing logout behavior
-    or adding session listing.
+    Split task26 and completed the first org/auth slice by adding shared
+    OrganizationRole, Organization, OrganizationMembership, and
+    OrganizationState models in sourcebot-models, plus a minimal
+    can_manage_members helper for admin-vs-viewer behavior, without adding any
+    API routes, stores, config, invites, or permission enforcement yet.
   tests:
-    - cargo test -p sourcebot-api revoke_ -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api logout_ -- --nocapture: passed (2 tests)
-    - cargo test -p sourcebot-api auth_ -- --nocapture: passed (5 tests)
-    - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (3 tests)
+    - cargo test -p sourcebot-models -- --nocapture: passed (8 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the new targeted revocation slice is roadmap-compliant, found no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add a focused missing/malformed Authorization test for /api/v1/auth/revoke
-  commit: c0aac20c4d8e783eafa6793b13ba4375dc868dad
-  next_task: task26
+    code: approved by one independent post-implementation review; reviewer confirmed the diff is appropriately scoped to sourcebot-models, matches the task26a model-only spec with no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add an explicit deserialize-from-empty-object regression test for OrganizationState later
+  commit: fec0206fe345c6281769cd3bcddcc92f760aef63
+  next_task: task26b
 current_task:
-  id: task26
-  title: Org/member/role model
+  id: task26b
+  title: File-backed organization state store contract and persistence scaffolding
   status: pending
 history:
+  - id: task26a
+    status: done
+    summary: >-
+      Split task26 and completed the first org/auth slice by adding shared
+      OrganizationRole, Organization, OrganizationMembership, and
+      OrganizationState models in sourcebot-models, plus a minimal
+      can_manage_members helper for admin-vs-viewer behavior, without adding
+      any API routes, stores, config, invites, or permission enforcement yet.
+    tests:
+      - cargo test -p sourcebot-models organization_ -- --nocapture: passed (3 tests)
+      - cargo test -p sourcebot-models -- --nocapture: passed (8 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff is appropriately scoped to sourcebot-models, matches the task26a model-only spec with no blocking spec gaps, security concerns, or logic errors, and noted only a non-blocking suggestion to add an explicit deserialize-from-empty-object regression test for OrganizationState later
+    commit: fec0206fe345c6281769cd3bcddcc92f760aef63
+    next_task: task26b
   - id: task25c2b2b2
     status: done
     summary: >-
