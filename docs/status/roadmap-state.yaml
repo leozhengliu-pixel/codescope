@@ -5,29 +5,48 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b97d61fc99cbdd476507f9dcf6647f61098edca1
+  head: b4608191484d3ee838ff0e255ce596f4b39b4d9d
 last_completed_task:
-  id: task24a
-  title: MCP server discovery manifest and tool definitions
-  status: done
-  summary: >-
-    Split task24 and completed the first MCP slice by adding a new sourcebot-mcp
-    crate that exposes serializable MCP server metadata plus repository-aware tool
-    definitions for list_repos, list_tree, read_file, glob, and grep with minimal
-    JSON-schema input contracts, without introducing transport/runtime handling yet.
-  tests:
-    - cargo test -p sourcebot-mcp -- --nocapture: passed (3 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
-  review:
-    code: approved by a single independent combined spec-and-quality review with no blocking issues; reviewer noted that a later transport slice should confirm MCP wire-format field naming and may optionally tighten schemas with additionalProperties constraints
-  commit: b97d61fc99cbdd476507f9dcf6647f61098edca1
-  next_task: task24b
-current_task:
   id: task24b
   title: MCP server tool-call request/response execution
+  status: done
+  summary: >-
+    Completed the second MCP slice by adding a transport-agnostic tool-call
+    execution API in sourcebot-mcp with typed request/response structs, JSON
+    argument parsing, dispatch for list_repos/list_tree/read_file/glob/grep, and
+    structured success/error results that preserve repository scope by delegating
+    execution to the existing sourcebot-core retrieval tools.
+  tests:
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-mcp execute_tool_call -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-mcp -- --nocapture: passed (8 tests)
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check: passed
+  review:
+    code: approved by a single independent combined post-implementation review with no blocking issues; reviewer noted the schema/executor strictness mismatch around additionalProperties false and suggested future drift-avoidance around hard-coded dispatch plus broader direct tests for read_file/glob/grep and execution-failure mapping
+  commit: b4608191484d3ee838ff0e255ce596f4b39b4d9d
+  next_task: task25
+current_task:
+  id: task25
+  title: Local auth + onboarding
   status: pending
 history:
+  - id: task24b
+    status: done
+    summary: >-
+      Completed the second MCP slice by adding a transport-agnostic tool-call
+      execution API in sourcebot-mcp with typed request/response structs, JSON
+      argument parsing, dispatch for list_repos/list_tree/read_file/glob/grep,
+      and structured success/error results that preserve repository scope by
+      delegating execution to the existing sourcebot-core retrieval tools.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-mcp execute_tool_call -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-mcp -- --nocapture: passed (8 tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    review:
+      code: approved by a single independent combined post-implementation review with no blocking issues; reviewer noted the schema/executor strictness mismatch around additionalProperties false and suggested future drift-avoidance around hard-coded dispatch plus broader direct tests for read_file/glob/grep and execution-failure mapping
+    commit: b4608191484d3ee838ff0e255ce596f4b39b4d9d
+    next_task: task25
   - id: task24a
     status: done
     summary: >-
