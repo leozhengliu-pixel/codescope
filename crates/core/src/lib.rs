@@ -65,11 +65,24 @@ pub trait BlobStore: Send + Sync {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryGlob {
+    pub repo_id: String,
+    pub pattern: String,
+    pub paths: Vec<String>,
+}
+
+#[async_trait]
+pub trait GlobStore: Send + Sync {
+    async fn glob_paths(&self, repo_id: &str, pattern: &str) -> Result<Option<RepositoryGlob>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "tool", content = "payload", rename_all = "snake_case")]
 pub enum RetrievalToolResult {
     ListRepos(ListReposResult),
     ListTree(ListTreeResult),
     ReadFile(ReadFileResult),
+    Glob(GlobResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,6 +105,13 @@ pub struct ReadFileResult {
     pub size_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GlobResult {
+    pub repo_id: String,
+    pub pattern: String,
+    pub paths: Vec<String>,
+}
+
 #[async_trait]
 pub trait RetrievalTool: Send + Sync {
     fn definition(&self) -> RetrievalToolDefinition;
@@ -100,6 +120,7 @@ pub trait RetrievalTool: Send + Sync {
         catalog: &dyn CatalogStore,
         trees: &dyn TreeStore,
         blobs: &dyn BlobStore,
+        globs: &dyn GlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult>;
 }
@@ -117,6 +138,11 @@ pub struct ReadFileTool {
     path: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GlobTool {
+    pattern: String,
+}
+
 impl ListTreeTool {
     pub fn new(path: impl Into<String>) -> Self {
         Self { path: path.into() }
@@ -126,6 +152,14 @@ impl ListTreeTool {
 impl ReadFileTool {
     pub fn new(path: impl Into<String>) -> Self {
         Self { path: path.into() }
+    }
+}
+
+impl GlobTool {
+    pub fn new(pattern: impl Into<String>) -> Self {
+        Self {
+            pattern: pattern.into(),
+        }
     }
 }
 
@@ -143,6 +177,7 @@ impl RetrievalTool for ListReposTool {
         catalog: &dyn CatalogStore,
         _trees: &dyn TreeStore,
         _blobs: &dyn BlobStore,
+        _globs: &dyn GlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let repositories = catalog.list_repositories().await?;
@@ -180,6 +215,7 @@ impl RetrievalTool for ListTreeTool {
         _catalog: &dyn CatalogStore,
         trees: &dyn TreeStore,
         _blobs: &dyn BlobStore,
+        _globs: &dyn GlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -245,6 +281,7 @@ impl RetrievalTool for ReadFileTool {
         _catalog: &dyn CatalogStore,
         _trees: &dyn TreeStore,
         blobs: &dyn BlobStore,
+        _globs: &dyn GlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -294,6 +331,78 @@ impl RetrievalTool for ReadFileTool {
             path: blob.path,
             content: blob.content,
             size_bytes: blob.size_bytes,
+        }))
+    }
+}
+
+#[async_trait]
+impl RetrievalTool for GlobTool {
+    fn definition(&self) -> RetrievalToolDefinition {
+        RetrievalToolDefinition {
+            name: "glob".into(),
+            description:
+                "List repository file paths matching a glob pattern inside the active retrieval scope.".into(),
+        }
+    }
+
+    async fn run(
+        &self,
+        _catalog: &dyn CatalogStore,
+        _trees: &dyn TreeStore,
+        _blobs: &dyn BlobStore,
+        globs: &dyn GlobStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult> {
+        let active_repo_id = context
+            .active_repo_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("glob requires an active repository"))?;
+
+        if !repo_is_visible(context, active_repo_id) {
+            anyhow::bail!(
+                "active repository {active_repo_id} is not visible to the retrieval context"
+            );
+        }
+
+        if !repo_is_in_scope(context, active_repo_id) {
+            anyhow::bail!("active repository {active_repo_id} is outside retrieval scope");
+        }
+
+        validate_relative_repo_path(&self.pattern)?;
+
+        let glob = globs
+            .glob_paths(active_repo_id, &self.pattern)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "repository glob not found for repo {active_repo_id} with pattern {}",
+                    self.pattern
+                )
+            })?;
+
+        if glob.repo_id != active_repo_id {
+            anyhow::bail!(
+                "glob store returned repo {} for active repo {active_repo_id}",
+                glob.repo_id
+            );
+        }
+
+        if glob.pattern != self.pattern {
+            anyhow::bail!(
+                "glob store returned pattern {} for requested pattern {}",
+                glob.pattern,
+                self.pattern
+            );
+        }
+
+        for path in &glob.paths {
+            validate_relative_repo_path(path)?;
+        }
+
+        Ok(RetrievalToolResult::Glob(GlobResult {
+            repo_id: glob.repo_id,
+            pattern: glob.pattern,
+            paths: glob.paths,
         }))
     }
 }
@@ -474,12 +583,18 @@ mod tests {
 
     struct NullBlobStore;
 
+    struct NullGlobStore;
+
     struct StaticTreeStore {
         tree: Option<RepositoryTree>,
     }
 
     struct StaticBlobStore {
         blob: Option<RepositoryBlob>,
+    }
+
+    struct StaticGlobStore {
+        glob: Option<RepositoryGlob>,
     }
 
     #[async_trait]
@@ -508,6 +623,17 @@ mod tests {
     }
 
     #[async_trait]
+    impl GlobStore for NullGlobStore {
+        async fn glob_paths(
+            &self,
+            _repo_id: &str,
+            _pattern: &str,
+        ) -> Result<Option<RepositoryGlob>> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait]
     impl TreeStore for StaticTreeStore {
         async fn get_tree(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryTree>> {
             Ok(self.tree.clone())
@@ -518,6 +644,17 @@ mod tests {
     impl BlobStore for StaticBlobStore {
         async fn get_blob(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryBlob>> {
             Ok(self.blob.clone())
+        }
+    }
+
+    #[async_trait]
+    impl GlobStore for StaticGlobStore {
+        async fn glob_paths(
+            &self,
+            _repo_id: &str,
+            _pattern: &str,
+        ) -> Result<Option<RepositoryGlob>> {
+            Ok(self.glob.clone())
         }
     }
 
@@ -562,6 +699,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn glob_tool_definition_is_machine_readable() {
+        let tool = GlobTool::new("src/**/*.rs");
+
+        assert_eq!(
+            tool.definition(),
+            RetrievalToolDefinition {
+                name: "glob".into(),
+                description:
+                    "List repository file paths matching a glob pattern inside the active retrieval scope."
+                        .into(),
+            }
+        );
+    }
+
     #[tokio::test]
     async fn list_repos_tool_returns_only_visible_repositories_in_scope() {
         let tool = ListReposTool;
@@ -593,6 +745,7 @@ mod tests {
                 &store,
                 &NullTreeStore,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
@@ -640,6 +793,7 @@ mod tests {
                 &store,
                 &NullTreeStore,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_demo_docs".into()),
                     repo_scope: Vec::new(),
@@ -688,6 +842,7 @@ mod tests {
                 &catalog,
                 &trees,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -734,6 +889,7 @@ mod tests {
                 &catalog,
                 &trees,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -758,6 +914,7 @@ mod tests {
                 &catalog,
                 &NullTreeStore,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_secret".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -782,6 +939,7 @@ mod tests {
                 &catalog,
                 &NullTreeStore,
                 &NullBlobStore,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -814,6 +972,7 @@ mod tests {
                 &catalog,
                 &NullTreeStore,
                 &blobs,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -854,6 +1013,7 @@ mod tests {
                 &catalog,
                 &NullTreeStore,
                 &blobs,
+                &NullGlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -864,6 +1024,102 @@ mod tests {
             .expect_err("read_file should reject mismatched blob metadata");
 
         assert!(err.to_string().contains("blob store returned repo"));
+    }
+
+    #[tokio::test]
+    async fn glob_tool_returns_machine_readable_matches_for_active_repo() {
+        let tool = GlobTool::new("src/**/*.rs");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let globs = StaticGlobStore {
+            glob: Some(RepositoryGlob {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                pattern: "src/**/*.rs".into(),
+                paths: vec!["src/lib.rs".into(), "src/main.rs".into()],
+            }),
+        };
+
+        let result = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &globs,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect("glob should succeed for the active repository");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::Glob(GlobResult {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                pattern: "src/**/*.rs".into(),
+                paths: vec!["src/lib.rs".into(), "src/main.rs".into()],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn glob_tool_rejects_parent_directory_components_in_requested_pattern() {
+        let tool = GlobTool::new("../*.rs");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &StaticGlobStore { glob: None },
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("glob should reject invalid relative patterns");
+
+        assert!(err.to_string().contains("invalid relative path"));
+    }
+
+    #[tokio::test]
+    async fn glob_tool_rejects_glob_store_metadata_outside_requested_scope() {
+        let tool = GlobTool::new("src/**/*.rs");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let globs = StaticGlobStore {
+            glob: Some(RepositoryGlob {
+                repo_id: "repo_secret".into(),
+                pattern: "other/**/*.rs".into(),
+                paths: vec!["other/leak.rs".into()],
+            }),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &globs,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("glob should reject mismatched store metadata");
+
+        assert!(err.to_string().contains("glob store returned repo"));
     }
 
     #[tokio::test]

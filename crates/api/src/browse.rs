@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use globset::Glob;
 use serde::Serialize;
 use sourcebot_core::{
-    BlobStore, RepositoryBlob, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
-    TreeStore,
+    BlobStore, GlobStore, RepositoryBlob, RepositoryGlob, RepositoryTree, RepositoryTreeEntry,
+    RepositoryTreeEntryKind, TreeStore,
 };
 use std::{
     collections::HashMap,
@@ -22,6 +23,8 @@ pub trait BrowseStore: Send + Sync {
     fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<TreeResponse>>;
     #[allow(dead_code)]
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>>;
+    #[allow(dead_code)]
+    fn glob_paths(&self, repo_id: &str, pattern: &str) -> Result<Option<GlobResponse>>;
     fn get_blob_at_revision(
         &self,
         repo_id: &str,
@@ -65,6 +68,13 @@ pub struct BlobResponse {
     pub size_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GlobResponse {
+    pub repo_id: String,
+    pub pattern: String,
+    pub paths: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceMatch {
     pub path: String,
@@ -89,6 +99,12 @@ pub struct BrowseBlobStoreAdapter {
     browse: DynBrowseStore,
 }
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct BrowseGlobStoreAdapter {
+    browse: DynBrowseStore,
+}
+
 #[allow(dead_code)]
 impl BrowseTreeStoreAdapter {
     pub fn new(browse: DynBrowseStore) -> Self {
@@ -98,6 +114,13 @@ impl BrowseTreeStoreAdapter {
 
 #[allow(dead_code)]
 impl BrowseBlobStoreAdapter {
+    pub fn new(browse: DynBrowseStore) -> Self {
+        Self { browse }
+    }
+}
+
+#[allow(dead_code)]
+impl BrowseGlobStoreAdapter {
     pub fn new(browse: DynBrowseStore) -> Self {
         Self { browse }
     }
@@ -126,6 +149,47 @@ impl LocalBrowseStore {
 
     fn repo_root(&self, repo_id: &str) -> Option<&PathBuf> {
         self.repo_roots.get(repo_id)
+    }
+
+    fn collect_glob_matches(
+        &self,
+        root: &Path,
+        current_path: &Path,
+        matcher: &globset::GlobMatcher,
+        matches: &mut Vec<String>,
+    ) -> Result<()> {
+        let entries = fs::read_dir(current_path)
+            .with_context(|| format!("failed to read directory {}", current_path.display()))?;
+
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!(
+                    "failed to read directory entry under {}",
+                    current_path.display()
+                )
+            })?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .with_context(|| format!("failed to read file type for {}", path.display()))?;
+
+            if file_type.is_dir() {
+                self.collect_glob_matches(root, &path, matcher, matches)?;
+                continue;
+            }
+
+            let relative_path = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to strip prefix for {}", path.display()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if matcher.is_match(&relative_path) {
+                matches.push(relative_path);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -171,6 +235,25 @@ impl BrowseStore for LocalBrowseStore {
 
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>> {
         self.get_blob_at_revision(repo_id, path, None)
+    }
+
+    fn glob_paths(&self, repo_id: &str, pattern: &str) -> Result<Option<GlobResponse>> {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let matcher = Glob::new(pattern)
+            .with_context(|| format!("invalid glob pattern: {pattern}"))?
+            .compile_matcher();
+        let mut paths = Vec::new();
+        self.collect_glob_matches(repo_root, repo_root, &matcher, &mut paths)?;
+        paths.sort();
+
+        Ok(Some(GlobResponse {
+            repo_id: repo_id.to_string(),
+            pattern: pattern.to_string(),
+            paths,
+        }))
     }
 
     fn get_blob_at_revision(
@@ -294,6 +377,20 @@ impl BlobStore for BrowseBlobStoreAdapter {
     }
 }
 
+#[async_trait]
+impl GlobStore for BrowseGlobStoreAdapter {
+    async fn glob_paths(&self, repo_id: &str, pattern: &str) -> Result<Option<RepositoryGlob>> {
+        Ok(self
+            .browse
+            .glob_paths(repo_id, pattern)?
+            .map(|glob| RepositoryGlob {
+                repo_id: glob.repo_id,
+                pattern: glob.pattern,
+                paths: glob.paths,
+            }))
+    }
+}
+
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
     let object = format!("{revision}:{path}");
     let output = Command::new("git")
@@ -402,11 +499,14 @@ pub fn build_browse_store() -> DynBrowseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_core::{BlobStore, RepositoryTreeEntryKind, TreeStore};
+    use sourcebot_core::{BlobStore, GlobStore, RepositoryTreeEntryKind, TreeStore};
     use std::{
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -422,8 +522,14 @@ mod tests {
     fn create_test_store() -> (LocalBrowseStore, PathBuf) {
         let root = unique_temp_dir();
         fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("target")).unwrap();
         fs::write(root.join("README.md"), "hello world\n").unwrap();
         fs::write(root.join("src").join("main.rs"), "fn main() {}\n").unwrap();
+        fs::write(
+            root.join("target").join("generated.rs"),
+            "pub fn generated() {}\n",
+        )
+        .unwrap();
 
         let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         (store, root)
@@ -442,6 +548,60 @@ mod tests {
         assert!(tree.entries.iter().any(|entry| {
             entry.name == "src" && entry.path == "src" && entry.kind == EntryKind::Dir
         }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_globs_matching_paths() {
+        let (store, root) = create_test_store();
+
+        let glob = store.glob_paths("repo_test", "src/*.rs").unwrap().unwrap();
+
+        assert_eq!(glob.repo_id, "repo_test");
+        assert_eq!(glob.pattern, "src/*.rs");
+        assert_eq!(glob.paths, vec!["src/main.rs"]);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_globs_paths_visible_in_tree_entries() {
+        let (store, root) = create_test_store();
+
+        let tree = store.get_tree("repo_test", "").unwrap().unwrap();
+        assert!(tree.entries.iter().any(|entry| {
+            entry.name == "target" && entry.path == "target" && entry.kind == EntryKind::Dir
+        }));
+
+        let glob = store
+            .glob_paths("repo_test", "target/*.rs")
+            .unwrap()
+            .unwrap();
+        assert_eq!(glob.paths, vec!["target/generated.rs"]);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_globs_symlink_paths_visible_in_tree_entries() {
+        let (store, root) = create_test_store();
+        symlink(
+            root.join("README.md"),
+            root.join("src").join("readme-link.rs"),
+        )
+        .unwrap();
+
+        let tree = store.get_tree("repo_test", "src").unwrap().unwrap();
+        assert!(tree.entries.iter().any(|entry| {
+            entry.name == "readme-link.rs"
+                && entry.path == "src/readme-link.rs"
+                && entry.kind == EntryKind::File
+        }));
+
+        let glob = store.glob_paths("repo_test", "src/*.rs").unwrap().unwrap();
+        assert!(glob.paths.contains(&"src/readme-link.rs".to_string()));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -485,6 +645,28 @@ mod tests {
         assert_eq!(tree.entries[0].name, "main.rs");
         assert_eq!(tree.entries[0].path, "src/main.rs");
         assert_eq!(tree.entries[0].kind, RepositoryTreeEntryKind::File);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn browse_glob_store_adapter_converts_browse_glob_for_core_retrieval() {
+        let (store, root) = create_test_store();
+        let adapter = BrowseGlobStoreAdapter::new(Arc::new(store));
+
+        let glob = GlobStore::glob_paths(&adapter, "repo_test", "src/*.rs")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            glob,
+            RepositoryGlob {
+                repo_id: "repo_test".into(),
+                pattern: "src/*.rs".into(),
+                paths: vec!["src/main.rs".into()],
+            }
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
