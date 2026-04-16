@@ -296,6 +296,7 @@ mod tests {
                 id: format!("msg_{id}"),
                 role: AskMessageRole::User,
                 content: "where is healthz implemented?".into(),
+                citations: Vec::new(),
             }],
         }
     }
@@ -527,6 +528,7 @@ mod tests {
                     id: "msg_assistant".into(),
                     role: AskMessageRole::Assistant,
                     content: "healthz lives in crates/api/src/main.rs".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -563,6 +565,7 @@ mod tests {
                     id: "msg_intruder".into(),
                     role: AskMessageRole::Assistant,
                     content: "unauthorized".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -600,6 +603,7 @@ mod tests {
                     id: "msg_assistant".into(),
                     role: AskMessageRole::Assistant,
                     content: "healthz lives in crates/api/src/main.rs".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -671,6 +675,7 @@ mod tests {
                     id: "msg_assistant".into(),
                     role: AskMessageRole::Assistant,
                     content: "draft answer".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -775,6 +780,7 @@ mod tests {
                     id: "msg_assistant".into(),
                     role: AskMessageRole::Assistant,
                     content: "assistant reply".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -889,6 +895,7 @@ mod tests {
                     id: "msg_assistant".into(),
                     role: AskMessageRole::Assistant,
                     content: "draft assistant reply".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:06:00Z",
             )
@@ -905,6 +912,7 @@ mod tests {
                     id: "msg_assistant_replaced".into(),
                     role: AskMessageRole::Assistant,
                     content: "final assistant reply with citations".into(),
+                    citations: Vec::new(),
                 },
                 "2026-04-16T08:09:00Z",
             )
@@ -958,6 +966,7 @@ mod tests {
                         id: "msg_replaced".into(),
                         role: AskMessageRole::Assistant,
                         content: "unauthorized".into(),
+                        citations: Vec::new(),
                     },
                     "2026-04-16T08:09:00Z",
                 )
@@ -975,6 +984,7 @@ mod tests {
                         id: "msg_replaced".into(),
                         role: AskMessageRole::Assistant,
                         content: "missing thread".into(),
+                        citations: Vec::new(),
                     },
                     "2026-04-16T08:09:00Z",
                 )
@@ -992,6 +1002,7 @@ mod tests {
                         id: "msg_replaced".into(),
                         role: AskMessageRole::Assistant,
                         content: "missing message".into(),
+                        citations: Vec::new(),
                     },
                     "2026-04-16T08:09:00Z",
                 )
@@ -1006,5 +1017,88 @@ mod tests {
                 .unwrap(),
             Some(original)
         );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_preserves_message_citations_across_reload_and_replace() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_citations",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Citation thread",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+
+        store
+            .append_message_for_user(
+                "user_1",
+                "thread_citations",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "healthz lives in crates/api/src/main.rs".into(),
+                    citations: vec![sourcebot_models::AskCitation {
+                        repo_id: "repo_sourcebot_rewrite".into(),
+                        path: "crates/api/src/main.rs".into(),
+                        revision: "main".into(),
+                        line_start: 10,
+                        line_end: 18,
+                    }],
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to append cited message");
+
+        let appended_messages = store
+            .get_thread_messages_for_user("user_1", "thread_citations")
+            .await
+            .unwrap()
+            .expect("owner should be able to reload cited messages");
+        assert_eq!(appended_messages[1].citations.len(), 1);
+        assert_eq!(
+            appended_messages[1].citations[0].path,
+            "crates/api/src/main.rs"
+        );
+
+        store
+            .replace_message_for_user(
+                "user_1",
+                "thread_citations",
+                "msg_assistant",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "updated answer".into(),
+                    citations: vec![sourcebot_models::AskCitation {
+                        repo_id: "repo_sourcebot_rewrite".into(),
+                        path: "crates/api/src/ask.rs".into(),
+                        revision: "main".into(),
+                        line_start: 20,
+                        line_end: 40,
+                    }],
+                },
+                "2026-04-16T08:09:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to replace cited message");
+
+        let replaced_messages = store
+            .get_thread_messages_for_user("user_1", "thread_citations")
+            .await
+            .unwrap()
+            .expect("owner should be able to reload replaced cited messages");
+        assert_eq!(replaced_messages[1].citations.len(), 1);
+        assert_eq!(
+            replaced_messages[1].citations[0].path,
+            "crates/api/src/ask.rs"
+        );
+        assert_eq!(replaced_messages[1].content, "updated answer");
     }
 }

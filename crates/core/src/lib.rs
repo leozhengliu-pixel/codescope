@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
     AskThread, AskThreadSummary, Connection, Repository, RepositoryDetail, RepositorySummary,
 };
@@ -611,15 +612,6 @@ pub struct AskRequest {
     pub system_prompt: Option<String>,
     pub repo_scope: Vec<String>,
     pub thread_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AskCitation {
-    pub repo_id: String,
-    pub path: String,
-    pub revision: String,
-    pub line_start: usize,
-    pub line_end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

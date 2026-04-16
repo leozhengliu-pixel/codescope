@@ -61,10 +61,21 @@ pub struct RepositoryDetail {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskCitation {
+    pub repo_id: String,
+    pub path: String,
+    pub revision: String,
+    pub line_start: usize,
+    pub line_end: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskMessage {
     pub id: String,
     pub role: AskMessageRole,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub citations: Vec<AskCitation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -153,6 +164,7 @@ pub fn seed_repositories() -> Vec<Repository> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn ask_thread_summary_counts_messages_and_preserves_scope_metadata() {
@@ -170,11 +182,13 @@ mod tests {
                     id: "msg_1".into(),
                     role: AskMessageRole::User,
                     content: "where is healthz implemented?".into(),
+                    citations: Vec::new(),
                 },
                 AskMessage {
                     id: "msg_2".into(),
                     role: AskMessageRole::Assistant,
                     content: "src/main.rs".into(),
+                    citations: Vec::new(),
                 },
             ],
         };
@@ -190,6 +204,40 @@ mod tests {
                 updated_at: "2026-04-16T08:01:00Z".into(),
                 message_count: 2,
             }
+        );
+    }
+
+    #[test]
+    fn ask_message_serialization_includes_machine_readable_citations() {
+        let message = AskMessage {
+            id: "msg_1".into(),
+            role: AskMessageRole::Assistant,
+            content: "healthz lives in crates/api/src/main.rs".into(),
+            citations: vec![AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "crates/api/src/main.rs".into(),
+                revision: "main".into(),
+                line_start: 10,
+                line_end: 18,
+            }],
+        };
+
+        let serialized = serde_json::to_value(&message).unwrap();
+
+        assert_eq!(
+            serialized,
+            json!({
+                "id": "msg_1",
+                "role": "assistant",
+                "content": "healthz lives in crates/api/src/main.rs",
+                "citations": [{
+                    "repo_id": "repo_sourcebot_rewrite",
+                    "path": "crates/api/src/main.rs",
+                    "revision": "main",
+                    "line_start": 10,
+                    "line_end": 18
+                }]
+            })
         );
     }
 }
