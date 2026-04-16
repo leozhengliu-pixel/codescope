@@ -727,6 +727,10 @@ mod tests {
                 service_name: "sourcebot-api".into(),
                 bind_addr: "127.0.0.1:3000".into(),
                 database_url: Some("postgres://secret@localhost/sourcebot".into()),
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                llm_api_base: Some("https://llm.invalid".into()),
+                llm_api_key: Some("super-secret".into()),
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
@@ -745,6 +749,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+        let payload: PublicAppConfig = read_json(response).await;
+        assert_eq!(payload.service_name, "sourcebot-api");
+        assert_eq!(payload.llm_provider.as_deref(), Some("stub"));
+        assert_eq!(payload.llm_model.as_deref(), Some("stub-model"));
+        assert!(payload.has_database_url);
+        assert!(payload.has_llm_api_key);
     }
 
     #[tokio::test]

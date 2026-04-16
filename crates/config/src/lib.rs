@@ -6,6 +6,10 @@ pub struct AppConfig {
     pub service_name: String,
     pub bind_addr: String,
     pub database_url: Option<String>,
+    pub llm_provider: Option<String>,
+    pub llm_model: Option<String>,
+    pub llm_api_base: Option<String>,
+    pub llm_api_key: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -14,6 +18,10 @@ impl Default for AppConfig {
             service_name: "sourcebot-api".to_string(),
             bind_addr: "127.0.0.1:3000".to_string(),
             database_url: None,
+            llm_provider: Some("disabled".to_string()),
+            llm_model: None,
+            llm_api_base: None,
+            llm_api_key: None,
         }
     }
 }
@@ -26,6 +34,12 @@ impl AppConfig {
             bind_addr: env::var("SOURCEBOT_BIND_ADDR")
                 .unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
             database_url: env::var("DATABASE_URL").ok(),
+            llm_provider: env::var("SOURCEBOT_LLM_PROVIDER")
+                .ok()
+                .or_else(|| Some("disabled".to_string())),
+            llm_model: env::var("SOURCEBOT_LLM_MODEL").ok(),
+            llm_api_base: env::var("SOURCEBOT_LLM_API_BASE").ok(),
+            llm_api_key: env::var("SOURCEBOT_LLM_API_KEY").ok(),
         }
     }
 
@@ -34,6 +48,9 @@ impl AppConfig {
             service_name: self.service_name.clone(),
             bind_addr: self.bind_addr.clone(),
             has_database_url: self.database_url.is_some(),
+            llm_provider: self.llm_provider.clone(),
+            llm_model: self.llm_model.clone(),
+            has_llm_api_key: self.llm_api_key.is_some(),
         }
     }
 }
@@ -43,4 +60,40 @@ pub struct PublicAppConfig {
     pub service_name: String,
     pub bind_addr: String,
     pub has_database_url: bool,
+    pub llm_provider: Option<String>,
+    pub llm_model: Option<String>,
+    pub has_llm_api_key: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_disables_llm_provider() {
+        let config = AppConfig::default();
+
+        assert_eq!(config.llm_provider.as_deref(), Some("disabled"));
+        assert_eq!(config.llm_model, None);
+        assert_eq!(config.llm_api_base, None);
+        assert_eq!(config.llm_api_key, None);
+    }
+
+    #[test]
+    fn public_view_hides_llm_api_key_value() {
+        let config = AppConfig {
+            service_name: "sourcebot-api".into(),
+            bind_addr: "127.0.0.1:3000".into(),
+            database_url: None,
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            llm_api_base: Some("https://llm.invalid".into()),
+            llm_api_key: Some("super-secret".into()),
+        };
+
+        let public = config.public_view();
+        assert_eq!(public.llm_provider.as_deref(), Some("stub"));
+        assert_eq!(public.llm_model.as_deref(), Some("stub-model"));
+        assert!(public.has_llm_api_key);
+    }
 }
