@@ -652,6 +652,13 @@ pub trait AskThreadStore: Send + Sync {
         visibility: Option<sourcebot_models::AskThreadVisibility>,
         updated_at: &str,
     ) -> Result<Option<AskThread>>;
+    async fn append_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message: sourcebot_models::AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>>;
 }
 
 #[async_trait]

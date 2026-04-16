@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::AskThreadStore;
-use sourcebot_models::{AskThread, AskThreadSummary, AskThreadVisibility};
+use sourcebot_models::{AskMessage, AskThread, AskThreadSummary, AskThreadVisibility};
 use std::sync::{Arc, RwLock};
 
 #[allow(dead_code)]
@@ -118,6 +118,31 @@ impl AskThreadStore for InMemoryAskThreadStore {
             thread.visibility = visibility;
         }
 
+        thread.updated_at = updated_at.into();
+
+        Ok(Some(thread.clone()))
+    }
+
+    async fn append_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message: AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let Some(thread) = threads
+            .iter_mut()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+        else {
+            return Ok(None);
+        };
+
+        thread.messages.push(message);
         thread.updated_at = updated_at.into();
 
         Ok(Some(thread.clone()))
@@ -360,6 +385,80 @@ mod tests {
                 .await
                 .unwrap(),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_appends_message_for_owner_and_updates_summary() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_appendable",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Appendable thread",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+
+        let updated = store
+            .append_message_for_user(
+                "user_1",
+                "thread_appendable",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "healthz lives in crates/api/src/main.rs".into(),
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to append a message");
+
+        assert_eq!(updated.messages.len(), 2);
+        assert_eq!(updated.messages[1].id, "msg_assistant");
+        assert_eq!(updated.updated_at, "2026-04-16T08:06:00Z");
+
+        let summaries = store.list_threads_for_user("user_1").await.unwrap();
+        assert_eq!(summaries[0].message_count, 2);
+        assert_eq!(summaries[0].updated_at, "2026-04-16T08:06:00Z");
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_does_not_append_message_for_non_owner() {
+        let store = build_ask_thread_store();
+        let original = thread(
+            "thread_private",
+            "user_1",
+            "2026-04-16T08:01:00Z",
+            "Private thread",
+            "session_a",
+        );
+        store.create_thread(original.clone()).await.unwrap();
+
+        let updated = store
+            .append_message_for_user(
+                "user_2",
+                "thread_private",
+                AskMessage {
+                    id: "msg_intruder".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "unauthorized".into(),
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated, None);
+        assert_eq!(
+            store
+                .get_thread_for_user("user_1", "thread_private")
+                .await
+                .unwrap(),
+            Some(original)
         );
     }
 }
