@@ -14,7 +14,7 @@ use auth::{
 };
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -115,6 +115,7 @@ fn build_router(
             get(get_bootstrap_status).post(create_bootstrap_admin),
         )
         .route("/api/v1/auth/login", post(login_local_admin))
+        .route("/api/v1/auth/me", get(get_authenticated_local_admin))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -203,6 +204,15 @@ struct LoginResponse {
     session_id: String,
     session_secret: String,
     user_id: String,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct AuthMeResponse {
+    user_id: String,
+    email: String,
+    name: String,
+    session_id: String,
     created_at: String,
 }
 
@@ -437,6 +447,73 @@ async fn login_local_admin(
             created_at,
         }),
     ))
+}
+
+fn parse_local_session_bearer_token(headers: &HeaderMap) -> Result<(String, String), StatusCode> {
+    let authorization = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = authorization
+        .strip_prefix("Bearer ")
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let (session_id, session_secret) = token.split_once(':').ok_or(StatusCode::UNAUTHORIZED)?;
+    if session_id.is_empty() || session_secret.is_empty() || session_secret.contains(':') {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok((session_id.to_string(), session_secret.to_string()))
+}
+
+async fn authenticate_local_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(BootstrapState, LocalSession), StatusCode> {
+    let (session_id, session_secret) = parse_local_session_bearer_token(headers)?;
+    let session = state
+        .local_sessions
+        .local_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if session.user_id != LOCAL_BOOTSTRAP_ADMIN_USER_ID {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let secret_hash =
+        PasswordHash::new(&session.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Argon2::default()
+        .verify_password(session_secret.as_bytes(), &secret_hash)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let bootstrap_state = state
+        .bootstrap
+        .bootstrap_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if bootstrap_state.admin_email.trim().is_empty() || bootstrap_state.admin_name.trim().is_empty()
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok((bootstrap_state, session))
+}
+
+async fn get_authenticated_local_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AuthMeResponse>, StatusCode> {
+    let (bootstrap_state, session) = authenticate_local_session(&state, &headers).await?;
+
+    Ok(Json(AuthMeResponse {
+        user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+        email: bootstrap_state.admin_email,
+        name: bootstrap_state.admin_name,
+        session_id: session.id,
+        created_at: session.created_at,
+    }))
 }
 
 async fn list_repositories(
@@ -1047,6 +1124,15 @@ mod tests {
         session_id: String,
         session_secret: String,
         user_id: String,
+        created_at: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct AuthMeResponseBody {
+        user_id: String,
+        email: String,
+        name: String,
+        session_id: String,
         created_at: String,
     }
 
@@ -1846,6 +1932,230 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
         assert!(!local_session_state_path.is_file());
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_bootstrap_admin_for_valid_bearer_local_session() {
+        let bootstrap_state_path = unique_test_path("auth-me-bootstrap");
+        let local_session_state_path = unique_test_path("auth-me-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AuthMeResponseBody = read_json(response).await;
+        assert_eq!(payload.user_id, "local_user_bootstrap_admin");
+        assert_eq!(payload.email, "admin@example.com");
+        assert_eq!(payload.name, "Admin User");
+        assert_eq!(payload.session_id, login_payload.session_id);
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_without_authorization_header() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_for_malformed_bearer_token() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header("authorization", "Bearer not-a-session-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_for_invalid_session_secret() {
+        let bootstrap_state_path = unique_test_path("auth-me-invalid-secret-bootstrap");
+        let local_session_state_path = unique_test_path("auth-me-invalid-secret-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!("Bearer {}:wrong-secret", login_payload.session_id),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_when_bootstrap_state_is_missing() {
+        let bootstrap_state_path = unique_test_path("auth-me-missing-bootstrap");
+        let local_session_state_path = unique_test_path("auth-me-missing-bootstrap-sessions");
+        let session_secret = "session-secret";
+        let secret_hash = Argon2::default()
+            .hash_password(session_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &local_session_state_path,
+            serde_json::to_vec(&sourcebot_models::LocalSessionState {
+                sessions: vec![LocalSession {
+                    id: "local_session_test".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    secret_hash,
+                    created_at: "2026-04-16T18:00:00Z".into(),
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!("Bearer local_session_test:{session_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
