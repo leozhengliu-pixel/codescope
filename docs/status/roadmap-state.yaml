@@ -5,29 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8ffc9097d8942a500ead14c91e20d2347b0b216b
+  head: dc0695a18ad8cb0f38d4d3fce64d31f76c8357d0
 last_completed_task:
-  id: task21b1
-  title: Ask thread metadata mutation persistence
+  id: task21b2
+  title: Ask session linkage persistence
   status: done
   summary: >-
-    Split task21b and completed the first subtask by adding owner-scoped ask
-    thread metadata mutation persistence for rename and visibility updates in
-    the async thread-store contract and in-memory store.
+    Completed the second task21b slice by adding owner-scoped ask thread lookup
+    by session_id in the async thread-store contract and in-memory
+    implementation, with regression coverage for matching and missing sessions.
   tests:
-    - cargo test -p sourcebot-api in_memory_store_updates_thread_title_and_visibility_for_owner -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api in_memory_store_does_not_update_thread_metadata_for_non_owner -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (6 tests)
+    - cargo test -p sourcebot-api in_memory_store_returns_thread_for_matching_user_session -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (7 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking security or logic issues
-  commit: 5cb73e5bab9883de8dc29c32dfdf98fa6b8a4f0c
-  next_task: task21b2
+  commit: a3209e6ba2ccf1db43e40249b59f8340d5c1c9e5
+  next_task: task21c
 current_task:
-  id: task21b2
-  title: Ask session linkage persistence
+  id: task21c
+  title: Ask thread message append persistence
   status: pending
 history:
   - id: task19
@@ -140,6 +139,20 @@ history:
       - cargo check: passed
     commit: 5cb73e5bab9883de8dc29c32dfdf98fa6b8a4f0c
     next_task: task21b2
+  - id: task21b2
+    status: done
+    summary: >-
+      Completed the second task21b slice by adding owner-scoped ask thread lookup
+      by session_id in the async thread-store contract and in-memory
+      implementation, with regression coverage for matching and missing sessions.
+    tests:
+      - cargo test -p sourcebot-api in_memory_store_returns_thread_for_matching_user_session -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (7 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: a3209e6ba2ccf1db43e40249b59f8340d5c1c9e5
+    next_task: task21c
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
