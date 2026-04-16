@@ -1,7 +1,11 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use serde::Serialize;
 use sourcebot_core::AskThreadStore;
-use sourcebot_models::{AskMessage, AskThread, AskThreadSummary, AskThreadVisibility};
+use sourcebot_models::{
+    AskCitation, AskMessage, AskMessageRole, AskRenderedCitation, AskThread, AskThreadSummary,
+    AskThreadVisibility,
+};
 use std::sync::{Arc, RwLock};
 
 #[allow(dead_code)]
@@ -271,10 +275,92 @@ pub fn build_ask_thread_store() -> DynAskThreadStore {
     Arc::new(InMemoryAskThreadStore::new())
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AskMessageResponse {
+    pub id: String,
+    pub role: AskMessageRole,
+    pub content: String,
+    pub citations: Vec<AskCitation>,
+    pub rendered_citations: Vec<AskRenderedCitation>,
+}
+
+impl From<&AskMessage> for AskMessageResponse {
+    fn from(message: &AskMessage) -> Self {
+        Self {
+            id: message.id.clone(),
+            role: message.role.clone(),
+            content: message.content.clone(),
+            citations: message.citations.clone(),
+            rendered_citations: message
+                .citations
+                .iter()
+                .map(|citation| citation.rendered())
+                .collect(),
+        }
+    }
+}
+
+impl From<AskMessage> for AskMessageResponse {
+    fn from(message: AskMessage) -> Self {
+        Self::from(&message)
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct AskThreadResponse {
+    pub id: String,
+    pub session_id: String,
+    pub user_id: String,
+    pub title: String,
+    pub repo_scope: Vec<String>,
+    pub visibility: AskThreadVisibility,
+    pub created_at: String,
+    pub updated_at: String,
+    pub messages: Vec<AskMessageResponse>,
+}
+
+impl From<&AskThread> for AskThreadResponse {
+    fn from(thread: &AskThread) -> Self {
+        Self {
+            id: thread.id.clone(),
+            session_id: thread.session_id.clone(),
+            user_id: thread.user_id.clone(),
+            title: thread.title.clone(),
+            repo_scope: thread.repo_scope.clone(),
+            visibility: thread.visibility.clone(),
+            created_at: thread.created_at.clone(),
+            updated_at: thread.updated_at.clone(),
+            messages: thread
+                .messages
+                .iter()
+                .map(AskMessageResponse::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<AskThread> for AskThreadResponse {
+    fn from(thread: AskThread) -> Self {
+        Self::from(&thread)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_models::{AskMessage, AskMessageRole, AskThreadVisibility};
+    use sourcebot_models::{AskCitation, AskMessage, AskMessageRole, AskThreadVisibility};
+
+    fn citation(path: &str, revision: &str, line_start: usize, line_end: usize) -> AskCitation {
+        AskCitation {
+            repo_id: "repo_sourcebot_rewrite".into(),
+            path: path.into(),
+            revision: revision.into(),
+            line_start,
+            line_end,
+        }
+    }
 
     fn thread(
         id: &str,
@@ -1016,6 +1102,62 @@ mod tests {
                 .await
                 .unwrap(),
             Some(original)
+        );
+    }
+
+    #[test]
+    fn ask_message_response_includes_rendered_citations_alongside_raw_citations() {
+        let message = AskMessage {
+            id: "msg_assistant".into(),
+            role: AskMessageRole::Assistant,
+            content: "healthz lives in crates/api/src/main.rs".into(),
+            citations: vec![citation("crates/api/src/main.rs", "main", 10, 18)],
+        };
+
+        let response = AskMessageResponse::from(&message);
+
+        assert_eq!(response.id, message.id);
+        assert_eq!(response.role, message.role);
+        assert_eq!(response.content, message.content);
+        assert_eq!(response.citations, message.citations);
+        assert_eq!(response.rendered_citations.len(), 1);
+        assert_eq!(
+            response.rendered_citations[0],
+            message.citations[0].rendered()
+        );
+    }
+
+    #[test]
+    fn ask_thread_response_maps_message_rendered_citations() {
+        let mut thread = thread(
+            "thread_citations",
+            "user_1",
+            "2026-04-16T08:01:00Z",
+            "Citation thread",
+            "session_a",
+        );
+        thread.messages.push(AskMessage {
+            id: "msg_assistant".into(),
+            role: AskMessageRole::Assistant,
+            content: "healthz lives in crates/api/src/main.rs".into(),
+            citations: vec![citation("crates/api/src/main.rs", "main", 10, 18)],
+        });
+
+        let response = AskThreadResponse::from(&thread);
+
+        assert_eq!(response.id, thread.id);
+        assert_eq!(response.session_id, thread.session_id);
+        assert_eq!(response.user_id, thread.user_id);
+        assert_eq!(response.title, thread.title);
+        assert_eq!(response.repo_scope, thread.repo_scope);
+        assert_eq!(response.visibility, thread.visibility);
+        assert_eq!(response.created_at, thread.created_at);
+        assert_eq!(response.updated_at, thread.updated_at);
+        assert_eq!(response.messages.len(), thread.messages.len());
+        assert_eq!(response.messages[1].citations, thread.messages[1].citations);
+        assert_eq!(
+            response.messages[1].rendered_citations,
+            vec![thread.messages[1].citations[0].rendered()]
         );
     }
 
