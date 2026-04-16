@@ -5,30 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 285309d61e3b91b4fca0d7c0d06fea2c31c70890
+  head: c471f093ca19318ceb7dc3e31d55279560be6a90
 last_completed_task:
-  id: task20d2
-  title: Retrieval grep tool slice
+  id: task21a
+  title: Ask thread persistence first slice
   status: done
   summary: >-
-    Added reusable async grep retrieval contracts, a machine-readable grep tool
-    result, active-scope and returned-metadata validation, and a browse grep
-    adapter with regression coverage that blocks symlinked files outside the
-    active repository root.
+    Split task21 and completed the first subtask by adding ask-thread domain
+    models, async thread-store contracts, and an in-memory persistence slice for
+    create/list/get thread history with owner scoping.
   tests:
-    - cargo test -p sourcebot-core grep_tool -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api grep -- --nocapture: passed (3 tests)
-    - cargo test -p sourcebot-core: passed (21 tests)
-    - cargo test -p sourcebot-api: passed (61 tests)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-models -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
-    code: requested changes resolved from single independent review (fixed symlinked outside-repo grep leak before commit)
-  commit: 285309d61e3b91b4fca0d7c0d06fea2c31c70890
-  next_task: task21
+    code: approved by single independent review with no blocking security or logic issues
+  commit: c471f093ca19318ceb7dc3e31d55279560be6a90
+  next_task: task21b
 current_task:
-  id: task21
-  title: Ask session and chat thread persistence
+  id: task21b
+  title: Ask thread mutation and session linkage persistence
   status: pending
 history:
   - id: task19
@@ -112,6 +110,20 @@ history:
       - cargo check: passed
     commit: 285309d61e3b91b4fca0d7c0d06fea2c31c70890
     next_task: task21
+  - id: task21a
+    status: done
+    summary: >-
+      Split task21 and completed the first subtask by adding ask-thread domain
+      models, async thread-store contracts, and an in-memory persistence slice
+      for create/list/get thread history with owner scoping.
+    tests:
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-models -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: c471f093ca19318ceb7dc3e31d55279560be6a90
+    next_task: task21b
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
