@@ -624,7 +624,41 @@ async fn create_ask_completion(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if request.thread_id.is_none() {
+    if let Some(thread_id) = request.thread_id.as_deref() {
+        let timestamp = current_ask_timestamp();
+        state
+            .ask_threads
+            .append_message_for_user(
+                DEFAULT_ASK_USER_ID,
+                thread_id,
+                AskMessage {
+                    id: next_ask_entity_id("msg"),
+                    role: AskMessageRole::User,
+                    content: request.prompt.clone(),
+                    citations: Vec::new(),
+                },
+                &timestamp,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        state
+            .ask_threads
+            .append_message_for_user(
+                DEFAULT_ASK_USER_ID,
+                thread_id,
+                AskMessage {
+                    id: next_ask_entity_id("msg"),
+                    role: AskMessageRole::Assistant,
+                    content: response.answer.clone(),
+                    citations: response.citations.clone(),
+                },
+                &timestamp,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    } else {
         let timestamp = current_ask_timestamp();
         state
             .ask_threads
@@ -847,7 +881,7 @@ mod tests {
                             prompt: " where is build_router implemented? ".into(),
                             system_prompt: Some("answer briefly".into()),
                             repo_scope: vec![" repo_sourcebot_rewrite ".into()],
-                            thread_id: Some("thread-123".into()),
+                            thread_id: None,
                         })
                         .unwrap(),
                     ))
@@ -931,7 +965,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_completions_does_not_create_new_thread_when_thread_id_is_supplied() {
+    async fn ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied() {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
         let existing_thread = AskThread {
             id: "thread_existing".into(),
@@ -942,7 +976,20 @@ mod tests {
             visibility: AskThreadVisibility::Private,
             created_at: "2026-04-16T08:00:00Z".into(),
             updated_at: "2026-04-16T08:00:00Z".into(),
-            messages: vec![],
+            messages: vec![
+                AskMessage {
+                    id: "msg_existing_user".into(),
+                    role: AskMessageRole::User,
+                    content: "original prompt".into(),
+                    citations: Vec::new(),
+                },
+                AskMessage {
+                    id: "msg_existing_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "original answer".into(),
+                    citations: Vec::new(),
+                },
+            ],
         };
         ask_threads
             .create_thread(existing_thread.clone())
@@ -990,7 +1037,30 @@ mod tests {
             .unwrap();
         assert_eq!(threads.len(), 1);
         assert_eq!(threads[0].id, existing_thread.id);
-        assert_eq!(threads[0].updated_at, "2026-04-16T08:00:00Z");
+
+        let thread = ask_threads
+            .get_thread_for_user(DEFAULT_ASK_USER_ID, &existing_thread.id)
+            .await
+            .unwrap()
+            .expect("existing thread should remain addressable");
+        assert_eq!(thread.messages.len(), 4);
+        assert_eq!(thread.messages[0].id, "msg_existing_user");
+        assert_eq!(thread.messages[0].content, "original prompt");
+        assert_eq!(thread.messages[1].id, "msg_existing_assistant");
+        assert_eq!(thread.messages[1].content, "original answer");
+        assert_eq!(thread.messages[2].role, AskMessageRole::User);
+        assert_eq!(
+            thread.messages[2].content,
+            "where is build_router implemented?"
+        );
+        assert!(thread.messages[2].citations.is_empty());
+        assert_eq!(thread.messages[3].role, AskMessageRole::Assistant);
+        assert!(thread.messages[3]
+            .content
+            .contains("where is build_router implemented?"));
+        assert!(thread.messages[3].citations.is_empty());
+        assert_ne!(thread.updated_at, "2026-04-16T08:00:00Z");
+        assert!(OffsetDateTime::parse(&thread.updated_at, &Rfc3339).is_ok());
     }
 
     #[tokio::test]
