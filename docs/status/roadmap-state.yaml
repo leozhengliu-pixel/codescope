@@ -5,28 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 25140c207795503afb28c22d7c3dfc02cc7e36b0
+  head: e4d9ae533ee95a54d73e52789ea70a990c863505
 last_completed_task:
-  id: task20b
-  title: Retrieval list_tree tool slice
+  id: task20c
+  title: Retrieval read_file tool slice
   status: done
   summary: >-
-    Added reusable async tree retrieval contracts, a machine-readable list_tree
-    tool result, active-scope validation for tree listings, and a browse-to-core
-    adapter so future retrieval orchestration can reuse existing tree behavior.
+    Added reusable async blob retrieval contracts, a machine-readable read_file
+    tool result, active-scope and path validation for file reads, and a
+    browse-to-core blob adapter so retrieval orchestration can safely reuse
+    existing blob behavior.
   tests:
-    - cargo test -p sourcebot-core list_tree_tool -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-core: passed (9 tests)
-    - cargo test -p sourcebot-api browse: passed (9 tests)
+    - cargo fmt --check: passed
+    - cargo test -p sourcebot-core read_file_tool -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-api browse_blob_store_adapter_converts_browse_blob_for_core_retrieval -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-core -- --nocapture: passed (13 tests)
+    - cargo test -p sourcebot-api browse::tests -- --nocapture: passed (5 tests)
     - cargo check: passed
   review:
-    code: approved
-  commit: 25140c207795503afb28c22d7c3dfc02cc7e36b0
-  next_task: task20c
+    code: approved (single independent review; fixed read_file path validation issue before commit)
+  commit: e4d9ae533ee95a54d73e52789ea70a990c863505
+  next_task: task20d
 current_task:
-  id: task20c
+  id: task20d
   parent_task: task20
-  title: Retrieval read_file tool slice
+  title: Retrieval grep/glob tool slice
   status: pending
 history:
   - id: task19
@@ -63,6 +66,21 @@ history:
       - cargo check: passed
     commit: 25140c207795503afb28c22d7c3dfc02cc7e36b0
     next_task: task20c
+  - id: task20c
+    status: done
+    summary: >-
+      Added reusable async blob retrieval contracts, a machine-readable
+      read_file tool result, active-scope and path validation, and a browse
+      blob adapter for retrieval reuse.
+    tests:
+      - cargo fmt --check: passed
+      - cargo test -p sourcebot-core read_file_tool -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-api browse_blob_store_adapter_converts_browse_blob_for_core_retrieval -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-core -- --nocapture: passed (13 tests)
+      - cargo test -p sourcebot-api browse::tests -- --nocapture: passed (5 tests)
+      - cargo check: passed
+    commit: e4d9ae533ee95a54d73e52789ea70a990c863505
+    next_task: task20d
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
