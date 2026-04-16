@@ -5,31 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e2afa2eafb0bbb37822e72eed0878c9e7a12bfc3
+  head: 81be9fe73029cd95e56322d5ab5671a89cf06888
 last_completed_task:
-  id: task23a
-  title: Add initial repo-scoped ask completion endpoint
+  id: task23b1
+  title: Persist new repo-scoped ask completions as private ask threads
   status: done
   summary: >-
-    Split task23 and completed the first repo-scoped ask slice by adding
-    POST /api/v1/ask/completions, validating trimmed prompt and repo_scope
-    input against the catalog, dispatching through the configured LLM provider,
-    and returning the existing AskCompletionResponse surface without persisting
-    ask threads yet.
+    Split task23b and completed the first persistence slice by wiring the ask
+    thread store into POST /api/v1/ask/completions so repo-scoped completions
+    without a thread_id now create a private thread with repo_scope, a
+    prompt-derived title, RFC3339 timestamps, and both the user prompt and
+    assistant response messages, while leaving existing-thread appends for the
+    next slice.
   tests:
-    - cargo test -p sourcebot-api ask_completions -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api: passed (86 tests)
+    - cargo test -p sourcebot-api ask_completions_persists_new_repo_scoped_threads -- --nocapture: passed
+    - cargo test -p sourcebot-api ask_completions_does_not_create_new_thread_when_thread_id_is_supplied -- --nocapture: passed
+    - cargo test -p sourcebot-api ask_completions -- --nocapture: passed (6 tests)
+    - cargo test -p sourcebot-api: passed (88 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by a single independent diff review with no blocking spec gaps, security concerns, or logic errors; reviewer suggested an eventual HashSet optimization for repo-id validation and fuller response-shape assertions
-  commit: e2afa2eafb0bbb37822e72eed0878c9e7a12bfc3
-  next_task: task23b
+    code: approved by a single independent diff review covering spec compliance and code quality with no blocking issues; reviewer noted the temporary local_user/id strategy and suggested a future assertion that existing-thread messages remain unchanged on the deferred thread_id path
+  commit: 81be9fe73029cd95e56322d5ab5671a89cf06888
+  next_task: task23b2
 current_task:
-  id: task23b
-  title: Persist repo-scoped ask completions into ask threads
+  id: task23b2
+  title: Append repo-scoped ask completions into existing ask threads
   status: pending
 history:
+  - id: task23b1
+    status: done
+    summary: >-
+      Split task23b and completed the first persistence slice by wiring the ask
+      thread store into POST /api/v1/ask/completions so repo-scoped completions
+      without a thread_id now create a private thread with repo_scope, a
+      prompt-derived title, RFC3339 timestamps, and both the user prompt and
+      assistant response messages, while leaving existing-thread appends for the
+      next slice.
+    tests:
+      - cargo test -p sourcebot-api ask_completions_persists_new_repo_scoped_threads -- --nocapture: passed
+      - cargo test -p sourcebot-api ask_completions_does_not_create_new_thread_when_thread_id_is_supplied -- --nocapture: passed
+      - cargo test -p sourcebot-api ask_completions -- --nocapture: passed (6 tests)
+      - cargo test -p sourcebot-api: passed (88 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by a single independent diff review covering spec compliance and code quality with no blocking issues; reviewer noted the temporary local_user/id strategy and suggested a future assertion that existing-thread messages remain unchanged on the deferred thread_id path
+    commit: 81be9fe73029cd95e56322d5ab5671a89cf06888
+    next_task: task23b2
   - id: task23a
     status: done
     summary: >-
