@@ -117,6 +117,7 @@ fn build_router(
         .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
         .route("/api/v1/auth/logout", post(logout_local_admin))
+        .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -198,6 +199,12 @@ struct BootstrapCreateBody {
 struct LoginBody {
     email: String,
     password: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RevokeLocalSessionBody {
+    #[serde(default)]
+    session_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -525,6 +532,55 @@ async fn logout_local_admin(
     let deleted = state
         .local_sessions
         .delete_local_session(&session.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if !deleted {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn local_session_record_is_well_formed(session: &LocalSession, expected_session_id: &str) -> bool {
+    if session.id != expected_session_id
+        || session.id.trim().is_empty()
+        || session.user_id.trim().is_empty()
+        || session.created_at.trim().is_empty()
+    {
+        return false;
+    }
+
+    PasswordHash::new(&session.secret_hash).is_ok()
+}
+
+async fn revoke_local_admin_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<RevokeLocalSessionBody>,
+) -> Result<StatusCode, StatusCode> {
+    let (_, authenticated_session) = authenticate_local_session(&state, &headers).await?;
+    let target_session_id = payload.session_id.trim();
+    if target_session_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let target_session = state
+        .local_sessions
+        .local_session(target_session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if !local_session_record_is_well_formed(&target_session, target_session_id)
+        || target_session.user_id != authenticated_session.user_id
+        || target_session.user_id != LOCAL_BOOTSTRAP_ADMIN_USER_ID
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let deleted = state
+        .local_sessions
+        .delete_local_session(target_session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -987,6 +1043,7 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore};
+    use sourcebot_models::LocalSessionState;
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
     use std::{
@@ -1136,6 +1193,11 @@ mod tests {
     struct LoginRequest {
         email: String,
         password: String,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct RevokeRequest {
+        session_id: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -2339,6 +2401,317 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(malformed_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn revoke_explicitly_targets_requested_local_session_and_fails_closed() {
+        let bootstrap_state_path = unique_test_path("revoke-bootstrap");
+        let local_session_state_path = unique_test_path("revoke-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let auth_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(auth_login_response.status(), StatusCode::CREATED);
+        let auth_login_payload: LoginResponseBody = read_json(auth_login_response).await;
+
+        let target_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(target_login_response.status(), StatusCode::CREATED);
+        let target_login_payload: LoginResponseBody = read_json(target_login_response).await;
+
+        let missing_payload_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(b"{}".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_payload_response.status(), StatusCode::BAD_REQUEST);
+
+        let blank_payload_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: "   ".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blank_payload_response.status(), StatusCode::BAD_REQUEST);
+
+        let success_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: format!("  {}  ", target_login_payload.session_id),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(success_response.status(), StatusCode::NO_CONTENT);
+        assert!(to_bytes(success_response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let target_me_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            target_login_payload.session_id, target_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(target_me_response.status(), StatusCode::UNAUTHORIZED);
+
+        let auth_me_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(auth_me_response.status(), StatusCode::OK);
+
+        let missing_target_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: "missing-session".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_target_response.status(), StatusCode::UNAUTHORIZED);
+
+        let mut persisted_state: LocalSessionState =
+            serde_json::from_slice(&fs::read(&local_session_state_path).unwrap()).unwrap();
+        persisted_state.sessions.push(LocalSession {
+            id: "foreign-session".into(),
+            user_id: "another-user".into(),
+            secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$ZXhhbXBsZWhhc2g".into(),
+            created_at: "2026-04-16T17:05:00Z".into(),
+        });
+        persisted_state.sessions.push(LocalSession {
+            id: "malformed-session".into(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            secret_hash: "not-a-password-hash".into(),
+            created_at: "2026-04-16T17:06:00Z".into(),
+        });
+        fs::write(
+            &local_session_state_path,
+            serde_json::to_vec(&persisted_state).unwrap(),
+        )
+        .unwrap();
+
+        let foreign_target_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: "foreign-session".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(foreign_target_response.status(), StatusCode::UNAUTHORIZED);
+
+        let malformed_target_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: "malformed-session".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(malformed_target_response.status(), StatusCode::UNAUTHORIZED);
+
+        let already_revoked_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: target_login_payload.session_id,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(already_revoked_response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
