@@ -5,32 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d5da1a02ffc0a120ca174a74c6cdd7459dcf1003
+  head: a3d7dc1c6abce87a0c22b8463e5dfd4d39999fdb
 last_completed_task:
-  id: task25c1
-  title: Expose persisted bootstrap admin state
+  id: task25c2a
+  title: Durable local session persistence scaffolding
   status: done
   summary: >-
-    Split task25c and completed the first local-login prerequisite slice by
-    extending the bootstrap store contract with a read-only bootstrap_state API,
-    reusing shared persisted-state parsing so missing or invalid bootstrap files
-    still keep onboarding open, and exposing valid persisted bootstrap admin
-    state for later password verification without adding any login or session
-    endpoints yet.
+    Split task25c2 and completed the first slice by adding shared local-session
+    models plus a LocalSessionStore contract, wiring a dedicated file-backed
+    local session store through config and app state, and persisting session
+    records with owner-only files, overwrite-by-session-id behavior,
+    concurrent-write locking, invalid-JSON fail-closed semantics, and stale-lock
+    timeout handling without adding any login or session HTTP endpoints yet.
   tests:
-    - cargo test -p sourcebot-api file_bootstrap_store_reads_bootstrap_state_only_when_persisted_state_is_valid -- --nocapture: passed
+    - cargo test -p sourcebot-api file_local_session_store_times_out_when_lock_file_is_stale -- --nocapture: passed
+    - cargo test -p sourcebot-api local_session -- --nocapture: passed (6 tests)
     - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (11 tests)
+    - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent combined spec-and-quality review; reviewer confirmed the new bootstrap_state API is minimal, returns None for missing or invalid state, preserves existing bootstrap status semantics through shared parsing, and adds no login/session surface yet
-  commit: d5da1a02ffc0a120ca174a74c6cdd7459dcf1003
-  next_task: task25c2
+    code: approved by one independent combined spec-and-quality review; reviewer confirmed the slice adds only local-session persistence scaffolding, keeps login/session HTTP surfaces absent, preserves fail-closed behavior for invalid JSON and stale locks, and noted only non-blocking cross-platform rename and future contention considerations
+  commit: a3d7dc1c6abce87a0c22b8463e5dfd4d39999fdb
+  next_task: task25c2b
 current_task:
-  id: task25c2
-  title: Login endpoint and durable local session issuance
+  id: task25c2b
+  title: Login endpoint and durable local session issuance API
   status: pending
 history:
+  - id: task25c2a
+    status: done
+    summary: >-
+      Split task25c2 and completed the first slice by adding shared
+      local-session models plus a LocalSessionStore contract, wiring a
+      dedicated file-backed local session store through config and app state,
+      and persisting session records with owner-only files,
+      overwrite-by-session-id behavior, concurrent-write locking,
+      invalid-JSON fail-closed semantics, and stale-lock timeout handling
+      without adding any login or session HTTP endpoints yet.
+    tests:
+      - cargo test -p sourcebot-api file_local_session_store_times_out_when_lock_file_is_stale -- --nocapture: passed
+      - cargo test -p sourcebot-api local_session -- --nocapture: passed (6 tests)
+      - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (11 tests)
+      - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent combined spec-and-quality review; reviewer confirmed the slice adds only local-session persistence scaffolding, keeps login/session HTTP surfaces absent, preserves fail-closed behavior for invalid JSON and stale locks, and noted only non-blocking cross-platform rename and future contention considerations
+    commit: a3d7dc1c6abce87a0c22b8463e5dfd4d39999fdb
+    next_task: task25c2b
   - id: task25c1
     status: done
     summary: >-
