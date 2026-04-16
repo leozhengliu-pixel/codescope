@@ -5,38 +5,57 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 14f3d059e128c95c74e673042686d9d322363d2f
+  head: 48f4b2330f84a0becc0b4767d7bbf78eb4f41e90
 last_completed_task:
-  id: task27b1
-  title: Cover organization account/invite persistence in focused store tests
-  status: done
-  summary: >-
-    Split task27b and completed the first persistence slice by extending the
-    file-backed organization store regression test and app-state wiring test to
-    round-trip OrganizationState accounts and invites, proving the shared
-    LocalAccount and OrganizationInvite data survives the existing persistence
-    layer without adding invite routes, acceptance handlers, or permission
-    enforcement.
-  tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check: passed
-  review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the first task27b persistence slice, meaningfully covers LocalAccount and OrganizationInvite round-tripping in the existing file-backed organization store and app-state test path, and found no blocking correctness or security issues
-  commit: 14f3d059e128c95c74e673042686d9d322363d2f
-  next_task: task27b2
-current_task:
   id: task27b2
   title: Tighten organization app-state persistence coverage for the expanded account/invite state
+  status: done
+  summary: >-
+    Completed the second task27b slice by moving organization store construction
+    fully inside build_app_state/build_router from
+    config.organization_state_path and strengthening the focused regression test
+    so expanded OrganizationState memberships/accounts/invites are loaded from
+    the configured file-backed path instead of any separately constructed store,
+    without adding invite routes, acceptance handlers, or permission
+    enforcement.
+  tests:
+    - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api: passed (120 tests)
+    - cargo fmt --all --check: passed
+    - cargo check: passed
+  review:
+    code: approved by one independent post-implementation review; reviewer confirmed the diff matches task27b2 scope, drives organization store construction from config.organization_state_path in build_app_state/build_router, tightens the focused expanded-state regression test, and found no blocking correctness or security issues
+  commit: 48f4b2330f84a0becc0b4767d7bbf78eb4f41e90
+  next_task: task28
+current_task:
+  id: task28
+  title: Repo permission sync model
   status: pending
   summary: >-
-    Follow up on task27b1 by deciding whether the current app-state test should
-    stay as a store-preservation regression only or be tightened to prove
-    build_app_state constructs the file-backed organization store from config for
-    the expanded OrganizationState fields, still without adding invite routes,
-    acceptance handlers, or permission enforcement.
+    Start the next Phase 5 slice by defining the minimal repo permission sync
+    model needed to connect organizations and repositories, keeping scope on
+    shared contracts and persistence-ready state before enforcing permissions in
+    search, browse, or ask surfaces.
 history:
+  - id: task27b2
+    status: done
+    summary: >-
+      Completed the second task27b slice by moving organization store
+      construction fully inside build_app_state/build_router from
+      config.organization_state_path and strengthening the focused regression
+      test so expanded OrganizationState memberships/accounts/invites are loaded
+      from the configured file-backed path instead of any separately
+      constructed store, without adding invite routes, acceptance handlers, or
+      permission enforcement.
+    tests:
+      - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api: passed (120 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff matches task27b2 scope, drives organization store construction from config.organization_state_path in build_app_state/build_router, tightens the focused expanded-state regression test, and found no blocking correctness or security issues
+    commit: 48f4b2330f84a0becc0b4767d7bbf78eb4f41e90
+    next_task: task28
   - id: task27b1
     status: done
     summary: >-
