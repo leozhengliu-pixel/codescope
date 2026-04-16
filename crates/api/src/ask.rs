@@ -197,6 +197,39 @@ impl AskThreadStore for InMemoryAskThreadStore {
 
         Ok(Some(thread.clone()))
     }
+
+    async fn delete_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let Some(thread) = threads
+            .iter_mut()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+        else {
+            return Ok(None);
+        };
+
+        let Some(message_index) = thread
+            .messages
+            .iter()
+            .position(|message| message.id == message_id)
+        else {
+            return Ok(None);
+        };
+
+        thread.messages.remove(message_index);
+        thread.updated_at = updated_at.into();
+
+        Ok(Some(thread.clone()))
+    }
 }
 
 #[allow(dead_code)]
@@ -673,6 +706,120 @@ mod tests {
                     "missing_message",
                     "updated",
                     "2026-04-16T08:07:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .get_thread_for_user("user_1", "thread_private_messages")
+                .await
+                .unwrap(),
+            Some(original)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_deletes_message_for_owner_and_updates_summary() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_deletable_messages",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Deletable messages",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+        store
+            .append_message_for_user(
+                "user_1",
+                "thread_deletable_messages",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "assistant reply".into(),
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to append a message before deleting it");
+
+        let updated = store
+            .delete_message_for_user(
+                "user_1",
+                "thread_deletable_messages",
+                "msg_thread_deletable_messages",
+                "2026-04-16T08:08:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to delete a persisted message");
+
+        assert_eq!(updated.updated_at, "2026-04-16T08:08:00Z");
+        assert_eq!(updated.messages.len(), 1);
+        assert_eq!(updated.messages[0].id, "msg_assistant");
+
+        let messages = store
+            .get_thread_messages_for_user("user_1", "thread_deletable_messages")
+            .await
+            .unwrap()
+            .expect("owner should be able to reload persisted messages after deletion");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, "msg_assistant");
+
+        let summaries = store.list_threads_for_user("user_1").await.unwrap();
+        assert_eq!(summaries[0].message_count, 1);
+        assert_eq!(summaries[0].updated_at, "2026-04-16T08:08:00Z");
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_does_not_delete_message_for_non_owner_missing_thread_or_missing_message(
+    ) {
+        let store = build_ask_thread_store();
+        let original = thread(
+            "thread_private_messages",
+            "user_1",
+            "2026-04-16T08:01:00Z",
+            "Private messages",
+            "session_a",
+        );
+        store.create_thread(original.clone()).await.unwrap();
+
+        assert_eq!(
+            store
+                .delete_message_for_user(
+                    "user_2",
+                    "thread_private_messages",
+                    "msg_thread_private_messages",
+                    "2026-04-16T08:08:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .delete_message_for_user(
+                    "user_1",
+                    "missing_thread",
+                    "msg_thread_private_messages",
+                    "2026-04-16T08:08:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .delete_message_for_user(
+                    "user_1",
+                    "thread_private_messages",
+                    "missing_message",
+                    "2026-04-16T08:08:00Z",
                 )
                 .await
                 .unwrap(),
