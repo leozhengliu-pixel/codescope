@@ -639,6 +639,11 @@ pub trait AskThreadStore: Send + Sync {
         user_id: &str,
         thread_id: &str,
     ) -> Result<Option<AskThread>>;
+    async fn get_thread_messages_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<Vec<sourcebot_models::AskMessage>>>;
     async fn get_thread_for_session_for_user(
         &self,
         user_id: &str,

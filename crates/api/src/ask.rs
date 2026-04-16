@@ -74,6 +74,22 @@ impl AskThreadStore for InMemoryAskThreadStore {
             .cloned())
     }
 
+    async fn get_thread_messages_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<Vec<AskMessage>>> {
+        let threads = self
+            .threads
+            .read()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        Ok(threads
+            .iter()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+            .map(|thread| thread.messages.clone()))
+    }
+
     async fn get_thread_for_session_for_user(
         &self,
         user_id: &str,
@@ -459,6 +475,77 @@ mod tests {
                 .await
                 .unwrap(),
             Some(original)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_returns_thread_messages_for_owner_in_append_order() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_messages",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Messages thread",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+        store
+            .append_message_for_user(
+                "user_1",
+                "thread_messages",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "healthz lives in crates/api/src/main.rs".into(),
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to append a message");
+
+        let messages = store
+            .get_thread_messages_for_user("user_1", "thread_messages")
+            .await
+            .unwrap()
+            .expect("owner should be able to read persisted messages");
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].id, "msg_thread_messages");
+        assert_eq!(messages[0].role, AskMessageRole::User);
+        assert_eq!(messages[1].id, "msg_assistant");
+        assert_eq!(messages[1].role, AskMessageRole::Assistant);
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_hides_thread_messages_from_non_owner_and_missing_threads() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_private_messages",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Private messages",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .get_thread_messages_for_user("user_2", "thread_private_messages")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .get_thread_messages_for_user("user_1", "missing_thread")
+                .await
+                .unwrap(),
+            None
         );
     }
 }
