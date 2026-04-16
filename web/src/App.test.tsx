@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App } from './App';
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -8,6 +8,15 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
     status,
     json: async () => body,
   } as Response;
+}
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((innerResolve) => {
+    resolve = innerResolve;
+  });
+
+  return { promise, resolve };
 }
 
 afterEach(() => {
@@ -364,6 +373,463 @@ describe('App', () => {
 
     expect(await screen.findByText('assets/logo.png')).toBeInTheDocument();
     expect(screen.getByText('Binary file or patch unavailable.')).toBeInTheDocument();
+  });
+
+  it('finds definitions for the selected file symbol and renders ordered navigable candidates with revision metadata', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'src', path: 'src', kind: 'dir' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [
+            { name: 'main.rs', path: 'src/main.rs', kind: 'file' },
+            { name: 'lib.rs', path: 'src/lib.rs', kind: 'file' },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          size_bytes: 28,
+          content: 'fn helper() { lib::helper(); }',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/definitions?path=src%2Fmain.rs&symbol=helper') {
+        return jsonResponse({
+          status: 'supported',
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          revision: 'rev-def-123',
+          symbol: 'helper',
+          definitions: [
+            {
+              path: 'src/lib.rs',
+              name: 'helper',
+              kind: 'function',
+              range: { start_line: 3, end_line: 6 },
+              browse_url: '/api/v1/repos/repo-42/blob?path=src%2Flib.rs&revision=rev-def-123#L3',
+            },
+            {
+              path: 'src/main.rs',
+              name: 'helper',
+              kind: 'function',
+              range: { start_line: 10, end_line: 12 },
+              browse_url: '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs&revision=rev-def-123#L10',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('src/')).closest('button')!);
+    fireEvent.click((await screen.findByText('main.rs')).closest('button')!);
+
+    expect(await screen.findByText('fn helper() { lib::helper(); }')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find definitions' }));
+
+    expect(await screen.findByText('Definition results')).toBeInTheDocument();
+    expect(screen.getByText('Revision: rev-def-123')).toBeInTheDocument();
+    expect(screen.getAllByText('helper').length).toBeGreaterThan(0);
+    expect(screen.getByText('src/lib.rs')).toBeInTheDocument();
+    expect(screen.getByText('Lines 3–6')).toBeInTheDocument();
+    expect(screen.getAllByText('src/main.rs').length).toBeGreaterThan(0);
+    expect(screen.getByText('Lines 10–12')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/definitions?path=src%2Fmain.rs&symbol=helper');
+  });
+
+  it('ignores stale navigation responses after the user switches files', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const pendingDefinitions = deferredResponse();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'src', path: 'src', kind: 'dir' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [
+            { name: 'main.rs', path: 'src/main.rs', kind: 'file' },
+            { name: 'lib.rs', path: 'src/lib.rs', kind: 'file' },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          size_bytes: 20,
+          content: 'fn helper() {}',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Flib.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/lib.rs',
+          size_bytes: 24,
+          content: 'export const value = 42;',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/definitions?path=src%2Fmain.rs&symbol=helper') {
+        return pendingDefinitions.promise;
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('src/')).closest('button')!);
+    fireEvent.click((await screen.findByText('main.rs')).closest('button')!);
+    expect(await screen.findByText('fn helper() {}')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find definitions' }));
+    expect(await screen.findByText('Loading code navigation…')).toBeInTheDocument();
+
+    fireEvent.click((await screen.findByText('lib.rs')).closest('button')!);
+    expect(await screen.findByText('export const value = 42;')).toBeInTheDocument();
+    expect(screen.queryByText('Definition results')).not.toBeInTheDocument();
+
+    pendingDefinitions.resolve(
+      jsonResponse({
+        status: 'supported',
+        repo_id: 'repo-42',
+        path: 'src/main.rs',
+        revision: 'rev-stale-123',
+        symbol: 'helper',
+        definitions: [
+          {
+            path: 'src/main.rs',
+            name: 'helper',
+            kind: 'function',
+            range: { start_line: 1, end_line: 1 },
+            browse_url: '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs&revision=rev-stale-123#L1',
+          },
+        ],
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading code navigation…')).not.toBeInTheDocument();
+      expect(screen.queryByText('Definition results')).not.toBeInTheDocument();
+      expect(screen.getByText('export const value = 42;')).toBeInTheDocument();
+    });
+  });
+
+  it('finds references and opens the referenced file when a result is clicked', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'src', path: 'src', kind: 'dir' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [
+            { name: 'lib.rs', path: 'src/lib.rs', kind: 'file' },
+            { name: 'consumer.rs', path: 'src/consumer.rs', kind: 'file' },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Flib.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/lib.rs',
+          size_bytes: 24,
+          content: 'pub fn helper() {}',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fconsumer.rs&revision=rev-ref-456') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/consumer.rs',
+          size_bytes: 37,
+          content: 'fn run() { crate::helper(); helper(); }',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/references?path=src%2Flib.rs&symbol=helper') {
+        return jsonResponse({
+          status: 'supported',
+          repo_id: 'repo-42',
+          path: 'src/lib.rs',
+          revision: 'rev-ref-456',
+          symbol: 'helper',
+          references: [
+            {
+              path: 'src/consumer.rs',
+              line_number: 8,
+              line: 'fn run() { crate::helper(); helper(); }',
+              browse_url: '/api/v1/repos/repo-42/blob?path=src%2Fconsumer.rs&revision=rev-ref-456#L8',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('src/')).closest('button')!);
+    fireEvent.click((await screen.findByText('lib.rs')).closest('button')!);
+
+    expect(await screen.findByText('pub fn helper() {}')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find references' }));
+
+    expect(await screen.findByText('Reference results')).toBeInTheDocument();
+    expect(screen.getByText('Revision: rev-ref-456')).toBeInTheDocument();
+    expect(screen.getByText('Line 8')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /src\/consumer\.rs/i }));
+
+    expect(await screen.findByText('src/consumer.rs')).toBeInTheDocument();
+    expect(screen.getAllByText('fn run() { crate::helper(); helper(); }').length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/references?path=src%2Flib.rs&symbol=helper');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Fconsumer.rs&revision=rev-ref-456');
+  });
+
+  it('shows a non-fatal capability notice for unsupported navigation responses', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'notes.txt', path: 'notes.txt', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=notes.txt') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'notes.txt',
+          size_bytes: 18,
+          content: 'plain text helper',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/definitions?path=notes.txt&symbol=helper') {
+        return jsonResponse({
+          status: 'unsupported',
+          repo_id: 'repo-42',
+          path: 'notes.txt',
+          revision: null,
+          symbol: 'helper',
+          capability: 'Definitions are not available for plain text files.',
+          definitions: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('notes.txt')).closest('button')!);
+    expect(await screen.findByText('plain text helper')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find definitions' }));
+
+    expect(await screen.findByText('Definitions are not available for plain text files.')).toBeInTheDocument();
+    expect(screen.getByText('plain text helper')).toBeInTheDocument();
+  });
+
+  it('shows a friendly no-results state when navigation returns an empty supported list', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'src', path: 'src', kind: 'dir' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [{ name: 'main.rs', path: 'src/main.rs', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          size_bytes: 16,
+          content: 'fn helper() {}',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/references?path=src%2Fmain.rs&symbol=missing') {
+        return jsonResponse({
+          status: 'supported',
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          revision: 'rev-empty-789',
+          symbol: 'missing',
+          references: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('src/')).closest('button')!);
+    fireEvent.click((await screen.findByText('main.rs')).closest('button')!);
+    expect(await screen.findByText('fn helper() {}')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'missing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find references' }));
+
+    expect(await screen.findByText('No references found for “missing”.')).toBeInTheDocument();
+    expect(screen.getByText('Revision: rev-empty-789')).toBeInTheDocument();
   });
 
   it('searches code and filters results by repository from the home page', async () => {

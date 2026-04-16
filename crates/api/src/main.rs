@@ -845,7 +845,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri(
-                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs&revision=HEAD~1",
+                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs&revision=3864b25",
                     )
                     .body(Body::empty())
                     .unwrap(),
@@ -1322,7 +1322,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri(
-                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=get_repository_references&revision=HEAD~1",
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=get_repository_references&revision=3864b25",
                     )
                     .body(Body::empty())
                     .unwrap(),
@@ -1339,7 +1339,7 @@ mod tests {
                 definitions,
                 ..
             } => {
-                assert_eq!(revision.as_deref(), Some("HEAD~1"));
+                assert_eq!(revision.as_deref(), Some("3864b25"));
                 assert!(definitions.is_empty());
             }
             DefinitionsResponse::Unsupported { .. } => {
@@ -1603,7 +1603,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri(
-                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=get_repository_references&revision=HEAD~1",
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=get_repository_references&revision=3864b25",
                     )
                     .body(Body::empty())
                     .unwrap(),
@@ -1620,7 +1620,7 @@ mod tests {
                 references,
                 ..
             } => {
-                assert_eq!(revision.as_deref(), Some("HEAD~1"));
+                assert_eq!(revision.as_deref(), Some("3864b25"));
                 assert!(references.is_empty());
             }
             ReferencesResponse::Unsupported { .. } => {

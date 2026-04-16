@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 type SyncState = 'pending' | 'ready' | 'error';
 
@@ -41,6 +41,75 @@ type BlobResponse = {
   path: string;
   content: string;
   size_bytes: number;
+};
+
+type DefinitionRange = {
+  start_line: number;
+  end_line: number;
+};
+
+type DefinitionResult = {
+  path: string;
+  name: string;
+  kind: string;
+  range: DefinitionRange;
+  browse_url: string;
+};
+
+type ReferenceResult = {
+  path: string;
+  line_number: number;
+  line: string;
+  browse_url: string;
+};
+
+type DefinitionsResponse =
+  | {
+      status: 'supported';
+      repo_id: string;
+      path: string;
+      revision: string | null;
+      symbol: string;
+      definitions: DefinitionResult[];
+    }
+  | {
+      status: 'unsupported';
+      repo_id: string;
+      path: string;
+      revision: string | null;
+      symbol: string;
+      capability: string;
+      definitions: DefinitionResult[];
+    };
+
+type ReferencesResponse =
+  | {
+      status: 'supported';
+      repo_id: string;
+      path: string;
+      revision: string | null;
+      symbol: string;
+      references: ReferenceResult[];
+    }
+  | {
+      status: 'unsupported';
+      repo_id: string;
+      path: string;
+      revision: string | null;
+      symbol: string;
+      capability: string;
+      references: ReferenceResult[];
+    };
+
+type NavigationMode = 'definitions' | 'references';
+
+type NavigationState = {
+  mode: NavigationMode;
+  symbol: string;
+  revision: string | null;
+  capability: string | null;
+  definitions: DefinitionResult[];
+  references: ReferenceResult[];
 };
 
 type SearchResult = {
@@ -605,15 +674,47 @@ function CommitsPanel({ repoId }: { repoId: string }) {
   );
 }
 
+function pathDirectory(path: string) {
+  const segments = path.split('/');
+  segments.pop();
+  return segments.join('/');
+}
+
+function parseBrowseUrl(browseUrl: string) {
+  const url = new URL(browseUrl, window.location.origin);
+  const match = url.pathname.match(/^\/api\/v1\/repos\/([^/]+)\/blob$/);
+  if (!match) {
+    return null;
+  }
+
+  const path = url.searchParams.get('path');
+  if (!path) {
+    return null;
+  }
+
+  return {
+    repoId: decodeURIComponent(match[1]),
+    path,
+    revision: url.searchParams.get('revision'),
+    line: url.hash.startsWith('#L') ? Number(url.hash.slice(2)) || null : null,
+  };
+}
+
 function BrowsePanel({ repoId }: { repoId: string }) {
   const [treePath, setTreePath] = useState('');
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedRevision, setSelectedRevision] = useState<string | null>(null);
   const [blob, setBlob] = useState<BlobResponse | null>(null);
   const [blobLoading, setBlobLoading] = useState(false);
   const [blobError, setBlobError] = useState<string | null>(null);
+  const [symbol, setSymbol] = useState('');
+  const [navigationLoading, setNavigationLoading] = useState(false);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [navigationState, setNavigationState] = useState<NavigationState | null>(null);
+  const navigationRequestId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -657,7 +758,12 @@ function BrowsePanel({ repoId }: { repoId: string }) {
 
     setBlobLoading(true);
 
-    fetchJson<BlobResponse>(`/api/v1/repos/${repoId}/blob?path=${encodeURIComponent(selectedFilePath)}`)
+    const params = new URLSearchParams({ path: selectedFilePath });
+    if (selectedRevision) {
+      params.set('revision', selectedRevision);
+    }
+
+    fetchJson<BlobResponse>(`/api/v1/repos/${repoId}/blob?${params.toString()}`)
       .then((data) => {
         if (!cancelled) {
           setBlob(data);
@@ -679,25 +785,116 @@ function BrowsePanel({ repoId }: { repoId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [repoId, selectedFilePath]);
+  }, [repoId, selectedFilePath, selectedRevision]);
+
+  useEffect(() => {
+    navigationRequestId.current += 1;
+    setSelectedRevision(null);
+    setSymbol('');
+    setNavigationLoading(false);
+    setNavigationError(null);
+    setNavigationState(null);
+  }, [repoId]);
 
   const parentPath = useMemo(() => {
     if (!treePath) return null;
-    const segments = treePath.split('/');
-    segments.pop();
-    return segments.join('/');
+    return pathDirectory(treePath);
   }, [treePath]);
 
   const openEntry = (entry: BrowseEntry) => {
+    navigationRequestId.current += 1;
+    setNavigationLoading(false);
     if (entry.kind === 'dir') {
       setTreePath(entry.path);
       setSelectedFilePath(null);
+      setSelectedRevision(null);
       setBlob(null);
       setBlobError(null);
+      setSymbol('');
+      setNavigationError(null);
+      setNavigationState(null);
       return;
     }
 
     setSelectedFilePath(entry.path);
+    setSelectedRevision(null);
+    setSymbol('');
+    setNavigationError(null);
+    setNavigationState(null);
+  };
+
+  const openBrowseTarget = (browseUrl: string) => {
+    const target = parseBrowseUrl(browseUrl);
+    if (!target || target.repoId !== repoId) {
+      return;
+    }
+
+    navigationRequestId.current += 1;
+    setNavigationLoading(false);
+    setTreePath(pathDirectory(target.path));
+    setSelectedFilePath(target.path);
+    setSelectedRevision(target.revision);
+    setNavigationError(null);
+  };
+
+  const runNavigation = async (mode: NavigationMode) => {
+    const trimmedSymbol = symbol.trim();
+    if (!selectedFilePath || !trimmedSymbol) {
+      return;
+    }
+
+    const requestId = navigationRequestId.current + 1;
+    navigationRequestId.current = requestId;
+    setNavigationLoading(true);
+    setNavigationError(null);
+
+    try {
+      const params = new URLSearchParams({ path: selectedFilePath, symbol: trimmedSymbol });
+      if (selectedRevision) {
+        params.set('revision', selectedRevision);
+      }
+
+      if (mode === 'definitions') {
+        const data = await fetchJson<DefinitionsResponse>(`/api/v1/repos/${repoId}/definitions?${params.toString()}`);
+        if (navigationRequestId.current !== requestId) {
+          return;
+        }
+
+        setNavigationState({
+          mode,
+          symbol: data.symbol,
+          revision: data.revision,
+          capability: data.status === 'unsupported' ? data.capability : null,
+          definitions: data.definitions,
+          references: [],
+        });
+      } else {
+        const data = await fetchJson<ReferencesResponse>(`/api/v1/repos/${repoId}/references?${params.toString()}`);
+        if (navigationRequestId.current !== requestId) {
+          return;
+        }
+
+        setNavigationState({
+          mode,
+          symbol: data.symbol,
+          revision: data.revision,
+          capability: data.status === 'unsupported' ? data.capability : null,
+          definitions: [],
+          references: data.references,
+        });
+      }
+    } catch (err) {
+      if (navigationRequestId.current !== requestId) {
+        return;
+      }
+
+      setNavigationState(null);
+      setNavigationError((err as Error).message);
+    } finally {
+      if (navigationRequestId.current === requestId) {
+        setNavigationLoading(false);
+      }
+    }
   };
 
   return (
@@ -749,8 +946,112 @@ function BrowsePanel({ repoId }: { repoId: string }) {
             <div style={browseSectionTitleStyle}>Source</div>
             <div style={browseSectionMetaStyle}>{blob?.path ?? selectedFilePath ?? 'Select a file to inspect its contents.'}</div>
           </div>
-          {blob ? <div style={browseSectionMetaStyle}>{blob.size_bytes} bytes</div> : null}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+            {blob ? <div style={browseSectionMetaStyle}>{blob.size_bytes} bytes</div> : null}
+            {selectedRevision ? <div style={browseSectionMetaStyle}>Viewing revision: {selectedRevision}</div> : null}
+          </div>
         </div>
+
+        {selectedFilePath ? (
+          <div
+            style={{
+              display: 'grid',
+              gap: 10,
+              marginBottom: 16,
+              padding: 12,
+              borderRadius: 12,
+              border: '1px solid #d8dee4',
+              background: '#f6f8fa',
+            }}
+          >
+            <label style={{ display: 'grid', gap: 6, fontSize: 14, fontWeight: 600 }}>
+              <span>Symbol token</span>
+              <input
+                value={symbol}
+                onChange={(event) => setSymbol(event.target.value)}
+                placeholder="Enter a symbol for this file"
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid #d0d7de',
+                  font: 'inherit',
+                  color: '#1f2328',
+                  background: '#fff',
+                }}
+              />
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                disabled={navigationLoading || symbol.trim().length === 0}
+                onClick={() => void runNavigation('definitions')}
+              >
+                Find definitions
+              </button>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                disabled={navigationLoading || symbol.trim().length === 0}
+                onClick={() => void runNavigation('references')}
+              >
+                Find references
+              </button>
+            </div>
+            {navigationLoading ? <div style={browseSectionMetaStyle}>Loading code navigation…</div> : null}
+            {navigationError ? <div>Unable to load navigation results: {navigationError}</div> : null}
+            {navigationState ? (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'grid', gap: 4 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {navigationState.mode === 'definitions' ? 'Definition results' : 'Reference results'}
+                  </div>
+                  {navigationState.revision ? <div style={browseSectionMetaStyle}>Revision: {navigationState.revision}</div> : null}
+                </div>
+                {navigationState.capability ? <div style={browseSectionMetaStyle}>{navigationState.capability}</div> : null}
+                {!navigationState.capability && navigationState.mode === 'definitions' && navigationState.definitions.length === 0 ? (
+                  <div style={browseSectionMetaStyle}>No definitions found for “{navigationState.symbol}”.</div>
+                ) : null}
+                {!navigationState.capability && navigationState.mode === 'references' && navigationState.references.length === 0 ? (
+                  <div style={browseSectionMetaStyle}>No references found for “{navigationState.symbol}”.</div>
+                ) : null}
+                {!navigationState.capability && navigationState.mode === 'definitions' && navigationState.definitions.length > 0 ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {navigationState.definitions.map((definition, index) => (
+                      <button
+                        key={`${definition.path}-${definition.range.start_line}-${index}`}
+                        type="button"
+                        style={{ ...entryButtonStyle, alignItems: 'flex-start', flexDirection: 'column' }}
+                        onClick={() => openBrowseTarget(definition.browse_url)}
+                      >
+                        <span style={{ fontWeight: 700 }}>{definition.name}</span>
+                        <span>{definition.path}</span>
+                        <span style={browseSectionMetaStyle}>{definition.kind}</span>
+                        <span style={browseSectionMetaStyle}>Lines {definition.range.start_line}–{definition.range.end_line}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {!navigationState.capability && navigationState.mode === 'references' && navigationState.references.length > 0 ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {navigationState.references.map((reference, index) => (
+                      <button
+                        key={`${reference.path}-${reference.line_number}-${index}`}
+                        type="button"
+                        style={{ ...entryButtonStyle, alignItems: 'flex-start', flexDirection: 'column' }}
+                        onClick={() => openBrowseTarget(reference.browse_url)}
+                      >
+                        <span style={{ fontWeight: 700 }}>{reference.path}</span>
+                        <span style={browseSectionMetaStyle}>Line {reference.line_number}</span>
+                        <span style={{ ...browseSectionMetaStyle, whiteSpace: 'normal' }}>{reference.line}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {blobLoading ? <div>Loading source…</div> : null}
         {!blobLoading && blobError ? <div>Unable to load source: {blobError}</div> : null}
