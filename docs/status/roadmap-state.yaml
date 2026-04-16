@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 697d4746296c0146be161ac2437cd1ba67821b5c
+  head: dec5fcdd61f545b997ec1c9a76d415bfcab336d7
 last_completed_task:
   id: task21c2b1
   title: Ask thread message update persistence
@@ -24,7 +24,7 @@ last_completed_task:
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: 697d4746296c0146be161ac2437cd1ba67821b5c
+  commit: dec5fcdd61f545b997ec1c9a76d415bfcab336d7
   next_task: task21c2b2
 current_task:
   id: task21c2b2
@@ -45,7 +45,7 @@ history:
       - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
       - cargo fmt --check: passed
       - cargo check: passed
-    commit: 697d4746296c0146be161ac2437cd1ba67821b5c
+    commit: dec5fcdd61f545b997ec1c9a76d415bfcab336d7
     next_task: task21c2b2
   - id: task19
     status: done
