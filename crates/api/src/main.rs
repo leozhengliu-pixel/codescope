@@ -10,8 +10,8 @@ use argon2::{
 };
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
 use auth::{
-    build_bootstrap_store, build_local_session_store, DynBootstrapStore, DynLocalSessionStore,
-    FileOrganizationStore,
+    build_bootstrap_store, build_local_session_store, build_organization_store, DynBootstrapStore,
+    DynLocalSessionStore, DynOrganizationStore,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -47,6 +47,8 @@ struct AppState {
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
+    #[allow(dead_code)]
+    organization_store: DynOrganizationStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -76,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
     let local_sessions = build_local_session_store(config.local_session_state_path.clone());
-    let _organization_store = FileOrganizationStore::new(config.organization_state_path.clone());
+    let organization_store = build_organization_store(config.organization_state_path.clone());
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
@@ -87,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         catalog,
         bootstrap,
         local_sessions,
+        organization_store,
         browse,
         commits,
         search,
@@ -100,11 +103,36 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn build_app_state(
+    config: AppConfig,
+    catalog: DynCatalogStore,
+    bootstrap: DynBootstrapStore,
+    local_sessions: DynLocalSessionStore,
+    organization_store: DynOrganizationStore,
+    browse: DynBrowseStore,
+    commits: DynCommitStore,
+    search: DynSearchStore,
+    ask_threads: DynAskThreadStore,
+) -> AppState {
+    AppState {
+        config,
+        catalog,
+        bootstrap,
+        local_sessions,
+        organization_store,
+        browse,
+        commits,
+        search,
+        ask_threads,
+    }
+}
+
 fn build_router(
     config: AppConfig,
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
+    organization_store: DynOrganizationStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -147,16 +175,17 @@ fn build_router(
         )
         .route("/api/v1/search", get(search_repository_contents))
         .route("/api/v1/ask/completions", post(create_ask_completion))
-        .with_state(AppState {
+        .with_state(build_app_state(
             config,
             catalog,
             bootstrap,
             local_sessions,
+            organization_store,
             browse,
             commits,
             search,
             ask_threads,
-        })
+        ))
 }
 
 fn next_ask_entity_id(prefix: &str) -> String {
@@ -1045,7 +1074,10 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore};
-    use sourcebot_models::LocalSessionState;
+    use sourcebot_models::{
+        LocalSessionState, Organization, OrganizationMembership, OrganizationRole,
+        OrganizationState,
+    };
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
     use std::{
@@ -1252,16 +1284,62 @@ mod tests {
     fn test_app_with_config(config: AppConfig) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
+        let organization_state_path = config.organization_state_path.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(bootstrap_state_path),
             build_local_session_store(local_session_state_path),
+            build_organization_store(organization_state_path),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
             build_ask_thread_store(),
         )
+    }
+
+    #[tokio::test]
+    async fn build_app_state_wires_file_backed_organization_store_from_configured_path() {
+        let organization_state_path = unique_test_path("app-state-organizations");
+        let expected_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&expected_state).unwrap(),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        };
+        let state = build_app_state(
+            config,
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(unique_test_path("app-state-bootstrap")),
+            build_local_session_store(unique_test_path("app-state-local-sessions")),
+            build_organization_store(organization_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+
+        let persisted_state = state.organization_store.organization_state().await.unwrap();
+        assert_eq!(persisted_state, expected_state);
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
@@ -1342,6 +1420,7 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_local_session_store(config.local_session_state_path.clone()),
+            build_organization_store(config.organization_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1439,6 +1518,7 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_local_session_store(config.local_session_state_path.clone()),
+            build_organization_store(config.organization_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1782,6 +1862,7 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             Arc::new(AlreadyInitializedBootstrapStore),
             build_local_session_store(unique_test_path("already-initialized-sessions")),
+            build_organization_store(unique_test_path("already-initialized-organizations")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -2738,6 +2819,7 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("config-store")),
             build_local_session_store(unique_test_path("config-session-store")),
+            build_organization_store(unique_test_path("config-organization-store")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),

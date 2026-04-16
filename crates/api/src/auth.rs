@@ -18,6 +18,7 @@ use std::os::unix::fs::OpenOptionsExt;
 
 pub type DynBootstrapStore = Arc<dyn BootstrapStore>;
 pub type DynLocalSessionStore = Arc<dyn LocalSessionStore>;
+pub type DynOrganizationStore = Arc<dyn OrganizationStore>;
 
 #[derive(Clone, Debug)]
 pub struct FileBootstrapStore {
@@ -296,6 +297,10 @@ pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStor
 
 pub fn build_local_session_store(state_path: impl Into<PathBuf>) -> DynLocalSessionStore {
     Arc::new(FileLocalSessionStore::new(state_path))
+}
+
+pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizationStore {
+    Arc::new(FileOrganizationStore::new(state_path))
 }
 
 #[cfg(test)]
