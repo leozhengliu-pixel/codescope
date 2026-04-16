@@ -659,9 +659,12 @@ async fn get_repository_detail(
 
 async fn get_repository_tree(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(repo_id): Path<String>,
     Query(query): Query<BrowseQuery>,
 ) -> Result<Json<TreeResponse>, StatusCode> {
+    ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+
     let tree = state
         .browse
         .get_tree(&repo_id, &query.path)
@@ -673,9 +676,12 @@ async fn get_repository_tree(
 
 async fn get_repository_blob(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(repo_id): Path<String>,
     Query(query): Query<BrowseQuery>,
 ) -> Result<Json<BlobResponse>, StatusCode> {
+    ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+
     let revision = query
         .revision
         .as_deref()
@@ -972,6 +978,19 @@ async fn visible_repo_ids_for_request(
             .into_iter()
             .collect(),
     )
+}
+
+async fn ensure_repo_visible_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo_id: &str,
+) -> Result<(), StatusCode> {
+    let visible_repo_ids = visible_repo_ids_for_request(state, headers).await?;
+    if !visible_repo_ids.contains(repo_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(())
 }
 
 async fn search_repository_contents(
@@ -3071,11 +3090,108 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_tree_returns_root_directory_entries() {
-        let response = test_app()
+    async fn repo_tree_requires_authenticated_visible_repository_access() {
+        let organization_state_path = unique_test_path("repo-tree-auth-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-auth-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-auth-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let missing_auth_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_auth_response.status(), StatusCode::UNAUTHORIZED);
+
+        let invalid_auth_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .header(header::AUTHORIZATION, "Bearer not-a-valid-session")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn repo_tree_returns_not_found_for_hidden_repository() {
+        let organization_state_path = unique_test_path("repo-tree-hidden-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_tree_returns_root_directory_entries() {
+        let organization_state_path = unique_test_path("repo-tree-visible-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-visible-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-visible-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3097,11 +3213,108 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_blob_returns_file_contents() {
-        let response = test_app()
+    async fn repo_blob_requires_authenticated_visible_repository_access() {
+        let organization_state_path = unique_test_path("repo-blob-auth-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-auth-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-auth-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let missing_auth_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_auth_response.status(), StatusCode::UNAUTHORIZED);
+
+        let invalid_auth_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .header(header::AUTHORIZATION, "Bearer not-a-valid-session")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_not_found_for_hidden_repository() {
+        let organization_state_path = unique_test_path("repo-blob-hidden-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_returns_file_contents() {
+        let organization_state_path = unique_test_path("repo-blob-visible-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-visible-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-visible-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3119,12 +3332,31 @@ mod tests {
 
     #[tokio::test]
     async fn repo_blob_returns_requested_revision_contents() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-blob-revision-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-revision-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-revision-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri(
                         "/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates/api/src/main.rs&revision=3864b25",
                     )
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3142,10 +3374,29 @@ mod tests {
 
     #[tokio::test]
     async fn repo_blob_rejects_parent_directory_traversal_with_bad_request() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-blob-traversal-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-traversal-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-traversal-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=..")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3157,10 +3408,29 @@ mod tests {
 
     #[tokio::test]
     async fn repo_tree_rejects_parent_directory_traversal() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-tree-traversal-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-traversal-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-traversal-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/tree?path=..")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3172,10 +3442,29 @@ mod tests {
 
     #[tokio::test]
     async fn repo_blob_returns_not_found_for_unknown_repo() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-blob-unknown-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-unknown-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-unknown-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_demo_docs/blob?path=README.md")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3187,10 +3476,29 @@ mod tests {
 
     #[tokio::test]
     async fn repo_blob_returns_not_found_for_missing_path() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-blob-missing-path-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-missing-path-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-missing-path-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=definitely-missing-file")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -3202,10 +3510,29 @@ mod tests {
 
     #[tokio::test]
     async fn repo_blob_returns_not_found_for_directory_path() {
-        let response = test_app()
+        let organization_state_path = unique_test_path("repo-blob-directory-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-directory-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-directory-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=crates")
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
