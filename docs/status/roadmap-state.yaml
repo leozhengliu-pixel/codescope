@@ -5,30 +5,45 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cea0984f99d90012e64aaa10459cf92916bf1569
+  head: b97d61fc99cbdd476507f9dcf6647f61098edca1
 last_completed_task:
-  id: task23b2
-  title: Append repo-scoped ask completions into existing ask threads
+  id: task24a
+  title: MCP server discovery manifest and tool definitions
   status: done
   summary: >-
-    Completed the second task23b slice by wiring POST /api/v1/ask/completions to
-    append repo-scoped prompts and assistant replies into an existing private ask
-    thread when thread_id is supplied, preserving prior message history, keeping
-    the same thread id, copying assistant citations, and advancing updated_at.
+    Split task24 and completed the first MCP slice by adding a new sourcebot-mcp
+    crate that exposes serializable MCP server metadata plus repository-aware tool
+    definitions for list_repos, list_tree, read_file, glob, and grep with minimal
+    JSON-schema input contracts, without introducing transport/runtime handling yet.
   tests:
-    - cargo test -p sourcebot-api ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied -- --nocapture: passed
-    - cargo test -p sourcebot-api ask_completions -- --nocapture: passed (6 tests)
+    - cargo test -p sourcebot-mcp -- --nocapture: passed (3 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by a single independent diff review covering spec compliance and code quality with no blocking issues; reviewer noted the two-write append path could later be made transactional and suggested an eventual regression test for missing thread_id targets
-  commit: cea0984f99d90012e64aaa10459cf92916bf1569
-  next_task: task24
+    code: approved by a single independent combined spec-and-quality review with no blocking issues; reviewer noted that a later transport slice should confirm MCP wire-format field naming and may optionally tighten schemas with additionalProperties constraints
+  commit: b97d61fc99cbdd476507f9dcf6647f61098edca1
+  next_task: task24b
 current_task:
-  id: task24
-  title: MCP server
+  id: task24b
+  title: MCP server tool-call request/response execution
   status: pending
 history:
+  - id: task24a
+    status: done
+    summary: >-
+      Split task24 and completed the first MCP slice by adding a new sourcebot-mcp
+      crate that exposes serializable MCP server metadata plus repository-aware
+      tool definitions for list_repos, list_tree, read_file, glob, and grep with
+      minimal JSON-schema input contracts, without introducing transport/runtime
+      handling yet.
+    tests:
+      - cargo test -p sourcebot-mcp -- --nocapture: passed (3 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by a single independent combined spec-and-quality review with no blocking issues; reviewer noted that a later transport slice should confirm MCP wire-format field naming and may optionally tighten schemas with additionalProperties constraints
+    commit: b97d61fc99cbdd476507f9dcf6647f61098edca1
+    next_task: task24b
   - id: task23b2
     status: done
     summary: >-
