@@ -231,6 +231,23 @@ impl LocalSessionStore for FileLocalSessionStore {
         write_json_file(&self.state_path, &payload, true)?;
         Ok(())
     }
+
+    async fn delete_local_session(&self, session_id: &str) -> Result<bool> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        let original_len = state.sessions.len();
+        state
+            .sessions
+            .retain(|persisted| persisted.id != session_id);
+
+        if state.sessions.len() == original_len {
+            return Ok(false);
+        }
+
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, true)?;
+        Ok(true)
+    }
 }
 
 pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStore {
@@ -534,5 +551,39 @@ mod tests {
         assert!(!path.exists());
 
         fs::remove_file(lock_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_local_session_store_deletes_only_the_requested_session() {
+        let path = unique_test_path("session-delete");
+        let store = FileLocalSessionStore::new(&path);
+        let retained = LocalSession {
+            id: "session_keep".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$keep".into(),
+            created_at: "2026-04-16T18:00:00Z".into(),
+        };
+        let deleted = LocalSession {
+            id: "session_drop".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$drop".into(),
+            created_at: "2026-04-16T18:01:00Z".into(),
+        };
+
+        store.store_local_session(retained.clone()).await.unwrap();
+        store.store_local_session(deleted.clone()).await.unwrap();
+
+        assert!(store.delete_local_session(&deleted.id).await.unwrap());
+        assert_eq!(store.local_session(&deleted.id).await.unwrap(), None);
+        assert_eq!(
+            store.local_session(&retained.id).await.unwrap(),
+            Some(retained.clone())
+        );
+
+        let persisted: LocalSessionState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted.sessions, vec![retained]);
+
+        fs::remove_file(path).unwrap();
     }
 }

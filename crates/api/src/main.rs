@@ -116,6 +116,7 @@ fn build_router(
         )
         .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
+        .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -514,6 +515,24 @@ async fn get_authenticated_local_admin(
         session_id: session.id,
         created_at: session.created_at,
     }))
+}
+
+async fn logout_local_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    let (_, session) = authenticate_local_session(&state, &headers).await?;
+    let deleted = state
+        .local_sessions
+        .delete_local_session(&session.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if !deleted {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_repositories(
@@ -2156,6 +2175,170 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn logout_revokes_only_the_current_bearer_session() {
+        let bootstrap_state_path = unique_test_path("logout-bootstrap");
+        let local_session_state_path = unique_test_path("logout-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let first_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first_login_response.status(), StatusCode::CREATED);
+        let first_login_payload: LoginResponseBody = read_json(first_login_response).await;
+
+        let second_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second_login_response.status(), StatusCode::CREATED);
+        let second_login_payload: LoginResponseBody = read_json(second_login_response).await;
+
+        let logout_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            first_login_payload.session_id, first_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(logout_response.status(), StatusCode::NO_CONTENT);
+        let logout_body = to_bytes(logout_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(logout_body.is_empty());
+
+        let revoked_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            first_login_payload.session_id, first_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoked_response.status(), StatusCode::UNAUTHORIZED);
+
+        let retained_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            second_login_payload.session_id, second_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(retained_response.status(), StatusCode::OK);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn logout_returns_401_for_missing_or_malformed_authorization() {
+        let missing_auth_response = test_app()
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_auth_response.status(), StatusCode::UNAUTHORIZED);
+
+        let malformed_auth_response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header("authorization", "Bearer not-a-session-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(malformed_auth_response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
