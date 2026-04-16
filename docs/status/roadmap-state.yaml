@@ -5,29 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 606d9c0f5d8cae3151d1cb7c3d0adcd030d8441e
+  head: 1ea2d0bee86367c951fe1359b61f376c4e07aec7
 last_completed_task:
-  id: task21c1
-  title: Ask thread message append persistence
+  id: task21c2a
+  title: Ask thread message retrieval persistence
   status: done
   summary: >-
-    Split task21c and completed the first slice by adding owner-scoped ask
-    thread message append persistence to the async thread-store contract and
-    in-memory implementation, including updated thread timestamps and summary
-    message counts.
+    Split task21c2 and completed the first slice by adding owner-scoped ask
+    thread message retrieval to the async thread-store contract and in-memory
+    implementation, preserving append order and hiding persisted messages from
+    non-owners and missing threads.
   tests:
-    - cargo test -p sourcebot-api in_memory_store_appends_message_for_owner_and_updates_summary -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (9 tests)
+    - cargo test -p sourcebot-api in_memory_store_returns_thread_messages_for_owner_in_append_order -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api in_memory_store_hides_thread_messages_from_non_owner_and_missing_threads -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (11 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: 606d9c0f5d8cae3151d1cb7c3d0adcd030d8441e
-  next_task: task21c2
+  commit: 1ea2d0bee86367c951fe1359b61f376c4e07aec7
+  next_task: task21c2b
 current_task:
-  id: task21c2
-  title: Ask thread message retrieval and mutation follow-up slices
+  id: task21c2b
+  title: Ask thread message mutation follow-up slices
   status: pending
 history:
   - id: task19
@@ -169,6 +170,22 @@ history:
       - cargo check: passed
     commit: 606d9c0f5d8cae3151d1cb7c3d0adcd030d8441e
     next_task: task21c2
+  - id: task21c2a
+    status: done
+    summary: >-
+      Split task21c2 and completed the first slice by adding owner-scoped ask
+      thread message retrieval to the async thread-store contract and in-memory
+      implementation, preserving append order and hiding persisted messages from
+      non-owners and missing threads.
+    tests:
+      - cargo test -p sourcebot-api in_memory_store_returns_thread_messages_for_owner_in_append_order -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api in_memory_store_hides_thread_messages_from_non_owner_and_missing_threads -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (11 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: 1ea2d0bee86367c951fe1359b61f376c4e07aec7
+    next_task: task21c2b
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
