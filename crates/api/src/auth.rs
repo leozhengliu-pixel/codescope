@@ -308,6 +308,7 @@ mod tests {
     use super::*;
     use sourcebot_models::{
         LocalAccount, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
+        RepositoryPermissionBinding,
     };
     use std::{
         fs,
@@ -667,6 +668,11 @@ mod tests {
                 expires_at: "2026-04-23T20:05:00Z".into(),
                 accepted_by_user_id: Some("local_user_member".into()),
                 accepted_at: Some("2026-04-17T08:00:00Z".into()),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-18T09:30:00Z".into(),
             }],
         };
 

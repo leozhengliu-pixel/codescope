@@ -132,6 +132,13 @@ pub struct OrganizationInvite {
     pub accepted_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryPermissionBinding {
+    pub organization_id: String,
+    pub repository_id: String,
+    pub synced_at: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -142,6 +149,8 @@ pub struct OrganizationState {
     pub accounts: Vec<LocalAccount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invites: Vec<OrganizationInvite>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repo_permissions: Vec<RepositoryPermissionBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -502,6 +511,7 @@ mod tests {
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
+            repo_permissions: Vec::new(),
         };
 
         assert_eq!(
@@ -565,5 +575,52 @@ mod tests {
                 "accepted_at": "2026-04-17T09:00:00Z"
             })
         );
+    }
+
+    #[test]
+    fn organization_state_serializes_repo_permission_bindings_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-18T09:30:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "repo_permissions": [{
+                    "organization_id": "org_acme",
+                    "repository_id": "repo_sourcebot_rewrite",
+                    "synced_at": "2026-04-18T09:30:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_repo_permissions_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.repo_permissions.is_empty());
     }
 }

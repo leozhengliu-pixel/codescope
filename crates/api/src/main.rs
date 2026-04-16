@@ -1073,7 +1073,7 @@ mod tests {
     use sourcebot_core::{AskThreadStore, BootstrapStore};
     use sourcebot_models::{
         LocalAccount, LocalSessionState, Organization, OrganizationInvite, OrganizationMembership,
-        OrganizationRole, OrganizationState,
+        OrganizationRole, OrganizationState, RepositoryPermissionBinding,
     };
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
@@ -1326,6 +1326,11 @@ mod tests {
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
         };
         let mismatched_state = OrganizationState {
             organizations: vec![Organization {
@@ -1336,6 +1341,11 @@ mod tests {
             memberships: vec![],
             accounts: vec![],
             invites: vec![],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_other".into(),
+                repository_id: "repo_other".into(),
+                synced_at: "2026-04-21T00:07:00Z".into(),
+            }],
         };
         fs::write(
             &configured_organization_state_path,
