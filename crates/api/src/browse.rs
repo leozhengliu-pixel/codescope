@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::Serialize;
-use sourcebot_core::{RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TreeStore};
+use sourcebot_core::{
+    BlobStore, RepositoryBlob, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
+    TreeStore,
+};
 use std::{
     collections::HashMap,
     fs,
@@ -80,8 +83,21 @@ pub struct BrowseTreeStoreAdapter {
     browse: DynBrowseStore,
 }
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct BrowseBlobStoreAdapter {
+    browse: DynBrowseStore,
+}
+
 #[allow(dead_code)]
 impl BrowseTreeStoreAdapter {
+    pub fn new(browse: DynBrowseStore) -> Self {
+        Self { browse }
+    }
+}
+
+#[allow(dead_code)]
+impl BrowseBlobStoreAdapter {
     pub fn new(browse: DynBrowseStore) -> Self {
         Self { browse }
     }
@@ -263,6 +279,21 @@ impl TreeStore for BrowseTreeStoreAdapter {
     }
 }
 
+#[async_trait]
+impl BlobStore for BrowseBlobStoreAdapter {
+    async fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<RepositoryBlob>> {
+        Ok(self
+            .browse
+            .get_blob(repo_id, path)?
+            .map(|blob| RepositoryBlob {
+                repo_id: blob.repo_id,
+                path: blob.path,
+                content: blob.content,
+                size_bytes: blob.size_bytes,
+            }))
+    }
+}
+
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
     let object = format!("{revision}:{path}");
     let output = Command::new("git")
@@ -371,7 +402,7 @@ pub fn build_browse_store() -> DynBrowseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_core::{RepositoryTreeEntryKind, TreeStore};
+    use sourcebot_core::{BlobStore, RepositoryTreeEntryKind, TreeStore};
     use std::{
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -454,6 +485,29 @@ mod tests {
         assert_eq!(tree.entries[0].name, "main.rs");
         assert_eq!(tree.entries[0].path, "src/main.rs");
         assert_eq!(tree.entries[0].kind, RepositoryTreeEntryKind::File);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn browse_blob_store_adapter_converts_browse_blob_for_core_retrieval() {
+        let (store, root) = create_test_store();
+        let adapter = BrowseBlobStoreAdapter::new(Arc::new(store));
+
+        let blob = BlobStore::get_blob(&adapter, "repo_test", "README.md")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            blob,
+            RepositoryBlob {
+                repo_id: "repo_test".into(),
+                path: "README.md".into(),
+                content: "hello world\n".into(),
+                size_bytes: 12,
+            }
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

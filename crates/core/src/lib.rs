@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sourcebot_models::{Connection, Repository, RepositoryDetail, RepositorySummary};
+use std::path::{Component, Path};
 
 pub const PROJECT_NAME: &str = "sourcebot-rewrite";
 
@@ -51,10 +52,24 @@ pub trait TreeStore: Send + Sync {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryBlob {
+    pub repo_id: String,
+    pub path: String,
+    pub content: String,
+    pub size_bytes: u64,
+}
+
+#[async_trait]
+pub trait BlobStore: Send + Sync {
+    async fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<RepositoryBlob>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "tool", content = "payload", rename_all = "snake_case")]
 pub enum RetrievalToolResult {
     ListRepos(ListReposResult),
     ListTree(ListTreeResult),
+    ReadFile(ReadFileResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -69,6 +84,14 @@ pub struct ListTreeResult {
     pub entries: Vec<RepositoryTreeEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReadFileResult {
+    pub repo_id: String,
+    pub path: String,
+    pub content: String,
+    pub size_bytes: u64,
+}
+
 #[async_trait]
 pub trait RetrievalTool: Send + Sync {
     fn definition(&self) -> RetrievalToolDefinition;
@@ -76,6 +99,7 @@ pub trait RetrievalTool: Send + Sync {
         &self,
         catalog: &dyn CatalogStore,
         trees: &dyn TreeStore,
+        blobs: &dyn BlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult>;
 }
@@ -88,7 +112,18 @@ pub struct ListTreeTool {
     path: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReadFileTool {
+    path: String,
+}
+
 impl ListTreeTool {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into() }
+    }
+}
+
+impl ReadFileTool {
     pub fn new(path: impl Into<String>) -> Self {
         Self { path: path.into() }
     }
@@ -107,6 +142,7 @@ impl RetrievalTool for ListReposTool {
         &self,
         catalog: &dyn CatalogStore,
         _trees: &dyn TreeStore,
+        _blobs: &dyn BlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let repositories = catalog.list_repositories().await?;
@@ -143,6 +179,7 @@ impl RetrievalTool for ListTreeTool {
         &self,
         _catalog: &dyn CatalogStore,
         trees: &dyn TreeStore,
+        _blobs: &dyn BlobStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -193,6 +230,74 @@ impl RetrievalTool for ListTreeTool {
     }
 }
 
+#[async_trait]
+impl RetrievalTool for ReadFileTool {
+    fn definition(&self) -> RetrievalToolDefinition {
+        RetrievalToolDefinition {
+            name: "read_file".into(),
+            description:
+                "Read a UTF-8 file at a repository path inside the active retrieval scope.".into(),
+        }
+    }
+
+    async fn run(
+        &self,
+        _catalog: &dyn CatalogStore,
+        _trees: &dyn TreeStore,
+        blobs: &dyn BlobStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult> {
+        let active_repo_id = context
+            .active_repo_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("read_file requires an active repository"))?;
+
+        if !repo_is_visible(context, active_repo_id) {
+            anyhow::bail!(
+                "active repository {active_repo_id} is not visible to the retrieval context"
+            );
+        }
+
+        if !repo_is_in_scope(context, active_repo_id) {
+            anyhow::bail!("active repository {active_repo_id} is outside retrieval scope");
+        }
+
+        validate_relative_repo_path(&self.path)?;
+
+        let blob = blobs
+            .get_blob(active_repo_id, &self.path)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "repository blob not found for repo {active_repo_id} at path {}",
+                    self.path
+                )
+            })?;
+
+        if blob.repo_id != active_repo_id {
+            anyhow::bail!(
+                "blob store returned repo {} for active repo {active_repo_id}",
+                blob.repo_id
+            );
+        }
+
+        if blob.path != self.path {
+            anyhow::bail!(
+                "blob store returned path {} for requested path {}",
+                blob.path,
+                self.path
+            );
+        }
+
+        Ok(RetrievalToolResult::ReadFile(ReadFileResult {
+            repo_id: blob.repo_id,
+            path: blob.path,
+            content: blob.content,
+            size_bytes: blob.size_bytes,
+        }))
+    }
+}
+
 fn scoped_repo_ids(context: &RetrievalToolContext) -> Vec<&str> {
     if !context.repo_scope.is_empty() {
         context.repo_scope.iter().map(String::as_str).collect()
@@ -218,6 +323,19 @@ fn repo_is_in_scope(context: &RetrievalToolContext, repo_id: &str) -> bool {
     scoped_repo_ids(context)
         .into_iter()
         .any(|scoped_repo_id| scoped_repo_id == repo_id)
+}
+
+fn validate_relative_repo_path(path: &str) -> Result<()> {
+    for component in Path::new(path).components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => {
+                anyhow::bail!("invalid relative path: {path}");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,8 +472,14 @@ mod tests {
 
     struct NullTreeStore;
 
+    struct NullBlobStore;
+
     struct StaticTreeStore {
         tree: Option<RepositoryTree>,
+    }
+
+    struct StaticBlobStore {
+        blob: Option<RepositoryBlob>,
     }
 
     #[async_trait]
@@ -377,9 +501,23 @@ mod tests {
     }
 
     #[async_trait]
+    impl BlobStore for NullBlobStore {
+        async fn get_blob(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryBlob>> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait]
     impl TreeStore for StaticTreeStore {
         async fn get_tree(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryTree>> {
             Ok(self.tree.clone())
+        }
+    }
+
+    #[async_trait]
+    impl BlobStore for StaticBlobStore {
+        async fn get_blob(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryBlob>> {
+            Ok(self.blob.clone())
         }
     }
 
@@ -405,6 +543,21 @@ mod tests {
             RetrievalToolDefinition {
                 name: "list_tree".into(),
                 description: "List files and directories at a repository path inside the active retrieval scope.".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn read_file_tool_definition_is_machine_readable() {
+        let tool = ReadFileTool::new("src/lib.rs");
+
+        assert_eq!(
+            tool.definition(),
+            RetrievalToolDefinition {
+                name: "read_file".into(),
+                description:
+                    "Read a UTF-8 file at a repository path inside the active retrieval scope."
+                        .into(),
             }
         );
     }
@@ -439,6 +592,7 @@ mod tests {
             .run(
                 &store,
                 &NullTreeStore,
+                &NullBlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
@@ -485,6 +639,7 @@ mod tests {
             .run(
                 &store,
                 &NullTreeStore,
+                &NullBlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_demo_docs".into()),
                     repo_scope: Vec::new(),
@@ -532,6 +687,7 @@ mod tests {
             .run(
                 &catalog,
                 &trees,
+                &NullBlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -577,6 +733,7 @@ mod tests {
             .run(
                 &catalog,
                 &trees,
+                &NullBlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -600,6 +757,7 @@ mod tests {
             .run(
                 &catalog,
                 &NullTreeStore,
+                &NullBlobStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_secret".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -610,6 +768,102 @@ mod tests {
             .expect_err("list_tree should fail when the active repo is outside scope");
 
         assert!(err.to_string().contains("outside retrieval scope"));
+    }
+
+    #[tokio::test]
+    async fn read_file_tool_rejects_parent_directory_components_in_requested_path() {
+        let tool = ReadFileTool::new("../secrets.txt");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("read_file should reject invalid relative paths");
+
+        assert!(err.to_string().contains("invalid relative path"));
+    }
+
+    #[tokio::test]
+    async fn read_file_tool_returns_machine_readable_blob_for_active_repo() {
+        let tool = ReadFileTool::new("src/lib.rs");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let blobs = StaticBlobStore {
+            blob: Some(RepositoryBlob {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src/lib.rs".into(),
+                content: "pub fn demo() {}\n".into(),
+                size_bytes: 17,
+            }),
+        };
+
+        let result = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &blobs,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect("read_file should succeed for the active repository");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::ReadFile(ReadFileResult {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src/lib.rs".into(),
+                content: "pub fn demo() {}\n".into(),
+                size_bytes: 17,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_tool_rejects_blob_store_metadata_outside_requested_scope() {
+        let tool = ReadFileTool::new("src/lib.rs");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let blobs = StaticBlobStore {
+            blob: Some(RepositoryBlob {
+                repo_id: "repo_secret".into(),
+                path: "secrets.txt".into(),
+                content: "do not leak\n".into(),
+                size_bytes: 12,
+            }),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &blobs,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("read_file should reject mismatched blob metadata");
+
+        assert!(err.to_string().contains("blob store returned repo"));
     }
 
     #[tokio::test]
