@@ -77,12 +77,32 @@ pub trait GlobStore: Send + Sync {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryGrepMatch {
+    pub path: String,
+    pub line_number: usize,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryGrep {
+    pub repo_id: String,
+    pub query: String,
+    pub matches: Vec<RepositoryGrepMatch>,
+}
+
+#[async_trait]
+pub trait GrepStore: Send + Sync {
+    async fn grep(&self, repo_id: &str, query: &str) -> Result<Option<RepositoryGrep>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "tool", content = "payload", rename_all = "snake_case")]
 pub enum RetrievalToolResult {
     ListRepos(ListReposResult),
     ListTree(ListTreeResult),
     ReadFile(ReadFileResult),
     Glob(GlobResult),
+    Grep(GrepResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +132,20 @@ pub struct GlobResult {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrepMatch {
+    pub path: String,
+    pub line_number: usize,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GrepResult {
+    pub repo_id: String,
+    pub query: String,
+    pub matches: Vec<GrepMatch>,
+}
+
 #[async_trait]
 pub trait RetrievalTool: Send + Sync {
     fn definition(&self) -> RetrievalToolDefinition;
@@ -121,6 +155,7 @@ pub trait RetrievalTool: Send + Sync {
         trees: &dyn TreeStore,
         blobs: &dyn BlobStore,
         globs: &dyn GlobStore,
+        greps: &dyn GrepStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult>;
 }
@@ -143,6 +178,11 @@ pub struct GlobTool {
     pattern: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GrepTool {
+    query: String,
+}
+
 impl ListTreeTool {
     pub fn new(path: impl Into<String>) -> Self {
         Self { path: path.into() }
@@ -163,6 +203,14 @@ impl GlobTool {
     }
 }
 
+impl GrepTool {
+    pub fn new(query: impl Into<String>) -> Self {
+        Self {
+            query: query.into(),
+        }
+    }
+}
+
 #[async_trait]
 impl RetrievalTool for ListReposTool {
     fn definition(&self) -> RetrievalToolDefinition {
@@ -178,6 +226,7 @@ impl RetrievalTool for ListReposTool {
         _trees: &dyn TreeStore,
         _blobs: &dyn BlobStore,
         _globs: &dyn GlobStore,
+        _greps: &dyn GrepStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let repositories = catalog.list_repositories().await?;
@@ -216,6 +265,7 @@ impl RetrievalTool for ListTreeTool {
         trees: &dyn TreeStore,
         _blobs: &dyn BlobStore,
         _globs: &dyn GlobStore,
+        _greps: &dyn GrepStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -282,6 +332,7 @@ impl RetrievalTool for ReadFileTool {
         _trees: &dyn TreeStore,
         blobs: &dyn BlobStore,
         _globs: &dyn GlobStore,
+        _greps: &dyn GrepStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -351,6 +402,7 @@ impl RetrievalTool for GlobTool {
         _trees: &dyn TreeStore,
         _blobs: &dyn BlobStore,
         globs: &dyn GlobStore,
+        _greps: &dyn GrepStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let active_repo_id = context
@@ -407,6 +459,102 @@ impl RetrievalTool for GlobTool {
     }
 }
 
+#[async_trait]
+impl RetrievalTool for GrepTool {
+    fn definition(&self) -> RetrievalToolDefinition {
+        RetrievalToolDefinition {
+            name: "grep".into(),
+            description:
+                "Search repository file contents for a literal query inside the active retrieval scope."
+                    .into(),
+        }
+    }
+
+    async fn run(
+        &self,
+        _catalog: &dyn CatalogStore,
+        _trees: &dyn TreeStore,
+        _blobs: &dyn BlobStore,
+        _globs: &dyn GlobStore,
+        greps: &dyn GrepStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult> {
+        let active_repo_id = context
+            .active_repo_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("grep requires an active repository"))?;
+
+        if !repo_is_visible(context, active_repo_id) {
+            anyhow::bail!(
+                "active repository {active_repo_id} is not visible to the retrieval context"
+            );
+        }
+
+        if !repo_is_in_scope(context, active_repo_id) {
+            anyhow::bail!("active repository {active_repo_id} is outside retrieval scope");
+        }
+
+        validate_grep_query(&self.query)?;
+
+        let grep = greps
+            .grep(active_repo_id, &self.query)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "repository grep not found for repo {active_repo_id} with query {}",
+                    self.query
+                )
+            })?;
+
+        if grep.repo_id != active_repo_id {
+            anyhow::bail!(
+                "grep store returned repo {} for active repo {active_repo_id}",
+                grep.repo_id
+            );
+        }
+
+        if grep.query != self.query {
+            anyhow::bail!(
+                "grep store returned query {} for requested query {}",
+                grep.query,
+                self.query
+            );
+        }
+
+        let matches = grep
+            .matches
+            .into_iter()
+            .map(|entry| {
+                validate_relative_repo_path(&entry.path)?;
+                if entry.line_number == 0 {
+                    anyhow::bail!(
+                        "grep store returned invalid line number for path {}",
+                        entry.path
+                    );
+                }
+                if !entry.line.contains(&self.query) {
+                    anyhow::bail!(
+                        "grep store returned line without requested query for path {}",
+                        entry.path
+                    );
+                }
+
+                Ok(GrepMatch {
+                    path: entry.path,
+                    line_number: entry.line_number,
+                    line: entry.line,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(RetrievalToolResult::Grep(GrepResult {
+            repo_id: grep.repo_id,
+            query: grep.query,
+            matches,
+        }))
+    }
+}
+
 fn scoped_repo_ids(context: &RetrievalToolContext) -> Vec<&str> {
     if !context.repo_scope.is_empty() {
         context.repo_scope.iter().map(String::as_str).collect()
@@ -442,6 +590,14 @@ fn validate_relative_repo_path(path: &str) -> Result<()> {
                 anyhow::bail!("invalid relative path: {path}");
             }
         }
+    }
+
+    Ok(())
+}
+
+fn validate_grep_query(query: &str) -> Result<()> {
+    if query.trim().is_empty() {
+        anyhow::bail!("grep query must not be empty");
     }
 
     Ok(())
@@ -585,6 +741,8 @@ mod tests {
 
     struct NullGlobStore;
 
+    struct NullGrepStore;
+
     struct StaticTreeStore {
         tree: Option<RepositoryTree>,
     }
@@ -595,6 +753,10 @@ mod tests {
 
     struct StaticGlobStore {
         glob: Option<RepositoryGlob>,
+    }
+
+    struct StaticGrepStore {
+        grep: Option<RepositoryGrep>,
     }
 
     #[async_trait]
@@ -634,6 +796,13 @@ mod tests {
     }
 
     #[async_trait]
+    impl GrepStore for NullGrepStore {
+        async fn grep(&self, _repo_id: &str, _query: &str) -> Result<Option<RepositoryGrep>> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait]
     impl TreeStore for StaticTreeStore {
         async fn get_tree(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryTree>> {
             Ok(self.tree.clone())
@@ -655,6 +824,13 @@ mod tests {
             _pattern: &str,
         ) -> Result<Option<RepositoryGlob>> {
             Ok(self.glob.clone())
+        }
+    }
+
+    #[async_trait]
+    impl GrepStore for StaticGrepStore {
+        async fn grep(&self, _repo_id: &str, _query: &str) -> Result<Option<RepositoryGrep>> {
+            Ok(self.grep.clone())
         }
     }
 
@@ -714,6 +890,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn grep_tool_definition_is_machine_readable() {
+        let tool = GrepTool::new("needle");
+
+        assert_eq!(
+            tool.definition(),
+            RetrievalToolDefinition {
+                name: "grep".into(),
+                description:
+                    "Search repository file contents for a literal query inside the active retrieval scope."
+                        .into(),
+            }
+        );
+    }
+
     #[tokio::test]
     async fn list_repos_tool_returns_only_visible_repositories_in_scope() {
         let tool = ListReposTool;
@@ -746,6 +937,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
@@ -794,6 +986,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_demo_docs".into()),
                     repo_scope: Vec::new(),
@@ -843,6 +1036,7 @@ mod tests {
                 &trees,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -890,6 +1084,7 @@ mod tests {
                 &trees,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -915,6 +1110,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_secret".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -940,6 +1136,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -973,6 +1170,7 @@ mod tests {
                 &NullTreeStore,
                 &blobs,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -1014,6 +1212,7 @@ mod tests {
                 &NullTreeStore,
                 &blobs,
                 &NullGlobStore,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -1046,6 +1245,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &globs,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -1078,6 +1278,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &StaticGlobStore { glob: None },
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -1110,6 +1311,7 @@ mod tests {
                 &NullTreeStore,
                 &NullBlobStore,
                 &globs,
+                &NullGrepStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into()],
@@ -1120,6 +1322,131 @@ mod tests {
             .expect_err("glob should reject mismatched store metadata");
 
         assert!(err.to_string().contains("glob store returned repo"));
+    }
+
+    #[tokio::test]
+    async fn grep_tool_returns_machine_readable_matches_for_active_repo() {
+        let tool = GrepTool::new("needle");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let greps = StaticGrepStore {
+            grep: Some(RepositoryGrep {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                query: "needle".into(),
+                matches: vec![
+                    RepositoryGrepMatch {
+                        path: "src/lib.rs".into(),
+                        line_number: 3,
+                        line: "const NEEDLE: &str = \"needle\";".into(),
+                    },
+                    RepositoryGrepMatch {
+                        path: "src/main.rs".into(),
+                        line_number: 8,
+                        line: "println!(\"needle\");".into(),
+                    },
+                ],
+            }),
+        };
+
+        let result = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &NullGlobStore,
+                &greps,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect("grep should succeed for the active repository");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::Grep(GrepResult {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                query: "needle".into(),
+                matches: vec![
+                    GrepMatch {
+                        path: "src/lib.rs".into(),
+                        line_number: 3,
+                        line: "const NEEDLE: &str = \"needle\";".into(),
+                    },
+                    GrepMatch {
+                        path: "src/main.rs".into(),
+                        line_number: 8,
+                        line: "println!(\"needle\");".into(),
+                    },
+                ],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn grep_tool_rejects_empty_query() {
+        let tool = GrepTool::new("   ");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &NullGlobStore,
+                &StaticGrepStore { grep: None },
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("grep should reject empty queries");
+
+        assert!(err.to_string().contains("query must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn grep_tool_rejects_grep_store_metadata_outside_requested_scope() {
+        let tool = GrepTool::new("needle");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let greps = StaticGrepStore {
+            grep: Some(RepositoryGrep {
+                repo_id: "repo_secret".into(),
+                query: "other".into(),
+                matches: vec![RepositoryGrepMatch {
+                    path: "../leak.txt".into(),
+                    line_number: 0,
+                    line: "totally unrelated".into(),
+                }],
+            }),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &NullBlobStore,
+                &NullGlobStore,
+                &greps,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("grep should reject mismatched grep metadata");
+
+        assert!(err.to_string().contains("grep store returned repo"));
     }
 
     #[tokio::test]

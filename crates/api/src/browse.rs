@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use globset::Glob;
 use serde::Serialize;
 use sourcebot_core::{
-    BlobStore, GlobStore, RepositoryBlob, RepositoryGlob, RepositoryTree, RepositoryTreeEntry,
-    RepositoryTreeEntryKind, TreeStore,
+    BlobStore, GlobStore, GrepStore, RepositoryBlob, RepositoryGlob, RepositoryGrep,
+    RepositoryGrepMatch, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TreeStore,
 };
 use std::{
     collections::HashMap,
@@ -25,6 +25,8 @@ pub trait BrowseStore: Send + Sync {
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>>;
     #[allow(dead_code)]
     fn glob_paths(&self, repo_id: &str, pattern: &str) -> Result<Option<GlobResponse>>;
+    #[allow(dead_code)]
+    fn grep(&self, repo_id: &str, query: &str) -> Result<Option<GrepResponse>>;
     fn get_blob_at_revision(
         &self,
         repo_id: &str,
@@ -75,6 +77,20 @@ pub struct GlobResponse {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GrepMatchResponse {
+    pub path: String,
+    pub line_number: usize,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct GrepResponse {
+    pub repo_id: String,
+    pub query: String,
+    pub matches: Vec<GrepMatchResponse>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceMatch {
     pub path: String,
@@ -105,6 +121,12 @@ pub struct BrowseGlobStoreAdapter {
     browse: DynBrowseStore,
 }
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct BrowseGrepStoreAdapter {
+    browse: DynBrowseStore,
+}
+
 #[allow(dead_code)]
 impl BrowseTreeStoreAdapter {
     pub fn new(browse: DynBrowseStore) -> Self {
@@ -121,6 +143,13 @@ impl BrowseBlobStoreAdapter {
 
 #[allow(dead_code)]
 impl BrowseGlobStoreAdapter {
+    pub fn new(browse: DynBrowseStore) -> Self {
+        Self { browse }
+    }
+}
+
+#[allow(dead_code)]
+impl BrowseGrepStoreAdapter {
     pub fn new(browse: DynBrowseStore) -> Self {
         Self { browse }
     }
@@ -149,6 +178,18 @@ impl LocalBrowseStore {
 
     fn repo_root(&self, repo_id: &str) -> Option<&PathBuf> {
         self.repo_roots.get(repo_id)
+    }
+
+    fn path_is_within_repo_root(root: &Path, path: &Path) -> bool {
+        let Ok(canonical_root) = fs::canonicalize(root) else {
+            return false;
+        };
+
+        let Ok(canonical_path) = fs::canonicalize(path) else {
+            return false;
+        };
+
+        canonical_path.starts_with(canonical_root)
     }
 
     fn collect_glob_matches(
@@ -186,6 +227,61 @@ impl LocalBrowseStore {
 
             if matcher.is_match(&relative_path) {
                 matches.push(relative_path);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn collect_grep_matches(
+        &self,
+        root: &Path,
+        current_path: &Path,
+        query: &str,
+        matches: &mut Vec<GrepMatchResponse>,
+    ) -> Result<()> {
+        let entries = fs::read_dir(current_path)
+            .with_context(|| format!("failed to read directory {}", current_path.display()))?;
+
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!(
+                    "failed to read directory entry under {}",
+                    current_path.display()
+                )
+            })?;
+            let path = entry.path();
+            let file_type = entry
+                .file_type()
+                .with_context(|| format!("failed to read file type for {}", path.display()))?;
+
+            if file_type.is_dir() {
+                self.collect_grep_matches(root, &path, query, matches)?;
+                continue;
+            }
+
+            let relative_path = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to strip prefix for {}", path.display()))?
+                .to_string_lossy()
+                .replace('\\', "/");
+
+            if !Self::path_is_within_repo_root(root, &path) {
+                continue;
+            }
+
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+
+            for (index, line) in content.lines().enumerate() {
+                if line.contains(query) {
+                    matches.push(GrepMatchResponse {
+                        path: relative_path.clone(),
+                        line_number: index + 1,
+                        line: line.to_string(),
+                    });
+                }
             }
         }
 
@@ -253,6 +349,26 @@ impl BrowseStore for LocalBrowseStore {
             repo_id: repo_id.to_string(),
             pattern: pattern.to_string(),
             paths,
+        }))
+    }
+
+    fn grep(&self, repo_id: &str, query: &str) -> Result<Option<GrepResponse>> {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let mut matches = Vec::new();
+        self.collect_grep_matches(repo_root, repo_root, query, &mut matches)?;
+        matches.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then(left.line_number.cmp(&right.line_number))
+        });
+
+        Ok(Some(GrepResponse {
+            repo_id: repo_id.to_string(),
+            query: query.to_string(),
+            matches,
         }))
     }
 
@@ -391,6 +507,28 @@ impl GlobStore for BrowseGlobStoreAdapter {
     }
 }
 
+#[async_trait]
+impl GrepStore for BrowseGrepStoreAdapter {
+    async fn grep(&self, repo_id: &str, query: &str) -> Result<Option<RepositoryGrep>> {
+        Ok(self
+            .browse
+            .grep(repo_id, query)?
+            .map(|grep| RepositoryGrep {
+                repo_id: grep.repo_id,
+                query: grep.query,
+                matches: grep
+                    .matches
+                    .into_iter()
+                    .map(|entry| RepositoryGrepMatch {
+                        path: entry.path,
+                        line_number: entry.line_number,
+                        line: entry.line,
+                    })
+                    .collect(),
+            }))
+    }
+}
+
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
     let object = format!("{revision}:{path}");
     let output = Command::new("git")
@@ -499,7 +637,10 @@ pub fn build_browse_store() -> DynBrowseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_core::{BlobStore, GlobStore, RepositoryTreeEntryKind, TreeStore};
+    use sourcebot_core::{
+        BlobStore, GlobStore, GrepStore, RepositoryBlob, RepositoryGlob, RepositoryGrep,
+        RepositoryGrepMatch, RepositoryTreeEntryKind, TreeStore,
+    };
     use std::{
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -665,6 +806,75 @@ mod tests {
                 repo_id: "repo_test".into(),
                 pattern: "src/*.rs".into(),
                 paths: vec!["src/main.rs".into()],
+            }
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_greps_matching_lines() {
+        let (store, root) = create_test_store();
+
+        let grep = store.grep("repo_test", "generated").unwrap().unwrap();
+
+        assert_eq!(grep.repo_id, "repo_test");
+        assert_eq!(grep.query, "generated");
+        assert_eq!(
+            grep.matches,
+            vec![GrepMatchResponse {
+                path: "target/generated.rs".into(),
+                line_number: 1,
+                line: "pub fn generated() {}".into(),
+            }]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_grep_skips_symlinked_files_outside_repo_root() {
+        let (store, root) = create_test_store();
+        let outside_path = root.parent().unwrap().join("outside-secret.txt");
+        fs::write(&outside_path, "secret generated token\n").unwrap();
+        symlink(&outside_path, root.join("src").join("outside-secret.rs")).unwrap();
+
+        let grep = store.grep("repo_test", "generated").unwrap().unwrap();
+
+        assert_eq!(
+            grep.matches,
+            vec![GrepMatchResponse {
+                path: "target/generated.rs".into(),
+                line_number: 1,
+                line: "pub fn generated() {}".into(),
+            }]
+        );
+
+        fs::remove_file(outside_path).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn browse_grep_store_adapter_converts_browse_grep_for_core_retrieval() {
+        let (store, root) = create_test_store();
+        let adapter = BrowseGrepStoreAdapter::new(Arc::new(store));
+
+        let grep = GrepStore::grep(&adapter, "repo_test", "main")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            grep,
+            RepositoryGrep {
+                repo_id: "repo_test".into(),
+                query: "main".into(),
+                matches: vec![RepositoryGrepMatch {
+                    path: "src/main.rs".into(),
+                    line_number: 1,
+                    line: "fn main() {}".into(),
+                }],
             }
         );
 
