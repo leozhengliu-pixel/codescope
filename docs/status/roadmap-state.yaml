@@ -5,31 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 321089ff9ab60c12f88fffd3ce3ff07cf203994a
+  head: 8202cba73cf9a352a0650f5116b1d12e86136658
 last_completed_task:
-  id: task21c2b2b
-  title: Ask thread message replacement follow-up slice
+  id: task22a
+  title: Shared citation model and persisted ask-message citations
   status: done
   summary: >-
-    Completed the replacement follow-up slice by adding owner-scoped full ask
-    thread message replacement to the async thread-store contract and in-memory
-    implementation, preserving message order while refreshing thread updated_at
-    metadata.
+    Split task22 and completed the first slice by adding a shared ask citation
+    model in sourcebot-models, extending persisted ask messages to carry
+    citations, and reusing that shared type from sourcebot-core so reopened
+    thread history can preserve machine-readable citation metadata.
   tests:
-    - cargo test -p sourcebot-api replace_message -- --nocapture: passed (2 tests)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (17 tests)
-    - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
-    - cargo fmt --check: passed
-    - cargo check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_message_serialization_includes_machine_readable_citations -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api in_memory_store_preserves_message_citations_across_reload_and_replace -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -p sourcebot-core -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: 321089ff9ab60c12f88fffd3ce3ff07cf203994a
-  next_task: task22
+    code: approved by single independent review with no blocking spec, security, or logic issues; noted only non-blocking persisted-json coverage gaps
+  commit: 8202cba73cf9a352a0650f5116b1d12e86136658
+  next_task: task22b
 current_task:
-  id: task22
-  title: Citation model and renderer
+  id: task22b
+  title: Citation renderer
   status: pending
 history:
+  - id: task22a
+    status: done
+    summary: >-
+      Split task22 and completed the first slice by adding a shared ask citation
+      model in sourcebot-models, extending persisted ask messages to carry
+      citations, and reusing that shared type from sourcebot-core so reopened
+      thread history can preserve machine-readable citation metadata.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_message_serialization_includes_machine_readable_citations -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api in_memory_store_preserves_message_citations_across_reload_and_replace -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -p sourcebot-core -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    commit: 8202cba73cf9a352a0650f5116b1d12e86136658
+    next_task: task22b
   - id: task21c2b2b
     status: done
     summary: >-
