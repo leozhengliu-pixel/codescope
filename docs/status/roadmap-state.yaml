@@ -5,31 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 73d3d5c80fe5bc2de64e8b946a507b17a9ceb352
+  head: cc3e51c32fbc5189f44635d512af3dd7a93ae763
 last_completed_task:
-  id: task22b2b1
-  title: Add rendered citations to ask thread response DTOs
+  id: task22b2b2
+  title: Wire rendered citations into the top-level ask completion response surface
   status: done
   summary: >-
-    Split task22b2b and completed the first ask API slice by adding API-layer
-    AskMessageResponse and AskThreadResponse converters that preserve raw
-    citations while exposing derived rendered_citations for persisted ask thread
-    messages without changing storage models or adding routes.
+    Split task22b2b and completed the second ask API slice by adding an
+    API-layer AskCompletionResponse that maps sourcebot_core::AskResponse,
+    preserves raw citations, and exposes derived rendered_citations for the
+    top-level ask completion surface without changing routes or storage models.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_message_response_includes_rendered_citations_alongside_raw_citations -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_thread_response_maps_message_rendered_citations -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask::tests::ask_completion_response_includes_rendered_citations_alongside_raw_citations -- --exact: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by a single independent diff review with no blocking spec gaps, security concerns, or logic errors
-  commit: 73d3d5c80fe5bc2de64e8b946a507b17a9ceb352
-  next_task: task22b2b2
+    code: approved by a single independent diff review with no blocking spec gaps, security concerns, or logic errors; reviewer noted the DTO is a preparatory surface and accepted that narrow scope
+  commit: cc3e51c32fbc5189f44635d512af3dd7a93ae763
+  next_task: task23
 current_task:
-  id: task22b2b2
-  title: Wire rendered citations into the top-level ask completion response surface
+  id: task23
+  title: Repo-scoped ask experience
   status: pending
 history:
+  - id: task22b2b2
+    status: done
+    summary: >-
+      Split task22b2b and completed the second ask API slice by adding an
+      API-layer AskCompletionResponse that maps sourcebot_core::AskResponse,
+      preserves raw citations, and exposes derived rendered_citations for the
+      top-level ask completion surface without changing routes or storage models.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask::tests::ask_completion_response_includes_rendered_citations_alongside_raw_citations -- --exact: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    review:
+      code: approved by a single independent diff review with no blocking spec gaps, security concerns, or logic errors; reviewer noted the DTO is a preparatory surface and accepted that narrow scope
+    commit: cc3e51c32fbc5189f44635d512af3dd7a93ae763
+    next_task: task23
   - id: task22b2b1
     status: done
     summary: >-
