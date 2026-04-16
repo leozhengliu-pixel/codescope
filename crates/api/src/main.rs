@@ -26,7 +26,7 @@ use commits::{
 };
 use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
-use sourcebot_core::{build_llm_provider, LlmProviderConfig};
+use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
     AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapState, BootstrapStatus,
     LocalSession, RepositoryDetail, RepositorySummary,
@@ -34,6 +34,7 @@ use sourcebot_models::{
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
 };
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -47,7 +48,6 @@ struct AppState {
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
-    #[allow(dead_code)]
     organization_store: DynOrganizationStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
@@ -502,10 +502,10 @@ fn parse_local_session_bearer_token(headers: &HeaderMap) -> Result<(String, Stri
     Ok((session_id.to_string(), session_secret.to_string()))
 }
 
-async fn authenticate_local_session(
+async fn authenticate_local_session_record(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(BootstrapState, LocalSession), StatusCode> {
+) -> Result<LocalSession, StatusCode> {
     let (session_id, session_secret) = parse_local_session_bearer_token(headers)?;
     let session = state
         .local_sessions
@@ -513,7 +513,7 @@ async fn authenticate_local_session(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if session.user_id != LOCAL_BOOTSTRAP_ADMIN_USER_ID {
+    if !local_session_record_is_well_formed(&session, &session_id) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -522,6 +522,18 @@ async fn authenticate_local_session(
     Argon2::default()
         .verify_password(session_secret.as_bytes(), &secret_hash)
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    Ok(session)
+}
+
+async fn authenticate_local_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(BootstrapState, LocalSession), StatusCode> {
+    let session = authenticate_local_session_record(state, headers).await?;
+    if session.user_id != LOCAL_BOOTSTRAP_ADMIN_USER_ID {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let bootstrap_state = state
         .bootstrap
@@ -944,18 +956,52 @@ async fn get_repository_commit_diff(
     Ok(Json(diff))
 }
 
+async fn visible_repo_ids_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<HashSet<String>, StatusCode> {
+    let session = authenticate_local_session_record(state, headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(
+        visible_repo_ids_for_user(&organization_state, &session.user_id)
+            .into_iter()
+            .collect(),
+    )
+}
+
 async fn search_repository_contents(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
+    let visible_repo_ids = visible_repo_ids_for_request(&state, &headers).await?;
+
     if query.q.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let requested_repo_id = query
+        .repo_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(repo_id) = requested_repo_id {
+        if !visible_repo_ids.contains(repo_id) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
 
-    let response = state
+    let mut response = state
         .search
-        .search(&query.q, query.repo_id.as_deref())
+        .search(&query.q, requested_repo_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    response
+        .results
+        .retain(|result| visible_repo_ids.contains(&result.repo_id));
 
     Ok(Json(response))
 }
@@ -1384,6 +1430,105 @@ mod tests {
     async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    fn write_organization_state_fixture(path: &PathBuf, user_id: &str, repo_ids: &[&str]) {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: repo_ids
+                .iter()
+                .map(|repo_id| RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: (*repo_id).into(),
+                    synced_at: "2026-04-21T00:06:00Z".into(),
+                })
+                .collect(),
+            ..OrganizationState::default()
+        };
+
+        fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+
+    async fn bootstrap_and_login(app: &Router) -> String {
+        let bootstrap_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "hunter2".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bootstrap_response.status(), StatusCode::CREATED);
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "hunter2".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+
+        let payload: LoginResponseBody = read_json(login_response).await;
+        format!("Bearer {}:{}", payload.session_id, payload.session_secret)
+    }
+
+    async fn seed_local_session(state_path: &str, user_id: &str) -> String {
+        let session_id = format!("seeded_session_{user_id}");
+        let session_secret = format!("secret_for_{user_id}");
+        let secret_hash = Argon2::default()
+            .hash_password(session_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        build_local_session_store(state_path.to_string())
+            .store_local_session(LocalSession {
+                id: session_id.clone(),
+                user_id: user_id.into(),
+                secret_hash,
+                created_at: "2026-04-21T00:07:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        format!("Bearer {session_id}:{session_secret}")
     }
 
     #[derive(Debug)]
@@ -3265,22 +3410,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_returns_bad_request_for_empty_query() {
-        let response = test_app()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/v1/search?q=&repo_id=repo_sourcebot_rewrite")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[tokio::test]
-    async fn search_returns_matches_for_seeded_local_repository() {
+    async fn search_requires_an_authenticated_session() {
         let response = test_app()
             .oneshot(
                 Request::builder()
@@ -3291,18 +3421,161 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 
-        let payload: SearchResponse = read_json(response).await;
+    #[tokio::test]
+    async fn search_requires_authentication_before_validating_query_shape() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=&repo_id=repo_sourcebot_rewrite")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn search_returns_bad_request_for_empty_query() {
+        let organization_state_path = unique_test_path("search-empty-query-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-empty-query-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("search-empty-query-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn search_returns_matches_only_for_visible_repositories() {
+        let organization_state_path = unique_test_path("search-visible-repos-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-visible-repos-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("search-visible-repos-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let visible_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(visible_response.status(), StatusCode::OK);
+
+        let payload: SearchResponse = read_json(visible_response).await;
         assert_eq!(payload.query, "build_router");
         assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
         assert!(!payload.results.is_empty());
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
         assert!(payload.results.iter().any(|result| {
             result.repo_id == "repo_sourcebot_rewrite"
                 && result.path == "crates/api/src/main.rs"
                 && result.line.contains("build_router")
                 && result.line_number > 0
         }));
+
+        let hidden_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_not_visible")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn search_allows_non_bootstrap_local_sessions_with_visible_repo_permissions() {
+        let organization_state_path = unique_test_path("search-non-bootstrap-orgs");
+        let local_session_state_path = unique_test_path("search-non-bootstrap-sessions");
+        let user_id = "user_viewer";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-non-bootstrap-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: SearchResponse = read_json(response).await;
+        assert!(!payload.results.is_empty());
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
     }
 
     #[tokio::test]
