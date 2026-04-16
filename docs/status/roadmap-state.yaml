@@ -5,31 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 48df3328da434c69648f362d037c8c4118e6856f
+  head: 321089ff9ab60c12f88fffd3ce3ff07cf203994a
 last_completed_task:
-  id: task21c2b2a
-  title: Ask thread message deletion persistence
+  id: task21c2b2b
+  title: Ask thread message replacement follow-up slice
   status: done
   summary: >-
-    Split task21c2b2 and completed the deletion-first slice by adding
-    owner-scoped ask thread message deletion to the async thread-store contract
-    and in-memory implementation, preserving remaining message order while
-    refreshing thread updated_at metadata.
+    Completed the replacement follow-up slice by adding owner-scoped full ask
+    thread message replacement to the async thread-store contract and in-memory
+    implementation, preserving message order while refreshing thread updated_at
+    metadata.
   tests:
-    - cargo test -p sourcebot-api delete_message -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (15 tests)
+    - cargo test -p sourcebot-api replace_message -- --nocapture: passed (2 tests)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (17 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: 48df3328da434c69648f362d037c8c4118e6856f
-  next_task: task21c2b2b
+  commit: 321089ff9ab60c12f88fffd3ce3ff07cf203994a
+  next_task: task22
 current_task:
-  id: task21c2b2b
-  title: Ask thread message replacement follow-up slice
+  id: task22
+  title: Citation model and renderer
   status: pending
 history:
+  - id: task21c2b2b
+    status: done
+    summary: >-
+      Completed the replacement follow-up slice by adding owner-scoped full ask
+      thread message replacement to the async thread-store contract and in-memory
+      implementation, preserving message order while refreshing thread updated_at
+      metadata.
+    tests:
+      - cargo test -p sourcebot-api replace_message -- --nocapture: passed (2 tests)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (17 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: 321089ff9ab60c12f88fffd3ce3ff07cf203994a
+    next_task: task22
   - id: task21c2b2a
     status: done
     summary: >-
