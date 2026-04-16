@@ -5,7 +5,7 @@ mod commits;
 mod storage;
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
@@ -28,7 +28,7 @@ use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, LlmProviderConfig};
 use sourcebot_models::{
     AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapState, BootstrapStatus,
-    RepositoryDetail, RepositorySummary,
+    LocalSession, RepositoryDetail, RepositorySummary,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -45,7 +45,7 @@ struct AppState {
     config: AppConfig,
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
-    _local_sessions: DynLocalSessionStore,
+    local_sessions: DynLocalSessionStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -53,6 +53,7 @@ struct AppState {
 }
 
 const DEFAULT_ASK_USER_ID: &str = "local_user";
+const LOCAL_BOOTSTRAP_ADMIN_USER_ID: &str = "local_user_bootstrap_admin";
 static NEXT_ASK_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize)]
@@ -113,6 +114,7 @@ fn build_router(
             "/api/v1/auth/bootstrap",
             get(get_bootstrap_status).post(create_bootstrap_admin),
         )
+        .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
@@ -144,7 +146,7 @@ fn build_router(
             config,
             catalog,
             bootstrap,
-            _local_sessions: local_sessions,
+            local_sessions,
             browse,
             commits,
             search,
@@ -188,6 +190,20 @@ struct BootstrapCreateBody {
     email: String,
     name: String,
     password: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LoginBody {
+    email: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct LoginResponse {
+    session_id: String,
+    session_secret: String,
+    user_id: String,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -358,6 +374,69 @@ fn map_bootstrap_initialize_error(error: anyhow::Error) -> StatusCode {
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     }
+}
+
+async fn login_local_admin(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginBody>,
+) -> Result<(StatusCode, Json<LoginResponse>), StatusCode> {
+    let email = payload.email.trim();
+    let password = payload.password;
+    if email.is_empty() || password.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let bootstrap_state = state
+        .bootstrap
+        .bootstrap_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::CONFLICT)?;
+    if bootstrap_state.admin_email != email {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let password_hash = PasswordHash::new(&bootstrap_state.password_hash)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Argon2::default()
+        .verify_password(password.as_bytes(), &password_hash)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let session_id = format!(
+        "local_session_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let session_secret = SaltString::generate(&mut OsRng).to_string();
+    let secret_hash = Argon2::default()
+        .hash_password(session_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let created_at = current_timestamp();
+
+    state
+        .local_sessions
+        .store_local_session(LocalSession {
+            id: session_id.clone(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            secret_hash,
+            created_at: created_at.clone(),
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(LoginResponse {
+            session_id,
+            session_secret,
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            created_at,
+        }),
+    ))
 }
 
 async fn list_repositories(
@@ -957,6 +1036,20 @@ mod tests {
         password: String,
     }
 
+    #[derive(Debug, Serialize)]
+    struct LoginRequest {
+        email: String,
+        password: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LoginResponseBody {
+        session_id: String,
+        session_secret: String,
+        user_id: String,
+        created_at: String,
+    }
+
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     struct BootstrapStateResponse {
         initialized_at: String,
@@ -1546,6 +1639,213 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn login_returns_created_session_and_persists_hashed_secret_for_bootstrap_admin() {
+        let bootstrap_state_path = unique_test_path("login-bootstrap");
+        let local_session_state_path = unique_test_path("login-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: " admin@example.com ".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload: LoginResponseBody = read_json(response).await;
+        assert!(payload.session_id.starts_with("local_session_"));
+        assert!(payload.session_id.len() > "local_session_".len() + 12);
+        assert!(!payload.session_secret.is_empty());
+        assert_eq!(payload.user_id, "local_user_bootstrap_admin");
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+
+        let persisted: sourcebot_models::LocalSessionState =
+            serde_json::from_slice(&fs::read(&local_session_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.sessions.len(), 1);
+        let session = &persisted.sessions[0];
+        assert_eq!(session.id, payload.session_id);
+        assert_eq!(session.user_id, payload.user_id);
+        assert_eq!(session.created_at, payload.created_at);
+        assert_ne!(session.secret_hash, payload.session_secret);
+        let persisted_secret_hash = PasswordHash::new(&session.secret_hash).unwrap();
+        assert!(Argon2::default()
+            .verify_password(payload.session_secret.as_bytes(), &persisted_secret_hash)
+            .is_ok());
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_preserves_password_whitespace_when_verifying_bootstrap_admin() {
+        let bootstrap_state_path = unique_test_path("login-whitespace-bootstrap");
+        let local_session_state_path = unique_test_path("login-whitespace-sessions");
+        let password = "  correct horse battery staple  ";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_rejects_invalid_password_without_creating_session() {
+        let bootstrap_state_path = unique_test_path("login-invalid-password-bootstrap");
+        let local_session_state_path = unique_test_path("login-invalid-password-sessions");
+        let password_hash = Argon2::default()
+            .hash_password(
+                b"correct horse battery staple",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "wrong password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(!local_session_state_path.is_file());
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_returns_conflict_when_bootstrap_is_still_required() {
+        let local_session_state_path = unique_test_path("login-bootstrap-required-sessions");
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: unique_test_path("login-bootstrap-required-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(!local_session_state_path.is_file());
     }
 
     #[tokio::test]
