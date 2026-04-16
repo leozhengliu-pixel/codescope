@@ -5,34 +5,50 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1c58ea1b0accae4ae2e1a3000200d0950ab3bf64
+  head: d5da1a02ffc0a120ca174a74c6cdd7459dcf1003
 last_completed_task:
-  id: task25b
-  title: Bootstrap admin creation endpoint
+  id: task25c1
+  title: Expose persisted bootstrap admin state
   status: done
   summary: >-
-    Completed the second local-auth slice by adding POST /api/v1/auth/bootstrap,
-    hashing the first admin password with Argon2, persisting structured bootstrap
-    state to the configured file path, closing bootstrap after successful
-    initialization, rejecting repeat initialization with 409 Conflict, and
-    hardening the file store with invalid-state detection plus crash-safe
-    owner-only persistence.
+    Split task25c and completed the first local-login prerequisite slice by
+    extending the bootstrap store contract with a read-only bootstrap_state API,
+    reusing shared persisted-state parsing so missing or invalid bootstrap files
+    still keep onboarding open, and exposing valid persisted bootstrap admin
+    state for later password verification without adding any login or session
+    endpoints yet.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_requires_bootstrap_when_state_file_is_invalid_json -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_persists_initial_admin_state -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap_create -- --nocapture: passed (3 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap -- --nocapture: passed (10 tests)
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check: passed
+    - cargo test -p sourcebot-api file_bootstrap_store_reads_bootstrap_state_only_when_persisted_state_is_valid -- --nocapture: passed
+    - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (11 tests)
+    - cargo fmt --all --check: passed
+    - cargo check: passed
   review:
-    code: approved by a single independent confirming review after one fix; reviewer confirmed the bootstrap store now treats invalid JSON as still-open bootstrap, persists via a crash-safe temp-file plus hard-link path, enforces owner-only 0600 permissions on Unix, and keeps the AlreadyExists race test meaningful
-  commit: 1c58ea1b0accae4ae2e1a3000200d0950ab3bf64
-  next_task: task25c
+    code: approved by one independent combined spec-and-quality review; reviewer confirmed the new bootstrap_state API is minimal, returns None for missing or invalid state, preserves existing bootstrap status semantics through shared parsing, and adds no login/session surface yet
+  commit: d5da1a02ffc0a120ca174a74c6cdd7459dcf1003
+  next_task: task25c2
 current_task:
-  id: task25c
-  title: Local login/session bootstrap follow-up
+  id: task25c2
+  title: Login endpoint and durable local session issuance
   status: pending
 history:
+  - id: task25c1
+    status: done
+    summary: >-
+      Split task25c and completed the first local-login prerequisite slice by
+      extending the bootstrap store contract with a read-only bootstrap_state API,
+      reusing shared persisted-state parsing so missing or invalid bootstrap files
+      still keep onboarding open, and exposing valid persisted bootstrap admin
+      state for later password verification without adding any login or session
+      endpoints yet.
+    tests:
+      - cargo test -p sourcebot-api file_bootstrap_store_reads_bootstrap_state_only_when_persisted_state_is_valid -- --nocapture: passed
+      - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (11 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent combined spec-and-quality review; reviewer confirmed the new bootstrap_state API is minimal, returns None for missing or invalid state, preserves existing bootstrap status semantics through shared parsing, and adds no login/session surface yet
+    commit: d5da1a02ffc0a120ca174a74c6cdd7459dcf1003
+    next_task: task25c2
   - id: task25b
     status: done
     summary: >-
