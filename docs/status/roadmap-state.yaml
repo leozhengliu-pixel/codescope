@@ -5,31 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e4d9ae533ee95a54d73e52789ea70a990c863505
+  head: d0cbda4376c2956ef0964f6b178c9d188d4a5a65
 last_completed_task:
-  id: task20c
-  title: Retrieval read_file tool slice
+  id: task20d1
+  title: Retrieval glob tool slice
   status: done
   summary: >-
-    Added reusable async blob retrieval contracts, a machine-readable read_file
-    tool result, active-scope and path validation for file reads, and a
-    browse-to-core blob adapter so retrieval orchestration can safely reuse
-    existing blob behavior.
+    Added reusable async glob retrieval contracts, a machine-readable glob tool
+    result, active-scope and returned-metadata validation, and a browse glob
+    adapter with regression coverage for browse-visible target and symlink paths.
   tests:
+    - cargo test -p sourcebot-core glob_tool -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-api glob -- --nocapture: passed (4 tests)
     - cargo fmt --check: passed
-    - cargo test -p sourcebot-core read_file_tool -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api browse_blob_store_adapter_converts_browse_blob_for_core_retrieval -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-core -- --nocapture: passed (13 tests)
-    - cargo test -p sourcebot-api browse::tests -- --nocapture: passed (5 tests)
+    - cargo test -p sourcebot-core -- --nocapture: passed (17 tests)
+    - cargo test -p sourcebot-api browse::tests -- --nocapture: passed (9 tests)
     - cargo check: passed
   review:
-    code: approved (single independent review; fixed read_file path validation issue before commit)
-  commit: e4d9ae533ee95a54d73e52789ea70a990c863505
-  next_task: task20d
+    code: approved (single independent review; one non-blocking browse-layer validation suggestion left unchanged)
+  commit: d0cbda4376c2956ef0964f6b178c9d188d4a5a65
+  next_task: task20d2
 current_task:
-  id: task20d
+  id: task20d2
   parent_task: task20
-  title: Retrieval grep/glob tool slice
+  title: Retrieval grep tool slice
   status: pending
 history:
   - id: task19
@@ -81,6 +80,22 @@ history:
       - cargo check: passed
     commit: e4d9ae533ee95a54d73e52789ea70a990c863505
     next_task: task20d
+  - id: task20d1
+    status: done
+    summary: >-
+      Added reusable async glob retrieval contracts, a machine-readable glob
+      tool result, active-scope and returned-metadata validation, and a browse
+      glob adapter with regression coverage for browse-visible target and
+      symlink paths.
+    tests:
+      - cargo test -p sourcebot-core glob_tool -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-api glob -- --nocapture: passed (4 tests)
+      - cargo fmt --check: passed
+      - cargo test -p sourcebot-core -- --nocapture: passed (17 tests)
+      - cargo test -p sourcebot-api browse::tests -- --nocapture: passed (9 tests)
+      - cargo check: passed
+    commit: d0cbda4376c2956ef0964f6b178c9d188d4a5a65
+    next_task: task20d2
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
