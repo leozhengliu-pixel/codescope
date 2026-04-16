@@ -11,6 +11,7 @@ use argon2::{
 use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
 use auth::{
     build_bootstrap_store, build_local_session_store, DynBootstrapStore, DynLocalSessionStore,
+    FileOrganizationStore,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -75,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
     let local_sessions = build_local_session_store(config.local_session_state_path.clone());
+    let _organization_store = FileOrganizationStore::new(config.organization_state_path.clone());
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
@@ -2723,6 +2725,9 @@ mod tests {
                 database_url: Some("postgres://secret@localhost/sourcebot".into()),
                 bootstrap_state_path: unique_test_path("config").display().to_string(),
                 local_session_state_path: unique_test_path("config-local-sessions")
+                    .display()
+                    .to_string(),
+                organization_state_path: unique_test_path("config-organizations")
                     .display()
                     .to_string(),
                 llm_provider: Some("stub".into()),

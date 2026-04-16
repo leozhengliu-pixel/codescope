@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use sourcebot_core::{BootstrapStore, LocalSessionStore};
-use sourcebot_models::{BootstrapState, BootstrapStatus, LocalSession, LocalSessionState};
+use sourcebot_core::{BootstrapStore, LocalSessionStore, OrganizationStore};
+use sourcebot_models::{
+    BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
+};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -24,6 +26,11 @@ pub struct FileBootstrapStore {
 
 #[derive(Clone, Debug)]
 pub struct FileLocalSessionStore {
+    state_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct FileOrganizationStore {
     state_path: PathBuf,
 }
 
@@ -109,6 +116,26 @@ impl FileLocalSessionStore {
         match fs::read(&self.state_path) {
             Ok(bytes) => Ok(serde_json::from_slice::<LocalSessionState>(&bytes)?),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(LocalSessionState::default()),
+            Err(error) => Err(error.into()),
+        }
+    }
+}
+
+impl FileOrganizationStore {
+    pub fn new(state_path: impl Into<PathBuf>) -> Self {
+        Self {
+            state_path: state_path.into(),
+        }
+    }
+
+    fn read_persisted_state(&self) -> Result<OrganizationState> {
+        if !self.state_path.is_file() {
+            return Ok(OrganizationState::default());
+        }
+
+        match fs::read(&self.state_path) {
+            Ok(bytes) => Ok(serde_json::from_slice::<OrganizationState>(&bytes)?),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(OrganizationState::default()),
             Err(error) => Err(error.into()),
         }
     }
@@ -250,6 +277,19 @@ impl LocalSessionStore for FileLocalSessionStore {
     }
 }
 
+#[async_trait]
+impl OrganizationStore for FileOrganizationStore {
+    async fn organization_state(&self) -> Result<OrganizationState> {
+        self.read_persisted_state()
+    }
+
+    async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, true)?;
+        Ok(())
+    }
+}
+
 pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStore {
     Arc::new(FileBootstrapStore::new(state_path))
 }
@@ -261,6 +301,7 @@ pub fn build_local_session_store(state_path: impl Into<PathBuf>) -> DynLocalSess
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sourcebot_models::{Organization, OrganizationMembership, OrganizationRole};
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -583,6 +624,34 @@ mod tests {
         let persisted: LocalSessionState =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(persisted.sessions, vec![retained]);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_persists_and_reads_organization_state() {
+        let path = unique_test_path("organization-persist");
+        let store = FileOrganizationStore::new(&path);
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                name: "Acme".into(),
+                slug: "acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-16T20:00:00Z".into(),
+            }],
+        };
+
+        store.store_organization_state(state.clone()).await.unwrap();
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted, state);
+        assert_eq!(store.organization_state().await.unwrap(), state);
 
         fs::remove_file(path).unwrap();
     }

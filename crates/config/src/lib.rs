@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub database_url: Option<String>,
     pub bootstrap_state_path: String,
     pub local_session_state_path: String,
+    pub organization_state_path: String,
     pub llm_provider: Option<String>,
     pub llm_model: Option<String>,
     pub llm_api_base: Option<String>,
@@ -22,6 +23,7 @@ impl Default for AppConfig {
             database_url: None,
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".to_string(),
             local_session_state_path: ".sourcebot/local-sessions.json".to_string(),
+            organization_state_path: ".sourcebot/organizations.json".to_string(),
             llm_provider: Some("disabled".to_string()),
             llm_model: None,
             llm_api_base: None,
@@ -42,6 +44,8 @@ impl AppConfig {
                 .unwrap_or_else(|_| ".sourcebot/bootstrap-state.json".to_string()),
             local_session_state_path: env::var("SOURCEBOT_LOCAL_SESSION_STATE_PATH")
                 .unwrap_or_else(|_| ".sourcebot/local-sessions.json".to_string()),
+            organization_state_path: env::var("SOURCEBOT_ORGANIZATION_STATE_PATH")
+                .unwrap_or_else(|_| ".sourcebot/organizations.json".to_string()),
             llm_provider: env::var("SOURCEBOT_LLM_PROVIDER")
                 .ok()
                 .or_else(|| Some("disabled".to_string())),
@@ -90,6 +94,10 @@ mod tests {
             config.local_session_state_path,
             ".sourcebot/local-sessions.json"
         );
+        assert_eq!(
+            config.organization_state_path,
+            ".sourcebot/organizations.json"
+        );
         assert_eq!(config.llm_model, None);
         assert_eq!(config.llm_api_base, None);
         assert_eq!(config.llm_api_key, None);
@@ -103,6 +111,7 @@ mod tests {
             database_url: None,
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".into(),
             local_session_state_path: ".sourcebot/local-sessions.json".into(),
+            organization_state_path: ".sourcebot/organizations.json".into(),
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
             llm_api_base: Some("https://llm.invalid".into()),

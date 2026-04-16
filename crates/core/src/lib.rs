@@ -32,6 +32,15 @@ pub trait LocalSessionStore: Send + Sync {
     async fn delete_local_session(&self, session_id: &str) -> Result<bool>;
 }
 
+#[async_trait]
+pub trait OrganizationStore: Send + Sync {
+    async fn organization_state(&self) -> Result<sourcebot_models::OrganizationState>;
+    async fn store_organization_state(
+        &self,
+        state: sourcebot_models::OrganizationState,
+    ) -> Result<()>;
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RetrievalToolDefinition {
     pub name: String,
