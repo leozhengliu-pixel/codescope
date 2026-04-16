@@ -127,6 +127,28 @@ impl AskThread {
     }
 }
 
+impl AskCitation {
+    pub fn line_fragment(&self) -> String {
+        if self.line_start == self.line_end {
+            format!("L{}", self.line_start)
+        } else {
+            format!("L{}-L{}", self.line_start, self.line_end)
+        }
+    }
+
+    pub fn display_label(&self) -> String {
+        if self.line_start == self.line_end {
+            format!("{}:{}", self.path, self.line_start)
+        } else {
+            format!("{}:{}-{}", self.path, self.line_start, self.line_end)
+        }
+    }
+
+    pub fn pinned_location(&self) -> String {
+        format!("{}:{}#{}", self.revision, self.path, self.line_fragment())
+    }
+}
+
 pub fn seed_connections() -> Vec<Connection> {
     vec![
         Connection {
@@ -238,6 +260,44 @@ mod tests {
                     "line_end": 18
                 }]
             })
+        );
+    }
+
+    #[test]
+    fn ask_citation_renders_display_labels_for_single_lines_and_ranges() {
+        let multi_line = AskCitation {
+            repo_id: "repo_sourcebot_rewrite".into(),
+            path: "crates/api/src/main.rs".into(),
+            revision: "main".into(),
+            line_start: 10,
+            line_end: 18,
+        };
+        let single_line = AskCitation {
+            repo_id: "repo_sourcebot_rewrite".into(),
+            path: "crates/api/src/main.rs".into(),
+            revision: "main".into(),
+            line_start: 42,
+            line_end: 42,
+        };
+
+        assert_eq!(multi_line.display_label(), "crates/api/src/main.rs:10-18");
+        assert_eq!(single_line.display_label(), "crates/api/src/main.rs:42");
+    }
+
+    #[test]
+    fn ask_citation_renders_pinned_locations_with_revision_and_line_fragments() {
+        let citation = AskCitation {
+            repo_id: "repo_sourcebot_rewrite".into(),
+            path: "crates/api/src/main.rs".into(),
+            revision: "main".into(),
+            line_start: 10,
+            line_end: 18,
+        };
+
+        assert_eq!(citation.line_fragment(), "L10-L18");
+        assert_eq!(
+            citation.pinned_location(),
+            "main:crates/api/src/main.rs#L10-L18"
         );
     }
 }
