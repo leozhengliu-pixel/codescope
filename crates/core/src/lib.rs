@@ -3,9 +3,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
-    AskThread, AskThreadSummary, Connection, Repository, RepositoryDetail, RepositorySummary,
+    AskThread, AskThreadSummary, Connection, OrganizationState, Repository, RepositoryDetail,
+    RepositorySummary,
 };
-use std::path::{Component, Path};
+use std::{
+    collections::HashSet,
+    path::{Component, Path},
+};
 
 pub const PROJECT_NAME: &str = "sourcebot-rewrite";
 
@@ -605,6 +609,28 @@ fn repo_is_visible(context: &RetrievalToolContext, repo_id: &str) -> bool {
         .any(|visible_repo_id| visible_repo_id == repo_id)
 }
 
+pub fn visible_repo_ids_for_user(state: &OrganizationState, user_id: &str) -> Vec<String> {
+    let member_organization_ids = state
+        .memberships
+        .iter()
+        .filter(|membership| membership.user_id == user_id)
+        .map(|membership| membership.organization_id.as_str())
+        .collect::<HashSet<_>>();
+
+    let mut visible_repo_ids = Vec::new();
+    let mut seen_repo_ids = HashSet::new();
+
+    for binding in &state.repo_permissions {
+        if member_organization_ids.contains(binding.organization_id.as_str())
+            && seen_repo_ids.insert(binding.repository_id.as_str())
+        {
+            visible_repo_ids.push(binding.repository_id.clone());
+        }
+    }
+
+    visible_repo_ids
+}
+
 fn repo_is_in_scope(context: &RetrievalToolContext, repo_id: &str) -> bool {
     scoped_repo_ids(context)
         .into_iter()
@@ -808,7 +834,10 @@ pub fn build_repository_detail(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_models::SyncState;
+    use sourcebot_models::{
+        OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
+        SyncState,
+    };
 
     struct StaticCatalogStore {
         repositories: Vec<RepositorySummary>,
@@ -982,6 +1011,108 @@ mod tests {
                         .into(),
             }
         );
+    }
+
+    #[test]
+    fn visible_repo_ids_for_user_collects_bound_repositories_for_member_organizations() {
+        let state = OrganizationState {
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "user_1".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_beta".into(),
+                    user_id: "user_1".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:01:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_other".into(),
+                    user_id: "user_2".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-21T00:02:00Z".into(),
+                },
+            ],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_beta".into(),
+                    repository_id: "repo_docs".into(),
+                    synced_at: "2026-04-21T00:03:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:04:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_other".into(),
+                    repository_id: "repo_secret".into(),
+                    synced_at: "2026-04-21T00:05:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            visible_repo_ids_for_user(&state, "user_1"),
+            vec![
+                "repo_docs".to_string(),
+                "repo_sourcebot_rewrite".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn visible_repo_ids_for_user_deduplicates_repositories_and_ignores_users_without_memberships() {
+        let state = OrganizationState {
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "user_1".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_beta".into(),
+                    user_id: "user_1".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:01:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "user_1".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:02:00Z".into(),
+                },
+            ],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:03:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_beta".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:04:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:05:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            visible_repo_ids_for_user(&state, "user_1"),
+            vec!["repo_sourcebot_rewrite".to_string()]
+        );
+        assert!(visible_repo_ids_for_user(&state, "user_missing").is_empty());
     }
 
     #[tokio::test]
