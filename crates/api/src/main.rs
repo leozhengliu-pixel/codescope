@@ -78,7 +78,6 @@ async fn main() -> anyhow::Result<()> {
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
     let local_sessions = build_local_session_store(config.local_session_state_path.clone());
-    let organization_store = build_organization_store(config.organization_state_path.clone());
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
@@ -89,7 +88,6 @@ async fn main() -> anyhow::Result<()> {
         catalog,
         bootstrap,
         local_sessions,
-        organization_store,
         browse,
         commits,
         search,
@@ -108,12 +106,13 @@ fn build_app_state(
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
-    organization_store: DynOrganizationStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
     ask_threads: DynAskThreadStore,
 ) -> AppState {
+    let organization_store = build_organization_store(config.organization_state_path.clone());
+
     AppState {
         config,
         catalog,
@@ -132,7 +131,6 @@ fn build_router(
     catalog: DynCatalogStore,
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
-    organization_store: DynOrganizationStore,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -180,7 +178,6 @@ fn build_router(
             catalog,
             bootstrap,
             local_sessions,
-            organization_store,
             browse,
             commits,
             search,
@@ -1284,13 +1281,11 @@ mod tests {
     fn test_app_with_config(config: AppConfig) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
-        let organization_state_path = config.organization_state_path.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(bootstrap_state_path),
             build_local_session_store(local_session_state_path),
-            build_organization_store(organization_state_path),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1299,8 +1294,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_app_state_wires_file_backed_organization_store_from_configured_path() {
-        let organization_state_path = unique_test_path("app-state-organizations");
+    async fn build_app_state_constructs_file_backed_organization_store_from_configured_path() {
+        let configured_organization_state_path = unique_test_path("app-state-organizations-config");
+        let injected_organization_state_path = unique_test_path("app-state-organizations-injected");
         let expected_state = OrganizationState {
             organizations: vec![Organization {
                 id: "org_acme".into(),
@@ -1331,14 +1327,29 @@ mod tests {
                 accepted_at: None,
             }],
         };
+        let mismatched_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_other".into(),
+                slug: "other".into(),
+                name: "Other".into(),
+            }],
+            memberships: vec![],
+            accounts: vec![],
+            invites: vec![],
+        };
         fs::write(
-            &organization_state_path,
+            &configured_organization_state_path,
             serde_json::to_vec(&expected_state).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &injected_organization_state_path,
+            serde_json::to_vec(&mismatched_state).unwrap(),
         )
         .unwrap();
 
         let config = AppConfig {
-            organization_state_path: organization_state_path.display().to_string(),
+            organization_state_path: configured_organization_state_path.display().to_string(),
             ..AppConfig::default()
         };
         let state = build_app_state(
@@ -1346,7 +1357,6 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("app-state-bootstrap")),
             build_local_session_store(unique_test_path("app-state-local-sessions")),
-            build_organization_store(organization_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1355,8 +1365,10 @@ mod tests {
 
         let persisted_state = state.organization_store.organization_state().await.unwrap();
         assert_eq!(persisted_state, expected_state);
+        assert_ne!(persisted_state, mismatched_state);
 
-        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(configured_organization_state_path).unwrap();
+        fs::remove_file(injected_organization_state_path).unwrap();
     }
 
     async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
@@ -1437,7 +1449,6 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_local_session_store(config.local_session_state_path.clone()),
-            build_organization_store(config.organization_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1535,7 +1546,6 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
             build_local_session_store(config.local_session_state_path.clone()),
-            build_organization_store(config.organization_state_path.clone()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -1879,7 +1889,6 @@ mod tests {
             Arc::new(InMemoryCatalogStore::seeded()),
             Arc::new(AlreadyInitializedBootstrapStore),
             build_local_session_store(unique_test_path("already-initialized-sessions")),
-            build_organization_store(unique_test_path("already-initialized-organizations")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -2835,8 +2844,7 @@ mod tests {
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("config-store")),
-            build_local_session_store(unique_test_path("config-session-store")),
-            build_organization_store(unique_test_path("config-organization-store")),
+            build_local_session_store(unique_test_path("config-local-sessions")),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
