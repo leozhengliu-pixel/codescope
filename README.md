@@ -1,6 +1,6 @@
-# sourcebot-rewrite
+# CodeScope
 
-A clean-room reimplementation of the Sourcebot product category: self-hosted code search, code navigation, repository browsing, and codebase Q&A.
+CodeScope is a self-hosted code search, code navigation, repository browsing, and codebase Q&A application built as a clean-room implementation with a Rust backend and React frontend.
 
 ## Project goals
 - New implementation, not a fork.
