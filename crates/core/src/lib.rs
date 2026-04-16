@@ -664,6 +664,14 @@ pub trait AskThreadStore: Send + Sync {
         message: sourcebot_models::AskMessage,
         updated_at: &str,
     ) -> Result<Option<AskThread>>;
+    async fn update_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        content: &str,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>>;
 }
 
 #[async_trait]

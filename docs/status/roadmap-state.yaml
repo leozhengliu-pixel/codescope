@@ -5,32 +5,48 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1ea2d0bee86367c951fe1359b61f376c4e07aec7
+  head: 697d4746296c0146be161ac2437cd1ba67821b5c
 last_completed_task:
-  id: task21c2a
-  title: Ask thread message retrieval persistence
+  id: task21c2b1
+  title: Ask thread message update persistence
   status: done
   summary: >-
-    Split task21c2 and completed the first slice by adding owner-scoped ask
-    thread message retrieval to the async thread-store contract and in-memory
-    implementation, preserving append order and hiding persisted messages from
-    non-owners and missing threads.
+    Split task21c2b and completed the first mutation slice by adding owner-scoped
+    ask thread message content updates to the async thread-store contract and
+    in-memory implementation, preserving message order while refreshing thread
+    updated_at metadata.
   tests:
-    - cargo test -p sourcebot-api in_memory_store_returns_thread_messages_for_owner_in_append_order -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api in_memory_store_hides_thread_messages_from_non_owner_and_missing_threads -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (11 tests)
+    - cargo test -p sourcebot-api in_memory_store_updates_message_content_for_owner -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api in_memory_store_does_not_update_message_for_non_owner_or_missing_message -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (13 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: 1ea2d0bee86367c951fe1359b61f376c4e07aec7
-  next_task: task21c2b
+  commit: 697d4746296c0146be161ac2437cd1ba67821b5c
+  next_task: task21c2b2
 current_task:
-  id: task21c2b
-  title: Ask thread message mutation follow-up slices
+  id: task21c2b2
+  title: Ask thread message deletion and replacement follow-up slices
   status: pending
 history:
+  - id: task21c2b1
+    status: done
+    summary: >-
+      Split task21c2b and completed the first mutation slice by adding owner-scoped
+      ask thread message content updates to the async thread-store contract and
+      in-memory implementation, preserving message order while refreshing thread
+      updated_at metadata.
+    tests:
+      - cargo test -p sourcebot-api in_memory_store_updates_message_content_for_owner -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api in_memory_store_does_not_update_message_for_non_owner_or_missing_message -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (13 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: 697d4746296c0146be161ac2437cd1ba67821b5c
+    next_task: task21c2b2
   - id: task19
     status: done
     summary: >-
