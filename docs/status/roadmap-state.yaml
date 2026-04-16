@@ -5,32 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a4d85706888115c1ef683eca7882fefa3ed8950c
+  head: 1c58ea1b0accae4ae2e1a3000200d0950ab3bf64
 last_completed_task:
-  id: task25a
-  title: Bootstrap status endpoint
+  id: task25b
+  title: Bootstrap admin creation endpoint
   status: done
   summary: >-
-    Split task25 and completed the first auth slice by adding a file-backed
-    bootstrap status contract, config plumbing, and GET /api/v1/auth/bootstrap so
-    self-hosted first-run onboarding can detect whether bootstrap is still
-    required without implementing login or account creation yet.
+    Completed the second local-auth slice by adding POST /api/v1/auth/bootstrap,
+    hashing the first admin password with Argon2, persisting structured bootstrap
+    state to the configured file path, closing bootstrap after successful
+    initialization, rejecting repeat initialization with 409 Conflict, and
+    hardening the file store with invalid-state detection plus crash-safe
+    owner-only persistence.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_requires_bootstrap_when_path_is_a_directory -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap_status_returns_required_when_state_file_is_missing -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap_status_returns_not_required_after_initialization_state_exists -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api -- --nocapture: passed (93 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_requires_bootstrap_when_state_file_is_invalid_json -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_persists_initial_admin_state -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap_create -- --nocapture: passed (3 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap -- --nocapture: passed (10 tests)
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by a single independent confirming review after one fix; reviewer confirmed the store now requires a regular file via is_file(), so directories at the configured bootstrap path do not falsely disable bootstrap, and noted only a non-blocking route-level directory-edge-case test gap
-  commit: a4d85706888115c1ef683eca7882fefa3ed8950c
-  next_task: task25b
+    code: approved by a single independent confirming review after one fix; reviewer confirmed the bootstrap store now treats invalid JSON as still-open bootstrap, persists via a crash-safe temp-file plus hard-link path, enforces owner-only 0600 permissions on Unix, and keeps the AlreadyExists race test meaningful
+  commit: 1c58ea1b0accae4ae2e1a3000200d0950ab3bf64
+  next_task: task25c
 current_task:
-  id: task25b
-  title: Bootstrap admin creation endpoint
+  id: task25c
+  title: Local login/session bootstrap follow-up
   status: pending
 history:
+  - id: task25b
+    status: done
+    summary: >-
+      Completed the second local-auth slice by adding POST /api/v1/auth/bootstrap,
+      hashing the first admin password with Argon2, persisting structured bootstrap
+      state to the configured file path, closing bootstrap after successful
+      initialization, rejecting repeat initialization with 409 Conflict, and
+      hardening the file store with invalid-state detection plus crash-safe
+      owner-only persistence.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_requires_bootstrap_when_state_file_is_invalid_json -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_bootstrap_store_persists_initial_admin_state -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap_create -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api bootstrap -- --nocapture: passed (10 tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    review:
+      code: approved by a single independent confirming review after one fix; reviewer confirmed the bootstrap store now treats invalid JSON as still-open bootstrap, persists via a crash-safe temp-file plus hard-link path, enforces owner-only 0600 permissions on Unix, and keeps the AlreadyExists race test meaningful
+    commit: 1c58ea1b0accae4ae2e1a3000200d0950ab3bf64
+    next_task: task25c
   - id: task25a
     status: done
     summary: >-
