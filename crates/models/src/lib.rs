@@ -109,12 +109,39 @@ pub struct OrganizationMembership {
     pub joined_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocalAccount {
+    pub id: String,
+    pub email: String,
+    pub name: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationInvite {
+    pub id: String,
+    pub organization_id: String,
+    pub email: String,
+    pub role: OrganizationRole,
+    pub invited_by_user_id: String,
+    pub created_at: String,
+    pub expires_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_by_user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub organizations: Vec<Organization>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memberships: Vec<OrganizationMembership>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<LocalAccount>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invites: Vec<OrganizationInvite>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -439,6 +466,8 @@ mod tests {
 
         assert!(state.organizations.is_empty());
         assert!(state.memberships.is_empty());
+        assert!(state.accounts.is_empty());
+        assert!(state.invites.is_empty());
         assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
     }
 
@@ -456,6 +485,23 @@ mod tests {
                 role: OrganizationRole::Admin,
                 joined_at: "2026-04-16T20:00:00Z".into(),
             }],
+            accounts: vec![LocalAccount {
+                id: "user_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-16T19:59:00Z".into(),
+            }],
+            invites: vec![OrganizationInvite {
+                id: "invite_123".into(),
+                organization_id: "org_acme".into(),
+                email: "invitee@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "user_admin".into(),
+                created_at: "2026-04-16T20:05:00Z".into(),
+                expires_at: "2026-04-23T20:05:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
+            }],
         };
 
         assert_eq!(
@@ -471,7 +517,52 @@ mod tests {
                     "user_id": "user_admin",
                     "role": "admin",
                     "joined_at": "2026-04-16T20:00:00Z"
+                }],
+                "accounts": [{
+                    "id": "user_admin",
+                    "email": "admin@example.com",
+                    "name": "Admin User",
+                    "created_at": "2026-04-16T19:59:00Z"
+                }],
+                "invites": [{
+                    "id": "invite_123",
+                    "organization_id": "org_acme",
+                    "email": "invitee@example.com",
+                    "role": "viewer",
+                    "invited_by_user_id": "user_admin",
+                    "created_at": "2026-04-16T20:05:00Z",
+                    "expires_at": "2026-04-23T20:05:00Z"
                 }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_invite_tracks_acceptance_without_extra_status_fields() {
+        let invite = OrganizationInvite {
+            id: "invite_accepted".into(),
+            organization_id: "org_acme".into(),
+            email: "member@example.com".into(),
+            role: OrganizationRole::Admin,
+            invited_by_user_id: "user_admin".into(),
+            created_at: "2026-04-16T20:05:00Z".into(),
+            expires_at: "2026-04-23T20:05:00Z".into(),
+            accepted_by_user_id: Some("user_member".into()),
+            accepted_at: Some("2026-04-17T09:00:00Z".into()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&invite).unwrap(),
+            json!({
+                "id": "invite_accepted",
+                "organization_id": "org_acme",
+                "email": "member@example.com",
+                "role": "admin",
+                "invited_by_user_id": "user_admin",
+                "created_at": "2026-04-16T20:05:00Z",
+                "expires_at": "2026-04-23T20:05:00Z",
+                "accepted_by_user_id": "user_member",
+                "accepted_at": "2026-04-17T09:00:00Z"
             })
         );
     }
