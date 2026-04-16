@@ -5,37 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a9660582e888737888c9b765ade833df7433dba9
+  head: d9a4607d655bf0f03e0e67b9816f95691f5d51e3
 last_completed_task:
-  id: task29a
-  title: Search permission enforcement
+  id: task29b1
+  title: Tree/blob permission enforcement
   status: done
   summary: >-
-    Split task29 and completed the first permission-enforcement slice by
-    requiring authenticated local-session access on GET /api/v1/search,
-    resolving visible repository ids from OrganizationState memberships plus
-    repo permission bindings, returning 401 before query-shape validation for
-    unauthenticated requests, returning 404 for direct searches against
-    inaccessible repos, and filtering unscoped search results down to the
-    caller's visible repositories without changing browse or ask endpoints yet.
+    Split task29b and completed the first browse/file slice by requiring
+    authenticated local-session access plus organization-scoped repository
+    visibility on GET /api/v1/repos/{repo_id}/tree and
+    GET /api/v1/repos/{repo_id}/blob, returning 401 for missing or invalid auth,
+    returning 404 for authenticated requests against inaccessible repositories,
+    and preserving existing success and path-validation behavior for visible
+    repositories without changing ask or other repo endpoints yet.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api -- --nocapture: passed (123 tests)
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check: passed
+    - cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-api repo_blob_ -- --nocapture: passed (8 tests)
+    - cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
+    - cargo test -p sourcebot-api -- --nocapture: passed (127 tests)
+    - cargo fmt --all --check: passed
+    - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly narrows task29 enforcement to GET /api/v1/search by requiring authenticated local sessions and filtering/not-founding repositories based on OrganizationState visibility, with no blocking correctness or security issues
-  commit: a9660582e888737888c9b765ade833df7433dba9
-  next_task: task29b
+    spec: passed one independent spec-compliance review; reviewer confirmed the slice only changes tree/blob visibility enforcement, matches the required 401/404/success behaviors, and adds the expected coverage without ask scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security concerns or logic errors and noted only a non-blocking test-helper deduplication follow-up
+  commit: d9a4607d655bf0f03e0e67b9816f95691f5d51e3
+  next_task: task29b2
 current_task:
-  id: task29b
-  title: Browse/file/ask permission enforcement
+  id: task29b2
+  title: Ask permission enforcement
   status: pending
   summary: >-
-    Continue the split task29 permission-enforcement work by applying the same
-    authenticated org-scoped repository visibility model to browse/file and ask
-    API surfaces, keeping each remaining slice narrow and fail-closed.
+    Complete the remaining split task29b scope by applying the same authenticated
+    organization-scoped repository visibility model to POST /api/v1/ask/completions,
+    failing closed for unauthenticated or out-of-scope repo_scope requests while
+    keeping the slice narrow and leaving unrelated repo endpoints untouched.
 history:
+  - id: task29b1
+    status: done
+    summary: >-
+      Split task29b and completed the first browse/file slice by requiring
+      authenticated local-session access plus organization-scoped repository
+      visibility on GET /api/v1/repos/{repo_id}/tree and
+      GET /api/v1/repos/{repo_id}/blob, returning 401 for missing or invalid
+      auth, returning 404 for authenticated requests against inaccessible
+      repositories, and preserving existing success and path-validation behavior
+      for visible repositories without changing ask or other repo endpoints yet.
+    tests:
+      - cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-api repo_blob_ -- --nocapture: passed (8 tests)
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
+      - cargo test -p sourcebot-api -- --nocapture: passed (127 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the slice only changes tree/blob visibility enforcement, matches the required 401/404/success behaviors, and adds the expected coverage without ask scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security concerns or logic errors and noted only a non-blocking test-helper deduplication follow-up
+    commit: d9a4607d655bf0f03e0e67b9816f95691f5d51e3
+    next_task: task29b2
   - id: task29a
     status: done
     summary: >-
