@@ -70,6 +70,18 @@ pub struct AskCitation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskRenderedCitation {
+    pub repo_id: String,
+    pub path: String,
+    pub revision: String,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub display_label: String,
+    pub pinned_location: String,
+    pub line_fragment: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskMessage {
     pub id: String,
     pub role: AskMessageRole,
@@ -128,6 +140,19 @@ impl AskThread {
 }
 
 impl AskCitation {
+    pub fn rendered(&self) -> AskRenderedCitation {
+        AskRenderedCitation {
+            repo_id: self.repo_id.clone(),
+            path: self.path.clone(),
+            revision: self.revision.clone(),
+            line_start: self.line_start,
+            line_end: self.line_end,
+            display_label: self.display_label(),
+            pinned_location: self.pinned_location(),
+            line_fragment: self.line_fragment(),
+        }
+    }
+
     pub fn line_fragment(&self) -> String {
         if self.line_start == self.line_end {
             format!("L{}", self.line_start)
@@ -298,6 +323,31 @@ mod tests {
         assert_eq!(
             citation.pinned_location(),
             "main:crates/api/src/main.rs#L10-L18"
+        );
+    }
+
+    #[test]
+    fn ask_citation_rendered_payload_includes_machine_and_human_facing_fields() {
+        let citation = AskCitation {
+            repo_id: "repo_sourcebot_rewrite".into(),
+            path: "crates/api/src/main.rs".into(),
+            revision: "main".into(),
+            line_start: 10,
+            line_end: 18,
+        };
+
+        assert_eq!(
+            serde_json::to_value(citation.rendered()).unwrap(),
+            json!({
+                "repo_id": "repo_sourcebot_rewrite",
+                "path": "crates/api/src/main.rs",
+                "revision": "main",
+                "line_start": 10,
+                "line_end": 18,
+                "display_label": "crates/api/src/main.rs:10-18",
+                "pinned_location": "main:crates/api/src/main.rs#L10-L18",
+                "line_fragment": "L10-L18"
+            })
         );
     }
 }
