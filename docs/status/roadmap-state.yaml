@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
+  head: 25140c207795503afb28c22d7c3dfc02cc7e36b0
 last_completed_task:
   id: task20b
   title: Retrieval list_tree tool slice
@@ -21,7 +21,7 @@ last_completed_task:
     - cargo check: passed
   review:
     code: approved
-  commit: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
+  commit: 25140c207795503afb28c22d7c3dfc02cc7e36b0
   next_task: task20c
 current_task:
   id: task20c
@@ -61,7 +61,7 @@ history:
       - cargo test -p sourcebot-core: passed (9 tests)
       - cargo test -p sourcebot-api browse: passed (9 tests)
       - cargo check: passed
-    commit: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
+    commit: 25140c207795503afb28c22d7c3dfc02cc7e36b0
     next_task: task20c
 notes:
   execution_rules:
