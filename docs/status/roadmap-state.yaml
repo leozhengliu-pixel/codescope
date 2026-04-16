@@ -5,31 +5,44 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8202cba73cf9a352a0650f5116b1d12e86136658
+  head: 68dccd538026e36e4801bc26e9e5cac92201c287
 last_completed_task:
-  id: task22a
-  title: Shared citation model and persisted ask-message citations
+  id: task22b1
+  title: Citation renderer labels and pinned location strings
   status: done
   summary: >-
-    Split task22 and completed the first slice by adding a shared ask citation
-    model in sourcebot-models, extending persisted ask messages to carry
-    citations, and reusing that shared type from sourcebot-core so reopened
-    thread history can preserve machine-readable citation metadata.
+    Split task22b and completed the first renderer slice by adding shared
+    AskCitation helpers for display labels, line fragments, and revision-pinned
+    location strings so later ask API/UI work can reuse canonical citation text.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_message_serialization_includes_machine_readable_citations -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api in_memory_store_preserves_message_citations_across_reload_and_replace -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_display_labels_for_single_lines_and_ranges -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_pinned_locations_with_revision_and_line_fragments -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -p sourcebot-core -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by single independent review with no blocking spec, security, or logic issues; noted only non-blocking persisted-json coverage gaps
-  commit: 8202cba73cf9a352a0650f5116b1d12e86136658
-  next_task: task22b
+    code: approved by single independent review with no blocking spec, security, or logic issues; noted only a non-blocking single-line pinned-location coverage gap
+  commit: 68dccd538026e36e4801bc26e9e5cac92201c287
+  next_task: task22b2
 current_task:
-  id: task22b
-  title: Citation renderer
+  id: task22b2
+  title: Citation renderer response shaping for ask surfaces
   status: pending
 history:
+  - id: task22b1
+    status: done
+    summary: >-
+      Split task22b and completed the first renderer slice by adding shared
+      AskCitation helpers for display labels, line fragments, and revision-pinned
+      location strings so later ask API/UI work can reuse canonical citation text.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_display_labels_for_single_lines_and_ranges -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models ask_citation_renders_pinned_locations_with_revision_and_line_fragments -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    commit: 68dccd538026e36e4801bc26e9e5cac92201c287
+    next_task: task22b2
   - id: task22a
     status: done
     summary: >-
