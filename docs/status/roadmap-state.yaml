@@ -5,38 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 48f4b2330f84a0becc0b4767d7bbf78eb4f41e90
+  head: 0fb3e49d73bd2c24f9683882b8d0e61e22998e64
 last_completed_task:
-  id: task27b2
-  title: Tighten organization app-state persistence coverage for the expanded account/invite state
+  id: task28a
+  title: Add the minimal shared repo permission binding model
   status: done
   summary: >-
-    Completed the second task27b slice by moving organization store construction
-    fully inside build_app_state/build_router from
-    config.organization_state_path and strengthening the focused regression test
-    so expanded OrganizationState memberships/accounts/invites are loaded from
-    the configured file-backed path instead of any separately constructed store,
-    without adding invite routes, acceptance handlers, or permission
-    enforcement.
+    Split task28 and completed the first repo-permission slice by adding a
+    shared RepositoryPermissionBinding model plus OrganizationState
+    repo_permissions persistence-ready storage in sourcebot-models, then
+    tightening model, file-backed organization-store, and app-state wiring tests
+    so populated repo permission bindings round-trip cleanly without adding any
+    permission enforcement, routes, or sync orchestration yet.
   tests:
+    - cargo test -p sourcebot-models organization_state_serializes_repo_permission_bindings_for_persistence -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (6 tests)
+    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
     - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api: passed (120 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff matches task27b2 scope, drives organization store construction from config.organization_state_path in build_app_state/build_router, tightens the focused expanded-state regression test, and found no blocking correctness or security issues
-  commit: 48f4b2330f84a0becc0b4767d7bbf78eb4f41e90
-  next_task: task28
+    code: approved by one independent confirming review after one verification-coverage fix; reviewer confirmed the slice stays scoped to the shared repo permission binding model plus persistence coverage updates, remains backward-compatible for OrganizationState serde/storage, and found no blocking correctness or security issues
+  commit: 0fb3e49d73bd2c24f9683882b8d0e61e22998e64
+  next_task: task28b
 current_task:
-  id: task28
-  title: Repo permission sync model
+  id: task28b
+  title: Resolve user-visible repo ids from org memberships and repo permission bindings
   status: pending
   summary: >-
-    Start the next Phase 5 slice by defining the minimal repo permission sync
-    model needed to connect organizations and repositories, keeping scope on
-    shared contracts and persistence-ready state before enforcing permissions in
-    search, browse, or ask surfaces.
+    Continue task28 with the next smallest shared-contract slice by adding a
+    core/domain helper that derives a user's visible repository ids from
+    OrganizationState memberships plus repo permission bindings, while still
+    deferring API enforcement across search, browse, and ask until task29.
 history:
+  - id: task28a
+    status: done
+    summary: >-
+      Split task28 and completed the first repo-permission slice by adding a
+      shared RepositoryPermissionBinding model plus OrganizationState
+      repo_permissions persistence-ready storage in sourcebot-models, then
+      tightening model, file-backed organization-store, and app-state wiring
+      tests so populated repo permission bindings round-trip cleanly without
+      adding any permission enforcement, routes, or sync orchestration yet.
+    tests:
+      - cargo test -p sourcebot-models organization_state_serializes_repo_permission_bindings_for_persistence -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-models organization_ -- --nocapture: passed (6 tests)
+      - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent confirming review after one verification-coverage fix; reviewer confirmed the slice stays scoped to the shared repo permission binding model plus persistence coverage updates, remains backward-compatible for OrganizationState serde/storage, and found no blocking correctness or security issues
+    commit: 0fb3e49d73bd2c24f9683882b8d0e61e22998e64
+    next_task: task28b
   - id: task27b2
     status: done
     summary: >-
