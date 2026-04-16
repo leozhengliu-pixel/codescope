@@ -5,34 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8d473705c81ede770828deeacf6b10d9671ef9c4
+  head: 0d70cbc1561fe9165e1e807b4296610d6eeb43d8
 last_completed_task:
-  id: task25c2b2a
-  title: Authenticated local-session request handling and GET /api/v1/auth/me
+  id: task25c2b2b1
+  title: Local-session logout endpoint that revokes the current bearer session
   status: done
   summary: >-
-    Split task25c2b2 and completed the first follow-up auth slice by adding
-    GET /api/v1/auth/me plus minimal local-session request handling that reads
-    Bearer <session_id>:<session_secret> credentials from Authorization,
-    verifies the persisted Argon2-hashed session secret, fails closed for
-    missing, malformed, invalid, or bootstrap-missing auth state, and returns
-    the persisted bootstrap-admin identity without adding logout or revocation
-    yet.
+    Split task25c2b2b and completed the first follow-up local-session slice by
+    adding POST /api/v1/auth/logout, extending the local-session store with
+    minimal deletion support, revoking only the currently authenticated Bearer
+    <session_id>:<session_secret> session, returning 204 No Content on success,
+    and leaving revoked, missing, malformed, or otherwise invalid tokens
+    fail-closed without adding session listing or arbitrary revocation yet.
   tests:
-    - cargo test -p sourcebot-api auth_me -- --nocapture: passed (5 tests)
+    - cargo test -p sourcebot-api file_local_session_store_deletes_only_the_requested_session -- --nocapture: passed
+    - cargo test -p sourcebot-api logout_ -- --nocapture: passed (2 tests)
+    - cargo test -p sourcebot-api auth_ -- --nocapture: passed (5 tests)
     - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (16 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the slice is spec-compliant for this scope, found no blocking security or logic issues, and noted only a non-blocking missing-session-id path test follow-up
-  commit: 8d473705c81ede770828deeacf6b10d9671ef9c4
-  next_task: task25c2b2b
+    code: approved by one independent post-implementation review; reviewer confirmed the logout slice is spec-compliant for the planned scope, found no blocking security or logic issues, and noted only a non-blocking follow-up to lock in second-logout behavior after revocation
+  commit: 0d70cbc1561fe9165e1e807b4296610d6eeb43d8
+  next_task: task25c2b2b2
 current_task:
-  id: task25c2b2b
-  title: Local-session follow-up endpoint for logout or revocation
+  id: task25c2b2b2
+  title: Targeted local-session revocation endpoint for explicit session invalidation
   status: pending
 history:
+  - id: task25c2b2b1
+    status: done
+    summary: >-
+      Split task25c2b2b and completed the first follow-up local-session slice by
+      adding POST /api/v1/auth/logout, extending the local-session store with
+      minimal deletion support, revoking only the currently authenticated Bearer
+      <session_id>:<session_secret> session, returning 204 No Content on success,
+      and leaving revoked, missing, malformed, or otherwise invalid tokens
+      fail-closed without adding session listing or arbitrary revocation yet.
+    tests:
+      - cargo test -p sourcebot-api file_local_session_store_deletes_only_the_requested_session -- --nocapture: passed
+      - cargo test -p sourcebot-api logout_ -- --nocapture: passed (2 tests)
+      - cargo test -p sourcebot-api auth_ -- --nocapture: passed (5 tests)
+      - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the logout slice is spec-compliant for the planned scope, found no blocking security or logic issues, and noted only a non-blocking follow-up to lock in second-logout behavior after revocation
+    commit: 0d70cbc1561fe9165e1e807b4296610d6eeb43d8
+    next_task: task25c2b2b2
   - id: task25c2b2a
     status: done
     summary: >-
