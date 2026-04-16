@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b96a193b0a4c9a985eb6e3a79dfa231c8bd555cf
+  head: 81d7ad39b7ab5dab95b109571d1a3a873676b0c4
 last_completed_task:
   id: task20a
   title: Retrieval tool contracts and first list_repos tool slice
@@ -22,7 +22,7 @@ last_completed_task:
   review:
     spec: pass
     code: approved
-  commit: b96a193
+  commit: 81d7ad3
   next_task: task20b
 current_task:
   id: task20b
@@ -49,7 +49,7 @@ history:
       - cargo test -p sourcebot-api repos: passed (4 tests)
       - cargo test -p sourcebot-api storage: passed (3 tests)
       - cargo check: passed
-    commit: b96a193
+    commit: 81d7ad3
     next_task: task20b
 notes:
   execution_rules:
