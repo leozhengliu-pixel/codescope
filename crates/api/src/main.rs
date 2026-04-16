@@ -3,7 +3,7 @@ mod browse;
 mod commits;
 mod storage;
 
-use ask::{AskCompletionRequest, AskCompletionResponse};
+use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -18,12 +18,16 @@ use commits::{
 use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, LlmProviderConfig};
-use sourcebot_models::{RepositoryDetail, RepositorySummary};
+use sourcebot_models::{
+    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, RepositoryDetail, RepositorySummary,
+};
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
 };
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use storage::{build_catalog_store, DynCatalogStore};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::info;
 
 #[derive(Clone)]
@@ -33,7 +37,11 @@ struct AppState {
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
+    ask_threads: DynAskThreadStore,
 }
+
+const DEFAULT_ASK_USER_ID: &str = "local_user";
+static NEXT_ASK_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize)]
 struct HealthResponse {
@@ -55,8 +63,9 @@ async fn main() -> anyhow::Result<()> {
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
+    let ask_threads = build_ask_thread_store();
 
-    let app = build_router(config, catalog, browse, commits, search);
+    let app = build_router(config, catalog, browse, commits, search, ask_threads);
 
     info!(%addr, service = %service_name, "starting sourcebot api");
 
@@ -71,6 +80,7 @@ fn build_router(
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
+    ask_threads: DynAskThreadStore,
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
@@ -107,7 +117,25 @@ fn build_router(
             browse,
             commits,
             search,
+            ask_threads,
         })
+}
+
+fn next_ask_entity_id(prefix: &str) -> String {
+    let sequence = NEXT_ASK_ENTITY_ID.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}_{sequence}")
+}
+
+fn current_ask_timestamp() -> String {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .expect("current UTC time should format as RFC3339")
+}
+
+fn ask_thread_title_from_prompt(prompt: &str) -> String {
+    const MAX_TITLE_CHARS: usize = 80;
+
+    prompt.chars().take(MAX_TITLE_CHARS).collect()
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -596,6 +624,38 @@ async fn create_ask_completion(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    if request.thread_id.is_none() {
+        let timestamp = current_ask_timestamp();
+        state
+            .ask_threads
+            .create_thread(AskThread {
+                id: next_ask_entity_id("thread"),
+                session_id: next_ask_entity_id("session"),
+                user_id: DEFAULT_ASK_USER_ID.into(),
+                title: ask_thread_title_from_prompt(&request.prompt),
+                repo_scope: request.repo_scope.clone(),
+                visibility: AskThreadVisibility::Private,
+                created_at: timestamp.clone(),
+                updated_at: timestamp,
+                messages: vec![
+                    AskMessage {
+                        id: next_ask_entity_id("msg"),
+                        role: AskMessageRole::User,
+                        content: request.prompt.clone(),
+                        citations: Vec::new(),
+                    },
+                    AskMessage {
+                        id: next_ask_entity_id("msg"),
+                        role: AskMessageRole::Assistant,
+                        content: response.answer.clone(),
+                        citations: response.citations.clone(),
+                    },
+                ],
+            })
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
     Ok(Json(response.into()))
 }
 
@@ -603,13 +663,16 @@ async fn create_ask_completion(
 mod tests {
     use super::*;
     use crate::{
+        ask::InMemoryAskThreadStore,
         commits::{CommitStore, LocalCommitStore},
         storage::InMemoryCatalogStore,
     };
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
+    use sourcebot_core::AskThreadStore;
     use std::sync::Arc;
+    use time::{format_description::well_known::Rfc3339, OffsetDateTime};
     use tower::util::ServiceExt;
 
     #[derive(Debug, Deserialize)]
@@ -756,6 +819,7 @@ mod tests {
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
+            build_ask_thread_store(),
         )
     }
 
@@ -799,6 +863,134 @@ mod tests {
         assert!(payload
             .answer
             .contains("where is build_router implemented?"));
+    }
+
+    #[tokio::test]
+    async fn ask_completions_persists_new_repo_scoped_threads() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let app = build_router(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                ..AppConfig::default()
+            },
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let threads = ask_threads
+            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .await
+            .unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].title, "where is build_router implemented?");
+        assert_eq!(threads[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        let thread = ask_threads
+            .get_thread_for_user(DEFAULT_ASK_USER_ID, &threads[0].id)
+            .await
+            .unwrap()
+            .expect("new ask completion should create a thread");
+        assert_eq!(thread.created_at, thread.updated_at);
+        assert!(OffsetDateTime::parse(&thread.created_at, &Rfc3339).is_ok());
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].role, AskMessageRole::User);
+        assert_eq!(
+            thread.messages[0].content,
+            "where is build_router implemented?"
+        );
+        assert_eq!(thread.messages[1].role, AskMessageRole::Assistant);
+        assert!(thread.messages[1]
+            .content
+            .contains("where is build_router implemented?"));
+    }
+
+    #[tokio::test]
+    async fn ask_completions_does_not_create_new_thread_when_thread_id_is_supplied() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let existing_thread = AskThread {
+            id: "thread_existing".into(),
+            session_id: "session_existing".into(),
+            user_id: DEFAULT_ASK_USER_ID.into(),
+            title: "existing thread".into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: "2026-04-16T08:00:00Z".into(),
+            messages: vec![],
+        };
+        ask_threads
+            .create_thread(existing_thread.clone())
+            .await
+            .unwrap();
+
+        let app = build_router(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                ..AppConfig::default()
+            },
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: Some(existing_thread.id.clone()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let threads = ask_threads
+            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .await
+            .unwrap();
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].id, existing_thread.id);
+        assert_eq!(threads[0].updated_at, "2026-04-16T08:00:00Z");
     }
 
     #[tokio::test]
@@ -910,6 +1102,7 @@ mod tests {
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
+            build_ask_thread_store(),
         );
 
         let response = app
