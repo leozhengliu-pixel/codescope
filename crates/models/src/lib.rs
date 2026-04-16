@@ -88,6 +88,36 @@ pub struct LocalSessionState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizationRole {
+    Admin,
+    Viewer,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Organization {
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationMembership {
+    pub organization_id: String,
+    pub user_id: String,
+    pub role: OrganizationRole,
+    pub joined_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrganizationState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub organizations: Vec<Organization>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub memberships: Vec<OrganizationMembership>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AskCitation {
     pub repo_id: String,
     pub path: String,
@@ -149,6 +179,12 @@ impl Repository {
             default_branch: self.default_branch.clone(),
             sync_state: self.sync_state.clone(),
         }
+    }
+}
+
+impl OrganizationMembership {
+    pub fn can_manage_members(&self) -> bool {
+        matches!(self.role, OrganizationRole::Admin)
     }
 }
 
@@ -374,6 +410,68 @@ mod tests {
                 "display_label": "crates/api/src/main.rs:10-18",
                 "pinned_location": "main:crates/api/src/main.rs#L10-L18",
                 "line_fragment": "L10-L18"
+            })
+        );
+    }
+
+    #[test]
+    fn organization_membership_management_tracks_role_capabilities() {
+        let admin_membership = OrganizationMembership {
+            organization_id: "org_acme".into(),
+            user_id: "user_admin".into(),
+            role: OrganizationRole::Admin,
+            joined_at: "2026-04-16T20:00:00Z".into(),
+        };
+        let viewer_membership = OrganizationMembership {
+            organization_id: "org_acme".into(),
+            user_id: "user_viewer".into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-16T20:01:00Z".into(),
+        };
+
+        assert!(admin_membership.can_manage_members());
+        assert!(!viewer_membership.can_manage_members());
+    }
+
+    #[test]
+    fn organization_state_defaults_to_empty_collections_and_serializes_cleanly() {
+        let state = OrganizationState::default();
+
+        assert!(state.organizations.is_empty());
+        assert!(state.memberships.is_empty());
+        assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn organization_models_round_trip_as_reusable_domain_data() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-16T20:00:00Z".into(),
+            }],
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "memberships": [{
+                    "organization_id": "org_acme",
+                    "user_id": "user_admin",
+                    "role": "admin",
+                    "joined_at": "2026-04-16T20:00:00Z"
+                }]
             })
         );
     }
