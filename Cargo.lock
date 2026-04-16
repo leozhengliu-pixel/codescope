@@ -1385,6 +1385,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sourcebot-mcp"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sourcebot-core",
+]
+
+[[package]]
 name = "sourcebot-models"
 version = "0.1.0"
 dependencies = [
