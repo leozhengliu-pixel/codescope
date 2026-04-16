@@ -5,34 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a3d7dc1c6abce87a0c22b8463e5dfd4d39999fdb
+  head: ace08961e6ce5c536612e63f8fee7c695ec73eeb
 last_completed_task:
-  id: task25c2a
-  title: Durable local session persistence scaffolding
+  id: task25c2b1
+  title: Bootstrap-admin login endpoint and durable local session issuance
   status: done
   summary: >-
-    Split task25c2 and completed the first slice by adding shared local-session
-    models plus a LocalSessionStore contract, wiring a dedicated file-backed
-    local session store through config and app state, and persisting session
-    records with owner-only files, overwrite-by-session-id behavior,
-    concurrent-write locking, invalid-JSON fail-closed semantics, and stale-lock
-    timeout handling without adding any login or session HTTP endpoints yet.
+    Split task25c2b and completed the first login slice by adding
+    POST /api/v1/auth/login, reading the persisted bootstrap-admin state,
+    returning 409 Conflict while bootstrap is still required, verifying the
+    stored Argon2 password hash without trimming password bytes, issuing a
+    durable local session through the existing file-backed local session store,
+    and persisting only an Argon2 hash of the returned session secret with a
+    non-counter-based session id.
   tests:
-    - cargo test -p sourcebot-api file_local_session_store_times_out_when_lock_file_is_stale -- --nocapture: passed
-    - cargo test -p sourcebot-api local_session -- --nocapture: passed (6 tests)
-    - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (11 tests)
-    - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
-    - cargo fmt --all --check: passed
+    - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-api: passed (109 tests)
+    - cargo fmt --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent combined spec-and-quality review; reviewer confirmed the slice adds only local-session persistence scaffolding, keeps login/session HTTP surfaces absent, preserves fail-closed behavior for invalid JSON and stale locks, and noted only non-blocking cross-platform rename and future contention considerations
-  commit: a3d7dc1c6abce87a0c22b8463e5dfd4d39999fdb
-  next_task: task25c2b
+    code: approved by one independent confirming review after one fix; reviewer confirmed the slice uses persisted bootstrap state, keeps scope to the single login endpoint, persists only hashed session secrets, preserves password whitespace semantics, and avoids resettable counter-based session ids; noted only non-blocking email-enumeration and extra invalid-payload coverage follow-ups
+  commit: ace08961e6ce5c536612e63f8fee7c695ec73eeb
+  next_task: task25c2b2
 current_task:
-  id: task25c2b
-  title: Login endpoint and durable local session issuance API
+  id: task25c2b2
+  title: Local session authentication follow-up endpoints and request handling
   status: pending
 history:
+  - id: task25c2b1
+    status: done
+    summary: >-
+      Split task25c2b and completed the first login slice by adding
+      POST /api/v1/auth/login, reading the persisted bootstrap-admin state,
+      returning 409 Conflict while bootstrap is still required, verifying the
+      stored Argon2 password hash without trimming password bytes, issuing a
+      durable local session through the existing file-backed local session
+      store, and persisting only an Argon2 hash of the returned session secret
+      with a non-counter-based session id.
+    tests:
+      - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-api: passed (109 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent confirming review after one fix; reviewer confirmed the slice uses persisted bootstrap state, keeps scope to the single login endpoint, persists only hashed session secrets, preserves password whitespace semantics, and avoids resettable counter-based session ids; noted only non-blocking email-enumeration and extra invalid-payload coverage follow-ups
+    commit: ace08961e6ce5c536612e63f8fee7c695ec73eeb
+    next_task: task25c2b2
   - id: task25c2a
     status: done
     summary: >-
