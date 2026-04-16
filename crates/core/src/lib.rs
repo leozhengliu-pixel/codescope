@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use sourcebot_models::{Connection, Repository, RepositoryDetail, RepositorySummary};
+use sourcebot_models::{
+    AskThread, AskThreadSummary, Connection, Repository, RepositoryDetail, RepositorySummary,
+};
 use std::path::{Component, Path};
 
 pub const PROJECT_NAME: &str = "sourcebot-rewrite";
@@ -626,6 +628,17 @@ pub struct AskResponse {
     pub model: Option<String>,
     pub answer: String,
     pub citations: Vec<AskCitation>,
+}
+
+#[async_trait]
+pub trait AskThreadStore: Send + Sync {
+    async fn create_thread(&self, thread: AskThread) -> Result<()>;
+    async fn list_threads_for_user(&self, user_id: &str) -> Result<Vec<AskThreadSummary>>;
+    async fn get_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>>;
 }
 
 #[async_trait]

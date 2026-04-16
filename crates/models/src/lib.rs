@@ -17,6 +17,20 @@ pub enum SyncState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AskThreadVisibility {
+    Private,
+    Shared,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AskMessageRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Connection {
     pub id: String,
     pub name: String,
@@ -46,6 +60,37 @@ pub struct RepositoryDetail {
     pub connection: Connection,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskMessage {
+    pub id: String,
+    pub role: AskMessageRole,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskThread {
+    pub id: String,
+    pub session_id: String,
+    pub user_id: String,
+    pub title: String,
+    pub repo_scope: Vec<String>,
+    pub visibility: AskThreadVisibility,
+    pub created_at: String,
+    pub updated_at: String,
+    pub messages: Vec<AskMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AskThreadSummary {
+    pub id: String,
+    pub session_id: String,
+    pub title: String,
+    pub repo_scope: Vec<String>,
+    pub visibility: AskThreadVisibility,
+    pub updated_at: String,
+    pub message_count: usize,
+}
+
 impl Repository {
     pub fn summary(&self) -> RepositorySummary {
         RepositorySummary {
@@ -53,6 +98,20 @@ impl Repository {
             name: self.name.clone(),
             default_branch: self.default_branch.clone(),
             sync_state: self.sync_state.clone(),
+        }
+    }
+}
+
+impl AskThread {
+    pub fn summary(&self) -> AskThreadSummary {
+        AskThreadSummary {
+            id: self.id.clone(),
+            session_id: self.session_id.clone(),
+            title: self.title.clone(),
+            repo_scope: self.repo_scope.clone(),
+            visibility: self.visibility.clone(),
+            updated_at: self.updated_at.clone(),
+            message_count: self.messages.len(),
         }
     }
 }
@@ -89,4 +148,48 @@ pub fn seed_repositories() -> Vec<Repository> {
             sync_state: SyncState::Pending,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ask_thread_summary_counts_messages_and_preserves_scope_metadata() {
+        let thread = AskThread {
+            id: "thread_1".into(),
+            session_id: "session_1".into(),
+            user_id: "user_1".into(),
+            title: "Healthz".into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: "2026-04-16T08:01:00Z".into(),
+            messages: vec![
+                AskMessage {
+                    id: "msg_1".into(),
+                    role: AskMessageRole::User,
+                    content: "where is healthz implemented?".into(),
+                },
+                AskMessage {
+                    id: "msg_2".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "src/main.rs".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            thread.summary(),
+            AskThreadSummary {
+                id: "thread_1".into(),
+                session_id: "session_1".into(),
+                title: "Healthz".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                updated_at: "2026-04-16T08:01:00Z".into(),
+                message_count: 2,
+            }
+        );
+    }
 }

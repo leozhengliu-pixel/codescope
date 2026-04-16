@@ -1,0 +1,209 @@
+use anyhow::{anyhow, Result};
+use async_trait::async_trait;
+use sourcebot_core::AskThreadStore;
+use sourcebot_models::{AskThread, AskThreadSummary};
+use std::sync::{Arc, RwLock};
+
+#[allow(dead_code)]
+pub type DynAskThreadStore = Arc<dyn AskThreadStore>;
+
+#[allow(dead_code)]
+#[derive(Clone, Default)]
+pub struct InMemoryAskThreadStore {
+    threads: Arc<RwLock<Vec<AskThread>>>,
+}
+
+impl InMemoryAskThreadStore {
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl AskThreadStore for InMemoryAskThreadStore {
+    async fn create_thread(&self, thread: AskThread) -> Result<()> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        if threads.iter().any(|existing| existing.id == thread.id) {
+            anyhow::bail!("ask thread {} already exists", thread.id);
+        }
+
+        threads.push(thread);
+        Ok(())
+    }
+
+    async fn list_threads_for_user(&self, user_id: &str) -> Result<Vec<AskThreadSummary>> {
+        let threads = self
+            .threads
+            .read()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let mut summaries: Vec<_> = threads
+            .iter()
+            .filter(|thread| thread.user_id == user_id)
+            .map(AskThread::summary)
+            .collect();
+
+        summaries.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+
+        Ok(summaries)
+    }
+
+    async fn get_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let threads = self
+            .threads
+            .read()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        Ok(threads
+            .iter()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+            .cloned())
+    }
+}
+
+#[allow(dead_code)]
+pub fn build_ask_thread_store() -> DynAskThreadStore {
+    Arc::new(InMemoryAskThreadStore::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sourcebot_models::{AskMessage, AskMessageRole, AskThreadVisibility};
+
+    fn thread(
+        id: &str,
+        user_id: &str,
+        updated_at: &str,
+        title: &str,
+        session_id: &str,
+    ) -> AskThread {
+        AskThread {
+            id: id.into(),
+            session_id: session_id.into(),
+            user_id: user_id.into(),
+            title: title.into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: updated_at.into(),
+            messages: vec![AskMessage {
+                id: format!("msg_{id}"),
+                role: AskMessageRole::User,
+                content: "where is healthz implemented?".into(),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn build_ask_thread_store_starts_empty() {
+        let store = build_ask_thread_store();
+
+        assert_eq!(
+            store.list_threads_for_user("user_1").await.unwrap(),
+            Vec::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_lists_threads_for_owner_in_recent_first_order() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_older",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Older thread",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+        store
+            .create_thread(thread(
+                "thread_newer",
+                "user_1",
+                "2026-04-16T08:02:00Z",
+                "Newer thread",
+                "session_b",
+            ))
+            .await
+            .unwrap();
+
+        let threads = store.list_threads_for_user("user_1").await.unwrap();
+
+        assert_eq!(threads.len(), 2);
+        assert_eq!(threads[0].id, "thread_newer");
+        assert_eq!(threads[0].message_count, 1);
+        assert_eq!(threads[1].id, "thread_older");
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_returns_full_thread_only_to_owner() {
+        let store = build_ask_thread_store();
+        let expected = thread(
+            "thread_private",
+            "user_1",
+            "2026-04-16T08:02:00Z",
+            "Private thread",
+            "session_a",
+        );
+        store.create_thread(expected.clone()).await.unwrap();
+
+        assert_eq!(
+            store
+                .get_thread_for_user("user_1", "thread_private")
+                .await
+                .unwrap(),
+            Some(expected)
+        );
+        assert_eq!(
+            store
+                .get_thread_for_user("user_2", "thread_private")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_rejects_duplicate_thread_ids() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_duplicate",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "First thread",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+
+        let err = store
+            .create_thread(thread(
+                "thread_duplicate",
+                "user_1",
+                "2026-04-16T08:03:00Z",
+                "Second thread",
+                "session_b",
+            ))
+            .await
+            .expect_err("duplicate thread ids should be rejected");
+
+        assert!(err.to_string().contains("already exists"));
+    }
+}
