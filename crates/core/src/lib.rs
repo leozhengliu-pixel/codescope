@@ -25,14 +25,48 @@ pub struct RetrievalToolContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepositoryTreeEntryKind {
+    File,
+    Dir,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryTreeEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: RepositoryTreeEntryKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryTree {
+    pub repo_id: String,
+    pub path: String,
+    pub entries: Vec<RepositoryTreeEntry>,
+}
+
+#[async_trait]
+pub trait TreeStore: Send + Sync {
+    async fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<RepositoryTree>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "tool", content = "payload", rename_all = "snake_case")]
 pub enum RetrievalToolResult {
     ListRepos(ListReposResult),
+    ListTree(ListTreeResult),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ListReposResult {
     pub repositories: Vec<RepositorySummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ListTreeResult {
+    pub repo_id: String,
+    pub path: String,
+    pub entries: Vec<RepositoryTreeEntry>,
 }
 
 #[async_trait]
@@ -41,12 +75,24 @@ pub trait RetrievalTool: Send + Sync {
     async fn run(
         &self,
         catalog: &dyn CatalogStore,
+        trees: &dyn TreeStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ListReposTool;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListTreeTool {
+    path: String,
+}
+
+impl ListTreeTool {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into() }
+    }
+}
 
 #[async_trait]
 impl RetrievalTool for ListReposTool {
@@ -60,27 +106,19 @@ impl RetrievalTool for ListReposTool {
     async fn run(
         &self,
         catalog: &dyn CatalogStore,
+        _trees: &dyn TreeStore,
         context: &RetrievalToolContext,
     ) -> Result<RetrievalToolResult> {
         let repositories = catalog.list_repositories().await?;
-        let scoped_repo_ids = if !context.repo_scope.is_empty() {
-            context.repo_scope.as_slice()
-        } else if let Some(active_repo_id) = context.active_repo_id.as_ref() {
-            std::slice::from_ref(active_repo_id)
-        } else {
-            context.visible_repo_ids.as_slice()
-        };
+        let scoped_repo_ids = scoped_repo_ids(context);
 
         let repositories = repositories
             .into_iter()
             .filter(|repository| {
-                context
-                    .visible_repo_ids
-                    .iter()
-                    .any(|repo_id| repo_id == &repository.id)
+                repo_is_visible(context, &repository.id)
                     && scoped_repo_ids
                         .iter()
-                        .any(|repo_id| repo_id == &repository.id)
+                        .any(|repo_id| *repo_id == repository.id)
             })
             .collect();
 
@@ -88,6 +126,98 @@ impl RetrievalTool for ListReposTool {
             repositories,
         }))
     }
+}
+
+#[async_trait]
+impl RetrievalTool for ListTreeTool {
+    fn definition(&self) -> RetrievalToolDefinition {
+        RetrievalToolDefinition {
+            name: "list_tree".into(),
+            description:
+                "List files and directories at a repository path inside the active retrieval scope."
+                    .into(),
+        }
+    }
+
+    async fn run(
+        &self,
+        _catalog: &dyn CatalogStore,
+        trees: &dyn TreeStore,
+        context: &RetrievalToolContext,
+    ) -> Result<RetrievalToolResult> {
+        let active_repo_id = context
+            .active_repo_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("list_tree requires an active repository"))?;
+
+        if !repo_is_visible(context, active_repo_id) {
+            anyhow::bail!(
+                "active repository {active_repo_id} is not visible to the retrieval context"
+            );
+        }
+
+        if !repo_is_in_scope(context, active_repo_id) {
+            anyhow::bail!("active repository {active_repo_id} is outside retrieval scope");
+        }
+
+        let tree = trees
+            .get_tree(active_repo_id, &self.path)
+            .await?
+            .ok_or_else(|| {
+                anyhow!(
+                    "repository tree not found for repo {active_repo_id} at path {}",
+                    self.path
+                )
+            })?;
+
+        if tree.repo_id != active_repo_id {
+            anyhow::bail!(
+                "tree store returned repo {} for active repo {active_repo_id}",
+                tree.repo_id
+            );
+        }
+
+        if tree.path != self.path {
+            anyhow::bail!(
+                "tree store returned path {} for requested path {}",
+                tree.path,
+                self.path
+            );
+        }
+
+        Ok(RetrievalToolResult::ListTree(ListTreeResult {
+            repo_id: tree.repo_id,
+            path: tree.path,
+            entries: tree.entries,
+        }))
+    }
+}
+
+fn scoped_repo_ids(context: &RetrievalToolContext) -> Vec<&str> {
+    if !context.repo_scope.is_empty() {
+        context.repo_scope.iter().map(String::as_str).collect()
+    } else if let Some(active_repo_id) = context.active_repo_id.as_deref() {
+        vec![active_repo_id]
+    } else {
+        context
+            .visible_repo_ids
+            .iter()
+            .map(String::as_str)
+            .collect()
+    }
+}
+
+fn repo_is_visible(context: &RetrievalToolContext, repo_id: &str) -> bool {
+    context
+        .visible_repo_ids
+        .iter()
+        .any(|visible_repo_id| visible_repo_id == repo_id)
+}
+
+fn repo_is_in_scope(context: &RetrievalToolContext, repo_id: &str) -> bool {
+    scoped_repo_ids(context)
+        .into_iter()
+        .any(|scoped_repo_id| scoped_repo_id == repo_id)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +352,12 @@ mod tests {
         repositories: Vec<RepositorySummary>,
     }
 
+    struct NullTreeStore;
+
+    struct StaticTreeStore {
+        tree: Option<RepositoryTree>,
+    }
+
     #[async_trait]
     impl CatalogStore for StaticCatalogStore {
         async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
@@ -230,6 +366,20 @@ mod tests {
 
         async fn get_repository_detail(&self, _repo_id: &str) -> Result<Option<RepositoryDetail>> {
             Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl TreeStore for NullTreeStore {
+        async fn get_tree(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryTree>> {
+            Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl TreeStore for StaticTreeStore {
+        async fn get_tree(&self, _repo_id: &str, _path: &str) -> Result<Option<RepositoryTree>> {
+            Ok(self.tree.clone())
         }
     }
 
@@ -242,6 +392,19 @@ mod tests {
             RetrievalToolDefinition {
                 name: "list_repos".into(),
                 description: "List repositories available to the retrieval scope.".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn list_tree_tool_definition_is_machine_readable() {
+        let tool = ListTreeTool::new("src");
+
+        assert_eq!(
+            tool.definition(),
+            RetrievalToolDefinition {
+                name: "list_tree".into(),
+                description: "List files and directories at a repository path inside the active retrieval scope.".into(),
             }
         );
     }
@@ -275,6 +438,7 @@ mod tests {
         let result = tool
             .run(
                 &store,
+                &NullTreeStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_sourcebot_rewrite".into()),
                     repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
@@ -320,6 +484,7 @@ mod tests {
         let result = tool
             .run(
                 &store,
+                &NullTreeStore,
                 &RetrievalToolContext {
                     active_repo_id: Some("repo_demo_docs".into()),
                     repo_scope: Vec::new(),
@@ -343,6 +508,108 @@ mod tests {
                 }],
             })
         );
+    }
+
+    #[tokio::test]
+    async fn list_tree_tool_returns_machine_readable_tree_for_active_repo() {
+        let tool = ListTreeTool::new("src");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let trees = StaticTreeStore {
+            tree: Some(RepositoryTree {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src".into(),
+                entries: vec![RepositoryTreeEntry {
+                    name: "main.rs".into(),
+                    path: "src/main.rs".into(),
+                    kind: RepositoryTreeEntryKind::File,
+                }],
+            }),
+        };
+
+        let result = tool
+            .run(
+                &catalog,
+                &trees,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into(), "repo_secret".into()],
+                },
+            )
+            .await
+            .expect("list_tree should succeed for the active repository");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::ListTree(ListTreeResult {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src".into(),
+                entries: vec![RepositoryTreeEntry {
+                    name: "main.rs".into(),
+                    path: "src/main.rs".into(),
+                    kind: RepositoryTreeEntryKind::File,
+                }],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn list_tree_tool_rejects_tree_store_metadata_outside_requested_scope() {
+        let tool = ListTreeTool::new("src");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let trees = StaticTreeStore {
+            tree: Some(RepositoryTree {
+                repo_id: "repo_secret".into(),
+                path: "other".into(),
+                entries: vec![RepositoryTreeEntry {
+                    name: "leak.txt".into(),
+                    path: "other/leak.txt".into(),
+                    kind: RepositoryTreeEntryKind::File,
+                }],
+            }),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &trees,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect_err("list_tree should reject mismatched tree metadata");
+
+        assert!(err.to_string().contains("tree store returned repo"));
+    }
+
+    #[tokio::test]
+    async fn list_tree_tool_rejects_active_repo_outside_scope() {
+        let tool = ListTreeTool::default();
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+
+        let err = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_secret".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into(), "repo_secret".into()],
+                },
+            )
+            .await
+            .expect_err("list_tree should fail when the active repo is outside scope");
+
+        assert!(err.to_string().contains("outside retrieval scope"));
     }
 
     #[tokio::test]

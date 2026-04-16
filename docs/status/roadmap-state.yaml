@@ -5,29 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 81d7ad39b7ab5dab95b109571d1a3a873676b0c4
+  head: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
 last_completed_task:
-  id: task20a
-  title: Retrieval tool contracts and first list_repos tool slice
+  id: task20b
+  title: Retrieval list_tree tool slice
   status: done
   summary: >-
-    Added async retrieval-tool and catalog contracts, a structured list_repos
-    tool result, scope-aware repository filtering, and async catalog call sites
-    in the API so future retrieval tools can reuse the same boundary.
+    Added reusable async tree retrieval contracts, a machine-readable list_tree
+    tool result, active-scope validation for tree listings, and a browse-to-core
+    adapter so future retrieval orchestration can reuse existing tree behavior.
   tests:
-    - cargo test -p sourcebot-core: passed (5 tests)
-    - cargo test -p sourcebot-api repos: passed (4 tests)
-    - cargo test -p sourcebot-api storage: passed (3 tests)
+    - cargo test -p sourcebot-core list_tree_tool -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-core: passed (9 tests)
+    - cargo test -p sourcebot-api browse: passed (9 tests)
     - cargo check: passed
   review:
-    spec: pass
     code: approved
-  commit: 81d7ad3
-  next_task: task20b
+  commit: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
+  next_task: task20c
 current_task:
-  id: task20b
+  id: task20c
   parent_task: task20
-  title: Retrieval list_tree tool slice
+  title: Retrieval read_file tool slice
   status: pending
 history:
   - id: task19
@@ -51,6 +50,19 @@ history:
       - cargo check: passed
     commit: 81d7ad3
     next_task: task20b
+  - id: task20b
+    status: done
+    summary: >-
+      Added reusable async tree retrieval contracts, a machine-readable
+      list_tree tool result, active-scope validation, and a browse adapter for
+      future retrieval orchestration.
+    tests:
+      - cargo test -p sourcebot-core list_tree_tool -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-core: passed (9 tests)
+      - cargo test -p sourcebot-api browse: passed (9 tests)
+      - cargo check: passed
+    commit: 9339a5ee58dee3909ae875fed3c26da3b3143d5f
+    next_task: task20c
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.

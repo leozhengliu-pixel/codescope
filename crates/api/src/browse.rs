@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use serde::Serialize;
+use sourcebot_core::{RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TreeStore};
 use std::{
     collections::HashMap,
     fs,
@@ -70,6 +72,19 @@ pub struct ReferenceMatch {
 #[derive(Clone, Default)]
 pub struct LocalBrowseStore {
     repo_roots: HashMap<String, PathBuf>,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct BrowseTreeStoreAdapter {
+    browse: DynBrowseStore,
+}
+
+#[allow(dead_code)]
+impl BrowseTreeStoreAdapter {
+    pub fn new(browse: DynBrowseStore) -> Self {
+        Self { browse }
+    }
 }
 
 impl LocalBrowseStore {
@@ -223,6 +238,31 @@ impl BrowseStore for LocalBrowseStore {
     }
 }
 
+#[async_trait]
+impl TreeStore for BrowseTreeStoreAdapter {
+    async fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<RepositoryTree>> {
+        Ok(self
+            .browse
+            .get_tree(repo_id, path)?
+            .map(|tree| RepositoryTree {
+                repo_id: tree.repo_id,
+                path: tree.path,
+                entries: tree
+                    .entries
+                    .into_iter()
+                    .map(|entry| RepositoryTreeEntry {
+                        name: entry.name,
+                        path: entry.path,
+                        kind: match entry.kind {
+                            EntryKind::File => RepositoryTreeEntryKind::File,
+                            EntryKind::Dir => RepositoryTreeEntryKind::Dir,
+                        },
+                    })
+                    .collect(),
+            }))
+    }
+}
+
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
     let object = format!("{revision}:{path}");
     let output = Command::new("git")
@@ -331,6 +371,7 @@ pub fn build_browse_store() -> DynBrowseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sourcebot_core::{RepositoryTreeEntryKind, TreeStore};
     use std::{
         sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
@@ -393,6 +434,26 @@ mod tests {
 
         let error = store.get_tree("repo_test", "../etc").unwrap_err();
         assert!(error.to_string().contains("invalid relative path"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn browse_tree_store_adapter_converts_browse_tree_for_core_retrieval() {
+        let (store, root) = create_test_store();
+        let adapter = BrowseTreeStoreAdapter::new(Arc::new(store));
+
+        let tree = TreeStore::get_tree(&adapter, "repo_test", "src")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(tree.repo_id, "repo_test");
+        assert_eq!(tree.path, "src");
+        assert_eq!(tree.entries.len(), 1);
+        assert_eq!(tree.entries[0].name, "main.rs");
+        assert_eq!(tree.entries[0].path, "src/main.rs");
+        assert_eq!(tree.entries[0].kind, RepositoryTreeEntryKind::File);
 
         fs::remove_dir_all(root).unwrap();
     }
