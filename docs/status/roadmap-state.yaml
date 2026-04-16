@@ -5,33 +5,57 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4a7e1fbb4be7d457f767315d6529fdb707c4d5b4
+  head: 30acfd11dd9866b0da7e89e34f2ae5b32c8388c9
 last_completed_task:
-  id: task26b1
-  title: Organization state store contract and basic file-backed read/write scaffolding
-  status: done
-  summary: >-
-    Split the broader task26b persistence work and completed the first slice by
-    adding an OrganizationStore contract in sourcebot-core, implementing a
-    file-backed FileOrganizationStore in sourcebot-api with default-empty
-    read/write JSON persistence, plumbing a dedicated organization_state_path
-    through config, and minimally constructing the store at startup without yet
-    wiring organization state into app state, routes, invites, or permission
-    enforcement.
-  tests:
-    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-config -- --nocapture: passed (2 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
-  review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the organization store contract, file-backed persistence, config path plumbing, minimal startup construction, and tests with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around explicit env-override coverage and future AppState wiring
-  commit: 4a7e1fbb4be7d457f767315d6529fdb707c4d5b4
-  next_task: task26b2
-current_task:
   id: task26b2
   title: Wire the organization store through API state/builders without adding org routes
+  status: done
+  summary: >-
+    Completed the second organization persistence slice by exposing a shared
+    DynOrganizationStore builder in the auth module, threading the configured
+    organization_state_path through API startup, router construction, and test
+    helpers, centralizing state assembly in build_app_state, and adding a
+    focused regression test that proves the configured file-backed organization
+    store is readable from app state without adding any organization routes yet.
+  tests:
+    - cargo fmt --all --check: passed
+    - cargo check: passed
+    - cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask_completions_persists_new_repo_scoped_threads -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api bootstrap_create_returns_conflict_when_initialize_races_with_existing_state -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed (1 test)
+  review:
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly refactors organization store construction into shared app state with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around eventual route-level coverage and removing the temporary allow(dead_code) once the field is consumed
+  commit: 30acfd11dd9866b0da7e89e34f2ae5b32c8388c9
+  next_task: task27
+current_task:
+  id: task27
+  title: Invite flow and account linking
   status: pending
 history:
+  - id: task26b2
+    status: done
+    summary: >-
+      Completed the second organization persistence slice by exposing a shared
+      DynOrganizationStore builder in the auth module, threading the configured
+      organization_state_path through API startup, router construction, and
+      test helpers, centralizing state assembly in build_app_state, and adding
+      a focused regression test that proves the configured file-backed
+      organization store is readable from app state without adding any
+      organization routes yet.
+    tests:
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+      - cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask_completions_persists_new_repo_scoped_threads -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api bootstrap_create_returns_conflict_when_initialize_races_with_existing_state -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed (1 test)
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly refactors organization store construction into shared app state with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around eventual route-level coverage and removing the temporary allow(dead_code) once the field is consumed
+    commit: 30acfd11dd9866b0da7e89e34f2ae5b32c8388c9
+    next_task: task27
   - id: task26b1
     status: done
     summary: >-
