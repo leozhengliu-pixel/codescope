@@ -5,36 +5,57 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fe626a60b1be7e88cbd7d117380bea38ca6da6e5
+  head: a9660582e888737888c9b765ade833df7433dba9
 last_completed_task:
-  id: task28b
-  title: Resolve user-visible repo ids from org memberships and repo permission bindings
+  id: task29a
+  title: Search permission enforcement
   status: done
   summary: >-
-    Completed the second task28 slice by adding a shared sourcebot-core helper
-    that derives a user's visible repository ids from OrganizationState
-    memberships plus repo permission bindings with deterministic first-seen
-    ordering and duplicate suppression, while still deferring API enforcement
-    across search, browse, and ask until task29.
+    Split task29 and completed the first permission-enforcement slice by
+    requiring authenticated local-session access on GET /api/v1/search,
+    resolving visible repository ids from OrganizationState memberships plus
+    repo permission bindings, returning 401 before query-shape validation for
+    unauthenticated requests, returning 404 for direct searches against
+    inaccessible repos, and filtering unscoped search results down to the
+    caller's visible repositories without changing browse or ask endpoints yet.
   tests:
-    - cargo test -p sourcebot-core visible_repo_ids_for_user -- --nocapture: passed (2 tests)
-    - cargo test -p sourcebot-core -- --nocapture: passed (23 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api -- --nocapture: passed (123 tests)
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds the minimal deterministic helper for deriving visible repository ids from memberships plus repo permission bindings, stays scoped away from API enforcement, and found no blocking correctness or security issues
-  commit: fe626a60b1be7e88cbd7d117380bea38ca6da6e5
-  next_task: task29
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly narrows task29 enforcement to GET /api/v1/search by requiring authenticated local sessions and filtering/not-founding repositories based on OrganizationState visibility, with no blocking correctness or security issues
+  commit: a9660582e888737888c9b765ade833df7433dba9
+  next_task: task29b
 current_task:
-  id: task29
-  title: Search/file/ask permission enforcement
+  id: task29b
+  title: Browse/file/ask permission enforcement
   status: pending
   summary: >-
-    Start the permission-enforcement phase by wiring the new shared visible-repo
-    resolver into the API request flow so authenticated users only reach search,
-    browse, and ask data for repositories granted through their org memberships
-    and repo permission bindings.
+    Continue the split task29 permission-enforcement work by applying the same
+    authenticated org-scoped repository visibility model to browse/file and ask
+    API surfaces, keeping each remaining slice narrow and fail-closed.
 history:
+  - id: task29a
+    status: done
+    summary: >-
+      Split task29 and completed the first permission-enforcement slice by
+      requiring authenticated local-session access on GET /api/v1/search,
+      resolving visible repository ids from OrganizationState memberships plus
+      repo permission bindings, returning 401 before query-shape validation for
+      unauthenticated requests, returning 404 for direct searches against
+      inaccessible repos, and filtering unscoped search results down to the
+      caller's visible repositories without changing browse or ask endpoints
+      yet.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api -- --nocapture: passed (123 tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly narrows task29 enforcement to GET /api/v1/search by requiring authenticated local sessions and filtering/not-founding repositories based on OrganizationState visibility, with no blocking correctness or security issues
+    commit: a9660582e888737888c9b765ade833df7433dba9
+    next_task: task29b
   - id: task28b
     status: done
     summary: >-
