@@ -5,28 +5,29 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c471f093ca19318ceb7dc3e31d55279560be6a90
+  head: 8ffc9097d8942a500ead14c91e20d2347b0b216b
 last_completed_task:
-  id: task21a
-  title: Ask thread persistence first slice
+  id: task21b1
+  title: Ask thread metadata mutation persistence
   status: done
   summary: >-
-    Split task21 and completed the first subtask by adding ask-thread domain
-    models, async thread-store contracts, and an in-memory persistence slice for
-    create/list/get thread history with owner scoping.
+    Split task21b and completed the first subtask by adding owner-scoped ask
+    thread metadata mutation persistence for rename and visibility updates in
+    the async thread-store contract and in-memory store.
   tests:
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-models -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api in_memory_store_updates_thread_title_and_visibility_for_owner -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api in_memory_store_does_not_update_thread_metadata_for_non_owner -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (6 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking security or logic issues
-  commit: c471f093ca19318ceb7dc3e31d55279560be6a90
-  next_task: task21b
+  commit: 5cb73e5bab9883de8dc29c32dfdf98fa6b8a4f0c
+  next_task: task21b2
 current_task:
-  id: task21b
-  title: Ask thread mutation and session linkage persistence
+  id: task21b2
+  title: Ask session linkage persistence
   status: pending
 history:
   - id: task19
@@ -124,6 +125,21 @@ history:
       - cargo check: passed
     commit: c471f093ca19318ceb7dc3e31d55279560be6a90
     next_task: task21b
+  - id: task21b1
+    status: done
+    summary: >-
+      Split task21b and completed the first subtask by adding owner-scoped ask
+      thread metadata mutation persistence for rename and visibility updates in
+      the async thread-store contract and in-memory store.
+    tests:
+      - cargo test -p sourcebot-api in_memory_store_updates_thread_title_and_visibility_for_owner -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api in_memory_store_does_not_update_thread_metadata_for_non_owner -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (6 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: 5cb73e5bab9883de8dc29c32dfdf98fa6b8a4f0c
+    next_task: task21b2
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
