@@ -639,6 +639,11 @@ pub trait AskThreadStore: Send + Sync {
         user_id: &str,
         thread_id: &str,
     ) -> Result<Option<AskThread>>;
+    async fn get_thread_for_session_for_user(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<Option<AskThread>>;
     async fn update_thread_metadata_for_user(
         &self,
         user_id: &str,

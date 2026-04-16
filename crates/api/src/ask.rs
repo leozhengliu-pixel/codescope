@@ -74,6 +74,22 @@ impl AskThreadStore for InMemoryAskThreadStore {
             .cloned())
     }
 
+    async fn get_thread_for_session_for_user(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let threads = self
+            .threads
+            .read()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        Ok(threads
+            .iter()
+            .find(|thread| thread.user_id == user_id && thread.session_id == session_id)
+            .cloned())
+    }
+
     async fn update_thread_metadata_for_user(
         &self,
         user_id: &str,
@@ -306,6 +322,44 @@ mod tests {
                 .await
                 .unwrap(),
             Some(original)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_returns_thread_for_matching_user_session() {
+        let store = build_ask_thread_store();
+        let expected = thread(
+            "thread_session_linked",
+            "user_1",
+            "2026-04-16T08:03:00Z",
+            "Session linked thread",
+            "session_linked",
+        );
+        store.create_thread(expected.clone()).await.unwrap();
+        store
+            .create_thread(thread(
+                "thread_other_user",
+                "user_2",
+                "2026-04-16T08:04:00Z",
+                "Other user's thread",
+                "session_linked",
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .get_thread_for_session_for_user("user_1", "session_linked")
+                .await
+                .unwrap(),
+            Some(expected)
+        );
+        assert_eq!(
+            store
+                .get_thread_for_session_for_user("user_1", "missing_session")
+                .await
+                .unwrap(),
+            None
         );
     }
 }
