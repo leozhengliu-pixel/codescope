@@ -3,10 +3,11 @@ mod browse;
 mod commits;
 mod storage;
 
+use ask::{AskCompletionRequest, AskCompletionResponse};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use browse::{build_browse_store, BlobResponse, DynBrowseStore, ReferenceMatch, TreeResponse};
@@ -16,6 +17,7 @@ use commits::{
 };
 use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
+use sourcebot_core::{build_llm_provider, LlmProviderConfig};
 use sourcebot_models::{RepositoryDetail, RepositorySummary};
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -98,6 +100,7 @@ fn build_router(
             get(get_repository_commit_diff),
         )
         .route("/api/v1/search", get(search_repository_contents))
+        .route("/api/v1/ask/completions", post(create_ask_completion))
         .with_state(AppState {
             config,
             catalog,
@@ -564,6 +567,38 @@ async fn search_repository_contents(
     Ok(Json(response))
 }
 
+async fn create_ask_completion(
+    State(state): State<AppState>,
+    Json(request): Json<AskCompletionRequest>,
+) -> Result<Json<AskCompletionResponse>, StatusCode> {
+    let repo_ids = state
+        .catalog
+        .list_repositories()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .map(|repository| repository.id)
+        .collect::<Vec<_>>();
+    let request = request.into_core_request(&repo_ids)?;
+
+    let provider = build_llm_provider(LlmProviderConfig {
+        provider: state
+            .config
+            .llm_provider
+            .clone()
+            .unwrap_or_else(|| "disabled".into()),
+        model: state.config.llm_model.clone(),
+        api_base: state.config.llm_api_base.clone(),
+        api_key: state.config.llm_api_key.clone(),
+    });
+    let response = provider
+        .complete(&request)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(response.into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -693,9 +728,30 @@ mod tests {
         files: Vec<CommitDiffFileResponse>,
     }
 
+    #[derive(Debug, Deserialize)]
+    struct AskCompletionResponseBody {
+        provider: String,
+        model: Option<String>,
+        answer: String,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct AskCompletionRequest {
+        prompt: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        repo_scope: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+    }
+
     fn test_app() -> Router {
+        test_app_with_config(AppConfig::default())
+    }
+
+    fn test_app_with_config(config: AppConfig) -> Router {
         build_router(
-            AppConfig::default(),
+            config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_browse_store(),
             build_commit_store(),
@@ -706,6 +762,121 @@ mod tests {
     async fn read_json<T: serde::de::DeserializeOwned>(response: axum::response::Response) -> T {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_provider_response_for_known_repo_scope() {
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: " where is build_router implemented? ".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec![" repo_sourcebot_rewrite ".into()],
+                            thread_id: Some("thread-123".into()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
+        assert_eq!(payload.provider, "stub");
+        assert_eq!(payload.model.as_deref(), Some("stub-model"));
+        assert!(payload
+            .answer
+            .contains("where is build_router implemented?"));
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_bad_request_for_empty_repo_scope() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: None,
+                            repo_scope: vec!["   ".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_bad_request_for_unknown_repo_scope() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: None,
+                            repo_scope: vec![
+                                "repo_sourcebot_rewrite".into(),
+                                "repo_missing".into(),
+                            ],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_bad_request_for_empty_prompt() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "   ".into(),
+                            system_prompt: None,
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

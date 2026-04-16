@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use serde::Serialize;
-use sourcebot_core::{AskResponse, AskThreadStore};
+use axum::http::StatusCode;
+use serde::{Deserialize, Serialize};
+use sourcebot_core::{AskRequest, AskResponse, AskThreadStore};
 use sourcebot_models::{
     AskCitation, AskMessage, AskMessageRole, AskRenderedCitation, AskThread, AskThreadSummary,
     AskThreadVisibility,
@@ -344,6 +345,48 @@ impl From<&AskThread> for AskThreadResponse {
 impl From<AskThread> for AskThreadResponse {
     fn from(thread: AskThread) -> Self {
         Self::from(&thread)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AskCompletionRequest {
+    pub prompt: String,
+    pub system_prompt: Option<String>,
+    pub repo_scope: Vec<String>,
+    pub thread_id: Option<String>,
+}
+
+impl AskCompletionRequest {
+    pub fn into_core_request(self, known_repo_ids: &[String]) -> Result<AskRequest, StatusCode> {
+        let prompt = self.prompt.trim().to_string();
+        if prompt.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        let repo_scope: Vec<String> = self
+            .repo_scope
+            .into_iter()
+            .map(|repo_id| repo_id.trim().to_string())
+            .filter(|repo_id| !repo_id.is_empty())
+            .collect();
+        if repo_scope.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        if repo_scope.iter().any(|repo_id| {
+            !known_repo_ids
+                .iter()
+                .any(|known_repo_id| known_repo_id == repo_id)
+        }) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        Ok(AskRequest {
+            prompt,
+            system_prompt: self.system_prompt,
+            repo_scope,
+            thread_id: self.thread_id,
+        })
     }
 }
 
