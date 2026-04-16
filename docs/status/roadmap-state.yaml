@@ -5,35 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 30acfd11dd9866b0da7e89e34f2ae5b32c8388c9
+  head: 3cd536da8a70227934649fe9b76ccfe2da1d68e9
 last_completed_task:
-  id: task26b2
-  title: Wire the organization store through API state/builders without adding org routes
+  id: task27a
+  title: Add shared organization invite and account-linking models
   status: done
   summary: >-
-    Completed the second organization persistence slice by exposing a shared
-    DynOrganizationStore builder in the auth module, threading the configured
-    organization_state_path through API startup, router construction, and test
-    helpers, centralizing state assembly in build_app_state, and adding a
-    focused regression test that proves the configured file-backed organization
-    store is readable from app state without adding any organization routes yet.
+    Split the broader invite/account-linking roadmap item and completed the first
+    slice by adding shared LocalAccount and OrganizationInvite models plus
+    OrganizationState accounts/invites collections in sourcebot-models, keeping
+    the work limited to reusable domain data without adding API routes, stores,
+    or permission enforcement yet.
   tests:
+    - cargo test -p sourcebot-models organization_ -- --nocapture: passed (4 tests)
+    - cargo test -p sourcebot-models -- --nocapture: passed (9 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
-    - cargo test -p sourcebot-api build_app_state_wires_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask_completions_persists_new_repo_scoped_threads -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api bootstrap_create_returns_conflict_when_initialize_races_with_existing_state -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed (1 test)
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly refactors organization store construction into shared app state with no blocking security concerns or logic errors, and noted only non-blocking follow-ups around eventual route-level coverage and removing the temporary allow(dead_code) once the field is consumed
-  commit: 30acfd11dd9866b0da7e89e34f2ae5b32c8388c9
-  next_task: task27
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the models-only task27a slice, adds the expected reusable invite/account state with sensible serde behavior, and found no blocking correctness or security issues
+  commit: 145c012272b593ee03d020b00d76fba4ba7a8b36
+  next_task: task27b
 current_task:
-  id: task27
-  title: Invite flow and account linking
+  id: task27b
+  title: Persist organization invite/account state through the organization store
   status: pending
+  summary: >-
+    Next slice should wire the expanded OrganizationState accounts/invites data
+    through the existing organization store and its focused tests without adding
+    invite routes, acceptance handlers, or permission enforcement yet.
 history:
+  - id: task27a
+    status: done
+    summary: >-
+      Split the broader invite/account-linking roadmap item and completed the
+      first slice by adding shared LocalAccount and OrganizationInvite models
+      plus OrganizationState accounts/invites collections in sourcebot-models,
+      keeping the work limited to reusable domain data without adding API
+      routes, stores, or permission enforcement yet.
+    tests:
+      - cargo test -p sourcebot-models organization_ -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-models -- --nocapture: passed (9 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the models-only task27a slice, adds the expected reusable invite/account state with sensible serde behavior, and found no blocking correctness or security issues
+    commit: 145c012272b593ee03d020b00d76fba4ba7a8b36
+    next_task: task27b
   - id: task26b2
     status: done
     summary: >-
