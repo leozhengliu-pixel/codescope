@@ -5,32 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: dec5fcdd61f545b997ec1c9a76d415bfcab336d7
+  head: 48df3328da434c69648f362d037c8c4118e6856f
 last_completed_task:
-  id: task21c2b1
-  title: Ask thread message update persistence
+  id: task21c2b2a
+  title: Ask thread message deletion persistence
   status: done
   summary: >-
-    Split task21c2b and completed the first mutation slice by adding owner-scoped
-    ask thread message content updates to the async thread-store contract and
-    in-memory implementation, preserving message order while refreshing thread
-    updated_at metadata.
+    Split task21c2b2 and completed the deletion-first slice by adding
+    owner-scoped ask thread message deletion to the async thread-store contract
+    and in-memory implementation, preserving remaining message order while
+    refreshing thread updated_at metadata.
   tests:
-    - cargo test -p sourcebot-api in_memory_store_updates_message_content_for_owner -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api in_memory_store_does_not_update_message_for_non_owner_or_missing_message -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api ask -- --nocapture: passed (13 tests)
+    - cargo test -p sourcebot-api delete_message -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api ask -- --nocapture: passed (15 tests)
     - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
     - cargo fmt --check: passed
     - cargo check: passed
   review:
     code: approved by single independent review with no blocking spec, security, or logic issues
-  commit: dec5fcdd61f545b997ec1c9a76d415bfcab336d7
-  next_task: task21c2b2
+  commit: 48df3328da434c69648f362d037c8c4118e6856f
+  next_task: task21c2b2b
 current_task:
-  id: task21c2b2
-  title: Ask thread message deletion and replacement follow-up slices
+  id: task21c2b2b
+  title: Ask thread message replacement follow-up slice
   status: pending
 history:
+  - id: task21c2b2a
+    status: done
+    summary: >-
+      Split task21c2b2 and completed the deletion-first slice by adding
+      owner-scoped ask thread message deletion to the async thread-store contract
+      and in-memory implementation, preserving remaining message order while
+      refreshing thread updated_at metadata.
+    tests:
+      - cargo test -p sourcebot-api delete_message -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api ask -- --nocapture: passed (15 tests)
+      - cargo test -p sourcebot-core -- --nocapture: passed (21 tests)
+      - cargo fmt --check: passed
+      - cargo check: passed
+    commit: 48df3328da434c69648f362d037c8c4118e6856f
+    next_task: task21c2b2b
   - id: task21c2b1
     status: done
     summary: >-
