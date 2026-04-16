@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::AskThreadStore;
-use sourcebot_models::{AskThread, AskThreadSummary};
+use sourcebot_models::{AskThread, AskThreadSummary, AskThreadVisibility};
 use std::sync::{Arc, RwLock};
 
 #[allow(dead_code)]
@@ -72,6 +72,39 @@ impl AskThreadStore for InMemoryAskThreadStore {
             .iter()
             .find(|thread| thread.user_id == user_id && thread.id == thread_id)
             .cloned())
+    }
+
+    async fn update_thread_metadata_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        title: Option<&str>,
+        visibility: Option<AskThreadVisibility>,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let Some(thread) = threads
+            .iter_mut()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+        else {
+            return Ok(None);
+        };
+
+        if let Some(title) = title {
+            thread.title = title.into();
+        }
+
+        if let Some(visibility) = visibility {
+            thread.visibility = visibility;
+        }
+
+        thread.updated_at = updated_at.into();
+
+        Ok(Some(thread.clone()))
     }
 }
 
@@ -205,5 +238,74 @@ mod tests {
             .expect_err("duplicate thread ids should be rejected");
 
         assert!(err.to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_updates_thread_title_and_visibility_for_owner() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_mutable",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Original title",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+
+        let updated = store
+            .update_thread_metadata_for_user(
+                "user_1",
+                "thread_mutable",
+                Some("Renamed thread"),
+                Some(AskThreadVisibility::Shared),
+                "2026-04-16T08:05:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to update metadata");
+
+        assert_eq!(updated.title, "Renamed thread");
+        assert_eq!(updated.visibility, AskThreadVisibility::Shared);
+        assert_eq!(updated.updated_at, "2026-04-16T08:05:00Z");
+
+        let summaries = store.list_threads_for_user("user_1").await.unwrap();
+        assert_eq!(summaries[0].title, "Renamed thread");
+        assert_eq!(summaries[0].visibility, AskThreadVisibility::Shared);
+        assert_eq!(summaries[0].updated_at, "2026-04-16T08:05:00Z");
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_does_not_update_thread_metadata_for_non_owner() {
+        let store = build_ask_thread_store();
+        let original = thread(
+            "thread_private",
+            "user_1",
+            "2026-04-16T08:01:00Z",
+            "Original title",
+            "session_a",
+        );
+        store.create_thread(original.clone()).await.unwrap();
+
+        let updated = store
+            .update_thread_metadata_for_user(
+                "user_2",
+                "thread_private",
+                Some("Hacked title"),
+                Some(AskThreadVisibility::Shared),
+                "2026-04-16T08:05:00Z",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated, None);
+        assert_eq!(
+            store
+                .get_thread_for_user("user_1", "thread_private")
+                .await
+                .unwrap(),
+            Some(original)
+        );
     }
 }

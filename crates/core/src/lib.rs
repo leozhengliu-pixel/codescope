@@ -639,6 +639,14 @@ pub trait AskThreadStore: Send + Sync {
         user_id: &str,
         thread_id: &str,
     ) -> Result<Option<AskThread>>;
+    async fn update_thread_metadata_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        title: Option<&str>,
+        visibility: Option<sourcebot_models::AskThreadVisibility>,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>>;
 }
 
 #[async_trait]
