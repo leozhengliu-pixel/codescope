@@ -5,33 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ace08961e6ce5c536612e63f8fee7c695ec73eeb
+  head: 8d473705c81ede770828deeacf6b10d9671ef9c4
 last_completed_task:
-  id: task25c2b1
-  title: Bootstrap-admin login endpoint and durable local session issuance
+  id: task25c2b2a
+  title: Authenticated local-session request handling and GET /api/v1/auth/me
   status: done
   summary: >-
-    Split task25c2b and completed the first login slice by adding
-    POST /api/v1/auth/login, reading the persisted bootstrap-admin state,
-    returning 409 Conflict while bootstrap is still required, verifying the
-    stored Argon2 password hash without trimming password bytes, issuing a
-    durable local session through the existing file-backed local session store,
-    and persisting only an Argon2 hash of the returned session secret with a
-    non-counter-based session id.
+    Split task25c2b2 and completed the first follow-up auth slice by adding
+    GET /api/v1/auth/me plus minimal local-session request handling that reads
+    Bearer <session_id>:<session_secret> credentials from Authorization,
+    verifies the persisted Argon2-hashed session secret, fails closed for
+    missing, malformed, invalid, or bootstrap-missing auth state, and returns
+    the persisted bootstrap-admin identity without adding logout or revocation
+    yet.
   tests:
+    - cargo test -p sourcebot-api auth_me -- --nocapture: passed (5 tests)
     - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api: passed (109 tests)
-    - cargo fmt --check: passed
+    - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (16 tests)
+    - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent confirming review after one fix; reviewer confirmed the slice uses persisted bootstrap state, keeps scope to the single login endpoint, persists only hashed session secrets, preserves password whitespace semantics, and avoids resettable counter-based session ids; noted only non-blocking email-enumeration and extra invalid-payload coverage follow-ups
-  commit: ace08961e6ce5c536612e63f8fee7c695ec73eeb
-  next_task: task25c2b2
+    code: approved by one independent post-implementation review; reviewer confirmed the slice is spec-compliant for this scope, found no blocking security or logic issues, and noted only a non-blocking missing-session-id path test follow-up
+  commit: 8d473705c81ede770828deeacf6b10d9671ef9c4
+  next_task: task25c2b2b
 current_task:
-  id: task25c2b2
-  title: Local session authentication follow-up endpoints and request handling
+  id: task25c2b2b
+  title: Local-session follow-up endpoint for logout or revocation
   status: pending
 history:
+  - id: task25c2b2a
+    status: done
+    summary: >-
+      Split task25c2b2 and completed the first follow-up auth slice by adding
+      GET /api/v1/auth/me plus minimal local-session request handling that reads
+      Bearer <session_id>:<session_secret> credentials from Authorization,
+      verifies the persisted Argon2-hashed session secret, fails closed for
+      missing, malformed, invalid, or bootstrap-missing auth state, and returns
+      the persisted bootstrap-admin identity without adding logout or revocation
+      yet.
+    tests:
+      - cargo test -p sourcebot-api auth_me -- --nocapture: passed (5 tests)
+      - cargo test -p sourcebot-api login_ -- --nocapture: passed (4 tests)
+      - cargo test -p sourcebot-api bootstrap -- --nocapture: passed (16 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the slice is spec-compliant for this scope, found no blocking security or logic issues, and noted only a non-blocking missing-session-id path test follow-up
+    commit: 8d473705c81ede770828deeacf6b10d9671ef9c4
+    next_task: task25c2b2b
   - id: task25c2b1
     status: done
     summary: >-
