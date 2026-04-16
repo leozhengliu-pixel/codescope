@@ -198,6 +198,40 @@ impl AskThreadStore for InMemoryAskThreadStore {
         Ok(Some(thread.clone()))
     }
 
+    async fn replace_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        message: AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let Some(thread) = threads
+            .iter_mut()
+            .find(|thread| thread.user_id == user_id && thread.id == thread_id)
+        else {
+            return Ok(None);
+        };
+
+        let Some(existing_message) = thread
+            .messages
+            .iter_mut()
+            .find(|existing_message| existing_message.id == message_id)
+        else {
+            return Ok(None);
+        };
+
+        *existing_message = message;
+        thread.updated_at = updated_at.into();
+
+        Ok(Some(thread.clone()))
+    }
+
     async fn delete_message_for_user(
         &self,
         user_id: &str,
@@ -820,6 +854,146 @@ mod tests {
                     "thread_private_messages",
                     "missing_message",
                     "2026-04-16T08:08:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .get_thread_for_user("user_1", "thread_private_messages")
+                .await
+                .unwrap(),
+            Some(original)
+        );
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_replaces_message_for_owner_without_reordering_messages() {
+        let store = build_ask_thread_store();
+        store
+            .create_thread(thread(
+                "thread_replaceable_messages",
+                "user_1",
+                "2026-04-16T08:01:00Z",
+                "Replaceable messages",
+                "session_a",
+            ))
+            .await
+            .unwrap();
+        store
+            .append_message_for_user(
+                "user_1",
+                "thread_replaceable_messages",
+                AskMessage {
+                    id: "msg_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "draft assistant reply".into(),
+                },
+                "2026-04-16T08:06:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to append a message before replacing it");
+
+        let updated = store
+            .replace_message_for_user(
+                "user_1",
+                "thread_replaceable_messages",
+                "msg_assistant",
+                AskMessage {
+                    id: "msg_assistant_replaced".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "final assistant reply with citations".into(),
+                },
+                "2026-04-16T08:09:00Z",
+            )
+            .await
+            .unwrap()
+            .expect("owner should be able to replace a persisted message");
+
+        assert_eq!(updated.updated_at, "2026-04-16T08:09:00Z");
+        assert_eq!(updated.messages.len(), 2);
+        assert_eq!(updated.messages[0].id, "msg_thread_replaceable_messages");
+        assert_eq!(updated.messages[1].id, "msg_assistant_replaced");
+        assert_eq!(
+            updated.messages[1].content,
+            "final assistant reply with citations"
+        );
+
+        let messages = store
+            .get_thread_messages_for_user("user_1", "thread_replaceable_messages")
+            .await
+            .unwrap()
+            .expect("owner should be able to reload persisted messages after replacement");
+        assert_eq!(messages[0].id, "msg_thread_replaceable_messages");
+        assert_eq!(messages[1].id, "msg_assistant_replaced");
+        assert_eq!(messages[1].content, "final assistant reply with citations");
+
+        let summaries = store.list_threads_for_user("user_1").await.unwrap();
+        assert_eq!(summaries[0].message_count, 2);
+        assert_eq!(summaries[0].updated_at, "2026-04-16T08:09:00Z");
+    }
+
+    #[tokio::test]
+    async fn in_memory_store_does_not_replace_message_for_non_owner_missing_thread_or_missing_message(
+    ) {
+        let store = build_ask_thread_store();
+        let original = thread(
+            "thread_private_messages",
+            "user_1",
+            "2026-04-16T08:01:00Z",
+            "Private messages",
+            "session_a",
+        );
+        store.create_thread(original.clone()).await.unwrap();
+
+        assert_eq!(
+            store
+                .replace_message_for_user(
+                    "user_2",
+                    "thread_private_messages",
+                    "msg_thread_private_messages",
+                    AskMessage {
+                        id: "msg_replaced".into(),
+                        role: AskMessageRole::Assistant,
+                        content: "unauthorized".into(),
+                    },
+                    "2026-04-16T08:09:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .replace_message_for_user(
+                    "user_1",
+                    "missing_thread",
+                    "msg_thread_private_messages",
+                    AskMessage {
+                        id: "msg_replaced".into(),
+                        role: AskMessageRole::Assistant,
+                        content: "missing thread".into(),
+                    },
+                    "2026-04-16T08:09:00Z",
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .replace_message_for_user(
+                    "user_1",
+                    "thread_private_messages",
+                    "missing_message",
+                    AskMessage {
+                        id: "msg_replaced".into(),
+                        role: AskMessageRole::Assistant,
+                        content: "missing message".into(),
+                    },
+                    "2026-04-16T08:09:00Z",
                 )
                 .await
                 .unwrap(),

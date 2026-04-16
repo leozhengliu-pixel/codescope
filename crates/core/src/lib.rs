@@ -672,6 +672,14 @@ pub trait AskThreadStore: Send + Sync {
         content: &str,
         updated_at: &str,
     ) -> Result<Option<AskThread>>;
+    async fn replace_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        message: sourcebot_models::AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>>;
     async fn delete_message_for_user(
         &self,
         user_id: &str,
