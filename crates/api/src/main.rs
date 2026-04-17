@@ -144,6 +144,7 @@ fn build_router(
         )
         .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
+        .route("/api/v1/auth/api-keys", get(list_authenticated_api_keys))
         .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
@@ -250,6 +251,16 @@ struct AuthMeResponse {
     name: String,
     session_id: String,
     created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ApiKeyListItemResponse {
+    id: String,
+    user_id: String,
+    name: String,
+    created_at: String,
+    revoked_at: Option<String>,
+    repo_scope: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -562,6 +573,34 @@ async fn get_authenticated_local_admin(
         session_id: session.id,
         created_at: session.created_at,
     }))
+}
+
+async fn list_authenticated_api_keys(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ApiKeyListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(
+        organization_state
+            .api_keys
+            .into_iter()
+            .filter(|api_key| api_key.user_id == session.user_id)
+            .map(|api_key| ApiKeyListItemResponse {
+                id: api_key.id,
+                user_id: api_key.user_id,
+                name: api_key.name,
+                created_at: api_key.created_at,
+                revoked_at: api_key.revoked_at,
+                repo_scope: api_key.repo_scope,
+            })
+            .collect(),
+    ))
 }
 
 async fn logout_local_admin(
@@ -1320,6 +1359,16 @@ mod tests {
         name: String,
         session_id: String,
         created_at: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ApiKeyListItemResponseBody {
+        id: String,
+        user_id: String,
+        name: String,
+        created_at: String,
+        revoked_at: Option<String>,
+        repo_scope: Vec<String>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -2585,6 +2634,115 @@ mod tests {
         assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
 
         fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_lists_only_current_users_keys_without_secret_hash() {
+        let organization_state_path = unique_test_path("auth-api-keys-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            api_keys: vec![
+                ApiKey {
+                    id: "key_visible_active".into(),
+                    user_id: user_id.into(),
+                    name: "Visible active key".into(),
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$visible$active".into(),
+                    created_at: "2026-04-21T00:05:30Z".into(),
+                    revoked_at: None,
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                },
+                ApiKey {
+                    id: "key_visible_revoked".into(),
+                    user_id: user_id.into(),
+                    name: "Visible revoked key".into(),
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$visible$revoked".into(),
+                    created_at: "2026-04-21T00:06:30Z".into(),
+                    revoked_at: Some("2026-04-22T00:06:30Z".into()),
+                    repo_scope: vec![],
+                },
+                ApiKey {
+                    id: "key_hidden_other_user".into(),
+                    user_id: "local_user_other".into(),
+                    name: "Other user's key".into(),
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$other$user".into(),
+                    created_at: "2026-04-21T00:07:30Z".into(),
+                    revoked_at: None,
+                    repo_scope: vec!["repo_other".into()],
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<ApiKeyListItemResponseBody> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 2);
+        assert_eq!(payload[0].id, "key_visible_active");
+        assert_eq!(payload[0].user_id, user_id);
+        assert_eq!(payload[0].name, "Visible active key");
+        assert_eq!(payload[0].created_at, "2026-04-21T00:05:30Z");
+        assert_eq!(payload[0].revoked_at, None);
+        assert_eq!(payload[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert_eq!(payload[1].id, "key_visible_revoked");
+        assert_eq!(payload[1].user_id, user_id);
+        assert_eq!(payload[1].name, "Visible revoked key");
+        assert_eq!(payload[1].created_at, "2026-04-21T00:06:30Z");
+        assert_eq!(
+            payload[1].revoked_at.as_deref(),
+            Some("2026-04-22T00:06:30Z")
+        );
+        assert!(payload[1].repo_scope.is_empty());
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("secret_hash").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
     }
 
