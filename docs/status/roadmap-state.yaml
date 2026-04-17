@@ -5,64 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 35d49c943018b6b38622968deaf804e0d27b2bc6
+  head: db9c71b6f43dd6c0b0295580f9c34971599d7034
 last_completed_task:
-  id: task35k2
-  title: Persist one queued review-agent run claim through the organization store
+  id: task35k3
+  title: Add one worker tick that claims a queued review-agent run from the real store
   status: done
   summary: >-
-    Completed the next review-agent worker-claim slice by extending the shared
-    organization-store contract with a real claim_next_review_agent_run path,
-    serializing file-backed organization-state claim writes behind the store's
-    write lock, preserving already-claimed runs against stale full-state
-    rewrites, and proving the persisted claim behavior through focused worker and
-    file-store tests, while still deferring worker polling, actual review
-    execution, retries, and terminal status handling.
+    Completed the next review-agent worker slice by adding a minimal
+    sourcebot-worker tick that reuses the real file-backed organization store,
+    claims at most one queued review-agent run, and returns/logs that claimed
+    run without yet performing review execution, retries, polling loops, or
+    terminal status handling.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker claim_next_review_agent_run_ -- --nocapture: passed (4 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_claims_one_oldest_queued_review_agent_run -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_preserves_claimed_review_agent_run_when_stale_state_is_written -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_worker_tick_claims_a_queued_run_from_the_file_store -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (5 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> /opt/data/home/.cargo/bin/cargo run -p sourcebot-worker: passed (claimed queued run and persisted claimed status)
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the narrowed task35k2 scope by adding only the organization-store claim path, file-backed persistence/locking, and focused tests without worker polling, review execution, retries, or terminal-status handling
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the persisted claim plumbing and noted only a non-blocking caution that the 100ms state-file lock timeout may merit later tuning under heavier contention
-  commit: 35d49c943018b6b38622968deaf804e0d27b2bc6
-  next_task: task35k3
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the narrowed task35k3 scope by adding exactly one worker tick that claims from the real store without adding review execution, retries, terminal status handling, or polling loops
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the one-shot worker tick and noted only a non-blocking coupling tradeoff from reusing the api crate's real file-backed organization-store implementation
+  commit: db9c71b6f43dd6c0b0295580f9c34971599d7034
+  next_task: task35k4
 current_task:
-  id: task35k3
+  id: task35k4
   parent_task: task35k
-  title: Add one worker tick that claims a queued review-agent run from the real store
+  title: Record one terminal completion status for a claimed review-agent run after a stub worker execution
   status: pending
   summary: >-
-    Extend the persisted claim slice with one minimal worker execution tick that
-    asks the real organization store for the next queued review-agent run and
-    returns the claimed run without yet performing review execution, retries, or
-    terminal status handling.
+    Extend the minimal real-store worker tick with a no-op review-agent
+    execution placeholder that records one terminal completion status for a
+    claimed review-agent run, while still deferring actual review logic,
+    retries, and failure handling.
 history:
-  - id: task35k2
+  - id: task35k3
     status: done
     summary: >-
-      Completed the next review-agent worker-claim slice by extending the shared
-      organization-store contract with a real claim_next_review_agent_run path,
-      serializing file-backed organization-state claim writes behind the store's
-      write lock, preserving already-claimed runs against stale full-state
-      rewrites, and proving the persisted claim behavior through focused worker
-      and file-store tests, while still deferring worker polling, actual review
-      execution, retries, and terminal status handling.
+      Completed the next review-agent worker slice by adding a minimal
+      sourcebot-worker tick that reuses the real file-backed organization store,
+      claims at most one queued review-agent run, and returns/logs that claimed
+      run without yet performing review execution, retries, polling loops, or
+      terminal status handling.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker claim_next_review_agent_run_ -- --nocapture: passed (4 tests)
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_claims_one_oldest_queued_review_agent_run -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_preserves_claimed_review_agent_run_when_stale_state_is_written -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_worker_tick_claims_a_queued_run_from_the_file_store -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (5 tests)
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> /opt/data/home/.cargo/bin/cargo run -p sourcebot-worker: passed (claimed queued run and persisted claimed status)
     review:
-      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the narrowed task35k2 scope by adding only the organization-store claim path, file-backed persistence/locking, and focused tests without worker polling, review execution, retries, or terminal-status handling
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the persisted claim plumbing and noted only a non-blocking caution that the 100ms state-file lock timeout may merit later tuning under heavier contention
-    commit: 35d49c943018b6b38622968deaf804e0d27b2bc6
-    next_task: task35k3
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the narrowed task35k3 scope by adding exactly one worker tick that claims from the real store without adding review execution, retries, terminal status handling, or polling loops
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the one-shot worker tick and noted only a non-blocking coupling tradeoff from reusing the api crate's real file-backed organization-store implementation
+    commit: db9c71b6f43dd6c0b0295580f9c34971599d7034
+    next_task: task35k4
   - id: task35k1
     status: done
     summary: >-
