@@ -5,40 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cd85b8ca53cb2e873822756a803dad0e32ea54a7
+  head: 79d04ec6c2f27d13403439ca20b84875a64c5b1b
 last_completed_task:
-  id: task35j
-  title: Review-agent run queued-status persistence contract
+  id: task35k1
+  title: Review-agent claim contract and first worker claim helper
   status: done
   summary: >-
-    Completed the next review-agent / webhook automation slice by extending
-    ReviewAgentRun with a backward-compatible queued status contract, persisting
-    newly accepted webhook-triggered runs as queued, and exposing the queued
-    status through the minimal authenticated review-agent-run listing response,
-    while still deferring actual review execution, retries, status transitions,
-    status UI, and secret rotation.
+    Split task35k and completed the first worker-claim slice by adding a shared
+    claimed review-agent run status plus a deterministic sourcebot-worker helper
+    that claims exactly one queued run in memory by oldest created_at with an
+    earlier-index tie-breaker, while still deferring persisted claim writes,
+    worker polling, review execution, retries, terminal statuses, UI, and
+    secret rotation.
   tests:
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::review_agent_run_status_serializes_claimed_in_snake_case -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_deserializes_claimed_review_agent_run_status -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_agent_runs -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_review_agent_run_status_to_queued_on_deserialize -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_ -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_accept_verified_supported_event_for_configured_webhook -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker claim_next_review_agent_run_ -- --nocapture: passed (3 tests)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35j queued-status contract slice, adds only the backward-compatible queued persistence default plus the minimal list/persistence coverage, and does not add execution, retries, UI, or secret-rotation behavior
-    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly defaults missing persisted ReviewAgentRun status values to queued, persists newly accepted runs as queued, exposes queued status through the authenticated listing response, and found no blocking correctness or security issues
-  commit: cd85b8ca53cb2e873822756a803dad0e32ea54a7
-  next_task: task35k
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff fully satisfies the narrowed task35k1 scope by adding only the claimed status contract plus the deterministic first worker claim helper and its focused tests, without execution, retries, scheduling, HTTP, docs, or extra state changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the claimed-status/model changes and worker helper, and noted only a non-blocking suggestion to document the sortable timestamp assumption behind created_at string ordering
+  commit: 79d04ec6c2f27d13403439ca20b84875a64c5b1b
+  next_task: task35k2
 current_task:
-  id: task35k
-  parent_task: task35
-  title: Review-agent worker claims queued runs for execution
+  id: task35k2
+  parent_task: task35k
+  title: Persist one queued review-agent run claim through the organization store
   status: pending
   summary: >-
-    Add the smallest execution slice that claims persisted queued review-agent
-    runs for processing without yet adding retries, rich status UI, or secret
-    rotation.
+    Extend the minimal worker-claim slice to persist claiming exactly one queued
+    review-agent run through the real organization-store/write-lock path without
+    yet adding worker polling, actual review execution, retries, or terminal
+    status handling.
 history:
+  - id: task35k1
+    status: done
+    summary: >-
+      Split task35k and completed the first worker-claim slice by adding a
+      shared claimed review-agent run status plus a deterministic
+      sourcebot-worker helper that claims exactly one queued run in memory by
+      oldest created_at with an earlier-index tie-breaker, while still
+      deferring persisted claim writes, worker polling, review execution,
+      retries, terminal statuses, UI, and secret rotation.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::review_agent_run_status_serializes_claimed_in_snake_case -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_deserializes_claimed_review_agent_run_status -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_agent_runs -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker claim_next_review_agent_run_ -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff fully satisfies the narrowed task35k1 scope by adding only the claimed status contract plus the deterministic first worker claim helper and its focused tests, without execution, retries, scheduling, HTTP, docs, or extra state changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the claimed-status/model changes and worker helper, and noted only a non-blocking suggestion to document the sortable timestamp assumption behind created_at string ordering
+    commit: 79d04ec6c2f27d13403439ca20b84875a64c5b1b
+    next_task: task35k2
   - id: task35j
     status: done
     summary: >-
