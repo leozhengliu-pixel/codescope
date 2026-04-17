@@ -5,40 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 408e4cb3896d0fd2cb1dbadfe3f1ec56276543a8
+  head: add186fa29a60f689176dc1ddcfbde53433009a8
 last_completed_task:
-  id: task35k6d
-  title: Add focused coverage for the explicit completed stub worker outcome value through the real worker path
+  id: task35k6e
+  title: Add real worker-binary idle-path smoke coverage when no queued review-agent run exists
   status: done
   summary: >-
-    Completed the next review-agent worker slice by locking the explicit
-    Completed-path stub outcome contract down with focused config and real-binary
-    smoke coverage, proving SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed
-    is accepted at the config boundary and drives sourcebot-worker to persist a
-    completed review-agent run, while still deferring real review logic, retries,
-    rescheduling, and worker loops.
+    Completed the next review-agent worker slice by adding focused real-binary idle-path
+    smoke coverage that proves sourcebot-worker exits successfully and leaves persisted
+    organization state unchanged when no queued review-agent run is available, while
+    still deferring real review logic, retries, rescheduling, worker loops, and stricter
+    no-write-on-idle assertions.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config tests::stub_review_agent_run_execution_outcome_reads_completed_from_env -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config -- --nocapture: passed (6 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 2 smoke tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 3 smoke tests)
     - /opt/data/home/.cargo/bin/cargo fmt --all --check && /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker && /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the staged diff now proves the explicit completed env value is accepted in sourcebot-config and drives the real sourcebot-worker binary path to persist Completed, while staying test-only and avoiding real review logic, retries, rescheduling, and worker loops
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the change adds only focused explicit-completed coverage for the stub worker outcome contract
-  commit: 408e4cb3896d0fd2cb1dbadfe3f1ec56276543a8
-  next_task: task35k6e
+    spec: passed one independent spec-compliance review; reviewer confirmed the staged diff lands exactly task35k6e by adding only a real worker-binary idle-path smoke test that proves successful exit and unchanged persisted organization state when no queued review-agent run exists
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new idle-path smoke test is correctly scoped to success-plus-no-mutation behavior, with only a non-blocking note that no-write-on-idle could be asserted later if desired
+  commit: add186fa29a60f689176dc1ddcfbde53433009a8
+  next_task: task35k6f
 current_task:
-  id: task35k6e
+  id: task35k6f
   parent_task: task35k6
-  title: Add real worker-binary idle-path smoke coverage when no queued review-agent run exists
+  title: Add real worker-binary idle smoke coverage for an empty persisted organization state
   status: pending
   summary: >-
     Lock the one-shot worker contract down with one smallest follow-up slice that
-    proves sourcebot-worker exits cleanly and leaves persisted organization state
-    unchanged when no queued review-agent run is available, while still deferring
-    real review logic, retries, rescheduling, and worker loops.
+    proves sourcebot-worker exits cleanly and leaves persisted organization state in its
+    default empty shape when the configured organization-state file contains no queued
+    review-agent runs at all, while still deferring real review logic, retries,
+    rescheduling, and worker loops.
 history:
+  - id: task35k6e
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by adding focused real-binary
+      idle-path smoke coverage that proves sourcebot-worker exits successfully and
+      leaves persisted organization state unchanged when no queued review-agent run is
+      available, while still deferring real review logic, retries, rescheduling,
+      worker loops, and stricter no-write-on-idle assertions.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 3 smoke tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check && /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker && /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the staged diff lands exactly task35k6e by adding only a real worker-binary idle-path smoke test that proves successful exit and unchanged persisted organization state when no queued review-agent run exists
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new idle-path smoke test is correctly scoped to success-plus-no-mutation behavior, with only a non-blocking note that no-write-on-idle could be asserted later if desired
+    commit: add186fa29a60f689176dc1ddcfbde53433009a8
+    next_task: task35k6f
   - id: task35k6d
     status: done
     summary: >-
