@@ -29,8 +29,8 @@ use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
-    AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationState,
-    RepositoryDetail, RepositorySummary, SearchContext,
+    AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
+    OrganizationState, RepositoryDetail, RepositorySummary, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -171,7 +171,7 @@ fn build_router(
         .route("/api/v1/auth/analytics", get(list_authenticated_analytics))
         .route(
             "/api/v1/auth/oauth-clients",
-            get(list_authenticated_oauth_clients),
+            get(list_authenticated_oauth_clients).post(create_authenticated_oauth_client),
         )
         .route(
             "/api/v1/auth/api-keys/{api_key_id}/revoke",
@@ -354,6 +354,27 @@ struct CreateApiKeyResponse {
     created_at: String,
     revoked_at: Option<String>,
     repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateOAuthClientRequest {
+    organization_id: String,
+    name: String,
+    #[serde(default)]
+    redirect_uris: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct CreateOAuthClientResponse {
+    id: String,
+    organization_id: String,
+    name: String,
+    client_id: String,
+    client_secret: String,
+    redirect_uris: Vec<String>,
+    created_by_user_id: String,
+    created_at: String,
+    revoked_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -851,6 +872,96 @@ async fn list_authenticated_oauth_clients(
     ))
 }
 
+async fn create_authenticated_oauth_client(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateOAuthClientRequest>,
+) -> Result<(StatusCode, Json<CreateOAuthClientResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let organization_id = payload.organization_id.trim();
+    let name = payload.name.trim();
+    if organization_id.is_empty() || name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !visible_organization_ids.contains(organization_id)
+        || !user_can_create_oauth_client(&organization_state, &session.user_id, organization_id)
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let mut redirect_uris = Vec::with_capacity(payload.redirect_uris.len());
+    for redirect_uri in payload.redirect_uris {
+        let trimmed_redirect_uri = redirect_uri.trim();
+        if trimmed_redirect_uri.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        redirect_uris.push(trimmed_redirect_uri.to_string());
+    }
+
+    let id = format!(
+        "oauth_client_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let client_id = format!(
+        "oauth_client_id_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let client_secret = SaltString::generate(&mut OsRng).to_string();
+    let client_secret_hash = Argon2::default()
+        .hash_password(client_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let created_at = current_timestamp();
+
+    organization_state.oauth_clients.push(OAuthClient {
+        id: id.clone(),
+        organization_id: organization_id.to_string(),
+        name: name.to_string(),
+        client_id: client_id.clone(),
+        client_secret_hash,
+        redirect_uris: redirect_uris.clone(),
+        created_by_user_id: session.user_id.clone(),
+        created_at: created_at.clone(),
+        revoked_at: None,
+    });
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateOAuthClientResponse {
+            id,
+            organization_id: organization_id.to_string(),
+            name: name.to_string(),
+            client_id,
+            client_secret,
+            redirect_uris,
+            created_by_user_id: session.user_id,
+            created_at,
+            revoked_at: None,
+        }),
+    ))
+}
+
 fn search_context_list_item_response(
     search_context: SearchContext,
     visible_repo_ids: &HashSet<String>,
@@ -915,6 +1026,18 @@ fn visible_organization_ids_for_user(
         .filter(|membership| membership.user_id == user_id)
         .map(|membership| membership.organization_id.clone())
         .collect()
+}
+
+fn user_can_create_oauth_client(
+    organization_state: &OrganizationState,
+    user_id: &str,
+    organization_id: &str,
+) -> bool {
+    organization_state.memberships.iter().any(|membership| {
+        membership.user_id == user_id
+            && membership.organization_id == organization_id
+            && membership.role == OrganizationRole::Admin
+    })
 }
 
 fn audit_event_organization_ids_for_api_key(
@@ -2139,6 +2262,27 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
+    struct CreateOAuthClientRequestBody {
+        organization_id: String,
+        name: String,
+        #[serde(default)]
+        redirect_uris: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CreateOAuthClientResponseBody {
+        id: String,
+        organization_id: String,
+        name: String,
+        client_id: String,
+        client_secret: String,
+        redirect_uris: Vec<String>,
+        created_by_user_id: String,
+        created_at: String,
+        revoked_at: Option<String>,
+    }
+
+    #[derive(Debug, Serialize)]
     struct CreateApiKeyRequestBody {
         name: String,
         #[serde(default)]
@@ -2389,6 +2533,20 @@ mod tests {
     }
 
     fn write_organization_state_fixture(path: &PathBuf, user_id: &str, repo_ids: &[&str]) {
+        write_organization_state_fixture_with_role(
+            path,
+            user_id,
+            OrganizationRole::Viewer,
+            repo_ids,
+        );
+    }
+
+    fn write_organization_state_fixture_with_role(
+        path: &PathBuf,
+        user_id: &str,
+        role: OrganizationRole,
+        repo_ids: &[&str],
+    ) {
         let state = OrganizationState {
             organizations: vec![Organization {
                 id: "org_acme".into(),
@@ -2398,7 +2556,7 @@ mod tests {
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),
                 user_id: user_id.into(),
-                role: OrganizationRole::Viewer,
+                role,
                 joined_at: "2026-04-21T00:00:00Z".into(),
             }],
             accounts: vec![LocalAccount {
@@ -4608,6 +4766,248 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_persists_new_client_and_returns_plaintext_secret_once() {
+        let organization_state_path = unique_test_path("auth-oauth-clients-create-orgs");
+        let local_session_state_path = unique_test_path("auth-oauth-clients-create-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture_with_role(
+            &organization_state_path,
+            user_id,
+            OrganizationRole::Admin,
+            &[],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: " org_acme ".into(),
+                            name: "  Acme Web App  ".into(),
+                            redirect_uris: vec![
+                                " https://app.acme.test/callback ".into(),
+                                " http://localhost:3000/callback ".into(),
+                            ],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: CreateOAuthClientResponseBody = serde_json::from_slice(&body).unwrap();
+        assert!(payload.id.starts_with("oauth_client_"));
+        assert_eq!(payload.organization_id, "org_acme");
+        assert_eq!(payload.name, "Acme Web App");
+        assert!(payload.client_id.starts_with("oauth_client_id_"));
+        assert!(!payload.client_secret.trim().is_empty());
+        assert_eq!(
+            payload.redirect_uris,
+            vec![
+                "https://app.acme.test/callback",
+                "http://localhost:3000/callback"
+            ]
+        );
+        assert_eq!(payload.created_by_user_id, user_id);
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+        assert_eq!(payload.revoked_at, None);
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("client_secret_hash").is_none());
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.oauth_clients.len(), 1);
+        let client = &persisted.oauth_clients[0];
+        assert_eq!(client.id, payload.id);
+        assert_eq!(client.organization_id, payload.organization_id);
+        assert_eq!(client.name, payload.name);
+        assert_eq!(client.client_id, payload.client_id);
+        assert_eq!(client.redirect_uris, payload.redirect_uris);
+        assert_eq!(client.created_by_user_id, payload.created_by_user_id);
+        assert_eq!(client.created_at, payload.created_at);
+        assert_eq!(client.revoked_at, None);
+        assert_ne!(client.client_secret_hash, payload.client_secret);
+        assert!(PasswordHash::new(&client.client_secret_hash).is_ok());
+        assert!(Argon2::default()
+            .verify_password(
+                payload.client_secret.as_bytes(),
+                &PasswordHash::new(&client.client_secret_hash).unwrap(),
+            )
+            .is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_rejects_viewer_membership() {
+        let organization_state_path = unique_test_path("auth-oauth-clients-viewer-orgs");
+        let local_session_state_path = unique_test_path("auth-oauth-clients-viewer-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(&organization_state_path, user_id, &[]);
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "org_acme".into(),
+                            name: "Viewer App".into(),
+                            redirect_uris: vec!["https://viewer.example.com/callback".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.oauth_clients.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_requires_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "org_acme".into(),
+                            name: "Acme Web App".into(),
+                            redirect_uris: vec!["https://app.acme.test/callback".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_rejects_non_visible_organization() {
+        let organization_state_path = unique_test_path("auth-oauth-clients-hidden-orgs");
+        let local_session_state_path = unique_test_path("auth-oauth-clients-hidden-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(&organization_state_path, user_id, &[]);
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "org_hidden".into(),
+                            name: "Hidden App".into(),
+                            redirect_uris: vec!["https://hidden.example.com/callback".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.oauth_clients.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_rejects_blank_required_fields() {
+        let organization_state_path = unique_test_path("auth-oauth-clients-invalid-orgs");
+        let local_session_state_path = unique_test_path("auth-oauth-clients-invalid-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(&organization_state_path, user_id, &[]);
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "   ".into(),
+                            name: "   ".into(),
+                            redirect_uris: vec!["   ".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.oauth_clients.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
