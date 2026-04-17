@@ -4,6 +4,10 @@ use sourcebot_models::ReviewAgentRun;
 
 pub use sourcebot_core::claim_next_review_agent_run;
 
+pub async fn run_worker_tick(store: &dyn OrganizationStore) -> Result<Option<ReviewAgentRun>> {
+    claim_next_review_agent_run_from_store(store).await
+}
+
 pub async fn claim_next_review_agent_run_from_store(
     store: &dyn OrganizationStore,
 ) -> Result<Option<ReviewAgentRun>> {
@@ -12,12 +16,19 @@ pub async fn claim_next_review_agent_run_from_store(
 
 #[cfg(test)]
 mod tests {
-    use super::{claim_next_review_agent_run, claim_next_review_agent_run_from_store};
+    use super::{
+        claim_next_review_agent_run, claim_next_review_agent_run_from_store, run_worker_tick,
+    };
     use anyhow::Result;
     use async_trait::async_trait;
+    use sourcebot_api::auth::FileOrganizationStore;
     use sourcebot_core::OrganizationStore;
     use sourcebot_models::{OrganizationState, ReviewAgentRun, ReviewAgentRunStatus};
-    use std::sync::Mutex;
+    use std::{
+        fs,
+        sync::Mutex,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[derive(Debug)]
     struct InMemoryOrganizationStore {
@@ -47,6 +58,14 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             Ok(claim_next_review_agent_run(&mut state))
         }
+    }
+
+    fn unique_test_path(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("sourcebot-worker-{name}-{nanos}.json"))
     }
 
     fn review_agent_run(
@@ -153,6 +172,50 @@ mod tests {
         };
 
         assert_eq!(claim_next_review_agent_run(&mut state), None);
+    }
+
+    #[tokio::test]
+    async fn run_worker_tick_claims_a_queued_run_from_the_file_store() {
+        let path = unique_test_path("worker-tick-file-store");
+        let store = FileOrganizationStore::new(&path);
+        store
+            .store_organization_state(OrganizationState {
+                review_agent_runs: vec![
+                    review_agent_run(
+                        "run_queued_newer",
+                        ReviewAgentRunStatus::Queued,
+                        "2026-04-25T00:10:06Z",
+                    ),
+                    review_agent_run(
+                        "run_queued_oldest",
+                        ReviewAgentRunStatus::Queued,
+                        "2026-04-25T00:10:05Z",
+                    ),
+                ],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let claimed_run = run_worker_tick(&store)
+            .await
+            .unwrap()
+            .expect("queued run to be claimed");
+
+        assert_eq!(claimed_run.id, "run_queued_oldest");
+        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Claimed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
+        assert_eq!(
+            persisted.review_agent_runs[1].status,
+            ReviewAgentRunStatus::Claimed
+        );
+
+        fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]

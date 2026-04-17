@@ -1452,11 +1452,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "sourcebot-api",
  "sourcebot-config",
  "sourcebot-core",
  "sourcebot-models",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

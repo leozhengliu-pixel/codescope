@@ -9,6 +9,8 @@ anyhow.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+sourcebot-api = { path = "../api" }
 sourcebot-core = { path = "../core" }
 sourcebot-config = { path = "../config" }
 sourcebot-models = { path = "../models" }
