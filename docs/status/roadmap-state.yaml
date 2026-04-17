@@ -5,40 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: db9c71b6f43dd6c0b0295580f9c34971599d7034
+  head: 533954d93b41aa5e38d9531da03bd7679c95ad93
 last_completed_task:
-  id: task35k3
-  title: Add one worker tick that claims a queued review-agent run from the real store
+  id: task35k4
+  title: Record one terminal completion status for a claimed review-agent run after a stub worker execution
   status: done
   summary: >-
-    Completed the next review-agent worker slice by adding a minimal
-    sourcebot-worker tick that reuses the real file-backed organization store,
-    claims at most one queued review-agent run, and returns/logs that claimed
-    run without yet performing review execution, retries, polling loops, or
-    terminal status handling.
+    Completed the next review-agent worker slice by adding an explicit no-op
+    stub execution boundary in sourcebot-worker, then recording exactly one
+    terminal Completed status for the claimed run through the real
+    file-backed organization store while preserving completed runs against
+    stale whole-state writes and still deferring actual review logic,
+    retries, and failure handling.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_worker_tick_claims_a_queued_run_from_the_file_store -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (5 tests)
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> /opt/data/home/.cargo/bin/cargo run -p sourcebot-worker: passed (claimed queued run and persisted claimed status)
+    - cargo test -p sourcebot-worker tests::execute_claimed_review_agent_run_stub_preserves_the_claimed_run_as_a_no_op_boundary -- --exact --nocapture: passed
+    - cargo test -p sourcebot-worker -- --nocapture: passed (7 tests)
+    - cargo test -p sourcebot-api auth::tests::file_organization_store_completes_a_claimed_review_agent_run -- --exact --nocapture: passed
+    - cargo test -p sourcebot-api auth::tests::file_organization_store_preserves_completed_review_agent_run_when_stale_state_is_written -- --exact --nocapture: passed
+    - cargo fmt --all --check && cargo check -p sourcebot-worker && cargo check -p sourcebot-api: passed
+    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> cargo run -p sourcebot-worker: passed (completed queued run and persisted completed status)
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the narrowed task35k3 scope by adding exactly one worker tick that claims from the real store without adding review execution, retries, terminal status handling, or polling loops
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the one-shot worker tick and noted only a non-blocking coupling tradeoff from reusing the api crate's real file-backed organization-store implementation
-  commit: db9c71b6f43dd6c0b0295580f9c34971599d7034
-  next_task: task35k4
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly one smallest task35k4 slice by adding an explicit no-op stub execution boundary, recording one claimed-to-completed terminal transition in the real store, and avoiding retries, failure handling, polling loops, routes, UI, or broader automation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues, confirmed the diff cleanly adds a single stubbed claimed-to-completed path, and confirmed completed status is preserved against stale whole-state writes
+  commit: 533954d93b41aa5e38d9531da03bd7679c95ad93
+  next_task: task35k5
 current_task:
-  id: task35k4
+  id: task35k5
   parent_task: task35k
-  title: Record one terminal completion status for a claimed review-agent run after a stub worker execution
+  title: Record one terminal failure status for a claimed review-agent run after a stub worker execution
   status: pending
   summary: >-
-    Extend the minimal real-store worker tick with a no-op review-agent
-    execution placeholder that records one terminal completion status for a
-    claimed review-agent run, while still deferring actual review logic,
-    retries, and failure handling.
+    Extend the minimal real-store worker tick with the smallest failure-path
+    slice so one claimed review-agent run can be recorded in a terminal failed
+    status after a stub worker execution result, while still deferring retries,
+    rescheduling, and real review logic.
 history:
+  - id: task35k4
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by adding an explicit no-op
+      stub execution boundary in sourcebot-worker, then recording exactly one
+      terminal Completed status for the claimed run through the real
+      file-backed organization store while preserving completed runs against
+      stale whole-state writes and still deferring actual review logic,
+      retries, and failure handling.
+    tests:
+      - cargo test -p sourcebot-worker tests::execute_claimed_review_agent_run_stub_preserves_the_claimed_run_as_a_no_op_boundary -- --exact --nocapture: passed
+      - cargo test -p sourcebot-worker -- --nocapture: passed (7 tests)
+      - cargo test -p sourcebot-api auth::tests::file_organization_store_completes_a_claimed_review_agent_run -- --exact --nocapture: passed
+      - cargo test -p sourcebot-api auth::tests::file_organization_store_preserves_completed_review_agent_run_when_stale_state_is_written -- --exact --nocapture: passed
+      - cargo fmt --all --check && cargo check -p sourcebot-worker && cargo check -p sourcebot-api: passed
+      - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> cargo run -p sourcebot-worker: passed (completed queued run and persisted completed status)
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly one smallest task35k4 slice by adding an explicit no-op stub execution boundary, recording one claimed-to-completed terminal transition in the real store, and avoiding retries, failure handling, polling loops, routes, UI, or broader automation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues, confirmed the diff cleanly adds a single stubbed claimed-to-completed path, and confirmed completed status is preserved against stale whole-state writes
+    commit: 533954d93b41aa5e38d9531da03bd7679c95ad93
+    next_task: task35k5
   - id: task35k3
     status: done
     summary: >-
