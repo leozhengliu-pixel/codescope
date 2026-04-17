@@ -100,3 +100,29 @@ async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_revie
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_exits_cleanly_and_leaves_default_empty_effective_state_when_organization_state_file_is_missing(
+) {
+    let path = unique_test_path("missing-organization-state-idle-smoke");
+    let store = FileOrganizationStore::new(&path);
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly when the organization-state file is missing"
+    );
+    assert!(
+        !path.exists(),
+        "worker should leave the missing organization-state file absent when it has no work to persist"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted, OrganizationState::default());
+}
