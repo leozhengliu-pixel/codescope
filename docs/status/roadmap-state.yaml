@@ -5,42 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7fa078550e42b81ba1cacaa97de827988b126a19
+  head: efa339a4a60f008c805ae266e033483c960862c0
 last_completed_task:
-  id: task35c
-  title: Authenticated review webhook creation endpoint
+  id: task35d
+  title: Verified inbound review webhook intake endpoint
   status: done
   summary: >-
     Completed the next review-agent / webhook automation slice by adding a
-    minimal local-session-authenticated POST /api/v1/auth/review-webhooks
-    endpoint that requires admin membership in a visible organization, persists
-    a new review webhook with an Argon2-hashed secret, returns the plaintext
-    secret only once at creation time, and does not add inbound webhook
-    execution, review-agent workflow behavior, secret rotation, deletion, or UI.
+    minimal public POST /api/v1/review-webhooks/{webhook_id}/events endpoint
+    that verifies Bearer-presented webhook secrets against persisted Argon2
+    secret_hash values, fails closed for unknown webhook IDs, accepts only
+    supported and configured review-related events for the configured
+    repository/connection scope, and returns an acknowledgement without yet
+    executing review agents, persisting delivery attempts, retries, status UI,
+    or secret rotation.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_create -- --nocapture: passed (5 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (7 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_webhooks_create_rejects_unsupported_event_names -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_do_not_leak_unknown_webhook_ids -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (5 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35c local-session-authenticated review-webhook creation slice, requires admin membership in a visible organization, persists only secret_hash while returning the plaintext secret once, and does not add inbound webhook execution, secret rotation, deletion, review-agent workflow behavior, UI, or unrelated auth changes
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds authenticated admin-only review webhook creation with hashed secret persistence and one-time plaintext secret return, and found no blocking correctness or security issues
-  commit: 7fa078550e42b81ba1cacaa97de827988b126a19
-  next_task: task35d
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the minimal verified intake slice, found no blocking correctness or security defects after the fail-closed dummy Argon2 burn for unknown webhook IDs, and suggested only optional follow-up coverage for path/token mismatch and ack-only no-side-effect behavior
+  commit: efa339a4a60f008c805ae266e033483c960862c0
+  next_task: task35e
 current_task:
-  id: task35d
+  id: task35e
   parent_task: task35
-  title: Verified inbound review webhook intake endpoint
+  title: Persist accepted review webhook delivery attempts
   status: pending
   summary: >-
-    Add the next smallest review-agent / webhook automation slice by exposing a
-    minimal POST /api/v1/review-webhooks/{webhook_id}/events endpoint that
-    resolves persisted webhook configuration, verifies the supplied shared secret
-    against the stored secret_hash, accepts supported review-related webhook
-    event metadata for the configured repository, and returns an acknowledgement
-    without yet executing review agents, persisting delivery attempts, retries,
-    status UI, or secret rotation.
+    Add the next smallest review-agent / webhook automation slice by durably
+    recording accepted inbound review webhook delivery attempts/events with the
+    minimal metadata needed for later processing, while still deferring review
+    agent execution, retries, status UI, and secret rotation.
 history:
+  - id: task35d
+    status: done
+    summary: >-
+      Completed the next review-agent / webhook automation slice by adding a
+      minimal public POST /api/v1/review-webhooks/{webhook_id}/events endpoint
+      that verifies Bearer-presented webhook secrets against persisted Argon2
+      secret_hash values, fails closed for unknown webhook IDs, accepts only
+      supported and configured review-related events for the configured
+      repository/connection scope, and returns an acknowledgement without yet
+      executing review agents, persisting delivery attempts, retries, status UI,
+      or secret rotation.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_webhooks_create_rejects_unsupported_event_names -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_do_not_leak_unknown_webhook_ids -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the minimal verified intake slice, found no blocking correctness or security defects after the fail-closed dummy Argon2 burn for unknown webhook IDs, and suggested only optional follow-up coverage for path/token mismatch and ack-only no-side-effect behavior
+    commit: efa339a4a60f008c805ae266e033483c960862c0
+    next_task: task35e
   - id: task35c
     status: done
     summary: >-
