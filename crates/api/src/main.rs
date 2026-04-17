@@ -30,7 +30,7 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, ReviewWebhook,
+    OrganizationState, RepositoryDetail, RepositorySummary, ReviewAgentRun, ReviewWebhook,
     ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
@@ -177,6 +177,10 @@ fn build_router(
         .route(
             "/api/v1/auth/review-webhook-delivery-attempts",
             get(list_authenticated_review_webhook_delivery_attempts),
+        )
+        .route(
+            "/api/v1/auth/review-agent-runs",
+            get(list_authenticated_review_agent_runs),
         )
         .route(
             "/api/v1/review-webhooks/{webhook_id}/events",
@@ -372,6 +376,18 @@ struct ReviewWebhookDeliveryAttemptListItemResponse {
     review_id: String,
     external_event_id: String,
     accepted_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ReviewAgentRunListItemResponse {
+    id: String,
+    organization_id: String,
+    webhook_id: String,
+    delivery_attempt_id: String,
+    connection_id: String,
+    repository_id: String,
+    review_id: String,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -997,6 +1013,29 @@ async fn list_authenticated_review_webhook_delivery_attempts(
     ))
 }
 
+async fn list_authenticated_review_agent_runs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReviewAgentRunListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+
+    Ok(Json(
+        organization_state
+            .review_agent_runs
+            .into_iter()
+            .filter(|run| visible_organization_ids.contains(&run.organization_id))
+            .map(review_agent_run_list_item_response)
+            .collect(),
+    ))
+}
+
 async fn create_authenticated_oauth_client(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1386,6 +1425,19 @@ fn review_webhook_delivery_attempt_list_item_response(
         review_id: attempt.review_id,
         external_event_id: attempt.external_event_id,
         accepted_at: attempt.accepted_at,
+    }
+}
+
+fn review_agent_run_list_item_response(run: ReviewAgentRun) -> ReviewAgentRunListItemResponse {
+    ReviewAgentRunListItemResponse {
+        id: run.id,
+        organization_id: run.organization_id,
+        webhook_id: run.webhook_id,
+        delivery_attempt_id: run.delivery_attempt_id,
+        connection_id: run.connection_id,
+        repository_id: run.repository_id,
+        review_id: run.review_id,
+        created_at: run.created_at,
     }
 }
 
@@ -2664,6 +2716,18 @@ mod tests {
         review_id: String,
         external_event_id: String,
         accepted_at: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ReviewAgentRunListItemResponseBody {
+        id: String,
+        organization_id: String,
+        webhook_id: String,
+        delivery_attempt_id: String,
+        connection_id: String,
+        repository_id: String,
+        review_id: String,
+        created_at: String,
     }
 
     #[derive(Debug, Serialize)]
@@ -5492,6 +5556,117 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/review-webhook-delivery-attempts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_agent_runs_list_only_runs_for_visible_organizations() {
+        let organization_state_path = unique_test_path("auth-review-agent-runs-orgs");
+        let local_session_state_path = unique_test_path("auth-review-agent-runs-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-25T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-24T23:55:00Z".into(),
+            }],
+            review_agent_runs: vec![
+                ReviewAgentRun {
+                    id: "review_agent_run_visible".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "review_webhook_visible".into(),
+                    delivery_attempt_id: "delivery_attempt_visible".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_visible".into(),
+                    created_at: "2026-04-25T00:15:00Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "review_agent_run_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    webhook_id: "review_webhook_hidden".into(),
+                    delivery_attempt_id: "delivery_attempt_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    review_id: "review_hidden".into(),
+                    created_at: "2026-04-25T00:16:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-agent-runs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<ReviewAgentRunListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "review_agent_run_visible");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].webhook_id, "review_webhook_visible");
+        assert_eq!(payload[0].delivery_attempt_id, "delivery_attempt_visible");
+        assert_eq!(payload[0].connection_id, "conn_github_acme");
+        assert_eq!(payload[0].repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload[0].review_id, "review_visible");
+        assert_eq!(payload[0].created_at, "2026-04-25T00:15:00Z");
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_agent_runs_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-agent-runs")
                     .body(Body::empty())
                     .unwrap(),
             )
