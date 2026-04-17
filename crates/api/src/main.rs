@@ -817,6 +817,78 @@ fn visible_organization_ids_for_user(
         .collect()
 }
 
+fn audit_event_organization_ids_for_api_key(
+    organization_state: &OrganizationState,
+    user_id: &str,
+    repo_scope: &[String],
+) -> Vec<String> {
+    let visible_organization_ids = visible_organization_ids_for_user(organization_state, user_id);
+    if visible_organization_ids.is_empty() {
+        return Vec::new();
+    }
+
+    let mut organization_ids: Vec<String> = if repo_scope.is_empty() {
+        organization_state
+            .repo_permissions
+            .iter()
+            .filter(|binding| visible_organization_ids.contains(&binding.organization_id))
+            .map(|binding| binding.organization_id.clone())
+            .collect()
+    } else {
+        let repo_scope: HashSet<&str> = repo_scope.iter().map(String::as_str).collect();
+        organization_state
+            .repo_permissions
+            .iter()
+            .filter(|binding| visible_organization_ids.contains(&binding.organization_id))
+            .filter(|binding| repo_scope.contains(binding.repository_id.as_str()))
+            .map(|binding| binding.organization_id.clone())
+            .collect()
+    };
+    organization_ids.sort();
+    organization_ids.dedup();
+    organization_ids
+}
+
+fn append_api_key_audit_event(
+    organization_state: &mut OrganizationState,
+    user_id: &str,
+    actor_api_key_id: &str,
+    repo_scope: &[String],
+    action: &str,
+    target_id: &str,
+    occurred_at: &str,
+    metadata: serde_json::Value,
+) {
+    let organization_ids =
+        audit_event_organization_ids_for_api_key(organization_state, user_id, repo_scope);
+    if organization_ids.is_empty() {
+        return;
+    }
+
+    for organization_id in organization_ids {
+        organization_state.audit_events.push(AuditEvent {
+            id: format!(
+                "audit_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id,
+            actor: AuditActor {
+                user_id: Some(user_id.to_string()),
+                api_key_id: Some(actor_api_key_id.to_string()),
+            },
+            action: action.to_string(),
+            target_type: "api_key".into(),
+            target_id: target_id.to_string(),
+            occurred_at: occurred_at.to_string(),
+            metadata: metadata.clone(),
+        });
+    }
+}
+
 async fn create_authenticated_api_key(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -873,6 +945,19 @@ async fn create_authenticated_api_key(
         revoked_at: None,
         repo_scope: repo_scope.clone(),
     });
+    append_api_key_audit_event(
+        &mut organization_state,
+        &session.user_id,
+        &id,
+        &repo_scope,
+        "auth.api_key.created",
+        &id,
+        &created_at,
+        serde_json::json!({
+            "name": name,
+            "repo_scope": repo_scope,
+        }),
+    );
     state
         .organization_store
         .store_organization_state(organization_state)
@@ -915,7 +1000,23 @@ async fn revoke_authenticated_api_key(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    api_key.revoked_at = Some(current_timestamp());
+    let revoked_at = current_timestamp();
+    let revoked_key_id = api_key.id.clone();
+    let revoked_key_name = api_key.name.clone();
+    let revoked_repo_scope = api_key.repo_scope.clone();
+    api_key.revoked_at = Some(revoked_at.clone());
+    append_api_key_audit_event(
+        &mut organization_state,
+        &session.user_id,
+        &revoked_key_id,
+        &revoked_repo_scope,
+        "auth.api_key.revoked",
+        &revoked_key_id,
+        &revoked_at,
+        serde_json::json!({
+            "name": revoked_key_name,
+        }),
+    );
     state
         .organization_store
         .store_organization_state(organization_state)
@@ -3992,6 +4093,285 @@ mod tests {
                 &PasswordHash::new(&api_key.secret_hash).unwrap(),
             )
             .is_ok());
+        assert_eq!(persisted.audit_events.len(), 1);
+        let audit_event = &persisted.audit_events[0];
+        assert_eq!(audit_event.organization_id, "org_acme");
+        assert_eq!(audit_event.actor.user_id.as_deref(), Some(user_id));
+        assert_eq!(
+            audit_event.actor.api_key_id.as_deref(),
+            Some(payload.id.as_str())
+        );
+        assert_eq!(audit_event.action, "auth.api_key.created");
+        assert_eq!(audit_event.target_type, "api_key");
+        assert_eq!(audit_event.target_id, payload.id);
+        assert_eq!(audit_event.occurred_at, payload.created_at);
+        assert_eq!(
+            audit_event.metadata,
+            serde_json::json!({
+                "name": "Sourcebot CLI",
+                "repo_scope": ["repo_sourcebot_rewrite"]
+            })
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_create_persists_audit_event_for_repo_scope_organizations() {
+        let organization_state_path = unique_test_path("auth-api-keys-create-audit-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-create-audit-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_zeta".into(),
+                    slug: "zeta".into(),
+                    name: "Zeta".into(),
+                },
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+            ],
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_zeta".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:01:00Z".into(),
+                },
+            ],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_zeta".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "Membership org key".into(),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: CreateApiKeyResponseBody = serde_json::from_slice(&create_body).unwrap();
+
+        let audit_events_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(audit_events_response.status(), StatusCode::OK);
+        let audit_events_body = to_bytes(audit_events_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let audit_events: Vec<AuditEventListItemResponseBody> =
+            serde_json::from_slice(&audit_events_body).unwrap();
+        assert_eq!(audit_events.len(), 1);
+        let audit_event = &audit_events[0];
+        assert_eq!(audit_event.organization_id, "org_zeta");
+        assert_eq!(audit_event.actor.user_id.as_deref(), Some(user_id));
+        assert_eq!(
+            audit_event.actor.api_key_id.as_deref(),
+            Some(payload.id.as_str())
+        );
+        assert_eq!(audit_event.action, "auth.api_key.created");
+        assert_eq!(audit_event.target_type, "api_key");
+        assert_eq!(audit_event.target_id, payload.id);
+        assert_eq!(
+            audit_event.metadata,
+            serde_json::json!({
+                "name": "Membership org key",
+                "repo_scope": ["repo_sourcebot_rewrite"]
+            })
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_empty_scope_audit_events_ignore_unbound_membership_organizations() {
+        let organization_state_path = unique_test_path("auth-api-keys-empty-scope-audit-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-empty-scope-audit-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_zeta".into(),
+                    slug: "zeta".into(),
+                    name: "Zeta".into(),
+                },
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+            ],
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_zeta".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:01:00Z".into(),
+                },
+            ],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_zeta".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "Workspace key".into(),
+                            repo_scope: vec![],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: CreateApiKeyResponseBody = serde_json::from_slice(&create_body).unwrap();
+
+        let persisted_after_create: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_after_create.audit_events.len(), 1);
+        let created_event = &persisted_after_create.audit_events[0];
+        assert_eq!(created_event.organization_id, "org_zeta");
+        assert_eq!(created_event.action, "auth.api_key.created");
+        assert_eq!(created_event.target_id, payload.id);
+        assert_eq!(
+            created_event.metadata,
+            serde_json::json!({
+                "name": "Workspace key",
+                "repo_scope": []
+            })
+        );
+
+        let revoke_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/auth/api-keys/{}/revoke", payload.id))
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(revoke_response.status(), StatusCode::NO_CONTENT);
+        let persisted_after_revoke: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_after_revoke.audit_events.len(), 2);
+        assert_eq!(
+            persisted_after_revoke
+                .audit_events
+                .iter()
+                .map(|event| event.organization_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["org_zeta", "org_zeta"]
+        );
+        assert_eq!(
+            persisted_after_revoke
+                .audit_events
+                .iter()
+                .map(|event| event.action.as_str())
+                .collect::<Vec<_>>(),
+            vec!["auth.api_key.created", "auth.api_key.revoked"]
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -4088,6 +4468,11 @@ mod tests {
                     repo_scope: vec![],
                 },
             ],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
             ..OrganizationState::default()
         };
         fs::write(
@@ -4133,6 +4518,24 @@ mod tests {
             .find(|api_key| api_key.id == "key_other_users")
             .unwrap();
         assert_eq!(untouched_key.revoked_at, None);
+        assert_eq!(persisted.audit_events.len(), 1);
+        let audit_event = &persisted.audit_events[0];
+        assert_eq!(audit_event.organization_id, "org_acme");
+        assert_eq!(audit_event.actor.user_id.as_deref(), Some(user_id));
+        assert_eq!(audit_event.actor.api_key_id.as_deref(), Some("key_target"));
+        assert_eq!(audit_event.action, "auth.api_key.revoked");
+        assert_eq!(audit_event.target_type, "api_key");
+        assert_eq!(audit_event.target_id, "key_target");
+        assert_eq!(
+            audit_event.occurred_at,
+            revoked_key.revoked_at.clone().unwrap()
+        );
+        assert_eq!(
+            audit_event.metadata,
+            serde_json::json!({
+                "name": "Target key"
+            })
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
