@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
 
@@ -64,12 +65,23 @@ impl AppConfig {
 
     pub fn stub_review_agent_run_execution_outcome(
         &self,
-    ) -> StubReviewAgentRunExecutionOutcomeConfig {
+    ) -> Result<StubReviewAgentRunExecutionOutcomeConfig> {
         match env::var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME") {
-            Ok(value) if value.eq_ignore_ascii_case("failed") => {
-                StubReviewAgentRunExecutionOutcomeConfig::Failed
+            Ok(value) if value.eq_ignore_ascii_case("completed") => {
+                Ok(StubReviewAgentRunExecutionOutcomeConfig::Completed)
             }
-            _ => StubReviewAgentRunExecutionOutcomeConfig::Completed,
+            Ok(value) if value.eq_ignore_ascii_case("failed") => {
+                Ok(StubReviewAgentRunExecutionOutcomeConfig::Failed)
+            }
+            Ok(value) => Err(anyhow!(
+                "unsupported SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME value: {value}"
+            )),
+            Err(env::VarError::NotPresent) => {
+                Ok(StubReviewAgentRunExecutionOutcomeConfig::Completed)
+            }
+            Err(env::VarError::NotUnicode(_)) => Err(anyhow!(
+                "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME must be valid unicode"
+            )),
         }
     }
 
@@ -153,7 +165,9 @@ mod tests {
         let config = AppConfig::from_env();
 
         assert_eq!(
-            config.stub_review_agent_run_execution_outcome(),
+            config
+                .stub_review_agent_run_execution_outcome()
+                .expect("missing env var should default to completed"),
             StubReviewAgentRunExecutionOutcomeConfig::Completed
         );
     }
@@ -169,9 +183,29 @@ mod tests {
         let config = AppConfig::from_env();
 
         assert_eq!(
-            config.stub_review_agent_run_execution_outcome(),
+            config
+                .stub_review_agent_run_execution_outcome()
+                .expect("failed should be accepted"),
             StubReviewAgentRunExecutionOutcomeConfig::Failed
         );
+
+        env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
+    }
+
+    #[test]
+    fn stub_review_agent_run_execution_outcome_rejects_invalid_env_values() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME", "bogus");
+
+        let config = AppConfig::from_env();
+        let error = config
+            .stub_review_agent_run_execution_outcome()
+            .expect_err("invalid outcomes should fail closed");
+
+        assert!(error
+            .to_string()
+            .contains("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME"));
+        assert!(error.to_string().contains("bogus"));
 
         env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
     }

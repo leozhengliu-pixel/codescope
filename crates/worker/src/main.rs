@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let store = build_organization_store(config.organization_state_path.clone());
-    let stub_outcome = match config.stub_review_agent_run_execution_outcome() {
+    let stub_outcome = match config.stub_review_agent_run_execution_outcome()? {
         StubReviewAgentRunExecutionOutcomeConfig::Completed => {
             StubReviewAgentRunExecutionOutcome::Completed
         }
