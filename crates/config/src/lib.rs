@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StubReviewAgentRunExecutionOutcomeConfig {
+    Completed,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub service_name: String,
@@ -55,6 +62,17 @@ impl AppConfig {
         }
     }
 
+    pub fn stub_review_agent_run_execution_outcome(
+        &self,
+    ) -> StubReviewAgentRunExecutionOutcomeConfig {
+        match env::var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME") {
+            Ok(value) if value.eq_ignore_ascii_case("failed") => {
+                StubReviewAgentRunExecutionOutcomeConfig::Failed
+            }
+            _ => StubReviewAgentRunExecutionOutcomeConfig::Completed,
+        }
+    }
+
     pub fn public_view(&self) -> PublicAppConfig {
         PublicAppConfig {
             service_name: self.service_name.clone(),
@@ -80,6 +98,9 @@ pub struct PublicAppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{env, sync::Mutex};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn default_config_disables_llm_provider() {
@@ -122,5 +143,36 @@ mod tests {
         assert_eq!(public.llm_provider.as_deref(), Some("stub"));
         assert_eq!(public.llm_model.as_deref(), Some("stub-model"));
         assert!(public.has_llm_api_key);
+    }
+
+    #[test]
+    fn stub_review_agent_run_execution_outcome_defaults_to_completed() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.stub_review_agent_run_execution_outcome(),
+            StubReviewAgentRunExecutionOutcomeConfig::Completed
+        );
+    }
+
+    #[test]
+    fn stub_review_agent_run_execution_outcome_reads_failed_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var(
+            "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME",
+            "failed",
+        );
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.stub_review_agent_run_execution_outcome(),
+            StubReviewAgentRunExecutionOutcomeConfig::Failed
+        );
+
+        env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
     }
 }

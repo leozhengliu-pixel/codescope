@@ -10,19 +10,23 @@ pub enum StubReviewAgentRunExecutionOutcome {
     Failed,
 }
 
-pub async fn run_worker_tick(store: &dyn OrganizationStore) -> Result<Option<ReviewAgentRun>> {
+pub async fn run_worker_tick(
+    store: &dyn OrganizationStore,
+    stub_outcome: StubReviewAgentRunExecutionOutcome,
+) -> Result<Option<ReviewAgentRun>> {
     let Some(claimed_run) = claim_next_review_agent_run_from_store(store).await? else {
         return Ok(None);
     };
 
-    let stub_outcome = execute_claimed_review_agent_run_stub(&claimed_run);
+    let stub_outcome = execute_claimed_review_agent_run_stub(&claimed_run, stub_outcome);
     persist_stub_review_agent_run_execution_outcome(store, &claimed_run.id, stub_outcome).await
 }
 
 pub fn execute_claimed_review_agent_run_stub(
     _run: &ReviewAgentRun,
+    stub_outcome: StubReviewAgentRunExecutionOutcome,
 ) -> StubReviewAgentRunExecutionOutcome {
-    StubReviewAgentRunExecutionOutcome::Completed
+    stub_outcome
 }
 
 pub async fn claim_next_review_agent_run_from_store(
@@ -235,16 +239,19 @@ mod tests {
     }
 
     #[test]
-    fn execute_claimed_review_agent_run_stub_returns_a_completed_outcome_by_default() {
+    fn execute_claimed_review_agent_run_stub_returns_the_requested_outcome() {
         let claimed_run = review_agent_run(
             "run_claimed",
             ReviewAgentRunStatus::Claimed,
             "2026-04-25T00:10:05Z",
         );
 
-        let stub_outcome = execute_claimed_review_agent_run_stub(&claimed_run);
+        let stub_outcome = execute_claimed_review_agent_run_stub(
+            &claimed_run,
+            StubReviewAgentRunExecutionOutcome::Failed,
+        );
 
-        assert_eq!(stub_outcome, StubReviewAgentRunExecutionOutcome::Completed);
+        assert_eq!(stub_outcome, StubReviewAgentRunExecutionOutcome::Failed);
     }
 
     #[tokio::test]
@@ -270,7 +277,7 @@ mod tests {
             .await
             .unwrap();
 
-        let completed_run = run_worker_tick(&store)
+        let completed_run = run_worker_tick(&store, StubReviewAgentRunExecutionOutcome::Completed)
             .await
             .unwrap()
             .expect("queued run to be completed");
@@ -326,6 +333,50 @@ mod tests {
             persisted.review_agent_runs[1].status,
             ReviewAgentRunStatus::Claimed
         );
+    }
+
+    #[tokio::test]
+    async fn run_worker_tick_records_a_failed_run_in_the_file_store_after_stub_execution() {
+        let path = unique_test_path("worker-tick-file-store-failed");
+        let store = FileOrganizationStore::new(&path);
+        store
+            .store_organization_state(OrganizationState {
+                review_agent_runs: vec![
+                    review_agent_run(
+                        "run_queued_newer",
+                        ReviewAgentRunStatus::Queued,
+                        "2026-04-25T00:10:06Z",
+                    ),
+                    review_agent_run(
+                        "run_queued_oldest",
+                        ReviewAgentRunStatus::Queued,
+                        "2026-04-25T00:10:05Z",
+                    ),
+                ],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let failed_run = run_worker_tick(&store, StubReviewAgentRunExecutionOutcome::Failed)
+            .await
+            .unwrap()
+            .expect("queued run to be failed");
+
+        assert_eq!(failed_run.id, "run_queued_oldest");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
+        assert_eq!(
+            persisted.review_agent_runs[1].status,
+            ReviewAgentRunStatus::Failed
+        );
+
+        fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]

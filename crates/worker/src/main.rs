@@ -1,6 +1,6 @@
 use sourcebot_api::auth::build_organization_store;
-use sourcebot_config::AppConfig;
-use sourcebot_worker::run_worker_tick;
+use sourcebot_config::{AppConfig, StubReviewAgentRunExecutionOutcomeConfig};
+use sourcebot_worker::{run_worker_tick, StubReviewAgentRunExecutionOutcome};
 use tracing::info;
 
 #[tokio::main]
@@ -12,7 +12,15 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let store = build_organization_store(config.organization_state_path.clone());
-    let terminal_run = run_worker_tick(store.as_ref()).await?;
+    let stub_outcome = match config.stub_review_agent_run_execution_outcome() {
+        StubReviewAgentRunExecutionOutcomeConfig::Completed => {
+            StubReviewAgentRunExecutionOutcome::Completed
+        }
+        StubReviewAgentRunExecutionOutcomeConfig::Failed => {
+            StubReviewAgentRunExecutionOutcome::Failed
+        }
+    };
+    let terminal_run = run_worker_tick(store.as_ref(), stub_outcome).await?;
 
     match terminal_run {
         Some(run) => info!(
