@@ -144,7 +144,10 @@ fn build_router(
         )
         .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
-        .route("/api/v1/auth/api-keys", get(list_authenticated_api_keys))
+        .route(
+            "/api/v1/auth/api-keys",
+            get(list_authenticated_api_keys).post(create_authenticated_api_key),
+        )
         .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
@@ -258,6 +261,24 @@ struct ApiKeyListItemResponse {
     id: String,
     user_id: String,
     name: String,
+    created_at: String,
+    revoked_at: Option<String>,
+    repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateApiKeyRequest {
+    name: String,
+    #[serde(default)]
+    repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct CreateApiKeyResponse {
+    id: String,
+    user_id: String,
+    name: String,
+    secret: String,
     created_at: String,
     revoked_at: Option<String>,
     repo_scope: Vec<String>,
@@ -600,6 +621,82 @@ async fn list_authenticated_api_keys(
                 repo_scope: api_key.repo_scope,
             })
             .collect(),
+    ))
+}
+
+async fn create_authenticated_api_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateApiKeyRequest>,
+) -> Result<(StatusCode, Json<CreateApiKeyResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_repo_ids: HashSet<String> =
+        visible_repo_ids_for_user(&organization_state, &session.user_id)
+            .into_iter()
+            .collect();
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut repo_scope = Vec::with_capacity(payload.repo_scope.len());
+    for repo_id in payload.repo_scope {
+        let trimmed_repo_id = repo_id.trim();
+        if trimmed_repo_id.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if !visible_repo_ids.contains(trimmed_repo_id) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        repo_scope.push(trimmed_repo_id.to_string());
+    }
+
+    let id = format!(
+        "api_key_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let secret = SaltString::generate(&mut OsRng).to_string();
+    let secret_hash = Argon2::default()
+        .hash_password(secret.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let created_at = current_timestamp();
+
+    organization_state.api_keys.push(sourcebot_models::ApiKey {
+        id: id.clone(),
+        user_id: session.user_id.clone(),
+        name: name.to_string(),
+        secret_hash,
+        created_at: created_at.clone(),
+        revoked_at: None,
+        repo_scope: repo_scope.clone(),
+    });
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateApiKeyResponse {
+            id,
+            user_id: session.user_id,
+            name: name.to_string(),
+            secret,
+            created_at,
+            revoked_at: None,
+            repo_scope,
+        }),
     ))
 }
 
@@ -1366,6 +1463,24 @@ mod tests {
         id: String,
         user_id: String,
         name: String,
+        created_at: String,
+        revoked_at: Option<String>,
+        repo_scope: Vec<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct CreateApiKeyRequestBody {
+        name: String,
+        #[serde(default)]
+        repo_scope: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CreateApiKeyResponseBody {
+        id: String,
+        user_id: String,
+        name: String,
+        secret: String,
         created_at: String,
         revoked_at: Option<String>,
         repo_scope: Vec<String>,
@@ -2741,6 +2856,125 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item.get("secret_hash").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_create_persists_new_key_and_returns_plaintext_secret_once() {
+        let organization_state_path = unique_test_path("auth-api-keys-create-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-create-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "  Sourcebot CLI  ".into(),
+                            repo_scope: vec![" repo_sourcebot_rewrite ".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: CreateApiKeyResponseBody = serde_json::from_slice(&body).unwrap();
+        assert!(payload.id.starts_with("api_key_"));
+        assert_eq!(payload.user_id, user_id);
+        assert_eq!(payload.name, "Sourcebot CLI");
+        assert!(!payload.secret.trim().is_empty());
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+        assert_eq!(payload.revoked_at, None);
+        assert_eq!(payload.repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("secret_hash").is_none());
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.api_keys.len(), 1);
+        let api_key = &persisted.api_keys[0];
+        assert_eq!(api_key.id, payload.id);
+        assert_eq!(api_key.user_id, user_id);
+        assert_eq!(api_key.name, "Sourcebot CLI");
+        assert_eq!(api_key.created_at, payload.created_at);
+        assert_eq!(api_key.revoked_at, None);
+        assert_eq!(api_key.repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert!(PasswordHash::new(&api_key.secret_hash).is_ok());
+        assert!(Argon2::default()
+            .verify_password(
+                payload.secret.as_bytes(),
+                &PasswordHash::new(&api_key.secret_hash).unwrap(),
+            )
+            .is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_create_returns_not_found_for_hidden_repo_scope() {
+        let organization_state_path = unique_test_path("auth-api-keys-hidden-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-hidden-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "Hidden scope key".into(),
+                            repo_scope: vec!["repo_private".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.api_keys.is_empty());
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
