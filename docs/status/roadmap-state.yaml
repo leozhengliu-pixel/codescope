@@ -5,48 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f2510203c14d00ccc5c8e16db71348e269c147e4
+  head: ef4069174a4273122d78f4e56bcede3534cdee36
 last_completed_task:
-  id: task30h
-  title: Tree/blob endpoint API key authentication
+  id: task30i
+  title: Ask endpoint API key authentication
   status: done
   summary: >-
-    Completed the next smallest API-key slice by allowing GET
-    /api/v1/repos/{repo_id}/tree and GET /api/v1/repos/{repo_id}/blob to
-    authenticate through the reusable API-key bearer helper, enforcing the
-    validated key repo_scope for scoped keys, inheriting the owning user's
-    visible repositories when repo_scope is empty, and preserving existing
-    local-session browse/blob behavior without yet wiring API-key auth across
-    ask or broader key-management flows.
+    Completed the final API-key scope slice by allowing POST
+    /api/v1/ask/completions to authenticate through the reusable API-key bearer
+    helper, enforcing the key's validated repo_scope for prompt repo_scope
+    access, persisting API-key-created ask threads under the owning account,
+    and preserving existing local-session ask behavior without expanding
+    broader key-management flows beyond create/list/revoke.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_tree_api_key_allows_repo_within_explicit_scope -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_tree_api_key_rejects_malformed_bearer_tokens -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_blob_api_key_returns_not_found_for_repo_outside_scope_even_when_owner_can_see_it -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_blob_api_key_inherits_owner_visible_repos_when_scope_is_empty -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_tree_requires_authenticated_visible_repository_access -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_blob_requires_authenticated_visible_repository_access -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_tree_returns_root_directory_entries -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::repo_blob_returns_file_contents -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::search_api_key_allows_repo_within_explicit_scope -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::search_api_key_rejects_malformed_bearer_tokens -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_completions_api_key_ -- --nocapture: passed (4 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_api_key_ -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api repo_tree_api_key_ -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api repo_blob_api_key_ -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to GET /api/v1/repos/{repo_id}/tree and GET /api/v1/repos/{repo_id}/blob API-key authentication, enforces validated repo_scope for visible repositories, preserves local-session browse/blob behavior, and does not expand API-key auth to ask or broader key-management flows
-    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly extends browse/blob visibility checks to API-key auth without blocking correctness or security issues and noted only a non-blocking shared-helper deduplication follow-up
-  commit: f2510203c14d00ccc5c8e16db71348e269c147e4
-  next_task: task30i
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to POST /api/v1/ask/completions API-key authentication, enforces validated repo_scope access, preserves existing local-session ask behavior, and does not expand API-key auth to broader key-management flows
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly scopes ask-completion access for API keys, persists new ask threads under the API-key owner without blocking correctness or security issues, and noted only a non-blocking shared-helper deduplication follow-up
+  commit: ef4069174a4273122d78f4e56bcede3534cdee36
+  next_task: task31
 current_task:
-  id: task30i
-  title: Ask endpoint API key authentication
+  id: task31
+  title: Search contexts
   status: pending
   summary: >-
-    Complete the next smallest remaining API-key slice by allowing POST
-    /api/v1/ask/completions to authenticate through the reusable API-key bearer
-    helper, enforcing the key's validated repo_scope for prompt repo_scope
-    access without yet expanding API-key capabilities into broader key-management
-    flows beyond the existing create/list/revoke surfaces.
+    Start the next roadmap phase by defining the smallest architecture-complete
+    first slice for search contexts, then execute only that first subtask in the
+    next autonomous run.
 history:
+  - id: task30i
+    status: done
+    summary: >-
+      Completed the final API-key scope slice by allowing POST
+      /api/v1/ask/completions to authenticate through the reusable API-key bearer
+      helper, enforcing the key's validated repo_scope for prompt repo_scope
+      access, persisting API-key-created ask threads under the owning account,
+      and preserving existing local-session ask behavior without expanding
+      broader key-management flows beyond create/list/revoke.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api ask_completions_api_key_ -- --nocapture: passed (4 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_api_key_ -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api repo_tree_api_key_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api repo_blob_api_key_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to POST /api/v1/ask/completions API-key authentication, enforces validated repo_scope access, preserves existing local-session ask behavior, and does not expand API-key auth to broader key-management flows
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly scopes ask-completion access for API keys, persists new ask threads under the API-key owner without blocking correctness or security issues, and noted only a non-blocking shared-helper deduplication follow-up
+    commit: ef4069174a4273122d78f4e56bcede3534cdee36
+    next_task: task31
   - id: task30h
     status: done
     summary: >-
