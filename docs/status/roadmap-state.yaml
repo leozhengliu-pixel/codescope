@@ -5,40 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1e519b838e799090ce964378631460dda1d611ea
+  head: 48922e426c3de8d9a384de0e481a59d0b3b96391
 last_completed_task:
-  id: task35k6f
-  title: Add real worker-binary idle smoke coverage for an empty persisted organization state
+  id: task35k6g
+  title: Add real worker-binary idle smoke coverage when the organization-state file is missing
   status: done
   summary: >-
-    Completed the next review-agent worker slice by adding focused real-binary
-    idle-path smoke coverage that seeds the default empty persisted organization
-    state, proves sourcebot-worker exits successfully when no queued review-agent
-    runs exist, and confirms the persisted state remains unchanged, while still
-    deferring real review logic, retries, rescheduling, worker loops, and stricter
-    no-write-on-idle assertions.
+    Completed the next review-agent worker slice by adding focused real-binary idle
+    smoke coverage that proves sourcebot-worker exits successfully when
+    SOURCEBOT_ORGANIZATION_STATE_PATH points at a missing organization-state file,
+    leaves that file absent on the idle path, and still resolves the effective
+    organization state to OrganizationState::default(), while continuing to defer
+    real review logic, retries, rescheduling, and worker loops.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_and_preserves_default_empty_state_when_persisted_state_has_no_review_agent_runs -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_and_leaves_default_empty_effective_state_when_organization_state_file_is_missing -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the staged diff lands exactly task35k6f by adding only a real worker-binary idle smoke test that seeds OrganizationState::default(), proves successful exit with no queued review-agent runs, and keeps execution/retry/rescheduling/worker-loop behavior deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new worker idle smoke test is correctly scoped to success-plus-no-mutation coverage for the default empty persisted state
-  commit: 1e519b838e799090ce964378631460dda1d611ea
-  next_task: task35k6g
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6g by adding only a focused real worker-binary idle smoke test for a missing organization-state file, proving successful exit plus default effective state without adding execution, retries, rescheduling, or worker loops
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the missing-file idle smoke assertion is correct because FileOrganizationStore intentionally resolves a missing file as OrganizationState::default() and the worker does not persist on the idle path
+  commit: 48922e426c3de8d9a384de0e481a59d0b3b96391
+  next_task: task35k6h
 current_task:
-  id: task35k6g
+  id: task35k6h
   parent_task: task35k6
-  title: Add real worker-binary idle smoke coverage when the organization-state file is missing
+  title: Add strict no-write idle smoke coverage for an existing organization-state file with no queued review-agent runs
   status: pending
   summary: >-
     Lock the one-shot worker idle contract down with one smallest follow-up slice that
-    proves sourcebot-worker exits cleanly and leaves the effective organization state in
-    its default empty shape when SOURCEBOT_ORGANIZATION_STATE_PATH points at a missing
-    file, while still deferring real review logic, retries, rescheduling, and worker
-    loops.
+    proves sourcebot-worker does not rewrite an already-present organization-state file
+    when no queued review-agent run exists, while still deferring real review logic,
+    retries, rescheduling, and worker loops.
 history:
+  - id: task35k6g
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by adding focused real-binary idle
+      smoke coverage that proves sourcebot-worker exits successfully when
+      SOURCEBOT_ORGANIZATION_STATE_PATH points at a missing organization-state file,
+      leaves that file absent on the idle path, and still resolves the effective
+      organization state to OrganizationState::default(), while continuing to defer
+      real review logic, retries, rescheduling, and worker loops.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_and_leaves_default_empty_effective_state_when_organization_state_file_is_missing -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6g by adding only a focused real worker-binary idle smoke test for a missing organization-state file, proving successful exit plus default effective state without adding execution, retries, rescheduling, or worker loops
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the missing-file idle smoke assertion is correct because FileOrganizationStore intentionally resolves a missing file as OrganizationState::default() and the worker does not persist on the idle path
+    commit: 48922e426c3de8d9a384de0e481a59d0b3b96391
+    next_task: task35k6h
   - id: task35k6f
     status: done
     summary: >-
@@ -58,6 +76,23 @@ history:
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new worker idle smoke test is correctly scoped to success-plus-no-mutation coverage for the default empty persisted state
     commit: 1e519b838e799090ce964378631460dda1d611ea
     next_task: task35k6g
+  - id: task35k6e
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by adding focused real-binary
+      idle-path smoke coverage that proves sourcebot-worker exits successfully and
+      leaves persisted organization state unchanged when no queued review-agent run is
+      available, while still deferring real review logic, retries, rescheduling,
+      worker loops, and stricter no-write-on-idle assertions.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 3 smoke tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check && /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker && /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the staged diff lands exactly task35k6e by adding only a real worker-binary idle-path smoke test that proves successful exit and unchanged persisted organization state when no queued review-agent run exists
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new idle-path smoke test is correctly scoped to success-plus-no-mutation behavior, with only a non-blocking note that no-write-on-idle could be asserted later if desired
+    commit: add186fa29a60f689176dc1ddcfbde53433009a8
+    next_task: task35k6f
   - id: task35k6d
     status: done
     summary: >-
