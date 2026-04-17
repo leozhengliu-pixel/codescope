@@ -5,43 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f1168f3beba273236f2713ffdb7611485c9523ec
+  head: 408e4cb3896d0fd2cb1dbadfe3f1ec56276543a8
 last_completed_task:
-  id: task35k6c
-  title: Fail closed on invalid configured stub worker outcomes instead of silently defaulting to completed
+  id: task35k6d
+  title: Add focused coverage for the explicit completed stub worker outcome value through the real worker path
   status: done
   summary: >-
-    Completed the next review-agent worker slice by tightening
-    SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME parsing so unsupported
-    values fail closed at the config boundary, propagating that error through the
-    sourcebot-worker binary before any worker tick runs, and proving the real
-    worker path leaves queued persisted state untouched on invalid configuration
-    while still deferring real review logic, retries, rescheduling, and worker
-    loops.
+    Completed the next review-agent worker slice by locking the explicit
+    Completed-path stub outcome contract down with focused config and real-binary
+    smoke coverage, proving SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed
+    is accepted at the config boundary and drives sourcebot-worker to persist a
+    completed review-agent run, while still deferring real review logic, retries,
+    rescheduling, and worker loops.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config tests::stub_review_agent_run_execution_outcome_rejects_invalid_env_values -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test invalid_stub_outcome_smoke -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config -- --nocapture: passed (5 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 1 smoke test)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config tests::stub_review_agent_run_execution_outcome_reads_completed_from_env -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config -- --nocapture: passed (6 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 2 smoke tests)
     - /opt/data/home/.cargo/bin/cargo fmt --all --check && /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker && /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=bogus /opt/data/home/.cargo/bin/cargo run -p sourcebot-worker: passed (exit 1 with explicit config error and queued run left unchanged)
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed invalid configured stub outcomes now fail closed, the missing-env default-to-completed behavior remains intact, the diff stays scoped to config parsing plus the worker entrypoint and focused tests, and no real review logic, retries, rescheduling, or worker loops were added
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the change correctly propagates invalid stub outcome errors through the worker entrypoint while preserving queued state on the failing path
-  commit: f1168f3beba273236f2713ffdb7611485c9523ec
-  next_task: task35k6d
+    spec: passed one independent spec-compliance review; reviewer confirmed the staged diff now proves the explicit completed env value is accepted in sourcebot-config and drives the real sourcebot-worker binary path to persist Completed, while staying test-only and avoiding real review logic, retries, rescheduling, and worker loops
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the change adds only focused explicit-completed coverage for the stub worker outcome contract
+  commit: 408e4cb3896d0fd2cb1dbadfe3f1ec56276543a8
+  next_task: task35k6e
 current_task:
-  id: task35k6d
+  id: task35k6e
   parent_task: task35k6
-  title: Add focused coverage for the explicit completed stub worker outcome value through the real worker path
+  title: Add real worker-binary idle-path smoke coverage when no queued review-agent run exists
   status: pending
   summary: >-
-    Lock the new completed/failed stub worker outcome contract down with one
-    smallest follow-up slice that proves an explicitly configured
-    SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed value is accepted
-    and drives the real worker/binary path as intended, while still deferring
+    Lock the one-shot worker contract down with one smallest follow-up slice that
+    proves sourcebot-worker exits cleanly and leaves persisted organization state
+    unchanged when no queued review-agent run is available, while still deferring
     real review logic, retries, rescheduling, and worker loops.
 history:
+  - id: task35k6d
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by locking the explicit
+      Completed-path stub outcome contract down with focused config and
+      real-binary smoke coverage, proving
+      SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed is accepted at
+      the config boundary and drives sourcebot-worker to persist a completed
+      review-agent run, while still deferring real review logic, retries,
+      rescheduling, and worker loops.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config tests::stub_review_agent_run_execution_outcome_reads_completed_from_env -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 2 smoke tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check && /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker && /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the staged diff now proves the explicit completed env value is accepted in sourcebot-config and drives the real sourcebot-worker binary path to persist Completed, while staying test-only and avoiding real review logic, retries, rescheduling, and worker loops
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the change adds only focused explicit-completed coverage for the stub worker outcome contract
+    commit: 408e4cb3896d0fd2cb1dbadfe3f1ec56276543a8
+    next_task: task35k6e
   - id: task35k6c
     status: done
     summary: >-
