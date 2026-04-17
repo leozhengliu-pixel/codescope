@@ -173,6 +173,26 @@ mod tests {
     }
 
     #[test]
+    fn stub_review_agent_run_execution_outcome_reads_completed_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var(
+            "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME",
+            "completed",
+        );
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config
+                .stub_review_agent_run_execution_outcome()
+                .expect("completed should be accepted"),
+            StubReviewAgentRunExecutionOutcomeConfig::Completed
+        );
+
+        env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
+    }
+
+    #[test]
     fn stub_review_agent_run_execution_outcome_reads_failed_from_env() {
         let _guard = ENV_LOCK.lock().unwrap();
         env::set_var(
