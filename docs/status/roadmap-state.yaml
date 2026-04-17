@@ -5,36 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a1e2e796d7478fdd0517f5324244bd21604fdb24
+  head: ad61973518155f811c66690fbe5e18abfb7d6d67
 last_completed_task:
-  id: task30b
-  title: API key persistence wiring
+  id: task30c
+  title: API key listing endpoint
   status: done
   summary: >-
-    Split task30 again and completed the next smallest API-key slice by
-    extending the existing file-backed organization-state persistence and
-    app-state regression coverage so populated OrganizationState.api_keys
-    round-trips cleanly through both paths, without adding API routes, request
-    auth, or key issuance/revocation behavior yet.
+    Completed the next smallest API-key slice by adding GET /api/v1/auth/api-keys,
+    authenticating with the existing local-session bearer flow, returning only
+    the current session user's persisted OrganizationState.api_keys entries,
+    preserving revoked_at and repo_scope metadata, and omitting secret_hash
+    while still deferring API-key creation, revocation, and API-key request auth
+    to later slices.
   tests:
-    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api auth_api_keys_lists_only_current_users_keys_without_secret_hash -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api auth_me_ -- --nocapture: passed (5 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays test-only within the API-key persistence wiring slice, extends the required round-trip coverage through the file-backed organization store and app-state path, and found no blocking security or correctness issues
-  commit: a1e2e796d7478fdd0517f5324244bd21604fdb24
-  next_task: task30c
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly implements a minimal authenticated API-key listing endpoint for the current local-session user without exposing secret_hash, stays within the requested listing-only scope, and noted only a non-blocking missing unauthenticated/invalid-session failure-path test follow-up
+  commit: ad61973518155f811c66690fbe5e18abfb7d6d67
+  next_task: task30d
 current_task:
-  id: task30c
-  title: API key listing endpoint
+  id: task30d
+  title: API key creation endpoint
   status: pending
   summary: >-
     Complete the next smallest API-key slice by adding a minimal authenticated
-    API-key listing path backed by OrganizationState.api_keys for the current
-    local-session user, while keeping create/revoke mutations and broader policy
-    expansion for later slices.
+    API-key creation path for the current local-session user that persists a new
+    OrganizationState.api_keys entry, returns the plaintext secret exactly once,
+    and keeps revocation plus API-key request authentication for later slices.
 history:
+  - id: task30c
+    status: done
+    summary: >-
+      Completed the next smallest API-key slice by adding GET
+      /api/v1/auth/api-keys, authenticating with the existing local-session
+      bearer flow, returning only the current session user's persisted
+      OrganizationState.api_keys entries, preserving revoked_at and repo_scope
+      metadata, and omitting secret_hash while still deferring API-key creation,
+      revocation, and API-key request auth to later slices.
+    tests:
+      - cargo test -p sourcebot-api auth_api_keys_lists_only_current_users_keys_without_secret_hash -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api auth_me_ -- --nocapture: passed (5 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly implements a minimal authenticated API-key listing endpoint for the current local-session user without exposing secret_hash, stays within the requested listing-only scope, and noted only a non-blocking missing unauthenticated/invalid-session failure-path test follow-up
+    commit: ad61973518155f811c66690fbe5e18abfb7d6d67
+    next_task: task30d
   - id: task30b
     status: done
     summary: >-
