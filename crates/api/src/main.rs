@@ -1027,8 +1027,10 @@ async fn search_repository_contents(
 
 async fn create_ask_completion(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<AskCompletionRequest>,
 ) -> Result<Json<AskCompletionResponse>, StatusCode> {
+    let visible_repo_ids = visible_repo_ids_for_request(&state, &headers).await?;
     let repo_ids = state
         .catalog
         .list_repositories()
@@ -1038,6 +1040,13 @@ async fn create_ask_completion(
         .map(|repository| repository.id)
         .collect::<Vec<_>>();
     let request = request.into_core_request(&repo_ids)?;
+    if request
+        .repo_scope
+        .iter()
+        .any(|repo_id| !visible_repo_ids.contains(repo_id))
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     let provider = build_llm_provider(LlmProviderConfig {
         provider: state
@@ -1550,6 +1559,30 @@ mod tests {
         format!("Bearer {session_id}:{session_secret}")
     }
 
+    async fn ask_app_with_visible_repo_access(prefix: &str) -> (Router, String) {
+        let organization_state_path = unique_test_path(&format!("{prefix}-orgs"));
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path(&format!("{prefix}-bootstrap"))
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path(&format!("{prefix}-sessions"))
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        (app, authorization)
+    }
+
     #[derive(Debug)]
     struct AlreadyInitializedBootstrapStore;
 
@@ -1574,18 +1607,141 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_completions_returns_provider_response_for_known_repo_scope() {
+    async fn ask_completions_requires_authenticated_visible_repository_access() {
+        let organization_state_path = unique_test_path("ask-auth-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
         let app = test_app_with_config(AppConfig {
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-auth-bootstrap").display().to_string(),
+            local_session_state_path: unique_test_path("ask-auth-sessions").display().to_string(),
             ..AppConfig::default()
         });
+
+        let missing_auth_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: " where is build_router implemented? ".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec![" repo_sourcebot_rewrite ".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_auth_response.status(), StatusCode::UNAUTHORIZED);
+
+        let invalid_auth_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, "Bearer not-a-valid-session")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_not_found_for_hidden_repository() {
+        let organization_state_path = unique_test_path("ask-hidden-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
 
         let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_provider_response_for_visible_repo_scope() {
+        let organization_state_path = unique_test_path("ask-visible-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-visible-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-visible-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
@@ -1613,9 +1769,22 @@ mod tests {
     #[tokio::test]
     async fn ask_completions_persists_new_repo_scoped_threads() {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-persist-new-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
         let config = AppConfig {
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-persist-new-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-persist-new-sessions")
+                .display()
+                .to_string(),
             ..AppConfig::default()
         };
         let app = build_router(
@@ -1628,12 +1797,14 @@ mod tests {
             build_search_store(),
             ask_threads.clone(),
         );
+        let authorization = bootstrap_and_login(&app).await;
 
         let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
@@ -1681,6 +1852,12 @@ mod tests {
     #[tokio::test]
     async fn ask_completions_appends_to_existing_repo_scoped_thread_when_thread_id_is_supplied() {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-append-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
         let existing_thread = AskThread {
             id: "thread_existing".into(),
             session_id: "session_existing".into(),
@@ -1713,6 +1890,13 @@ mod tests {
         let config = AppConfig {
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-append-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-append-sessions")
+                .display()
+                .to_string(),
             ..AppConfig::default()
         };
         let app = build_router(
@@ -1725,12 +1909,14 @@ mod tests {
             build_search_store(),
             ask_threads.clone(),
         );
+        let authorization = bootstrap_and_login(&app).await;
 
         let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
@@ -1782,11 +1968,14 @@ mod tests {
 
     #[tokio::test]
     async fn ask_completions_returns_bad_request_for_empty_repo_scope() {
-        let response = test_app()
+        let (app, authorization) = ask_app_with_visible_repo_access("ask-empty-scope").await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
@@ -1807,11 +1996,14 @@ mod tests {
 
     #[tokio::test]
     async fn ask_completions_returns_bad_request_for_unknown_repo_scope() {
-        let response = test_app()
+        let (app, authorization) = ask_app_with_visible_repo_access("ask-unknown-scope").await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
@@ -1835,11 +2027,14 @@ mod tests {
 
     #[tokio::test]
     async fn ask_completions_returns_bad_request_for_empty_prompt() {
-        let response = test_app()
+        let (app, authorization) = ask_app_with_visible_repo_access("ask-empty-prompt").await;
+
+        let response = app
             .oneshot(
                 Request::builder()
                     .method("POST")
                     .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
                     .header("content-type", "application/json")
                     .body(Body::from(
                         serde_json::to_vec(&AskCompletionRequest {
