@@ -5,41 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 262086496be5f8dc88e08906e5ed1e731e694f4f
+  head: 7c938c921e4a6a8874f14aa3ebbb405f11b66a2f
 last_completed_task:
-  id: task32c2
-  title: Persist audit events for local-session logout and revoke mutations
+  id: task33a
+  title: Analytics persistence model and file-backed round-trip coverage
   status: done
   summary: >-
-    Completed the second auth-mutation audit slice by persisting audit events
-    for the existing local-session logout and session-revocation endpoints,
-    adding rollback coverage for write failures, and serializing all current
-    OrganizationState read-modify-write auth mutation paths behind one shared
-    AppState lock so logout/session revoke and API-key create/revoke updates do
-    not clobber each other, without changing audit-event listing, filtering UI,
-    retention/export behavior, or analytics rollups.
+    Split task33 and completed the first analytics slice by adding a reusable
+    AnalyticsRecord shared model plus OrganizationState.analytics_records
+    persistence-ready storage in sourcebot-models, then extending the
+    file-backed organization-store and build_app_state regression coverage so
+    non-empty analytics data round-trips cleanly without adding analytics
+    routes, dashboards, rollups, or event-emission hooks.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::concurrent_local_session_audit_mutations_preserve_both_events -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (6 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::logout_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::revoke_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models analytics_record -- --nocapture: passed (3 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session logout/session-revoke audit persistence slice plus directly necessary supporting rollback and serialization coverage, and does not add audit-event listing changes, filtering UI, retention/export behavior, or analytics rollups
-    code: approved by one independent post-implementation review; reviewer confirmed the shared AppState mutex now serializes the three production OrganizationState auth mutation paths (logout/session revoke plus API-key create/revoke) and found no remaining blocking correctness or security issues
-  commit: 262086496be5f8dc88e08906e5ed1e731e694f4f
-  next_task: task33
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the first analytics persistence slice by adding only the shared AnalyticsRecord model, backward-compatible OrganizationState storage, and focused file-backed round-trip coverage without adding routes, dashboards, rollups, or event-emission hooks
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds backward-compatible analytics storage and non-empty file-backed round-trip coverage with no blocking correctness or security issues
+  commit: 7c938c921e4a6a8874f14aa3ebbb405f11b66a2f
+  next_task: task33b
 current_task:
-  id: task33
-  title: Analytics
+  id: task33b
+  title: Authenticated analytics listing endpoint
   status: pending
   summary: >-
-    Start the next roadmap phase after audit-log slices by carving the analytics
-    milestone into the smallest architecture-complete first slice before any
-    broader UI or reporting work.
+    Continue task33 by exposing a minimal read-only authenticated analytics
+    endpoint that lists persisted analytics records only for the caller's
+    visible organizations, without adding analytics event emission,
+    aggregation rollups, or dashboard UI.
 history:
+  - id: task33a
+    status: done
+    summary: >-
+      Split task33 and completed the first analytics slice by adding a reusable
+      AnalyticsRecord shared model plus OrganizationState.analytics_records
+      persistence-ready storage in sourcebot-models, then extending the
+      file-backed organization-store and build_app_state regression coverage so
+      non-empty analytics data round-trips cleanly without adding analytics
+      routes, dashboards, rollups, or event-emission hooks.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models analytics_record -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the first analytics persistence slice by adding only the shared AnalyticsRecord model, backward-compatible OrganizationState storage, and focused file-backed round-trip coverage without adding routes, dashboards, rollups, or event-emission hooks
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds backward-compatible analytics storage and non-empty file-backed round-trip coverage with no blocking correctness or security issues
+    commit: 7c938c921e4a6a8874f14aa3ebbb405f11b66a2f
+    next_task: task33b
   - id: task32c2
     status: done
     summary: >-
@@ -62,7 +80,7 @@ history:
       spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session logout/session-revoke audit persistence slice plus directly necessary supporting rollback and serialization coverage, and does not add audit-event listing changes, filtering UI, retention/export behavior, or analytics rollups
       code: approved by one independent post-implementation review; reviewer confirmed the shared AppState mutex now serializes the three production OrganizationState auth mutation paths (logout/session revoke plus API-key create/revoke) and found no remaining blocking correctness or security issues
     commit: 262086496be5f8dc88e08906e5ed1e731e694f4f
-    next_task: task33
+    next_task: task33a
   - id: task32c1
     status: done
     summary: >-
