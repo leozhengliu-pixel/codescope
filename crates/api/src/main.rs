@@ -3325,6 +3325,21 @@ mod tests {
             *self.state.lock().unwrap() = state;
             Ok(())
         }
+
+        async fn claim_next_review_agent_run(
+            &self,
+        ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
+            if self.fail_reads {
+                return Err(anyhow::anyhow!("organization-state read failed"));
+            }
+
+            if self.fail_writes {
+                return Err(anyhow::anyhow!("organization-state write failed"));
+            }
+
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::claim_next_review_agent_run(&mut state))
+        }
     }
 
     #[async_trait]
@@ -3345,6 +3360,13 @@ mod tests {
         async fn store_organization_state(&self, state: OrganizationState) -> anyhow::Result<()> {
             *self.state.lock().unwrap() = state;
             Ok(())
+        }
+
+        async fn claim_next_review_agent_run(
+            &self,
+        ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::claim_next_review_agent_run(&mut state))
         }
     }
 

@@ -1,28 +1,53 @@
-use sourcebot_models::{OrganizationState, ReviewAgentRun, ReviewAgentRunStatus};
+use anyhow::Result;
+use sourcebot_core::OrganizationStore;
+use sourcebot_models::ReviewAgentRun;
 
-pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {
-    let next_run_index = state
-        .review_agent_runs
-        .iter()
-        .enumerate()
-        .filter(|(_, run)| run.status == ReviewAgentRunStatus::Queued)
-        .min_by(|(left_index, left_run), (right_index, right_run)| {
-            left_run
-                .created_at
-                .cmp(&right_run.created_at)
-                .then_with(|| left_index.cmp(right_index))
-        })
-        .map(|(index, _)| index)?;
+pub use sourcebot_core::claim_next_review_agent_run;
 
-    let run = state.review_agent_runs.get_mut(next_run_index)?;
-    run.status = ReviewAgentRunStatus::Claimed;
-    Some(run.clone())
+pub async fn claim_next_review_agent_run_from_store(
+    store: &dyn OrganizationStore,
+) -> Result<Option<ReviewAgentRun>> {
+    store.claim_next_review_agent_run().await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::claim_next_review_agent_run;
+    use super::{claim_next_review_agent_run, claim_next_review_agent_run_from_store};
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use sourcebot_core::OrganizationStore;
     use sourcebot_models::{OrganizationState, ReviewAgentRun, ReviewAgentRunStatus};
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct InMemoryOrganizationStore {
+        state: Mutex<OrganizationState>,
+    }
+
+    impl InMemoryOrganizationStore {
+        fn new(state: OrganizationState) -> Self {
+            Self {
+                state: Mutex::new(state),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl OrganizationStore for InMemoryOrganizationStore {
+        async fn organization_state(&self) -> Result<OrganizationState> {
+            Ok(self.state.lock().unwrap().clone())
+        }
+
+        async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
+            *self.state.lock().unwrap() = state;
+            Ok(())
+        }
+
+        async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(claim_next_review_agent_run(&mut state))
+        }
+    }
 
     fn review_agent_run(
         id: &str,
@@ -128,5 +153,42 @@ mod tests {
         };
 
         assert_eq!(claim_next_review_agent_run(&mut state), None);
+    }
+
+    #[tokio::test]
+    async fn claim_next_review_agent_run_from_store_persists_the_claimed_run() {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            review_agent_runs: vec![
+                review_agent_run(
+                    "run_queued_newer",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:06Z",
+                ),
+                review_agent_run(
+                    "run_queued_oldest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:05Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+
+        let claimed_run = claim_next_review_agent_run_from_store(&store)
+            .await
+            .unwrap()
+            .expect("queued run to be claimed");
+
+        assert_eq!(claimed_run.id, "run_queued_oldest");
+        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Claimed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
+        assert_eq!(
+            persisted.review_agent_runs[1].status,
+            ReviewAgentRunStatus::Claimed
+        );
     }
 }

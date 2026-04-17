@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use sourcebot_core::{BootstrapStore, LocalSessionStore, OrganizationStore};
+use sourcebot_core::{
+    claim_next_review_agent_run, BootstrapStore, LocalSessionStore, OrganizationStore,
+};
 use sourcebot_models::{
     BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
+    ReviewAgentRunStatus,
 };
 use std::{
     fs::{self, File, OpenOptions},
@@ -36,12 +39,12 @@ pub struct FileOrganizationStore {
 }
 
 #[derive(Debug)]
-struct LocalSessionWriteLock {
+struct StateFileWriteLock {
     file: File,
     lock_path: PathBuf,
 }
 
-impl Drop for LocalSessionWriteLock {
+impl Drop for StateFileWriteLock {
     fn drop(&mut self) {
         let _ = self.file.sync_all();
         let _ = fs::remove_file(&self.lock_path);
@@ -84,7 +87,7 @@ impl FileLocalSessionStore {
         self.state_path.with_file_name(format!(".{file_name}.lock"))
     }
 
-    fn acquire_write_lock(&self) -> Result<LocalSessionWriteLock> {
+    fn acquire_write_lock(&self) -> Result<StateFileWriteLock> {
         const MAX_LOCK_WAIT: Duration = Duration::from_millis(100);
         const LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
 
@@ -94,7 +97,7 @@ impl FileLocalSessionStore {
 
         loop {
             match open_new_private_file(&lock_path) {
-                Ok(file) => return Ok(LocalSessionWriteLock { file, lock_path }),
+                Ok(file) => return Ok(StateFileWriteLock { file, lock_path }),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
                     if start.elapsed().unwrap_or_default() >= MAX_LOCK_WAIT {
                         return Err(anyhow!(
@@ -129,6 +132,40 @@ impl FileOrganizationStore {
         }
     }
 
+    fn lock_path(&self) -> PathBuf {
+        let file_name = self
+            .state_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("organization-state.json");
+        self.state_path.with_file_name(format!(".{file_name}.lock"))
+    }
+
+    fn acquire_write_lock(&self) -> Result<StateFileWriteLock> {
+        const MAX_LOCK_WAIT: Duration = Duration::from_millis(100);
+        const LOCK_RETRY_DELAY: Duration = Duration::from_millis(10);
+
+        ensure_parent_directory(&self.state_path)?;
+        let lock_path = self.lock_path();
+        let start = SystemTime::now();
+
+        loop {
+            match open_new_private_file(&lock_path) {
+                Ok(file) => return Ok(StateFileWriteLock { file, lock_path }),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if start.elapsed().unwrap_or_default() >= MAX_LOCK_WAIT {
+                        return Err(anyhow!(
+                            "timed out waiting for organization-state lock at {}",
+                            lock_path.display()
+                        ));
+                    }
+                    thread::sleep(LOCK_RETRY_DELAY);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     fn read_persisted_state(&self) -> Result<OrganizationState> {
         if !self.state_path.is_file() {
             return Ok(OrganizationState::default());
@@ -138,6 +175,27 @@ impl FileOrganizationStore {
             Ok(bytes) => Ok(serde_json::from_slice::<OrganizationState>(&bytes)?),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(OrganizationState::default()),
             Err(error) => Err(error.into()),
+        }
+    }
+}
+
+fn preserve_claimed_review_agent_runs(
+    persisted_state: &OrganizationState,
+    next_state: &mut OrganizationState,
+) {
+    for persisted_run in &persisted_state.review_agent_runs {
+        if persisted_run.status != ReviewAgentRunStatus::Claimed {
+            continue;
+        }
+
+        if let Some(next_run) = next_state
+            .review_agent_runs
+            .iter_mut()
+            .find(|run| run.id == persisted_run.id)
+        {
+            if next_run.status == ReviewAgentRunStatus::Queued {
+                next_run.status = ReviewAgentRunStatus::Claimed;
+            }
         }
     }
 }
@@ -285,9 +343,28 @@ impl OrganizationStore for FileOrganizationStore {
     }
 
     async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
+        let persisted_state = self.read_persisted_state()?;
+        let mut state = state;
+        preserve_claimed_review_agent_runs(&persisted_state, &mut state);
         let payload = serde_json::to_vec_pretty(&state)?;
         write_json_file(&self.state_path, &payload, true)?;
         Ok(())
+    }
+
+    async fn claim_next_review_agent_run(
+        &self,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        let claimed_run = claim_next_review_agent_run(&mut state);
+
+        if claimed_run.is_some() {
+            let payload = serde_json::to_vec_pretty(&state)?;
+            write_json_file(&self.state_path, &payload, true)?;
+        }
+
+        Ok(claimed_run)
     }
 }
 
@@ -771,6 +848,131 @@ mod tests {
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(persisted, state);
         assert_eq!(store.organization_state().await.unwrap(), state);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_claims_one_oldest_queued_review_agent_run() {
+        let path = unique_test_path("organization-claim-review-agent-run");
+        let store = FileOrganizationStore::new(&path);
+        let state = OrganizationState {
+            review_agent_runs: vec![
+                ReviewAgentRun {
+                    id: "run_newer".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "webhook_review_1".into(),
+                    delivery_attempt_id: "delivery_attempt_newer".into(),
+                    connection_id: "conn_github".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_newer".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:10:06Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "run_oldest".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "webhook_review_1".into(),
+                    delivery_attempt_id: "delivery_attempt_oldest".into(),
+                    connection_id: "conn_github".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_oldest".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:10:05Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "run_already_claimed".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "webhook_review_1".into(),
+                    delivery_attempt_id: "delivery_attempt_claimed".into(),
+                    connection_id: "conn_github".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_claimed".into(),
+                    status: ReviewAgentRunStatus::Claimed,
+                    created_at: "2026-04-25T00:10:04Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+
+        store.store_organization_state(state).await.unwrap();
+
+        let claimed_run = store
+            .claim_next_review_agent_run()
+            .await
+            .unwrap()
+            .expect("queued run to be claimed");
+
+        assert_eq!(claimed_run.id, "run_oldest");
+        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Claimed);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 3);
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
+        assert_eq!(
+            persisted.review_agent_runs[1].status,
+            ReviewAgentRunStatus::Claimed
+        );
+        assert_eq!(
+            persisted.review_agent_runs[2].status,
+            ReviewAgentRunStatus::Claimed
+        );
+        assert_eq!(store.organization_state().await.unwrap(), persisted);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_preserves_claimed_review_agent_run_when_stale_state_is_written(
+    ) {
+        let path = unique_test_path("organization-store-preserves-claimed-review-agent-run");
+        let writer_store = FileOrganizationStore::new(&path);
+        let claimer_store = FileOrganizationStore::new(&path);
+        let initial_state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_oldest".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_oldest".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_oldest".into(),
+                status: ReviewAgentRunStatus::Queued,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        writer_store
+            .store_organization_state(initial_state)
+            .await
+            .unwrap();
+
+        let stale_state = writer_store.organization_state().await.unwrap();
+
+        let claimed_run = claimer_store
+            .claim_next_review_agent_run()
+            .await
+            .unwrap()
+            .expect("queued run to be claimed");
+        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Claimed);
+
+        writer_store
+            .store_organization_state(stale_state)
+            .await
+            .unwrap();
+
+        let persisted = writer_store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_oldest");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Claimed
+        );
 
         fs::remove_file(path).unwrap();
     }

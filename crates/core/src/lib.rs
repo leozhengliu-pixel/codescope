@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
     AskThread, AskThreadSummary, Connection, OrganizationState, Repository, RepositoryDetail,
-    RepositorySummary,
+    RepositorySummary, ReviewAgentRun, ReviewAgentRunStatus,
 };
 use std::{
     collections::HashSet,
@@ -43,6 +43,26 @@ pub trait OrganizationStore: Send + Sync {
         &self,
         state: sourcebot_models::OrganizationState,
     ) -> Result<()>;
+    async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>>;
+}
+
+pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {
+    let next_run_index = state
+        .review_agent_runs
+        .iter()
+        .enumerate()
+        .filter(|(_, run)| run.status == ReviewAgentRunStatus::Queued)
+        .min_by(|(left_index, left_run), (right_index, right_run)| {
+            left_run
+                .created_at
+                .cmp(&right_run.created_at)
+                .then_with(|| left_index.cmp(right_index))
+        })
+        .map(|(index, _)| index)?;
+
+    let run = state.review_agent_runs.get_mut(next_run_index)?;
+    run.status = ReviewAgentRunStatus::Claimed;
+    Some(run.clone())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
