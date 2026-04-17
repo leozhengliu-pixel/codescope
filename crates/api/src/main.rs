@@ -3340,6 +3340,24 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             Ok(sourcebot_core::claim_next_review_agent_run(&mut state))
         }
+
+        async fn complete_review_agent_run(
+            &self,
+            run_id: &str,
+        ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
+            if self.fail_reads {
+                return Err(anyhow::anyhow!("organization-state read failed"));
+            }
+
+            if self.fail_writes {
+                return Err(anyhow::anyhow!("organization-state write failed"));
+            }
+
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::complete_review_agent_run(
+                &mut state, run_id,
+            ))
+        }
     }
 
     #[async_trait]
@@ -3367,6 +3385,16 @@ mod tests {
         ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
             let mut state = self.state.lock().unwrap();
             Ok(sourcebot_core::claim_next_review_agent_run(&mut state))
+        }
+
+        async fn complete_review_agent_run(
+            &self,
+            run_id: &str,
+        ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::complete_review_agent_run(
+                &mut state, run_id,
+            ))
         }
     }
 

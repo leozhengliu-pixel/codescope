@@ -44,6 +44,7 @@ pub trait OrganizationStore: Send + Sync {
         state: sourcebot_models::OrganizationState,
     ) -> Result<()>;
     async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>>;
+    async fn complete_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
 }
 
 pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {
@@ -62,6 +63,18 @@ pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<Revi
 
     let run = state.review_agent_runs.get_mut(next_run_index)?;
     run.status = ReviewAgentRunStatus::Claimed;
+    Some(run.clone())
+}
+
+pub fn complete_review_agent_run(
+    state: &mut OrganizationState,
+    run_id: &str,
+) -> Option<ReviewAgentRun> {
+    let run = state
+        .review_agent_runs
+        .iter_mut()
+        .find(|run| run.id == run_id && run.status == ReviewAgentRunStatus::Claimed)?;
+    run.status = ReviewAgentRunStatus::Completed;
     Some(run.clone())
 }
 

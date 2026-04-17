@@ -1,7 +1,8 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::{
-    claim_next_review_agent_run, BootstrapStore, LocalSessionStore, OrganizationStore,
+    claim_next_review_agent_run, complete_review_agent_run, BootstrapStore, LocalSessionStore,
+    OrganizationStore,
 };
 use sourcebot_models::{
     BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
@@ -179,12 +180,15 @@ impl FileOrganizationStore {
     }
 }
 
-fn preserve_claimed_review_agent_runs(
+fn preserve_terminal_review_agent_runs(
     persisted_state: &OrganizationState,
     next_state: &mut OrganizationState,
 ) {
     for persisted_run in &persisted_state.review_agent_runs {
-        if persisted_run.status != ReviewAgentRunStatus::Claimed {
+        if !matches!(
+            persisted_run.status,
+            ReviewAgentRunStatus::Claimed | ReviewAgentRunStatus::Completed
+        ) {
             continue;
         }
 
@@ -193,8 +197,13 @@ fn preserve_claimed_review_agent_runs(
             .iter_mut()
             .find(|run| run.id == persisted_run.id)
         {
-            if next_run.status == ReviewAgentRunStatus::Queued {
-                next_run.status = ReviewAgentRunStatus::Claimed;
+            match (&next_run.status, &persisted_run.status) {
+                (ReviewAgentRunStatus::Queued, ReviewAgentRunStatus::Claimed)
+                | (ReviewAgentRunStatus::Queued, ReviewAgentRunStatus::Completed)
+                | (ReviewAgentRunStatus::Claimed, ReviewAgentRunStatus::Completed) => {
+                    next_run.status = persisted_run.status.clone();
+                }
+                _ => {}
             }
         }
     }
@@ -346,7 +355,7 @@ impl OrganizationStore for FileOrganizationStore {
         let _lock = self.acquire_write_lock()?;
         let persisted_state = self.read_persisted_state()?;
         let mut state = state;
-        preserve_claimed_review_agent_runs(&persisted_state, &mut state);
+        preserve_terminal_review_agent_runs(&persisted_state, &mut state);
         let payload = serde_json::to_vec_pretty(&state)?;
         write_json_file(&self.state_path, &payload, true)?;
         Ok(())
@@ -365,6 +374,22 @@ impl OrganizationStore for FileOrganizationStore {
         }
 
         Ok(claimed_run)
+    }
+
+    async fn complete_review_agent_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        let completed_run = complete_review_agent_run(&mut state, run_id);
+
+        if completed_run.is_some() {
+            let payload = serde_json::to_vec_pretty(&state)?;
+            write_json_file(&self.state_path, &payload, true)?;
+        }
+
+        Ok(completed_run)
     }
 }
 
@@ -972,6 +997,98 @@ mod tests {
         assert_eq!(
             persisted.review_agent_runs[0].status,
             ReviewAgentRunStatus::Claimed
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_completes_a_claimed_review_agent_run() {
+        let path = unique_test_path("organization-complete-review-agent-run");
+        let store = FileOrganizationStore::new(&path);
+        let state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_claimed".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_claimed".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_claimed".into(),
+                status: ReviewAgentRunStatus::Claimed,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        store.store_organization_state(state).await.unwrap();
+
+        let completed_run = store
+            .complete_review_agent_run("run_claimed")
+            .await
+            .unwrap()
+            .expect("claimed run to be completed");
+
+        assert_eq!(completed_run.id, "run_claimed");
+        assert_eq!(completed_run.status, ReviewAgentRunStatus::Completed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_claimed");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Completed
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_preserves_completed_review_agent_run_when_stale_state_is_written(
+    ) {
+        let path = unique_test_path("organization-store-preserves-completed-review-agent-run");
+        let writer_store = FileOrganizationStore::new(&path);
+        let worker_store = FileOrganizationStore::new(&path);
+        let initial_state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_claimed".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_claimed".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_claimed".into(),
+                status: ReviewAgentRunStatus::Claimed,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        writer_store
+            .store_organization_state(initial_state)
+            .await
+            .unwrap();
+
+        let stale_state = writer_store.organization_state().await.unwrap();
+
+        let completed_run = worker_store
+            .complete_review_agent_run("run_claimed")
+            .await
+            .unwrap()
+            .expect("claimed run to be completed");
+        assert_eq!(completed_run.status, ReviewAgentRunStatus::Completed);
+
+        writer_store
+            .store_organization_state(stale_state)
+            .await
+            .unwrap();
+
+        let persisted = writer_store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_claimed");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Completed
         );
 
         fs::remove_file(path).unwrap();

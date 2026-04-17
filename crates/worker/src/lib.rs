@@ -5,7 +5,16 @@ use sourcebot_models::ReviewAgentRun;
 pub use sourcebot_core::claim_next_review_agent_run;
 
 pub async fn run_worker_tick(store: &dyn OrganizationStore) -> Result<Option<ReviewAgentRun>> {
-    claim_next_review_agent_run_from_store(store).await
+    let Some(claimed_run) = claim_next_review_agent_run_from_store(store).await? else {
+        return Ok(None);
+    };
+
+    let stub_run = execute_claimed_review_agent_run_stub(claimed_run);
+    complete_review_agent_run_in_store(store, &stub_run.id).await
+}
+
+pub fn execute_claimed_review_agent_run_stub(run: ReviewAgentRun) -> ReviewAgentRun {
+    run
 }
 
 pub async fn claim_next_review_agent_run_from_store(
@@ -14,10 +23,18 @@ pub async fn claim_next_review_agent_run_from_store(
     store.claim_next_review_agent_run().await
 }
 
+pub async fn complete_review_agent_run_in_store(
+    store: &dyn OrganizationStore,
+    run_id: &str,
+) -> Result<Option<ReviewAgentRun>> {
+    store.complete_review_agent_run(run_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_next_review_agent_run, claim_next_review_agent_run_from_store, run_worker_tick,
+        claim_next_review_agent_run, claim_next_review_agent_run_from_store,
+        execute_claimed_review_agent_run_stub, run_worker_tick,
     };
     use anyhow::Result;
     use async_trait::async_trait;
@@ -57,6 +74,13 @@ mod tests {
         async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>> {
             let mut state = self.state.lock().unwrap();
             Ok(claim_next_review_agent_run(&mut state))
+        }
+
+        async fn complete_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::complete_review_agent_run(
+                &mut state, run_id,
+            ))
         }
     }
 
@@ -174,6 +198,20 @@ mod tests {
         assert_eq!(claim_next_review_agent_run(&mut state), None);
     }
 
+    #[test]
+    fn execute_claimed_review_agent_run_stub_preserves_the_claimed_run_as_a_no_op_boundary() {
+        let claimed_run = review_agent_run(
+            "run_claimed",
+            ReviewAgentRunStatus::Claimed,
+            "2026-04-25T00:10:05Z",
+        );
+
+        let stub_run = execute_claimed_review_agent_run_stub(claimed_run.clone());
+
+        assert_eq!(stub_run, claimed_run);
+        assert_eq!(stub_run.status, ReviewAgentRunStatus::Claimed);
+    }
+
     #[tokio::test]
     async fn run_worker_tick_claims_a_queued_run_from_the_file_store() {
         let path = unique_test_path("worker-tick-file-store");
@@ -200,10 +238,10 @@ mod tests {
         let claimed_run = run_worker_tick(&store)
             .await
             .unwrap()
-            .expect("queued run to be claimed");
+            .expect("queued run to be completed");
 
         assert_eq!(claimed_run.id, "run_queued_oldest");
-        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Claimed);
+        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Completed);
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(
@@ -212,7 +250,7 @@ mod tests {
         );
         assert_eq!(
             persisted.review_agent_runs[1].status,
-            ReviewAgentRunStatus::Claimed
+            ReviewAgentRunStatus::Completed
         );
 
         fs::remove_file(path).unwrap();
@@ -252,6 +290,43 @@ mod tests {
         assert_eq!(
             persisted.review_agent_runs[1].status,
             ReviewAgentRunStatus::Claimed
+        );
+    }
+
+    #[tokio::test]
+    async fn run_worker_tick_completes_the_claimed_run_after_stub_execution() {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            review_agent_runs: vec![
+                review_agent_run(
+                    "run_queued_newer",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:06Z",
+                ),
+                review_agent_run(
+                    "run_queued_oldest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:05Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+
+        let completed_run = run_worker_tick(&store)
+            .await
+            .unwrap()
+            .expect("queued run to be completed");
+
+        assert_eq!(completed_run.id, "run_queued_oldest");
+        assert_eq!(completed_run.status, ReviewAgentRunStatus::Completed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
+        assert_eq!(
+            persisted.review_agent_runs[1].status,
+            ReviewAgentRunStatus::Completed
         );
     }
 }
