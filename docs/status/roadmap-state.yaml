@@ -5,59 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0538767ee6f452660d5982d6a8327ed04fe646ae
+  head: 62903543028cf08a90b2947ff66b7295c5362ece
 last_completed_task:
-  id: task32b
-  title: Authenticated audit log listing endpoint
+  id: task32c1
+  title: Persist audit events for API-key create/revoke mutations
   status: done
   summary: >-
-    Completed the next smallest audit-log slice by adding a minimal
-    local-session-authenticated GET /api/v1/auth/audit-events endpoint that
-    reads persisted OrganizationState.audit_events, filters results to
-    organizations visible to the caller via membership, and returns the stored
-    audit-event payload without adding emission hooks, filtering UI,
+    Split task32c and completed the first auth-mutation audit slice by
+    appending persisted audit events when authenticated local-session users
+    create or revoke their own API keys, scoping each event to organizations
+    implied by the caller's currently visible repo permissions without yet
+    emitting audit events for logout/session revocation or adding UI filtering,
     retention/export behavior, or analytics rollups.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_list_only_events_for_organizations_visible_to_current_user -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_require_an_authenticated_session -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_empty_scope_audit_events_ignore_unbound_membership_organizations -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (6 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal authenticated GET /api/v1/auth/audit-events listing slice, uses persisted organization audit events, filters by caller-visible organizations, and does not add emission hooks, UI filtering, retention/export behavior, or analytics rollups
-    code: approved by one independent post-implementation review; reviewer confirmed the new endpoint requires a valid local session, filters audit events to organizations visible to the caller, and found no blocking correctness or security issues
-  commit: 0538767ee6f452660d5982d6a8327ed04fe646ae
-  next_task: task32c
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the API-key create/revoke audit persistence slice, records events alongside the existing mutations, maps scoped and empty repo_scope keys only to organizations implied by current repo permissions, and does not add logout/session-revoke emission, UI filtering, retention/export behavior, or analytics rollups
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly persists API-key create/revoke audit events, keeps empty repo_scope organization mapping aligned with current repo-permission visibility, and found no blocking correctness or security issues
+  commit: 62903543028cf08a90b2947ff66b7295c5362ece
+  next_task: task32c2
 current_task:
-  id: task32c
-  parent_task: task32
-  title: Persist auth audit events for local-session and API-key mutations
+  id: task32c2
+  parent_task: task32c
+  title: Persist audit events for local-session logout and revoke mutations
   status: pending
   summary: >-
-    Complete the next smallest audit-log slice by appending persisted audit
-    events for the existing authenticated auth mutations that already change
-    state (for example API-key create/revoke and session revocation/logout)
-    without yet adding UI filtering, retention/export behavior, or analytics
-    rollups.
+    Complete the next smallest remaining auth-mutation audit slice by
+    appending persisted audit events for the existing local-session logout and
+    session-revocation endpoints without changing audit-event listing,
+    filtering UI, retention/export behavior, or analytics rollups.
 history:
-  - id: task32b
+  - id: task32c1
     status: done
     summary: >-
-      Completed the next smallest audit-log slice by adding a minimal
-      local-session-authenticated GET /api/v1/auth/audit-events endpoint that
-      reads persisted OrganizationState.audit_events, filters results to
-      organizations visible to the caller via membership, and returns the stored
-      audit-event payload without adding emission hooks, filtering UI,
+      Split task32c and completed the first auth-mutation audit slice by
+      appending persisted audit events when authenticated local-session users
+      create or revoke their own API keys, scoping each event to organizations
+      implied by the caller's currently visible repo permissions without yet
+      emitting audit events for logout/session revocation or adding UI filtering,
       retention/export behavior, or analytics rollups.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_list_only_events_for_organizations_visible_to_current_user -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_require_an_authenticated_session -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_empty_scope_audit_events_ignore_unbound_membership_organizations -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     review:
-      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal authenticated GET /api/v1/auth/audit-events listing slice, uses persisted organization audit events, filters by caller-visible organizations, and does not add emission hooks, UI filtering, retention/export behavior, or analytics rollups
-      code: approved by one independent post-implementation review; reviewer confirmed the new endpoint requires a valid local session, filters audit events to organizations visible to the caller, and found no blocking correctness or security issues
-    commit: 0538767ee6f452660d5982d6a8327ed04fe646ae
-    next_task: task32c
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the API-key create/revoke audit persistence slice, records events alongside the existing mutations, maps scoped and empty repo_scope keys only to organizations implied by current repo permissions, and does not add logout/session-revoke emission, UI filtering, retention/export behavior, or analytics rollups
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly persists API-key create/revoke audit events, keeps empty repo_scope organization mapping aligned with current repo-permission visibility, and found no blocking correctness or security issues
+    commit: 62903543028cf08a90b2947ff66b7295c5362ece
+    next_task: task32c2
   - id: task32a
     status: done
     summary: >-
