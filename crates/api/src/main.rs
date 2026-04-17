@@ -30,7 +30,7 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, SearchContext,
+    OrganizationState, RepositoryDetail, RepositorySummary, ReviewWebhook, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -169,6 +169,10 @@ fn build_router(
             get(list_authenticated_audit_events),
         )
         .route("/api/v1/auth/analytics", get(list_authenticated_analytics))
+        .route(
+            "/api/v1/auth/review-webhooks",
+            get(list_authenticated_review_webhooks),
+        )
         .route(
             "/api/v1/auth/oauth-clients",
             get(list_authenticated_oauth_clients).post(create_authenticated_oauth_client),
@@ -336,6 +340,17 @@ struct OAuthClientListItemResponse {
     created_by_user_id: String,
     created_at: String,
     revoked_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ReviewWebhookListItemResponse {
+    id: String,
+    organization_id: String,
+    connection_id: String,
+    repository_id: String,
+    events: Vec<String>,
+    created_by_user_id: String,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -872,6 +887,29 @@ async fn list_authenticated_oauth_clients(
     ))
 }
 
+async fn list_authenticated_review_webhooks(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReviewWebhookListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+
+    Ok(Json(
+        organization_state
+            .review_webhooks
+            .into_iter()
+            .filter(|webhook| visible_organization_ids.contains(&webhook.organization_id))
+            .map(review_webhook_list_item_response)
+            .collect(),
+    ))
+}
+
 async fn create_authenticated_oauth_client(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1013,6 +1051,18 @@ fn oauth_client_list_item_response(client: OAuthClient) -> OAuthClientListItemRe
         created_by_user_id: client.created_by_user_id,
         created_at: client.created_at,
         revoked_at: client.revoked_at,
+    }
+}
+
+fn review_webhook_list_item_response(webhook: ReviewWebhook) -> ReviewWebhookListItemResponse {
+    ReviewWebhookListItemResponse {
+        id: webhook.id,
+        organization_id: webhook.organization_id,
+        connection_id: webhook.connection_id,
+        repository_id: webhook.repository_id,
+        events: webhook.events,
+        created_by_user_id: webhook.created_by_user_id,
+        created_at: webhook.created_at,
     }
 }
 
@@ -2259,6 +2309,17 @@ mod tests {
         created_by_user_id: String,
         created_at: String,
         revoked_at: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ReviewWebhookListItemResponseBody {
+        id: String,
+        organization_id: String,
+        connection_id: String,
+        repository_id: String,
+        events: Vec<String>,
+        created_by_user_id: String,
+        created_at: String,
     }
 
     #[derive(Debug, Serialize)]
@@ -4770,6 +4831,127 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/oauth-clients")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_lists_only_webhooks_for_organizations_visible_to_current_user_and_hides_secret_hash(
+    ) {
+        let organization_state_path = unique_test_path("auth-review-webhooks-orgs");
+        let local_session_state_path = unique_test_path("auth-review-webhooks-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-25T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-24T23:55:00Z".into(),
+            }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request".into(), "pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$visible$hash".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:05:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$hidden$hash".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:06:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<ReviewWebhookListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "review_webhook_visible");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].connection_id, "conn_github_acme");
+        assert_eq!(payload[0].repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(
+            payload[0].events,
+            vec!["pull_request", "pull_request_review"]
+        );
+        assert_eq!(payload[0].created_by_user_id, user_id);
+        assert_eq!(payload[0].created_at, "2026-04-25T00:05:00Z");
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("secret_hash").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks")
                     .body(Body::empty())
                     .unwrap(),
             )
