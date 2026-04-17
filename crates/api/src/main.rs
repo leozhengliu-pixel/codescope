@@ -174,6 +174,10 @@ fn build_router(
             get(list_authenticated_review_webhooks).post(create_authenticated_review_webhook),
         )
         .route(
+            "/api/v1/review-webhooks/{webhook_id}/events",
+            post(intake_review_webhook_event),
+        )
+        .route(
             "/api/v1/auth/oauth-clients",
             get(list_authenticated_oauth_clients).post(create_authenticated_oauth_client),
         )
@@ -411,6 +415,22 @@ struct CreateReviewWebhookResponse {
     secret: String,
     created_by_user_id: String,
     created_at: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct ReviewWebhookEventRequest {
+    event_type: String,
+    connection_id: String,
+    repository_id: String,
+    review_id: String,
+    external_event_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ReviewWebhookEventAckResponse {
+    webhook_id: String,
+    event_type: String,
+    accepted: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1050,7 +1070,7 @@ async fn create_authenticated_review_webhook(
     let mut events = Vec::with_capacity(payload.events.len());
     for event in payload.events {
         let trimmed_event = event.trim();
-        if trimmed_event.is_empty() {
+        if trimmed_event.is_empty() || !is_supported_review_webhook_event(trimmed_event) {
             return Err(StatusCode::BAD_REQUEST);
         }
         events.push(trimmed_event.to_string());
@@ -1100,6 +1120,101 @@ async fn create_authenticated_review_webhook(
             created_at,
         }),
     ))
+}
+
+async fn intake_review_webhook_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(webhook_id): Path<String>,
+    Json(payload): Json<ReviewWebhookEventRequest>,
+) -> Result<(StatusCode, Json<ReviewWebhookEventAckResponse>), StatusCode> {
+    let (bearer_webhook_id, webhook_secret) = parse_bearer_token_id_secret(&headers)?;
+    if bearer_webhook_id != webhook_id {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let webhook = if let Some(webhook) = organization_state
+        .review_webhooks
+        .iter()
+        .find(|webhook| webhook.id == webhook_id)
+    {
+        webhook
+    } else {
+        burn_review_webhook_secret_check(&webhook_secret);
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+
+    verify_review_webhook_secret(webhook, &webhook_secret)?;
+
+    let event_type = payload.event_type.trim();
+    let connection_id = payload.connection_id.trim();
+    let repository_id = payload.repository_id.trim();
+    let review_id = payload.review_id.trim();
+    let external_event_id = payload.external_event_id.trim();
+    if event_type.is_empty()
+        || connection_id.is_empty()
+        || repository_id.is_empty()
+        || review_id.is_empty()
+        || external_event_id.is_empty()
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !is_supported_review_webhook_event(event_type)
+        || !webhook.events.iter().any(|event| event == event_type)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if webhook.connection_id != connection_id || webhook.repository_id != repository_id {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let repository_detail = state
+        .catalog
+        .get_repository_detail(repository_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    if repository_detail.repository.connection_id != connection_id
+        || repository_detail.connection.id != connection_id
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ReviewWebhookEventAckResponse {
+            webhook_id,
+            event_type: event_type.to_string(),
+            accepted: true,
+        }),
+    ))
+}
+
+fn verify_review_webhook_secret(
+    webhook: &ReviewWebhook,
+    webhook_secret: &str,
+) -> Result<(), StatusCode> {
+    let secret_hash =
+        PasswordHash::new(&webhook.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Argon2::default()
+        .verify_password(webhook_secret.as_bytes(), &secret_hash)
+        .map_err(|_| StatusCode::UNAUTHORIZED)
+}
+
+fn burn_review_webhook_secret_check(webhook_secret: &str) {
+    let dummy_salt = SaltString::encode_b64(b"review-webhook-dummy").expect("valid dummy salt");
+    if let Ok(dummy_hash) = Argon2::default().hash_password(b"review-webhook-secret", &dummy_salt) {
+        let _ = Argon2::default().verify_password(webhook_secret.as_bytes(), &dummy_hash);
+    }
+}
+
+fn is_supported_review_webhook_event(event: &str) -> bool {
+    matches!(event, "pull_request" | "pull_request_review")
 }
 
 fn search_context_list_item_response(
@@ -2451,6 +2566,22 @@ mod tests {
         secret: String,
         created_by_user_id: String,
         created_at: String,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct ReviewWebhookEventRequestBody {
+        event_type: String,
+        connection_id: String,
+        repository_id: String,
+        review_id: String,
+        external_event_id: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ReviewWebhookEventAckResponseBody {
+        webhook_id: String,
+        event_type: String,
+        accepted: bool,
     }
 
     #[derive(Debug, Serialize)]
@@ -5331,6 +5462,353 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_rejects_unsupported_event_names() {
+        let organization_state_path = unique_test_path("auth-review-webhooks-unsupported-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-review-webhooks-unsupported-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture_with_role(
+            &organization_state_path,
+            user_id,
+            OrganizationRole::Admin,
+            &[],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: "org_acme".into(),
+                            connection_id: "conn_github_acme".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            events: vec!["issue_comment".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.review_webhooks.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_accept_verified_supported_event_for_configured_webhook() {
+        let organization_state_path = unique_test_path("review-webhook-events-accept-orgs");
+        let webhook_secret = "review-webhook-secret";
+        let secret_hash = Argon2::default()
+            .hash_password(webhook_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer review_webhook_1:{webhook_secret}"),
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: " pull_request_review ".into(),
+                            connection_id: " conn_local ".into(),
+                            repository_id: " repo_sourcebot_rewrite ".into(),
+                            review_id: " review_123 ".into(),
+                            external_event_id: " evt_123 ".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let payload: ReviewWebhookEventAckResponseBody = read_json(response).await;
+        assert_eq!(payload.webhook_id, "review_webhook_1");
+        assert_eq!(payload.event_type, "pull_request_review");
+        assert!(payload.accepted);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_do_not_leak_unknown_webhook_ids() {
+        let app = test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_missing/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_missing:wrong-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_reject_invalid_secret() {
+        let organization_state_path = unique_test_path("review-webhook-events-secret-orgs");
+        let secret_hash = Argon2::default()
+            .hash_password(b"expected-secret", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_1:wrong-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_reject_payloads_outside_webhook_scope() {
+        let organization_state_path = unique_test_path("review-webhook-events-scope-orgs");
+        let secret_hash = Argon2::default()
+            .hash_password(b"expected-secret", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_1:expected-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_github".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_reject_unsupported_event_types() {
+        let organization_state_path = unique_test_path("review-webhook-events-unsupported-orgs");
+        let secret_hash = Argon2::default()
+            .hash_password(b"expected-secret", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_1:expected-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]
