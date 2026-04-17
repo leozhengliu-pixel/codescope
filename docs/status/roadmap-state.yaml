@@ -5,37 +5,56 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a2e18b98bab119a82ff7e5ec42e91aa57b88bb5d
+  head: c0170e5ded1d9ae31de8f464d8d848a082a3ca16
 last_completed_task:
-  id: task29b2
-  title: Ask permission enforcement
+  id: task30a
+  title: API key domain model
   status: done
   summary: >-
-    Completed the remaining split task29b scope by requiring authenticated
-    local-session access plus organization-scoped repository visibility on POST
-    /api/v1/ask/completions, returning 401 for missing or invalid auth,
-    returning 404 for authenticated requests whose repo_scope includes any
-    inaccessible repository, and preserving existing success, thread
-    persistence, and bad-request validation behavior for visible repositories
-    without changing unrelated endpoints.
+    Split task30 and completed the first API-key slice by adding a shared
+    persistence-ready ApiKey model plus OrganizationState.api_keys in
+    sourcebot-models, keeping the work limited to reusable domain data for
+    future create/list/revoke/auth flows without adding routes, stores, config,
+    app-state wiring, or permission enforcement yet.
   tests:
-    - cargo test -p sourcebot-api ask_completions_ -- --nocapture: passed (8 tests)
+    - cargo test -p sourcebot-models organization_state_serializes_api_keys_for_persistence -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-models organization_state_defaults_api_keys_to_empty_on_deserialize -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-models -- --nocapture: passed (13 tests)
     - cargo fmt --all --check: passed
     - cargo check: passed
-    - cargo test -p sourcebot-api -- --nocapture: passed (129 tests)
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays scoped to POST /api/v1/ask/completions, enforces the required 401/404 visibility behavior, preserves existing bad-request and success behavior, and found no blocking security or correctness issues
-  commit: a2e18b98bab119a82ff7e5ec42e91aa57b88bb5d
-  next_task: task30
+    code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays within the model-only API-key slice, matches the required OrganizationState/api_keys persistence shape, and found no blocking security or correctness issues
+  commit: c0170e5ded1d9ae31de8f464d8d848a082a3ca16
+  next_task: task30b
 current_task:
-  id: task30
-  title: API keys
+  id: task30b
+  title: API key persistence wiring
   status: pending
   summary: >-
-    Begin task30 by splitting API keys into the smallest practical slice for the
-    next run, then implement only that first slice with the same TDD, review,
-    commit, and push workflow.
+    Complete the next smallest API-key slice by extending the existing
+    file-backed organization-state persistence coverage so populated
+    OrganizationState.api_keys round-trips cleanly through the organization
+    store/app-state path, without adding API routes, request auth, or key
+    issuance/revocation behavior yet.
 history:
+  - id: task30a
+    status: done
+    summary: >-
+      Split task30 and completed the first API-key slice by adding a shared
+      persistence-ready ApiKey model plus OrganizationState.api_keys in
+      sourcebot-models, keeping the work limited to reusable domain data for
+      future create/list/revoke/auth flows without adding routes, stores,
+      config, app-state wiring, or permission enforcement yet.
+    tests:
+      - cargo test -p sourcebot-models organization_state_serializes_api_keys_for_persistence -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-models organization_state_defaults_api_keys_to_empty_on_deserialize -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-models -- --nocapture: passed (13 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays within the model-only API-key slice, matches the required OrganizationState/api_keys persistence shape, and found no blocking security or correctness issues
+    commit: c0170e5ded1d9ae31de8f464d8d848a082a3ca16
+    next_task: task30b
   - id: task29b2
     status: done
     summary: >-
