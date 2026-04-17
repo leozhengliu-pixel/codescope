@@ -65,6 +65,14 @@ struct HealthResponse {
     service: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+struct AuthenticatedApiKeyRecord {
+    api_key_id: String,
+    user_id: String,
+    repo_scope: Vec<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -521,7 +529,7 @@ async fn login_local_admin(
     ))
 }
 
-fn parse_local_session_bearer_token(headers: &HeaderMap) -> Result<(String, String), StatusCode> {
+fn parse_bearer_token_id_secret(headers: &HeaderMap) -> Result<(String, String), StatusCode> {
     let authorization = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -530,19 +538,19 @@ fn parse_local_session_bearer_token(headers: &HeaderMap) -> Result<(String, Stri
         .strip_prefix("Bearer ")
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let (session_id, session_secret) = token.split_once(':').ok_or(StatusCode::UNAUTHORIZED)?;
-    if session_id.is_empty() || session_secret.is_empty() || session_secret.contains(':') {
+    let (record_id, record_secret) = token.split_once(':').ok_or(StatusCode::UNAUTHORIZED)?;
+    if record_id.is_empty() || record_secret.is_empty() || record_secret.contains(':') {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    Ok((session_id.to_string(), session_secret.to_string()))
+    Ok((record_id.to_string(), record_secret.to_string()))
 }
 
 async fn authenticate_local_session_record(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<LocalSession, StatusCode> {
-    let (session_id, session_secret) = parse_local_session_bearer_token(headers)?;
+    let (session_id, session_secret) = parse_bearer_token_id_secret(headers)?;
     let session = state
         .local_sessions
         .local_session(&session_id)
@@ -560,6 +568,65 @@ async fn authenticate_local_session_record(
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     Ok(session)
+}
+
+#[allow(dead_code)]
+async fn authenticate_api_key_record(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AuthenticatedApiKeyRecord, StatusCode> {
+    let (api_key_id, api_key_secret) = parse_bearer_token_id_secret(headers)?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let api_key = organization_state
+        .api_keys
+        .iter()
+        .find(|api_key| api_key.id == api_key_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if !api_key_record_is_well_formed(api_key, &api_key_id) || api_key.revoked_at.is_some() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let secret_hash =
+        PasswordHash::new(&api_key.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    Argon2::default()
+        .verify_password(api_key_secret.as_bytes(), &secret_hash)
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let owning_account = organization_state
+        .accounts
+        .iter()
+        .find(|account| account.id == api_key.user_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if owning_account.id.trim().is_empty()
+        || owning_account.email.trim().is_empty()
+        || owning_account.name.trim().is_empty()
+        || owning_account.created_at.trim().is_empty()
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let visible_repo_ids: HashSet<String> =
+        visible_repo_ids_for_user(&organization_state, &owning_account.id)
+            .into_iter()
+            .collect();
+    let mut validated_repo_scope = Vec::with_capacity(api_key.repo_scope.len());
+    for repo_id in &api_key.repo_scope {
+        let trimmed_repo_id = repo_id.trim();
+        if trimmed_repo_id.is_empty() || !visible_repo_ids.contains(trimmed_repo_id) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        validated_repo_scope.push(trimmed_repo_id.to_string());
+    }
+
+    Ok(AuthenticatedApiKeyRecord {
+        api_key_id: api_key.id.clone(),
+        user_id: owning_account.id.clone(),
+        repo_scope: validated_repo_scope,
+    })
 }
 
 async fn authenticate_local_session(
@@ -764,6 +831,31 @@ fn local_session_record_is_well_formed(session: &LocalSession, expected_session_
     }
 
     PasswordHash::new(&session.secret_hash).is_ok()
+}
+
+#[allow(dead_code)]
+fn api_key_record_is_well_formed(
+    api_key: &sourcebot_models::ApiKey,
+    expected_api_key_id: &str,
+) -> bool {
+    if api_key.id != expected_api_key_id
+        || api_key.id.trim().is_empty()
+        || api_key.user_id.trim().is_empty()
+        || api_key.name.trim().is_empty()
+        || api_key.created_at.trim().is_empty()
+        || api_key
+            .revoked_at
+            .as_deref()
+            .is_some_and(|revoked_at| revoked_at.trim().is_empty())
+        || api_key
+            .repo_scope
+            .iter()
+            .any(|repo_id| repo_id.trim().is_empty())
+    {
+        return false;
+    }
+
+    PasswordHash::new(&api_key.secret_hash).is_ok()
 }
 
 async fn revoke_local_admin_session(
@@ -1775,6 +1867,54 @@ mod tests {
             .unwrap();
 
         format!("Bearer {session_id}:{session_secret}")
+    }
+
+    fn seeded_api_key(
+        id: &str,
+        user_id: &str,
+        name: &str,
+        secret: &str,
+        repo_scope: &[&str],
+    ) -> ApiKey {
+        ApiKey {
+            id: id.into(),
+            user_id: user_id.into(),
+            name: name.into(),
+            secret_hash: Argon2::default()
+                .hash_password(secret.as_bytes(), &SaltString::generate(&mut OsRng))
+                .unwrap()
+                .to_string(),
+            created_at: "2026-04-21T00:05:30Z".into(),
+            revoked_at: None,
+            repo_scope: repo_scope.iter().map(|repo_id| (*repo_id).into()).collect(),
+        }
+    }
+
+    fn bearer_headers(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, token.parse().unwrap());
+        headers
+    }
+
+    fn test_app_state_with_config(config: AppConfig) -> AppState {
+        build_app_state(
+            config,
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(
+                unique_test_path("api-key-helper-bootstrap")
+                    .display()
+                    .to_string(),
+            ),
+            build_local_session_store(
+                unique_test_path("api-key-helper-sessions")
+                    .display()
+                    .to_string(),
+            ),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        )
     }
 
     async fn ask_app_with_visible_repo_access(prefix: &str) -> (Router, String) {
@@ -3109,6 +3249,303 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_helper_resolves_active_key_and_validates_visible_scope() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-valid-orgs");
+        let user_id = "local_user_member";
+        let api_key_secret = "api-key-secret";
+        let mut state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:06:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_docs".into(),
+                    synced_at: "2026-04-21T00:06:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        state.api_keys.push(seeded_api_key(
+            "key_cli",
+            user_id,
+            "CLI key",
+            api_key_secret,
+            &["repo_docs", "repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let authenticated = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers(&format!("Bearer key_cli:{api_key_secret}")),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(authenticated.api_key_id, "key_cli");
+        assert_eq!(authenticated.user_id, user_id);
+        assert_eq!(
+            authenticated.repo_scope,
+            vec![
+                "repo_docs".to_string(),
+                "repo_sourcebot_rewrite".to_string()
+            ]
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_helper_allows_empty_repo_scope() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-empty-orgs");
+        let user_id = "local_user_member";
+        let api_key_secret = "api-key-secret-empty";
+        let mut state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        state.api_keys.push(seeded_api_key(
+            "key_empty_scope",
+            user_id,
+            "CLI key",
+            api_key_secret,
+            &[],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let authenticated = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers(&format!("Bearer key_empty_scope:{api_key_secret}")),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(authenticated.api_key_id, "key_empty_scope");
+        assert_eq!(authenticated.user_id, user_id);
+        assert!(authenticated.repo_scope.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_helper_fails_closed_when_scope_repo_is_no_longer_visible() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-hidden-orgs");
+        let user_id = "local_user_member";
+        let api_key_secret = "api-key-secret-hidden";
+        let mut state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        state.api_keys.push(seeded_api_key(
+            "key_hidden_scope",
+            user_id,
+            "CLI key",
+            api_key_secret,
+            &["repo_private"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let error = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers(&format!("Bearer key_hidden_scope:{api_key_secret}")),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_helper_fails_closed_for_invalid_persisted_hash() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-invalid-hash-orgs");
+        let user_id = "local_user_member";
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            api_keys: vec![ApiKey {
+                id: "key_invalid_hash".into(),
+                user_id: user_id.into(),
+                name: "CLI key".into(),
+                secret_hash: "not-a-valid-password-hash".into(),
+                created_at: "2026-04-21T00:05:30Z".into(),
+                revoked_at: None,
+                repo_scope: vec![],
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let error = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers("Bearer key_invalid_hash:any-secret"),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_helper_fails_closed_when_owner_account_is_missing() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-missing-account-orgs");
+        let user_id = "local_user_deleted";
+        let api_key_secret = "api-key-secret-missing-account";
+        let mut state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        state.api_keys.push(seeded_api_key(
+            "key_missing_account",
+            user_id,
+            "CLI key",
+            api_key_secret,
+            &[],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let error = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers(&format!("Bearer key_missing_account:{api_key_secret}")),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]
