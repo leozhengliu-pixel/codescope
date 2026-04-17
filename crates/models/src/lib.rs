@@ -224,6 +224,19 @@ pub struct ReviewWebhook {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReviewWebhookDeliveryAttempt {
+    pub id: String,
+    pub webhook_id: String,
+    pub organization_id: String,
+    pub connection_id: String,
+    pub repository_id: String,
+    pub event_type: String,
+    pub review_id: String,
+    pub external_event_id: String,
+    pub accepted_at: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -238,6 +251,8 @@ pub struct OrganizationState {
     pub api_keys: Vec<ApiKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub review_webhooks: Vec<ReviewWebhook>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_webhook_delivery_attempts: Vec<ReviewWebhookDeliveryAttempt>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub oauth_clients: Vec<OAuthClient>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -584,6 +599,7 @@ mod tests {
         assert!(state.invites.is_empty());
         assert!(state.api_keys.is_empty());
         assert!(state.review_webhooks.is_empty());
+        assert!(state.review_webhook_delivery_attempts.is_empty());
         assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
     }
 
@@ -642,6 +658,66 @@ mod tests {
         .unwrap();
 
         assert!(state.review_webhooks.is_empty());
+        assert!(state.review_webhook_delivery_attempts.is_empty());
+    }
+
+    #[test]
+    fn organization_state_serializes_review_webhook_delivery_attempts_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhook_delivery_attempts: vec![ReviewWebhookDeliveryAttempt {
+                id: "delivery_attempt_1".into(),
+                webhook_id: "webhook_review_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                event_type: "pull_request_review".into(),
+                review_id: "review_123".into(),
+                external_event_id: "evt_123".into(),
+                accepted_at: "2026-04-25T00:10:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "review_webhook_delivery_attempts": [{
+                    "id": "delivery_attempt_1",
+                    "webhook_id": "webhook_review_1",
+                    "organization_id": "org_acme",
+                    "connection_id": "conn_github",
+                    "repository_id": "repo_sourcebot_rewrite",
+                    "event_type": "pull_request_review",
+                    "review_id": "review_123",
+                    "external_event_id": "evt_123",
+                    "accepted_at": "2026-04-25T00:10:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_review_webhook_delivery_attempts_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.review_webhook_delivery_attempts.is_empty());
     }
 
     #[test]
@@ -804,6 +880,7 @@ mod tests {
                 created_by_user_id: "user_admin".into(),
                 created_at: "2026-04-23T10:00:00Z".into(),
             }],
+            review_webhook_delivery_attempts: Vec::new(),
             oauth_clients: Vec::new(),
             search_contexts: Vec::new(),
             audit_events: Vec::new(),

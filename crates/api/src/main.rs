@@ -30,7 +30,8 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, ReviewWebhook, SearchContext,
+    OrganizationState, RepositoryDetail, RepositorySummary, ReviewWebhook,
+    ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -1133,7 +1134,8 @@ async fn intake_review_webhook_event(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let organization_state = state
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
         .organization_store
         .organization_state()
         .await
@@ -1142,6 +1144,7 @@ async fn intake_review_webhook_event(
         .review_webhooks
         .iter()
         .find(|webhook| webhook.id == webhook_id)
+        .cloned()
     {
         webhook
     } else {
@@ -1149,7 +1152,7 @@ async fn intake_review_webhook_event(
         return Err(StatusCode::UNAUTHORIZED);
     };
 
-    verify_review_webhook_secret(webhook, &webhook_secret)?;
+    verify_review_webhook_secret(&webhook, &webhook_secret)?;
 
     let event_type = payload.event_type.trim();
     let connection_id = payload.connection_id.trim();
@@ -1184,6 +1187,32 @@ async fn intake_review_webhook_event(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
+
+    organization_state
+        .review_webhook_delivery_attempts
+        .push(ReviewWebhookDeliveryAttempt {
+            id: format!(
+                "delivery_attempt_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            webhook_id: webhook.id.clone(),
+            organization_id: webhook.organization_id.clone(),
+            connection_id: connection_id.to_string(),
+            repository_id: repository_id.to_string(),
+            event_type: event_type.to_string(),
+            review_id: review_id.to_string(),
+            external_event_id: external_event_id.to_string(),
+            accepted_at: current_timestamp(),
+        });
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok((
         StatusCode::ACCEPTED,
@@ -2782,6 +2811,7 @@ mod tests {
                 created_by_user_id: "user_admin".into(),
                 created_at: "2026-04-21T00:08:30Z".into(),
             }],
+            review_webhook_delivery_attempts: vec![],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -2818,6 +2848,7 @@ mod tests {
                 revoked_at: Some("2026-04-22T00:07:45Z".into()),
             }],
             review_webhooks: vec![],
+            review_webhook_delivery_attempts: vec![],
             search_contexts: vec![],
             audit_events: vec![],
             analytics_records: vec![],
@@ -5580,6 +5611,108 @@ mod tests {
         assert_eq!(payload.webhook_id, "review_webhook_1");
         assert_eq!(payload.event_type, "pull_request_review");
         assert!(payload.accepted);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.review_webhooks, state.review_webhooks);
+        assert_eq!(persisted.review_webhook_delivery_attempts.len(), 1);
+        let delivery_attempt = &persisted.review_webhook_delivery_attempts[0];
+        assert_eq!(delivery_attempt.webhook_id, "review_webhook_1");
+        assert_eq!(delivery_attempt.organization_id, "org_acme");
+        assert_eq!(delivery_attempt.connection_id, "conn_local");
+        assert_eq!(delivery_attempt.repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(delivery_attempt.event_type, "pull_request_review");
+        assert_eq!(delivery_attempt.review_id, "review_123");
+        assert_eq!(delivery_attempt.external_event_id, "evt_123");
+        assert!(!delivery_attempt.id.is_empty());
+        assert!(!delivery_attempt.accepted_at.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn review_webhook_events_append_delivery_attempts_without_overwriting_existing_entries() {
+        let organization_state_path = unique_test_path("review-webhook-events-append-orgs");
+        let secret_hash = Argon2::default()
+            .hash_password(b"expected-secret", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            review_webhook_delivery_attempts: vec![ReviewWebhookDeliveryAttempt {
+                id: "delivery_attempt_existing".into(),
+                webhook_id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                event_type: "pull_request_review".into(),
+                review_id: "review_existing".into(),
+                external_event_id: "evt_existing".into(),
+                accepted_at: "2026-04-25T00:04:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_1:expected-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.review_webhook_delivery_attempts.len(), 2);
+        assert_eq!(
+            persisted.review_webhook_delivery_attempts[0],
+            state.review_webhook_delivery_attempts[0]
+        );
+        let new_attempt = &persisted.review_webhook_delivery_attempts[1];
+        assert_eq!(new_attempt.review_id, "review_123");
+        assert_eq!(new_attempt.external_event_id, "evt_123");
+        assert_ne!(new_attempt.id, state.review_webhook_delivery_attempts[0].id);
 
         fs::remove_file(organization_state_path).unwrap();
     }
