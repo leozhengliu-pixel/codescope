@@ -5,38 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c91daf39f79381e2ba5347cc71619000e138f1c0
+  head: ee2b7337b7dce0fb0ca4ec84fac166820d30cb88
 last_completed_task:
-  id: task34a
-  title: OAuth client persistence model slice
+  id: task34b
+  title: Authenticated OAuth client listing endpoint
   status: done
   summary: >-
-    Split task34 and completed the first OAuth client flows slice by adding a
-    reusable OAuthClient shared model plus OrganizationState.oauth_clients
-    persistence-ready storage in sourcebot-models, then extending the real
-    file-backed organization-store and build_app_state regression coverage so
-    non-empty OAuth client data round-trips cleanly without adding routes,
-    token issuance, authorization endpoints, login via OAuth, or UI.
+    Completed the second OAuth client flows slice by adding a minimal
+    local-session-authenticated GET /api/v1/auth/oauth-clients endpoint that
+    returns only persisted OAuth clients for organizations visible to the caller,
+    preserves revoked clients and redirect URIs, and omits client_secret_hash
+    without adding client creation, token issuance, authorization code flows,
+    OAuth login, or UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models oauth_clients -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_oauth_clients -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_analytics_ -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the requested task34a slice and cleanly adds backward-compatible OAuth client persistence coverage without introducing routes, token flows, correctness issues, or security issues
-  commit: c91daf39f79381e2ba5347cc71619000e138f1c0
-  next_task: task34b
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal local-session-authenticated OAuth client listing slice, filters OrganizationState.oauth_clients by visible organizations, omits client_secret_hash, and does not add create/token/authorization-code/UI behavior
+    code: approved by one independent post-implementation review; reviewer confirmed the unstaged diff cleanly adds GET /api/v1/auth/oauth-clients with membership-scoped visibility filtering, exposes only the intended persisted fields, and found no blocking correctness or security issues
+  commit: ee2b7337b7dce0fb0ca4ec84fac166820d30cb88
+  next_task: task34c
 current_task:
-  id: task34b
-  title: Authenticated OAuth client listing endpoint
+  id: task34c
+  title: Authenticated OAuth client creation endpoint
   status: pending
   summary: >-
     Add the next smallest OAuth client flows slice by exposing a minimal
-    local-session-authenticated OAuth client listing endpoint scoped to the
-    caller's visible organizations, without creating clients, issuing tokens,
-    running authorization code flows, or adding UI.
+    local-session-authenticated OAuth client creation endpoint scoped to the
+    caller's visible organizations, persisting redirect URIs and a hashed client
+    secret without issuing tokens, running authorization code flows, adding OAuth
+    login, or adding UI.
 history:
+  - id: task34b
+    status: done
+    summary: >-
+      Completed the second OAuth client flows slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/oauth-clients endpoint that
+      returns only persisted OAuth clients for organizations visible to the caller,
+      preserves revoked clients and redirect URIs, and omits client_secret_hash
+      without adding client creation, token issuance, authorization code flows,
+      OAuth login, or UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_oauth_clients -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_analytics_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal local-session-authenticated OAuth client listing slice, filters OrganizationState.oauth_clients by visible organizations, omits client_secret_hash, and does not add create/token/authorization-code/UI behavior
+      code: approved by one independent post-implementation review; reviewer confirmed the unstaged diff cleanly adds GET /api/v1/auth/oauth-clients with membership-scoped visibility filtering, exposes only the intended persisted fields, and found no blocking correctness or security issues
+    commit: ee2b7337b7dce0fb0ca4ec84fac166820d30cb88
+    next_task: task34c
   - id: task34a
     status: done
     summary: >-
