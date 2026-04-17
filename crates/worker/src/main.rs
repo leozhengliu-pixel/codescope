@@ -12,13 +12,13 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let store = build_organization_store(config.organization_state_path.clone());
-    let failed_run = run_worker_tick(store.as_ref()).await?;
+    let terminal_run = run_worker_tick(store.as_ref()).await?;
 
-    match failed_run {
+    match terminal_run {
         Some(run) => info!(
             review_agent_run_id = %run.id,
             status = ?run.status,
-            "recorded review-agent run failure with stub worker execution"
+            "recorded review-agent run terminal status after stub worker execution"
         ),
         None => info!("no queued review-agent run available"),
     }
