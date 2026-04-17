@@ -739,7 +739,6 @@ mod tests {
             review_webhook_delivery_attempts: vec![ReviewWebhookDeliveryAttempt {
                 id: "delivery_attempt_1".into(),
                 webhook_id: "webhook_review_1".into(),
-                organization_id: "org_acme".into(),
                 connection_id: "conn_github".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 event_type: "pull_request_review".into(),

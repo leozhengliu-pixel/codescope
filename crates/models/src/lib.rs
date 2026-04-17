@@ -228,7 +228,6 @@ pub struct ReviewWebhook {
 pub struct ReviewWebhookDeliveryAttempt {
     pub id: String,
     pub webhook_id: String,
-    pub organization_id: String,
     pub connection_id: String,
     pub repository_id: String,
     pub event_type: String,
@@ -672,7 +671,6 @@ mod tests {
             review_webhook_delivery_attempts: vec![ReviewWebhookDeliveryAttempt {
                 id: "delivery_attempt_1".into(),
                 webhook_id: "webhook_review_1".into(),
-                organization_id: "org_acme".into(),
                 connection_id: "conn_github".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 event_type: "pull_request_review".into(),
@@ -694,7 +692,6 @@ mod tests {
                 "review_webhook_delivery_attempts": [{
                     "id": "delivery_attempt_1",
                     "webhook_id": "webhook_review_1",
-                    "organization_id": "org_acme",
                     "connection_id": "conn_github",
                     "repository_id": "repo_sourcebot_rewrite",
                     "event_type": "pull_request_review",

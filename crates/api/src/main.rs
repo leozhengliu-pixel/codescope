@@ -1134,8 +1134,7 @@ async fn intake_review_webhook_event(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-    let mut organization_state = state
+    let organization_state = state
         .organization_store
         .organization_state()
         .await
@@ -1188,6 +1187,25 @@ async fn intake_review_webhook_event(
         return Err(StatusCode::BAD_REQUEST);
     }
 
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    organization_state
+        .review_webhooks
+        .iter()
+        .find(|candidate| candidate.id == webhook_id)
+        .filter(|candidate| {
+            candidate.connection_id == webhook.connection_id
+                && candidate.repository_id == webhook.repository_id
+                && candidate.events == webhook.events
+                && candidate.secret_hash == webhook.secret_hash
+        })
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
     organization_state
         .review_webhook_delivery_attempts
         .push(ReviewWebhookDeliveryAttempt {
@@ -1200,7 +1218,6 @@ async fn intake_review_webhook_event(
                     .collect::<String>()
             ),
             webhook_id: webhook.id.clone(),
-            organization_id: webhook.organization_id.clone(),
             connection_id: connection_id.to_string(),
             repository_id: repository_id.to_string(),
             event_type: event_type.to_string(),
@@ -5618,7 +5635,6 @@ mod tests {
         assert_eq!(persisted.review_webhook_delivery_attempts.len(), 1);
         let delivery_attempt = &persisted.review_webhook_delivery_attempts[0];
         assert_eq!(delivery_attempt.webhook_id, "review_webhook_1");
-        assert_eq!(delivery_attempt.organization_id, "org_acme");
         assert_eq!(delivery_attempt.connection_id, "conn_local");
         assert_eq!(delivery_attempt.repository_id, "repo_sourcebot_rewrite");
         assert_eq!(delivery_attempt.event_type, "pull_request_review");
@@ -5656,7 +5672,6 @@ mod tests {
             review_webhook_delivery_attempts: vec![ReviewWebhookDeliveryAttempt {
                 id: "delivery_attempt_existing".into(),
                 webhook_id: "review_webhook_1".into(),
-                organization_id: "org_acme".into(),
                 connection_id: "conn_local".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 event_type: "pull_request_review".into(),
