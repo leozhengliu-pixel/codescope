@@ -148,6 +148,10 @@ fn build_router(
             "/api/v1/auth/api-keys",
             get(list_authenticated_api_keys).post(create_authenticated_api_key),
         )
+        .route(
+            "/api/v1/auth/api-keys/{api_key_id}/revoke",
+            post(revoke_authenticated_api_key),
+        )
         .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
@@ -698,6 +702,38 @@ async fn create_authenticated_api_key(
             repo_scope,
         }),
     ))
+}
+
+async fn revoke_authenticated_api_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(api_key_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let Some(api_key) = organization_state
+        .api_keys
+        .iter_mut()
+        .find(|api_key| api_key.id == api_key_id && api_key.user_id == session.user_id)
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if api_key.revoked_at.is_some() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    api_key.revoked_at = Some(current_timestamp());
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn logout_local_admin(
@@ -2975,6 +3011,101 @@ mod tests {
         let persisted: OrganizationState =
             serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
         assert!(persisted.api_keys.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_api_keys_revoke_marks_only_the_current_users_target_key_as_revoked() {
+        let organization_state_path = unique_test_path("auth-api-keys-revoke-orgs");
+        let local_session_state_path = unique_test_path("auth-api-keys-revoke-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            api_keys: vec![
+                ApiKey {
+                    id: "key_target".into(),
+                    user_id: user_id.into(),
+                    name: "Target key".into(),
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$target$key".into(),
+                    created_at: "2026-04-21T00:05:30Z".into(),
+                    revoked_at: None,
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                },
+                ApiKey {
+                    id: "key_other_users".into(),
+                    user_id: "local_user_other".into(),
+                    name: "Other user's key".into(),
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$other$user".into(),
+                    created_at: "2026-04-21T00:06:30Z".into(),
+                    revoked_at: None,
+                    repo_scope: vec![],
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys/key_target/revoke")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.api_keys.len(), 2);
+        let revoked_key = persisted
+            .api_keys
+            .iter()
+            .find(|api_key| api_key.id == "key_target")
+            .unwrap();
+        assert_eq!(revoked_key.user_id, user_id);
+        assert!(revoked_key.revoked_at.is_some());
+        assert!(
+            OffsetDateTime::parse(revoked_key.revoked_at.as_deref().unwrap(), &Rfc3339).is_ok()
+        );
+        let untouched_key = persisted
+            .api_keys
+            .iter()
+            .find(|api_key| api_key.id == "key_other_users")
+            .unwrap();
+        assert_eq!(untouched_key.revoked_at, None);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
