@@ -5,40 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b21db78183999f0a0f99436e2fa8c87651b39693
+  head: b46d4459b306750749d5b59d6e6fdfbf9fca9b66
 last_completed_task:
-  id: task30f
-  title: API key authentication helper
-  status: done
-  summary: >-
-    Completed the next smallest API-key slice by adding a reusable bearer
-    authentication helper that resolves persisted non-revoked
-    OrganizationState.api_keys secrets to a validated owning local account,
-    revalidates repo_scope against current repository visibility, and fails
-    closed for malformed hashes, missing accounts, and stale scope entries,
-    without yet wiring API-key auth across protected endpoints or broader key
-    management UI flows.
-  tests:
-    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_when_owner_account_is_missing -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api auth_api_key_helper_ -- --nocapture: passed (5 tests)
-    - cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (4 tests)
-    - cargo check -p sourcebot-api: passed
-    - cargo fmt --all --check: passed
-  review:
-    code: approved by one independent confirming post-implementation review after one fix; reviewer confirmed the helper now requires a minimally well-formed owning OrganizationState.accounts record before resolving an API key, revalidates repo scope against current visibility, stays within the helper-only task30f scope, and found no remaining blocking correctness or security issues
-  commit: b21db78183999f0a0f99436e2fa8c87651b39693
-  next_task: task30g
-current_task:
   id: task30g
   title: Search endpoint API key authentication
+  status: done
+  summary: >-
+    Completed the next smallest API-key slice by allowing GET /api/v1/search
+    to authenticate with the reusable API-key bearer helper, enforcing the
+    validated key repo_scope on both explicit repo_id requests and unscoped
+    search result filtering, while leaving browse, blob, ask, and broader
+    key-management flows unchanged.
+  tests:
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_api_key_ -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_ -- --nocapture: passed (10 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_key_helper_ -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+  review:
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to GET /api/v1/search API-key authentication, enforces validated repo_scope for both repo-scoped and unscoped searches, preserves local-session search behavior, and does not expand API-key auth to browse/blob/ask or broader key-management flows
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly limits API-key auth to the search endpoint, preserves fail-closed malformed/unauthorized behavior, and found no blocking correctness or security issues
+  commit: b46d4459b306750749d5b59d6e6fdfbf9fca9b66
+  next_task: task30h
+current_task:
+  id: task30h
+  title: Tree/blob endpoint API key authentication
   status: pending
   summary: >-
-    Split the remaining API-key roadmap work and complete the next smallest
-    slice by allowing GET /api/v1/search to authenticate through the reusable
-    API-key bearer helper, enforcing the key's validated repo_scope on both
-    repo-scoped and unscoped searches, without yet wiring API-key auth across
-    browse, ask, or broader key-management UI flows.
+    Split the remaining API-key roadmap work again and complete the next
+    smallest slice by allowing GET /api/v1/repos/{repo_id}/tree and
+    GET /api/v1/repos/{repo_id}/blob to authenticate through the reusable
+    API-key bearer helper, enforcing the key's validated repo_scope for visible
+    repositories without yet wiring API-key auth across ask or broader
+    key-management flows.
 history:
+  - id: task30g
+    status: done
+    summary: >-
+      Completed the next smallest API-key slice by allowing GET /api/v1/search
+      to authenticate with the reusable API-key bearer helper, enforcing the
+      validated key repo_scope on both explicit repo_id requests and unscoped
+      search result filtering, while leaving browse, blob, ask, and broader
+      key-management flows unchanged.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_api_key_ -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api search_ -- --nocapture: passed (10 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_key_helper_ -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to GET /api/v1/search API-key authentication, enforces validated repo_scope for both repo-scoped and unscoped searches, preserves local-session search behavior, and does not expand API-key auth to browse/blob/ask or broader key-management flows
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly limits API-key auth to the search endpoint, preserves fail-closed malformed/unauthorized behavior, and found no blocking correctness or security issues
+    commit: b46d4459b306750749d5b59d6e6fdfbf9fca9b66
+    next_task: task30h
   - id: task30f
     status: done
     summary: >-
