@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::{
-    claim_next_review_agent_run, complete_review_agent_run, BootstrapStore, LocalSessionStore,
-    OrganizationStore,
+    claim_next_review_agent_run, complete_review_agent_run, fail_review_agent_run, BootstrapStore,
+    LocalSessionStore, OrganizationStore,
 };
 use sourcebot_models::{
     BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
@@ -180,6 +180,14 @@ impl FileOrganizationStore {
     }
 }
 
+fn review_agent_run_status_rank(status: &ReviewAgentRunStatus) -> u8 {
+    match status {
+        ReviewAgentRunStatus::Queued => 0,
+        ReviewAgentRunStatus::Claimed => 1,
+        ReviewAgentRunStatus::Completed | ReviewAgentRunStatus::Failed => 2,
+    }
+}
+
 fn preserve_terminal_review_agent_runs(
     persisted_state: &OrganizationState,
     next_state: &mut OrganizationState,
@@ -187,7 +195,9 @@ fn preserve_terminal_review_agent_runs(
     for persisted_run in &persisted_state.review_agent_runs {
         if !matches!(
             persisted_run.status,
-            ReviewAgentRunStatus::Claimed | ReviewAgentRunStatus::Completed
+            ReviewAgentRunStatus::Claimed
+                | ReviewAgentRunStatus::Completed
+                | ReviewAgentRunStatus::Failed
         ) {
             continue;
         }
@@ -197,13 +207,13 @@ fn preserve_terminal_review_agent_runs(
             .iter_mut()
             .find(|run| run.id == persisted_run.id)
         {
-            match (&next_run.status, &persisted_run.status) {
-                (ReviewAgentRunStatus::Queued, ReviewAgentRunStatus::Claimed)
-                | (ReviewAgentRunStatus::Queued, ReviewAgentRunStatus::Completed)
-                | (ReviewAgentRunStatus::Claimed, ReviewAgentRunStatus::Completed) => {
-                    next_run.status = persisted_run.status.clone();
-                }
-                _ => {}
+            let persisted_rank = review_agent_run_status_rank(&persisted_run.status);
+            let next_rank = review_agent_run_status_rank(&next_run.status);
+            let persisted_terminal_mismatch =
+                persisted_rank == 2 && next_rank == 2 && next_run.status != persisted_run.status;
+
+            if persisted_rank > next_rank || persisted_terminal_mismatch {
+                next_run.status = persisted_run.status.clone();
             }
         }
     }
@@ -390,6 +400,22 @@ impl OrganizationStore for FileOrganizationStore {
         }
 
         Ok(completed_run)
+    }
+
+    async fn fail_review_agent_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        let failed_run = fail_review_agent_run(&mut state, run_id);
+
+        if failed_run.is_some() {
+            let payload = serde_json::to_vec_pretty(&state)?;
+            write_json_file(&self.state_path, &payload, true)?;
+        }
+
+        Ok(failed_run)
     }
 }
 
@@ -1044,6 +1070,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_organization_store_fails_a_claimed_review_agent_run() {
+        let path = unique_test_path("organization-fail-review-agent-run");
+        let store = FileOrganizationStore::new(&path);
+        let state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_claimed".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_claimed".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_claimed".into(),
+                status: ReviewAgentRunStatus::Claimed,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        store.store_organization_state(state).await.unwrap();
+
+        let failed_run = store
+            .fail_review_agent_run("run_claimed")
+            .await
+            .unwrap()
+            .expect("claimed run to be failed");
+
+        assert_eq!(failed_run.id, "run_claimed");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_claimed");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Failed
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn file_organization_store_preserves_completed_review_agent_run_when_stale_state_is_written(
     ) {
         let path = unique_test_path("organization-store-preserves-completed-review-agent-run");
@@ -1089,6 +1156,109 @@ mod tests {
         assert_eq!(
             persisted.review_agent_runs[0].status,
             ReviewAgentRunStatus::Completed
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_preserves_failed_review_agent_run_when_stale_state_is_written()
+    {
+        let path = unique_test_path("organization-store-preserves-failed-review-agent-run");
+        let writer_store = FileOrganizationStore::new(&path);
+        let worker_store = FileOrganizationStore::new(&path);
+        let initial_state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_claimed".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_claimed".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_claimed".into(),
+                status: ReviewAgentRunStatus::Claimed,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        writer_store
+            .store_organization_state(initial_state)
+            .await
+            .unwrap();
+
+        let stale_state = writer_store.organization_state().await.unwrap();
+
+        let failed_run = worker_store
+            .fail_review_agent_run("run_claimed")
+            .await
+            .unwrap()
+            .expect("claimed run to be failed");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
+
+        writer_store
+            .store_organization_state(stale_state)
+            .await
+            .unwrap();
+
+        let persisted = writer_store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_claimed");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Failed
+        );
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_preserves_persisted_failed_run_against_stale_completed_write()
+    {
+        let path = unique_test_path("organization-store-preserves-failed-over-completed");
+        let writer_store = FileOrganizationStore::new(&path);
+        let worker_store = FileOrganizationStore::new(&path);
+        let initial_state = OrganizationState {
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "run_terminal".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_terminal".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_terminal".into(),
+                status: ReviewAgentRunStatus::Claimed,
+                created_at: "2026-04-25T00:10:05Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        writer_store
+            .store_organization_state(initial_state)
+            .await
+            .unwrap();
+
+        let mut stale_state = writer_store.organization_state().await.unwrap();
+
+        let failed_run = worker_store
+            .fail_review_agent_run("run_terminal")
+            .await
+            .unwrap()
+            .expect("claimed run to be failed");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
+
+        stale_state.review_agent_runs[0].status = ReviewAgentRunStatus::Completed;
+        writer_store
+            .store_organization_state(stale_state)
+            .await
+            .unwrap();
+
+        let persisted = writer_store.organization_state().await.unwrap();
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        assert_eq!(persisted.review_agent_runs[0].id, "run_terminal");
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Failed
         );
 
         fs::remove_file(path).unwrap();

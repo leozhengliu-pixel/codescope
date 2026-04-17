@@ -10,7 +10,7 @@ pub async fn run_worker_tick(store: &dyn OrganizationStore) -> Result<Option<Rev
     };
 
     let stub_run = execute_claimed_review_agent_run_stub(claimed_run);
-    complete_review_agent_run_in_store(store, &stub_run.id).await
+    fail_review_agent_run_in_store(store, &stub_run.id).await
 }
 
 pub fn execute_claimed_review_agent_run_stub(run: ReviewAgentRun) -> ReviewAgentRun {
@@ -28,6 +28,13 @@ pub async fn complete_review_agent_run_in_store(
     run_id: &str,
 ) -> Result<Option<ReviewAgentRun>> {
     store.complete_review_agent_run(run_id).await
+}
+
+pub async fn fail_review_agent_run_in_store(
+    store: &dyn OrganizationStore,
+    run_id: &str,
+) -> Result<Option<ReviewAgentRun>> {
+    store.fail_review_agent_run(run_id).await
 }
 
 #[cfg(test)]
@@ -81,6 +88,11 @@ mod tests {
             Ok(sourcebot_core::complete_review_agent_run(
                 &mut state, run_id,
             ))
+        }
+
+        async fn fail_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::fail_review_agent_run(&mut state, run_id))
         }
     }
 
@@ -213,7 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_worker_tick_claims_a_queued_run_from_the_file_store() {
+    async fn run_worker_tick_records_a_failed_run_in_the_file_store_after_stub_execution() {
         let path = unique_test_path("worker-tick-file-store");
         let store = FileOrganizationStore::new(&path);
         store
@@ -235,13 +247,13 @@ mod tests {
             .await
             .unwrap();
 
-        let claimed_run = run_worker_tick(&store)
+        let failed_run = run_worker_tick(&store)
             .await
             .unwrap()
-            .expect("queued run to be completed");
+            .expect("queued run to be failed");
 
-        assert_eq!(claimed_run.id, "run_queued_oldest");
-        assert_eq!(claimed_run.status, ReviewAgentRunStatus::Completed);
+        assert_eq!(failed_run.id, "run_queued_oldest");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(
@@ -250,7 +262,7 @@ mod tests {
         );
         assert_eq!(
             persisted.review_agent_runs[1].status,
-            ReviewAgentRunStatus::Completed
+            ReviewAgentRunStatus::Failed
         );
 
         fs::remove_file(path).unwrap();
@@ -294,7 +306,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_worker_tick_completes_the_claimed_run_after_stub_execution() {
+    async fn run_worker_tick_fails_the_claimed_run_after_stub_execution() {
         let store = InMemoryOrganizationStore::new(OrganizationState {
             review_agent_runs: vec![
                 review_agent_run(
@@ -311,13 +323,13 @@ mod tests {
             ..OrganizationState::default()
         });
 
-        let completed_run = run_worker_tick(&store)
+        let failed_run = run_worker_tick(&store)
             .await
             .unwrap()
-            .expect("queued run to be completed");
+            .expect("queued run to be failed");
 
-        assert_eq!(completed_run.id, "run_queued_oldest");
-        assert_eq!(completed_run.status, ReviewAgentRunStatus::Completed);
+        assert_eq!(failed_run.id, "run_queued_oldest");
+        assert_eq!(failed_run.status, ReviewAgentRunStatus::Failed);
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(
@@ -326,7 +338,7 @@ mod tests {
         );
         assert_eq!(
             persisted.review_agent_runs[1].status,
-            ReviewAgentRunStatus::Completed
+            ReviewAgentRunStatus::Failed
         );
     }
 }
