@@ -5,38 +5,53 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c0170e5ded1d9ae31de8f464d8d848a082a3ca16
+  head: a1e2e796d7478fdd0517f5324244bd21604fdb24
 last_completed_task:
-  id: task30a
-  title: API key domain model
+  id: task30b
+  title: API key persistence wiring
   status: done
   summary: >-
-    Split task30 and completed the first API-key slice by adding a shared
-    persistence-ready ApiKey model plus OrganizationState.api_keys in
-    sourcebot-models, keeping the work limited to reusable domain data for
-    future create/list/revoke/auth flows without adding routes, stores, config,
-    app-state wiring, or permission enforcement yet.
+    Split task30 again and completed the next smallest API-key slice by
+    extending the existing file-backed organization-state persistence and
+    app-state regression coverage so populated OrganizationState.api_keys
+    round-trips cleanly through both paths, without adding API routes, request
+    auth, or key issuance/revocation behavior yet.
   tests:
-    - cargo test -p sourcebot-models organization_state_serializes_api_keys_for_persistence -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-models organization_state_defaults_api_keys_to_empty_on_deserialize -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-models -- --nocapture: passed (13 tests)
+    - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
     - cargo fmt --all --check: passed
     - cargo check: passed
   review:
-    code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays within the model-only API-key slice, matches the required OrganizationState/api_keys persistence shape, and found no blocking security or correctness issues
-  commit: c0170e5ded1d9ae31de8f464d8d848a082a3ca16
-  next_task: task30b
+    code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays test-only within the API-key persistence wiring slice, extends the required round-trip coverage through the file-backed organization store and app-state path, and found no blocking security or correctness issues
+  commit: a1e2e796d7478fdd0517f5324244bd21604fdb24
+  next_task: task30c
 current_task:
-  id: task30b
-  title: API key persistence wiring
+  id: task30c
+  title: API key listing endpoint
   status: pending
   summary: >-
-    Complete the next smallest API-key slice by extending the existing
-    file-backed organization-state persistence coverage so populated
-    OrganizationState.api_keys round-trips cleanly through the organization
-    store/app-state path, without adding API routes, request auth, or key
-    issuance/revocation behavior yet.
+    Complete the next smallest API-key slice by adding a minimal authenticated
+    API-key listing path backed by OrganizationState.api_keys for the current
+    local-session user, while keeping create/revoke mutations and broader policy
+    expansion for later slices.
 history:
+  - id: task30b
+    status: done
+    summary: >-
+      Split task30 again and completed the next smallest API-key slice by
+      extending the existing file-backed organization-state persistence and
+      app-state regression coverage so populated OrganizationState.api_keys
+      round-trips cleanly through both paths, without adding API routes,
+      request auth, or key issuance/revocation behavior yet.
+    tests:
+      - cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed (1 test)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+    review:
+      code: approved by one independent combined post-implementation review; reviewer confirmed the diff stays test-only within the API-key persistence wiring slice, extends the required round-trip coverage through the file-backed organization store and app-state path, and found no blocking security or correctness issues
+    commit: a1e2e796d7478fdd0517f5324244bd21604fdb24
+    next_task: task30c
   - id: task30a
     status: done
     summary: >-
