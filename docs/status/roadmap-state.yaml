@@ -5,34 +5,57 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ec3199a0a3566662cef2076d8a0ba52ece30c8cc
+  head: c91daf39f79381e2ba5347cc71619000e138f1c0
 last_completed_task:
-  id: task33b
-  title: Authenticated analytics listing endpoint
+  id: task34a
+  title: OAuth client persistence model slice
   status: done
   summary: >-
-    Completed the second analytics slice by adding a minimal local-session-authenticated
-    GET /api/v1/auth/analytics endpoint that returns only persisted analytics
-    records for organizations visible to the caller, without adding analytics
-    event emission, aggregation rollups, pagination, or dashboard UI.
+    Split task34 and completed the first OAuth client flows slice by adding a
+    reusable OAuthClient shared model plus OrganizationState.oauth_clients
+    persistence-ready storage in sourcebot-models, then extending the real
+    file-backed organization-store and build_app_state regression coverage so
+    non-empty OAuth client data round-trips cleanly without adding routes,
+    token issuance, authorization endpoints, login via OAuth, or UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_analytics_ -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models oauth_clients -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the new /api/v1/auth/analytics route stays scoped to the minimal read-only analytics listing slice, correctly filters persisted analytics_records to organizations visible to the authenticated local-session user, and found no blocking correctness or security issues
-  commit: ec3199a0a3566662cef2076d8a0ba52ece30c8cc
-  next_task: task34
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the requested task34a slice and cleanly adds backward-compatible OAuth client persistence coverage without introducing routes, token flows, correctness issues, or security issues
+  commit: c91daf39f79381e2ba5347cc71619000e138f1c0
+  next_task: task34b
 current_task:
-  id: task34
-  title: OAuth client flows
+  id: task34b
+  title: Authenticated OAuth client listing endpoint
   status: pending
   summary: >-
-    Start task34 by carving the broad OAuth client flows roadmap item into the
-    next smallest durable slice before implementation.
+    Add the next smallest OAuth client flows slice by exposing a minimal
+    local-session-authenticated OAuth client listing endpoint scoped to the
+    caller's visible organizations, without creating clients, issuing tokens,
+    running authorization code flows, or adding UI.
 history:
+  - id: task34a
+    status: done
+    summary: >-
+      Split task34 and completed the first OAuth client flows slice by adding a
+      reusable OAuthClient shared model plus OrganizationState.oauth_clients
+      persistence-ready storage in sourcebot-models, then extending the real
+      file-backed organization-store and build_app_state regression coverage so
+      non-empty OAuth client data round-trips cleanly without adding routes,
+      token issuance, authorization endpoints, login via OAuth, or UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models oauth_clients -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the requested task34a slice and cleanly adds backward-compatible OAuth client persistence coverage without introducing routes, token flows, correctness issues, or security issues
+    commit: c91daf39f79381e2ba5347cc71619000e138f1c0
+    next_task: task34b
   - id: task33b
     status: done
     summary: >-
