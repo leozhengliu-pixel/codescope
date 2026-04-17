@@ -171,7 +171,7 @@ fn build_router(
         .route("/api/v1/auth/analytics", get(list_authenticated_analytics))
         .route(
             "/api/v1/auth/review-webhooks",
-            get(list_authenticated_review_webhooks),
+            get(list_authenticated_review_webhooks).post(create_authenticated_review_webhook),
         )
         .route(
             "/api/v1/auth/oauth-clients",
@@ -390,6 +390,27 @@ struct CreateOAuthClientResponse {
     created_by_user_id: String,
     created_at: String,
     revoked_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateReviewWebhookRequest {
+    organization_id: String,
+    connection_id: String,
+    repository_id: String,
+    #[serde(default)]
+    events: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct CreateReviewWebhookResponse {
+    id: String,
+    organization_id: String,
+    connection_id: String,
+    repository_id: String,
+    events: Vec<String>,
+    secret: String,
+    created_by_user_id: String,
+    created_at: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1000,6 +1021,87 @@ async fn create_authenticated_oauth_client(
     ))
 }
 
+async fn create_authenticated_review_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateReviewWebhookRequest>,
+) -> Result<(StatusCode, Json<CreateReviewWebhookResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let organization_id = payload.organization_id.trim();
+    let connection_id = payload.connection_id.trim();
+    let repository_id = payload.repository_id.trim();
+    if organization_id.is_empty() || connection_id.is_empty() || repository_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !visible_organization_ids.contains(organization_id)
+        || !user_is_organization_admin(&organization_state, &session.user_id, organization_id)
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let mut events = Vec::with_capacity(payload.events.len());
+    for event in payload.events {
+        let trimmed_event = event.trim();
+        if trimmed_event.is_empty() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        events.push(trimmed_event.to_string());
+    }
+
+    let id = format!(
+        "review_webhook_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let secret = SaltString::generate(&mut OsRng).to_string();
+    let secret_hash = Argon2::default()
+        .hash_password(secret.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let created_at = current_timestamp();
+
+    organization_state.review_webhooks.push(ReviewWebhook {
+        id: id.clone(),
+        organization_id: organization_id.to_string(),
+        connection_id: connection_id.to_string(),
+        repository_id: repository_id.to_string(),
+        events: events.clone(),
+        secret_hash,
+        created_by_user_id: session.user_id.clone(),
+        created_at: created_at.clone(),
+    });
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateReviewWebhookResponse {
+            id,
+            organization_id: organization_id.to_string(),
+            connection_id: connection_id.to_string(),
+            repository_id: repository_id.to_string(),
+            events,
+            secret,
+            created_by_user_id: session.user_id,
+            created_at,
+        }),
+    ))
+}
+
 fn search_context_list_item_response(
     search_context: SearchContext,
     visible_repo_ids: &HashSet<String>,
@@ -1079,6 +1181,14 @@ fn visible_organization_ids_for_user(
 }
 
 fn user_can_create_oauth_client(
+    organization_state: &OrganizationState,
+    user_id: &str,
+    organization_id: &str,
+) -> bool {
+    user_is_organization_admin(organization_state, user_id, organization_id)
+}
+
+fn user_is_organization_admin(
     organization_state: &OrganizationState,
     user_id: &str,
     organization_id: &str,
@@ -2318,6 +2428,27 @@ mod tests {
         connection_id: String,
         repository_id: String,
         events: Vec<String>,
+        created_by_user_id: String,
+        created_at: String,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct CreateReviewWebhookRequestBody {
+        organization_id: String,
+        connection_id: String,
+        repository_id: String,
+        #[serde(default)]
+        events: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct CreateReviewWebhookResponseBody {
+        id: String,
+        organization_id: String,
+        connection_id: String,
+        repository_id: String,
+        events: Vec<String>,
+        secret: String,
         created_by_user_id: String,
         created_at: String,
     }
@@ -4959,6 +5090,247 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_persists_new_webhook_and_returns_plaintext_secret_once() {
+        let organization_state_path = unique_test_path("auth-review-webhooks-create-orgs");
+        let local_session_state_path = unique_test_path("auth-review-webhooks-create-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture_with_role(
+            &organization_state_path,
+            user_id,
+            OrganizationRole::Admin,
+            &[],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: " org_acme ".into(),
+                            connection_id: " conn_github_acme ".into(),
+                            repository_id: " repo_sourcebot_rewrite ".into(),
+                            events: vec![" pull_request ".into(), " pull_request_review ".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: CreateReviewWebhookResponseBody = serde_json::from_slice(&body).unwrap();
+        assert!(payload.id.starts_with("review_webhook_"));
+        assert_eq!(payload.organization_id, "org_acme");
+        assert_eq!(payload.connection_id, "conn_github_acme");
+        assert_eq!(payload.repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.events, vec!["pull_request", "pull_request_review"]);
+        assert!(!payload.secret.trim().is_empty());
+        assert_eq!(payload.created_by_user_id, user_id);
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("secret_hash").is_none());
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.review_webhooks.len(), 1);
+        let webhook = &persisted.review_webhooks[0];
+        assert_eq!(webhook.id, payload.id);
+        assert_eq!(webhook.organization_id, payload.organization_id);
+        assert_eq!(webhook.connection_id, payload.connection_id);
+        assert_eq!(webhook.repository_id, payload.repository_id);
+        assert_eq!(webhook.events, payload.events);
+        assert_eq!(webhook.created_by_user_id, payload.created_by_user_id);
+        assert_eq!(webhook.created_at, payload.created_at);
+        assert_ne!(webhook.secret_hash, payload.secret);
+        assert!(PasswordHash::new(&webhook.secret_hash).is_ok());
+        assert!(Argon2::default()
+            .verify_password(
+                payload.secret.as_bytes(),
+                &PasswordHash::new(&webhook.secret_hash).unwrap(),
+            )
+            .is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_rejects_viewer_membership() {
+        let organization_state_path = unique_test_path("auth-review-webhooks-viewer-orgs");
+        let local_session_state_path = unique_test_path("auth-review-webhooks-viewer-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(&organization_state_path, user_id, &[]);
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: "org_acme".into(),
+                            connection_id: "conn_github_acme".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            events: vec!["pull_request".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.review_webhooks.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_requires_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: "org_acme".into(),
+                            connection_id: "conn_github_acme".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            events: vec!["pull_request".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_rejects_non_visible_organization() {
+        let organization_state_path = unique_test_path("auth-review-webhooks-hidden-orgs");
+        let local_session_state_path = unique_test_path("auth-review-webhooks-hidden-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture(&organization_state_path, user_id, &[]);
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: "org_hidden".into(),
+                            connection_id: "conn_github_hidden".into(),
+                            repository_id: "repo_private".into(),
+                            events: vec!["pull_request".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.review_webhooks.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhooks_create_rejects_blank_required_fields() {
+        let organization_state_path = unique_test_path("auth-review-webhooks-invalid-orgs");
+        let local_session_state_path = unique_test_path("auth-review-webhooks-invalid-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture_with_role(
+            &organization_state_path,
+            user_id,
+            OrganizationRole::Admin,
+            &[],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/review-webhooks")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateReviewWebhookRequestBody {
+                            organization_id: "   ".into(),
+                            connection_id: "   ".into(),
+                            repository_id: "   ".into(),
+                            events: vec!["   ".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.review_webhooks.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
