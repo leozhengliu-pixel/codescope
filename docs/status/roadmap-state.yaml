@@ -5,40 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 024815815840d99ef446a516b56430d082014834
+  head: 7fa078550e42b81ba1cacaa97de827988b126a19
 last_completed_task:
-  id: task35b
-  title: Authenticated review webhook listing endpoint
+  id: task35c
+  title: Authenticated review webhook creation endpoint
   status: done
   summary: >-
     Completed the next review-agent / webhook automation slice by adding a
-    minimal local-session-authenticated GET /api/v1/auth/review-webhooks
-    endpoint that returns persisted review webhook configurations only for
-    organizations visible to the caller while omitting secret_hash, without
-    adding creation, inbound webhook execution, review-agent workflow behavior,
-    or UI.
+    minimal local-session-authenticated POST /api/v1/auth/review-webhooks
+    endpoint that requires admin membership in a visible organization, persists
+    a new review webhook with an Argon2-hashed secret, returns the plaintext
+    secret only once at creation time, and does not add inbound webhook
+    execution, review-agent workflow behavior, secret rotation, deletion, or UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_create -- --nocapture: passed (5 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (7 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35b local-session-authenticated review-webhook listing slice, filters persisted review_webhooks to organizations visible to the caller, omits secret_hash from the response, and does not add creation flows, inbound webhook execution, review-agent workflow behavior, UI, or unrelated auth changes
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds GET /api/v1/auth/review-webhooks with visible-organization filtering and secret_hash omission, and found no blocking correctness or security issues
-  commit: 024815815840d99ef446a516b56430d082014834
-  next_task: task35c
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35c local-session-authenticated review-webhook creation slice, requires admin membership in a visible organization, persists only secret_hash while returning the plaintext secret once, and does not add inbound webhook execution, secret rotation, deletion, review-agent workflow behavior, UI, or unrelated auth changes
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds authenticated admin-only review webhook creation with hashed secret persistence and one-time plaintext secret return, and found no blocking correctness or security issues
+  commit: 7fa078550e42b81ba1cacaa97de827988b126a19
+  next_task: task35d
 current_task:
-  id: task35c
+  id: task35d
   parent_task: task35
-  title: Authenticated review webhook creation endpoint
+  title: Verified inbound review webhook intake endpoint
   status: pending
   summary: >-
     Add the next smallest review-agent / webhook automation slice by exposing a
-    minimal local-session-authenticated POST /api/v1/auth/review-webhooks
-    endpoint that requires admin membership in a visible organization, persists
-    a new review webhook with a hashed secret, returns the plaintext secret only
-    once at creation time, and does not add inbound webhook execution,
-    review-agent workflow behavior, secret rotation, deletion, or UI.
+    minimal POST /api/v1/review-webhooks/{webhook_id}/events endpoint that
+    resolves persisted webhook configuration, verifies the supplied shared secret
+    against the stored secret_hash, accepts supported review-related webhook
+    event metadata for the configured repository, and returns an acknowledgement
+    without yet executing review agents, persisting delivery attempts, retries,
+    status UI, or secret rotation.
 history:
+  - id: task35c
+    status: done
+    summary: >-
+      Completed the next review-agent / webhook automation slice by adding a
+      minimal local-session-authenticated POST /api/v1/auth/review-webhooks
+      endpoint that requires admin membership in a visible organization,
+      persists a new review webhook with an Argon2-hashed secret, returns the
+      plaintext secret only once at creation time, and does not add inbound
+      webhook execution, review-agent workflow behavior, secret rotation,
+      deletion, or UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_create -- --nocapture: passed (5 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (7 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35c local-session-authenticated review-webhook creation slice, requires admin membership in a visible organization, persists only secret_hash while returning the plaintext secret once, and does not add inbound webhook execution, secret rotation, deletion, review-agent workflow behavior, UI, or unrelated auth changes
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds authenticated admin-only review webhook creation with hashed secret persistence and one-time plaintext secret return, and found no blocking correctness or security issues
+    commit: 7fa078550e42b81ba1cacaa97de827988b126a19
+    next_task: task35d
   - id: task35b
     status: done
     summary: >-
