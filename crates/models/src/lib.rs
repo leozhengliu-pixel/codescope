@@ -211,6 +211,19 @@ pub struct RepositoryPermissionBinding {
     pub synced_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReviewWebhook {
+    pub id: String,
+    pub organization_id: String,
+    pub connection_id: String,
+    pub repository_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<String>,
+    pub secret_hash: String,
+    pub created_by_user_id: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -223,6 +236,8 @@ pub struct OrganizationState {
     pub invites: Vec<OrganizationInvite>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_keys: Vec<ApiKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_webhooks: Vec<ReviewWebhook>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub oauth_clients: Vec<OAuthClient>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -568,7 +583,65 @@ mod tests {
         assert!(state.accounts.is_empty());
         assert!(state.invites.is_empty());
         assert!(state.api_keys.is_empty());
+        assert!(state.review_webhooks.is_empty());
         assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn organization_state_serializes_review_webhooks_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "webhook_review_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request".into(), "pull_request_review".into()],
+                secret_hash: "hashed-review-secret".into(),
+                created_by_user_id: "user_admin".into(),
+                created_at: "2026-04-23T10:00:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "review_webhooks": [{
+                    "id": "webhook_review_1",
+                    "organization_id": "org_acme",
+                    "connection_id": "conn_github",
+                    "repository_id": "repo_sourcebot_rewrite",
+                    "events": ["pull_request", "pull_request_review"],
+                    "secret_hash": "hashed-review-secret",
+                    "created_by_user_id": "user_admin",
+                    "created_at": "2026-04-23T10:00:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_review_webhooks_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.review_webhooks.is_empty());
     }
 
     #[test]
@@ -721,6 +794,16 @@ mod tests {
                 accepted_at: None,
             }],
             api_keys: Vec::new(),
+            review_webhooks: vec![ReviewWebhook {
+                id: "webhook_review_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request".into()],
+                secret_hash: "hashed-review-secret".into(),
+                created_by_user_id: "user_admin".into(),
+                created_at: "2026-04-23T10:00:00Z".into(),
+            }],
             oauth_clients: Vec::new(),
             search_contexts: Vec::new(),
             audit_events: Vec::new(),
@@ -756,6 +839,16 @@ mod tests {
                     "invited_by_user_id": "user_admin",
                     "created_at": "2026-04-16T20:05:00Z",
                     "expires_at": "2026-04-23T20:05:00Z"
+                }],
+                "review_webhooks": [{
+                    "id": "webhook_review_1",
+                    "organization_id": "org_acme",
+                    "connection_id": "conn_github",
+                    "repository_id": "repo_sourcebot_rewrite",
+                    "events": ["pull_request"],
+                    "secret_hash": "hashed-review-secret",
+                    "created_by_user_id": "user_admin",
+                    "created_at": "2026-04-23T10:00:00Z"
                 }]
             })
         );

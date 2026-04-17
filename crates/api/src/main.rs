@@ -2032,7 +2032,7 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState,
         OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-        OrganizationState, RepositoryPermissionBinding, SearchContext,
+        OrganizationState, RepositoryPermissionBinding, ReviewWebhook, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -2449,6 +2449,16 @@ mod tests {
                     "repo_id": "repo_sourcebot_rewrite"
                 }),
             }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "webhook_review_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request".into(), "pull_request_review".into()],
+                secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$review$hash".into(),
+                created_by_user_id: "user_admin".into(),
+                created_at: "2026-04-21T00:08:30Z".into(),
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -2484,6 +2494,7 @@ mod tests {
                 created_at: "2026-04-21T00:07:45Z".into(),
                 revoked_at: Some("2026-04-22T00:07:45Z".into()),
             }],
+            review_webhooks: vec![],
             search_contexts: vec![],
             audit_events: vec![],
             analytics_records: vec![],

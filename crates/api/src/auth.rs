@@ -309,7 +309,7 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, OAuthClient, Organization,
         OrganizationInvite, OrganizationMembership, OrganizationRole, RepositoryPermissionBinding,
-        SearchContext,
+        ReviewWebhook, SearchContext,
     };
     use std::{
         fs,
@@ -725,6 +725,16 @@ mod tests {
                 dimensions: serde_json::json!({
                     "source": "migration_seed"
                 }),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "webhook_review_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request".into()],
+                secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$review$hash".into(),
+                created_by_user_id: "local_user_bootstrap_admin".into(),
+                created_at: "2026-04-19T10:05:00Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
