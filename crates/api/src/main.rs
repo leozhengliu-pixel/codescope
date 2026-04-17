@@ -29,7 +29,7 @@ use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
     AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapState, BootstrapStatus,
-    LocalSession, RepositoryDetail, RepositorySummary,
+    LocalSession, RepositoryDetail, RepositorySummary, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -157,6 +157,10 @@ fn build_router(
             get(list_authenticated_api_keys).post(create_authenticated_api_key),
         )
         .route(
+            "/api/v1/auth/search-contexts",
+            get(list_authenticated_search_contexts),
+        )
+        .route(
             "/api/v1/auth/api-keys/{api_key_id}/revoke",
             post(revoke_authenticated_api_key),
         )
@@ -275,6 +279,15 @@ struct ApiKeyListItemResponse {
     name: String,
     created_at: String,
     revoked_at: Option<String>,
+    repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct SearchContextListItemResponse {
+    id: String,
+    name: String,
+    created_at: String,
+    updated_at: String,
     repo_scope: Vec<String>,
 }
 
@@ -693,6 +706,50 @@ async fn list_authenticated_api_keys(
             })
             .collect(),
     ))
+}
+
+async fn list_authenticated_search_contexts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<SearchContextListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_repo_ids: HashSet<String> =
+        visible_repo_ids_for_user(&organization_state, &session.user_id)
+            .into_iter()
+            .collect();
+
+    Ok(Json(
+        organization_state
+            .search_contexts
+            .into_iter()
+            .filter(|search_context| search_context.user_id == session.user_id)
+            .map(|search_context| {
+                search_context_list_item_response(search_context, &visible_repo_ids)
+            })
+            .collect(),
+    ))
+}
+
+fn search_context_list_item_response(
+    search_context: SearchContext,
+    visible_repo_ids: &HashSet<String>,
+) -> SearchContextListItemResponse {
+    SearchContextListItemResponse {
+        id: search_context.id,
+        name: search_context.name,
+        created_at: search_context.created_at,
+        updated_at: search_context.updated_at,
+        repo_scope: search_context
+            .repo_scope
+            .into_iter()
+            .filter(|repo_id| visible_repo_ids.contains(repo_id))
+            .collect(),
+    }
 }
 
 async fn create_authenticated_api_key(
@@ -1675,6 +1732,15 @@ mod tests {
         name: String,
         created_at: String,
         revoked_at: Option<String>,
+        repo_scope: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct SearchContextListItemResponseBody {
+        id: String,
+        name: String,
+        created_at: String,
+        updated_at: String,
         repo_scope: Vec<String>,
     }
 
@@ -3428,6 +3494,214 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_lists_only_current_users_contexts_without_user_id() {
+        let organization_state_path = unique_test_path("auth-search-contexts-orgs");
+        let local_session_state_path = unique_test_path("auth-search-contexts-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            search_contexts: vec![
+                SearchContext {
+                    id: "ctx_visible_backend".into(),
+                    user_id: user_id.into(),
+                    name: "Backend repos".into(),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    created_at: "2026-04-21T00:06:30Z".into(),
+                    updated_at: "2026-04-21T00:07:00Z".into(),
+                },
+                SearchContext {
+                    id: "ctx_visible_docs".into(),
+                    user_id: user_id.into(),
+                    name: "Docs repos".into(),
+                    repo_scope: vec![],
+                    created_at: "2026-04-21T00:08:30Z".into(),
+                    updated_at: "2026-04-21T00:09:00Z".into(),
+                },
+                SearchContext {
+                    id: "ctx_hidden_other_user".into(),
+                    user_id: "local_user_other".into(),
+                    name: "Other user's context".into(),
+                    repo_scope: vec!["repo_private".into()],
+                    created_at: "2026-04-21T00:10:30Z".into(),
+                    updated_at: "2026-04-21T00:11:00Z".into(),
+                },
+            ],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                synced_at: "2026-04-21T00:06:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/search-contexts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<SearchContextListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 2);
+        assert_eq!(payload[0].id, "ctx_visible_backend");
+        assert_eq!(payload[0].name, "Backend repos");
+        assert_eq!(payload[0].created_at, "2026-04-21T00:06:30Z");
+        assert_eq!(payload[0].updated_at, "2026-04-21T00:07:00Z");
+        assert_eq!(payload[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert_eq!(payload[1].id, "ctx_visible_docs");
+        assert_eq!(payload[1].name, "Docs repos");
+        assert_eq!(payload[1].created_at, "2026-04-21T00:08:30Z");
+        assert_eq!(payload[1].updated_at, "2026-04-21T00:09:00Z");
+        assert!(payload[1].repo_scope.is_empty());
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item.get("user_id").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_hide_stale_repo_ids_outside_current_visibility() {
+        let organization_state_path = unique_test_path("auth-search-contexts-hidden-repos-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-search-contexts-hidden-repos-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            search_contexts: vec![SearchContext {
+                id: "ctx_stale_scope".into(),
+                user_id: user_id.into(),
+                name: "Mixed visibility repos".into(),
+                repo_scope: vec![
+                    "repo_sourcebot_rewrite".into(),
+                    "repo_private".into(),
+                    "repo_docs".into(),
+                ],
+                created_at: "2026-04-21T00:06:30Z".into(),
+                updated_at: "2026-04-21T00:07:00Z".into(),
+            }],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-21T00:06:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_other".into(),
+                    repository_id: "repo_private".into(),
+                    synced_at: "2026-04-21T00:06:30Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/search-contexts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<SearchContextListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "ctx_stale_scope");
+        assert_eq!(payload[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/search-contexts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
