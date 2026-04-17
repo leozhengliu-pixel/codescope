@@ -5,38 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5b8c92bc95d87d387b088a7a98b79bd334629044
+  head: b21db78183999f0a0f99436e2fa8c87651b39693
 last_completed_task:
-  id: task30e
-  title: API key revocation endpoint
+  id: task30f
+  title: API key authentication helper
   status: done
   summary: >-
-    Completed the next smallest API-key slice by adding POST
-    /api/v1/auth/api-keys/{api_key_id}/revoke for the current local-session
-    user, marking only the caller-owned persisted OrganizationState.api_keys
-    record as revoked via revoked_at, and returning 204/404/500 responses
-    without yet adding API-key-based request authentication or broader key
+    Completed the next smallest API-key slice by adding a reusable bearer
+    authentication helper that resolves persisted non-revoked
+    OrganizationState.api_keys secrets to a validated owning local account,
+    revalidates repo_scope against current repository visibility, and fails
+    closed for malformed hashes, missing accounts, and stale scope entries,
+    without yet wiring API-key auth across protected endpoints or broader key
     management UI flows.
   tests:
-    - cargo test -p sourcebot-api auth_api_keys_revoke_marks_only_the_current_users_target_key_as_revoked -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_when_owner_account_is_missing -- --nocapture: passed (1 test)
+    - cargo test -p sourcebot-api auth_api_key_helper_ -- --nocapture: passed (5 tests)
     - cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (4 tests)
     - cargo check -p sourcebot-api: passed
     - cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly implements the scoped authenticated API-key revocation endpoint for the current user with focused persistence coverage, found no blocking security or correctness issues, and noted only non-blocking follow-ups for extra unauthenticated/forbidden/already-revoked regression tests
-  commit: 5b8c92bc95d87d387b088a7a98b79bd334629044
-  next_task: task30f
+    code: approved by one independent confirming post-implementation review after one fix; reviewer confirmed the helper now requires a minimally well-formed owning OrganizationState.accounts record before resolving an API key, revalidates repo scope against current visibility, stays within the helper-only task30f scope, and found no remaining blocking correctness or security issues
+  commit: b21db78183999f0a0f99436e2fa8c87651b39693
+  next_task: task30g
 current_task:
-  id: task30f
-  title: API key authentication helper
+  id: task30g
+  title: Search endpoint API key authentication
   status: pending
   summary: >-
     Split the remaining API-key roadmap work and complete the next smallest
-    slice by adding a reusable authentication helper that resolves persisted,
-    non-revoked OrganizationState.api_keys secrets to the owning local user and
-    validated repo scope, without yet wiring that helper across protected API
-    endpoints or expanding into broader key-management UI flows.
+    slice by allowing GET /api/v1/search to authenticate through the reusable
+    API-key bearer helper, enforcing the key's validated repo_scope on both
+    repo-scoped and unscoped searches, without yet wiring API-key auth across
+    browse, ask, or broader key-management UI flows.
 history:
+  - id: task30f
+    status: done
+    summary: >-
+      Completed the next smallest API-key slice by adding a reusable bearer
+      authentication helper that resolves persisted non-revoked
+      OrganizationState.api_keys secrets to a validated owning local account,
+      revalidates repo_scope against current repository visibility, and fails
+      closed for malformed hashes, missing accounts, and stale scope entries,
+      without yet wiring API-key auth across protected endpoints or broader key
+      management UI flows.
+    tests:
+      - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_when_owner_account_is_missing -- --nocapture: passed (1 test)
+      - cargo test -p sourcebot-api auth_api_key_helper_ -- --nocapture: passed (5 tests)
+      - cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (4 tests)
+      - cargo check -p sourcebot-api: passed
+      - cargo fmt --all --check: passed
+    review:
+      code: approved by one independent confirming post-implementation review after one fix; reviewer confirmed the helper now requires a minimally well-formed owning OrganizationState.accounts record before resolving an API key, revalidates repo scope against current visibility, stays within the helper-only task30f scope, and found no remaining blocking correctness or security issues
+    commit: b21db78183999f0a0f99436e2fa8c87651b39693
+    next_task: task30g
   - id: task30e
     status: done
     summary: >-
