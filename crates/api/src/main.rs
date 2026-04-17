@@ -39,6 +39,7 @@ use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use storage::{build_catalog_store, DynCatalogStore};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::info;
@@ -50,6 +51,7 @@ struct AppState {
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
     organization_store: DynOrganizationStore,
+    organization_state_write_lock: Arc<tokio::sync::Mutex<()>>,
     browse: DynBrowseStore,
     commits: DynCommitStore,
     search: DynSearchStore,
@@ -128,6 +130,7 @@ fn build_app_state(
         bootstrap,
         local_sessions,
         organization_store,
+        organization_state_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         browse,
         commits,
         search,
@@ -849,6 +852,100 @@ fn audit_event_organization_ids_for_api_key(
     organization_ids
 }
 
+fn append_local_session_audit_event(
+    organization_state: &mut OrganizationState,
+    user_id: &str,
+    action: &str,
+    target_session_id: &str,
+    occurred_at: &str,
+    metadata: serde_json::Value,
+) -> bool {
+    let mut organization_ids: Vec<String> =
+        visible_organization_ids_for_user(organization_state, user_id)
+            .into_iter()
+            .collect();
+    if organization_ids.is_empty() {
+        return false;
+    }
+
+    organization_ids.sort();
+    for organization_id in organization_ids {
+        organization_state.audit_events.push(AuditEvent {
+            id: format!(
+                "audit_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id,
+            actor: AuditActor {
+                user_id: Some(user_id.to_string()),
+                api_key_id: None,
+            },
+            action: action.to_string(),
+            target_type: "session".into(),
+            target_id: target_session_id.to_string(),
+            occurred_at: occurred_at.to_string(),
+            metadata: metadata.clone(),
+        });
+    }
+
+    true
+}
+
+async fn delete_local_session_with_audit(
+    state: &AppState,
+    session_to_delete: &LocalSession,
+    actor_user_id: &str,
+    action: &str,
+    metadata: serde_json::Value,
+) -> Result<(), StatusCode> {
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let occurred_at = current_timestamp();
+    let should_persist_audit_event = append_local_session_audit_event(
+        &mut organization_state,
+        actor_user_id,
+        action,
+        &session_to_delete.id,
+        &occurred_at,
+        metadata,
+    );
+
+    let deleted = state
+        .local_sessions
+        .delete_local_session(&session_to_delete.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !deleted {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    if !should_persist_audit_event {
+        return Ok(());
+    }
+
+    if let Err(_) = state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+    {
+        state
+            .local_sessions
+            .store_local_session(session_to_delete.clone())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(())
+}
+
 fn append_api_key_audit_event(
     organization_state: &mut OrganizationState,
     user_id: &str,
@@ -895,6 +992,7 @@ async fn create_authenticated_api_key(
     Json(payload): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<CreateApiKeyResponse>), StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
     let mut organization_state = state
         .organization_store
         .organization_state()
@@ -984,6 +1082,7 @@ async fn revoke_authenticated_api_key(
     Path(api_key_id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
     let mut organization_state = state
         .organization_store
         .organization_state()
@@ -1031,15 +1130,14 @@ async fn logout_local_admin(
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
     let (_, session) = authenticate_local_session(&state, &headers).await?;
-    let deleted = state
-        .local_sessions
-        .delete_local_session(&session.id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !deleted {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    delete_local_session_with_audit(
+        &state,
+        &session,
+        &session.user_id,
+        "auth.logout",
+        serde_json::json!({}),
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1105,15 +1203,14 @@ async fn revoke_local_admin_session(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let deleted = state
-        .local_sessions
-        .delete_local_session(target_session_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if !deleted {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
+    delete_local_session_with_audit(
+        &state,
+        &target_session,
+        &authenticated_session.user_id,
+        "auth.session.revoked",
+        serde_json::json!({}),
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1711,7 +1808,7 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use serde::{Deserialize, Serialize};
-    use sourcebot_core::{AskThreadStore, BootstrapStore};
+    use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
         ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState, Organization,
         OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
@@ -2310,6 +2407,81 @@ mod tests {
 
     #[derive(Debug)]
     struct AlreadyInitializedBootstrapStore;
+
+    #[derive(Debug)]
+    struct FailingOrganizationStore {
+        state: std::sync::Mutex<OrganizationState>,
+        fail_reads: bool,
+        fail_writes: bool,
+    }
+
+    impl FailingOrganizationStore {
+        fn readable(state: OrganizationState, fail_writes: bool) -> Self {
+            Self {
+                state: std::sync::Mutex::new(state),
+                fail_reads: false,
+                fail_writes,
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct CoordinatedOrganizationStore {
+        state: std::sync::Mutex<OrganizationState>,
+        initial_read_barrier: Arc<tokio::sync::Barrier>,
+        initial_read_count: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CoordinatedOrganizationStore {
+        fn new(state: OrganizationState) -> Self {
+            Self {
+                state: std::sync::Mutex::new(state),
+                initial_read_barrier: Arc::new(tokio::sync::Barrier::new(2)),
+                initial_read_count: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl OrganizationStore for FailingOrganizationStore {
+        async fn organization_state(&self) -> anyhow::Result<OrganizationState> {
+            if self.fail_reads {
+                return Err(anyhow::anyhow!("organization-state read failed"));
+            }
+
+            Ok(self.state.lock().unwrap().clone())
+        }
+
+        async fn store_organization_state(&self, state: OrganizationState) -> anyhow::Result<()> {
+            if self.fail_writes {
+                return Err(anyhow::anyhow!("organization-state write failed"));
+            }
+
+            *self.state.lock().unwrap() = state;
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl OrganizationStore for CoordinatedOrganizationStore {
+        async fn organization_state(&self) -> anyhow::Result<OrganizationState> {
+            let snapshot = self.state.lock().unwrap().clone();
+            if self.initial_read_count.fetch_add(1, Ordering::SeqCst) < 2 {
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(100),
+                    self.initial_read_barrier.wait(),
+                )
+                .await;
+            }
+
+            Ok(snapshot)
+        }
+
+        async fn store_organization_state(&self, state: OrganizationState) -> anyhow::Result<()> {
+            *self.state.lock().unwrap() = state;
+            Ok(())
+        }
+    }
 
     #[async_trait]
     impl BootstrapStore for AlreadyInitializedBootstrapStore {
@@ -5121,6 +5293,128 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn logout_persists_audit_event_for_visible_organizations() {
+        let organization_state_path = unique_test_path("logout-audit-orgs");
+        let bootstrap_state_path = unique_test_path("logout-audit-bootstrap");
+        let local_session_state_path = unique_test_path("logout-audit-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                organizations: vec![
+                    Organization {
+                        id: "org_visible".into(),
+                        slug: "visible".into(),
+                        name: "Visible".into(),
+                    },
+                    Organization {
+                        id: "org_hidden".into(),
+                        slug: "hidden".into(),
+                        name: "Hidden".into(),
+                    },
+                ],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_visible".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let logout_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(logout_response.status(), StatusCode::NO_CONTENT);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.audit_events.len(), 1);
+        let audit_event = &persisted.audit_events[0];
+        assert_eq!(audit_event.organization_id, "org_visible");
+        assert_eq!(
+            audit_event.actor.user_id.as_deref(),
+            Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        );
+        assert_eq!(audit_event.actor.api_key_id, None);
+        assert_eq!(audit_event.action, "auth.logout");
+        assert_eq!(audit_event.target_type, "session");
+        assert_eq!(audit_event.target_id, login_payload.session_id);
+        assert_eq!(audit_event.metadata, serde_json::json!({}));
+        assert!(OffsetDateTime::parse(&audit_event.occurred_at, &Rfc3339).is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn logout_returns_401_for_missing_or_malformed_authorization() {
         let missing_auth_response = test_app()
             .clone()
@@ -5458,6 +5752,719 @@ mod tests {
 
         fs::remove_file(bootstrap_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revoke_persists_audit_event_for_visible_organizations() {
+        let organization_state_path = unique_test_path("revoke-audit-orgs");
+        let bootstrap_state_path = unique_test_path("revoke-audit-bootstrap");
+        let local_session_state_path = unique_test_path("revoke-audit-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                organizations: vec![
+                    Organization {
+                        id: "org_visible".into(),
+                        slug: "visible".into(),
+                        name: "Visible".into(),
+                    },
+                    Organization {
+                        id: "org_hidden".into(),
+                        slug: "hidden".into(),
+                        name: "Hidden".into(),
+                    },
+                ],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_visible".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let auth_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(auth_login_response.status(), StatusCode::CREATED);
+        let auth_login_payload: LoginResponseBody = read_json(auth_login_response).await;
+
+        let target_login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(target_login_response.status(), StatusCode::CREATED);
+        let target_login_payload: LoginResponseBody = read_json(target_login_response).await;
+
+        let revoke_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: target_login_payload.session_id.clone(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(revoke_response.status(), StatusCode::NO_CONTENT);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.audit_events.len(), 1);
+        let audit_event = &persisted.audit_events[0];
+        assert_eq!(audit_event.organization_id, "org_visible");
+        assert_eq!(
+            audit_event.actor.user_id.as_deref(),
+            Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        );
+        assert_eq!(audit_event.actor.api_key_id, None);
+        assert_eq!(audit_event.action, "auth.session.revoked");
+        assert_eq!(audit_event.target_type, "session");
+        assert_eq!(audit_event.target_id, target_login_payload.session_id);
+        assert_eq!(audit_event.metadata, serde_json::json!({}));
+        assert!(OffsetDateTime::parse(&audit_event.occurred_at, &Rfc3339).is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn concurrent_local_session_audit_mutations_preserve_both_events() {
+        let local_session_state_path = unique_test_path("concurrent-local-session-audit-sessions");
+        let initial_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_visible".into(),
+                slug: "visible".into(),
+                name: "Visible".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_visible".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        let mut state = test_app_state_with_config(AppConfig {
+            organization_state_path: unique_test_path("concurrent-local-session-audit-orgs")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+        state.organization_store = Arc::new(CoordinatedOrganizationStore::new(initial_state));
+
+        let logout_session_id = "logout-session";
+        let revoke_session_id = "revoke-session";
+        for session_id in [logout_session_id, revoke_session_id] {
+            state
+                .local_sessions
+                .store_local_session(LocalSession {
+                    id: session_id.into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    secret_hash: Argon2::default()
+                        .hash_password(b"session-secret", &SaltString::generate(&mut OsRng))
+                        .unwrap()
+                        .to_string(),
+                    created_at: "2026-04-21T00:07:00Z".into(),
+                })
+                .await
+                .unwrap();
+        }
+
+        let logout_session = state
+            .local_sessions
+            .local_session(logout_session_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let revoke_session = state
+            .local_sessions
+            .local_session(revoke_session_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let (logout_result, revoke_result) = tokio::join!(
+            delete_local_session_with_audit(
+                &state,
+                &logout_session,
+                LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+                "auth.logout",
+                serde_json::json!({}),
+            ),
+            delete_local_session_with_audit(
+                &state,
+                &revoke_session,
+                LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+                "auth.session.revoked",
+                serde_json::json!({}),
+            )
+        );
+        assert_eq!(logout_result, Ok(()));
+        assert_eq!(revoke_result, Ok(()));
+
+        let persisted = state.organization_store.organization_state().await.unwrap();
+        assert_eq!(persisted.audit_events.len(), 2);
+        let actions: std::collections::HashSet<&str> = persisted
+            .audit_events
+            .iter()
+            .map(|event| event.action.as_str())
+            .collect();
+        assert_eq!(
+            actions,
+            std::collections::HashSet::from(["auth.logout", "auth.session.revoked"])
+        );
+
+        let _ = fs::remove_file(local_session_state_path);
+    }
+
+    #[tokio::test]
+    async fn logout_and_revoke_failure_paths_do_not_persist_audit_events() {
+        let organization_state_path = unique_test_path("local-session-audit-failure-orgs");
+        let bootstrap_state_path = unique_test_path("local-session-audit-failure-bootstrap");
+        let local_session_state_path = unique_test_path("local-session-audit-failure-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let logout_response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logout_response.status(), StatusCode::UNAUTHORIZED);
+
+        let revoke_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(b"{}".to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoke_response.status(), StatusCode::BAD_REQUEST);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.audit_events.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn logout_and_revoke_do_not_require_audit_persistence_without_visible_organizations() {
+        let logout_org_state_path = unique_test_path("logout-no-visible-orgs-dir");
+        let logout_bootstrap_state_path = unique_test_path("logout-no-visible-orgs-bootstrap");
+        let logout_local_session_state_path = unique_test_path("logout-no-visible-orgs-sessions");
+        let revoke_org_state_path = unique_test_path("revoke-no-visible-orgs-dir");
+        let revoke_bootstrap_state_path = unique_test_path("revoke-no-visible-orgs-bootstrap");
+        let revoke_local_session_state_path = unique_test_path("revoke-no-visible-orgs-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let bootstrap_state_payload = serde_json::to_vec(&BootstrapStateResponse {
+            initialized_at: "2026-04-16T17:00:00Z".into(),
+            admin_email: "admin@example.com".into(),
+            admin_name: "Admin User".into(),
+            password_hash,
+        })
+        .unwrap();
+        fs::create_dir(&logout_org_state_path).unwrap();
+        fs::create_dir(&revoke_org_state_path).unwrap();
+        fs::write(&logout_bootstrap_state_path, &bootstrap_state_payload).unwrap();
+        fs::write(&revoke_bootstrap_state_path, &bootstrap_state_payload).unwrap();
+
+        let logout_app = test_app_with_config(AppConfig {
+            organization_state_path: logout_org_state_path.display().to_string(),
+            bootstrap_state_path: logout_bootstrap_state_path.display().to_string(),
+            local_session_state_path: logout_local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+        let revoke_app = test_app_with_config(AppConfig {
+            organization_state_path: revoke_org_state_path.display().to_string(),
+            bootstrap_state_path: revoke_bootstrap_state_path.display().to_string(),
+            local_session_state_path: revoke_local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let logout_login_response = logout_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logout_login_response.status(), StatusCode::CREATED);
+        let logout_login_payload: LoginResponseBody = read_json(logout_login_response).await;
+
+        let logout_response = logout_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            logout_login_payload.session_id, logout_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logout_response.status(), StatusCode::NO_CONTENT);
+
+        let revoked_me_response = logout_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            logout_login_payload.session_id, logout_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoked_me_response.status(), StatusCode::UNAUTHORIZED);
+
+        let auth_login_response = revoke_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(auth_login_response.status(), StatusCode::CREATED);
+        let auth_login_payload: LoginResponseBody = read_json(auth_login_response).await;
+
+        let target_login_response = revoke_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(target_login_response.status(), StatusCode::CREATED);
+        let target_login_payload: LoginResponseBody = read_json(target_login_response).await;
+
+        let revoke_response = revoke_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/revoke")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            auth_login_payload.session_id, auth_login_payload.session_secret
+                        ),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&RevokeRequest {
+                            session_id: target_login_payload.session_id.clone(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoke_response.status(), StatusCode::NO_CONTENT);
+
+        let revoked_target_me_response = revoke_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        "authorization",
+                        format!(
+                            "Bearer {}:{}",
+                            target_login_payload.session_id, target_login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            revoked_target_me_response.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        fs::remove_dir(logout_org_state_path).unwrap();
+        fs::remove_file(logout_bootstrap_state_path).unwrap();
+        fs::remove_file(logout_local_session_state_path).unwrap();
+        fs::remove_dir(revoke_org_state_path).unwrap();
+        fs::remove_file(revoke_bootstrap_state_path).unwrap();
+        fs::remove_file(revoke_local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn logout_returns_500_when_audit_persistence_fails_for_visible_organizations() {
+        let config = AppConfig {
+            organization_state_path: unique_test_path("logout-write-failure-orgs")
+                .display()
+                .to_string(),
+            bootstrap_state_path: unique_test_path("logout-write-failure-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("logout-write-failure-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        fs::write(
+            &config.bootstrap_state_path,
+            serde_json::to_vec(&BootstrapState {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash: "$argon2id$example".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let mut state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+        state.organization_store = Arc::new(FailingOrganizationStore::readable(
+            OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_visible".into(),
+                    slug: "visible".into(),
+                    name: "Visible".into(),
+                }],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_visible".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            },
+            true,
+        ));
+        let authorization = seed_local_session(
+            &config.local_session_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+        )
+        .await;
+
+        let response =
+            logout_local_admin(State(state.clone()), bearer_headers(&authorization)).await;
+        assert_eq!(response, Err(StatusCode::INTERNAL_SERVER_ERROR));
+
+        let token = authorization.trim_start_matches("Bearer ");
+        let (session_id, _) = token.split_once(':').unwrap();
+        assert!(state
+            .local_sessions
+            .local_session(session_id)
+            .await
+            .unwrap()
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn revoke_returns_500_when_audit_persistence_fails_for_visible_organizations() {
+        let config = AppConfig {
+            organization_state_path: unique_test_path("revoke-write-failure-orgs")
+                .display()
+                .to_string(),
+            bootstrap_state_path: unique_test_path("revoke-write-failure-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("revoke-write-failure-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        fs::write(
+            &config.bootstrap_state_path,
+            serde_json::to_vec(&BootstrapState {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash: "$argon2id$example".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let mut state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+        state.organization_store = Arc::new(FailingOrganizationStore::readable(
+            OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_visible".into(),
+                    slug: "visible".into(),
+                    name: "Visible".into(),
+                }],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_visible".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            },
+            true,
+        ));
+        let authorization = seed_local_session(
+            &config.local_session_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+        )
+        .await;
+        let target_session_id = "seeded_session_target_for_revoke".to_string();
+        let target_secret_hash = Argon2::default()
+            .hash_password(
+                b"secret_for_target_for_revoke",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        state
+            .local_sessions
+            .store_local_session(LocalSession {
+                id: target_session_id.clone(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                secret_hash: target_secret_hash,
+                created_at: "2026-04-21T00:08:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        let response = revoke_local_admin_session(
+            State(state.clone()),
+            bearer_headers(&authorization),
+            Json(RevokeLocalSessionBody {
+                session_id: target_session_id.clone(),
+            }),
+        )
+        .await;
+        assert_eq!(response, Err(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(state
+            .local_sessions
+            .local_session(&target_session_id)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
