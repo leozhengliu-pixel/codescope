@@ -1272,12 +1272,35 @@ async fn visible_search_repo_ids_for_request(
     }
 }
 
+async fn visible_browse_repo_ids_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<HashSet<String>, StatusCode> {
+    match authenticate_api_key_record(state, headers).await {
+        Ok(authenticated_api_key) => {
+            let visible_repo_ids =
+                visible_repo_ids_for_user_id(state, &authenticated_api_key.user_id).await?;
+            if authenticated_api_key.repo_scope.is_empty() {
+                return Ok(visible_repo_ids);
+            }
+
+            Ok(authenticated_api_key
+                .repo_scope
+                .into_iter()
+                .filter(|repo_id| visible_repo_ids.contains(repo_id))
+                .collect())
+        }
+        Err(StatusCode::UNAUTHORIZED) => visible_repo_ids_for_request(state, headers).await,
+        Err(status) => Err(status),
+    }
+}
+
 async fn ensure_repo_visible_for_request(
     state: &AppState,
     headers: &HeaderMap,
     repo_id: &str,
 ) -> Result<(), StatusCode> {
-    let visible_repo_ids = visible_repo_ids_for_request(state, headers).await?;
+    let visible_repo_ids = visible_browse_repo_ids_for_request(state, headers).await?;
     if !visible_repo_ids.contains(repo_id) {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -4351,6 +4374,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repo_tree_api_key_allows_repo_within_explicit_scope() {
+        let organization_state_path = unique_test_path("repo-tree-api-key-scoped-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "repo-tree-api-key-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_repo_tree_scoped",
+            user_id,
+            "Repo tree scoped key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-api-key-scoped-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-api-key-scoped-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_repo_tree_scoped:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: TreeResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.path, "");
+        assert!(payload.entries.iter().any(|entry| {
+            entry.name == "Cargo.toml" && entry.path == "Cargo.toml" && entry.kind == "file"
+        }));
+    }
+
+    #[tokio::test]
+    async fn repo_tree_api_key_rejects_malformed_bearer_tokens() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree")
+                    .header(header::AUTHORIZATION, "Bearer malformed-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn repo_tree_returns_not_found_for_hidden_repository() {
         let organization_state_path = unique_test_path("repo-tree-hidden-orgs");
         write_organization_state_fixture(
@@ -4471,6 +4569,116 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_api_key_returns_not_found_for_repo_outside_scope_even_when_owner_can_see_it()
+    {
+        let organization_state_path = unique_test_path("repo-blob-api-key-hidden-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "repo-blob-api-key-hidden-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_repo_blob_limited",
+            user_id,
+            "Repo blob limited key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-api-key-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-api-key-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_docs/blob?path=README.md")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_repo_blob_limited:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_api_key_inherits_owner_visible_repos_when_scope_is_empty() {
+        let organization_state_path = unique_test_path("repo-blob-api-key-empty-scope-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "repo-blob-api-key-empty-scope-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_repo_blob_empty_scope",
+            user_id,
+            "Repo blob empty-scope key",
+            api_key_secret,
+            &[],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-api-key-empty-scope-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-api-key-empty-scope-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_repo_blob_empty_scope:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: BlobResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.path, "Cargo.toml");
+        assert!(payload.content.contains("[workspace]"));
     }
 
     #[tokio::test]
