@@ -5,41 +5,56 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d9a4607d655bf0f03e0e67b9816f95691f5d51e3
+  head: a2e18b98bab119a82ff7e5ec42e91aa57b88bb5d
 last_completed_task:
-  id: task29b1
-  title: Tree/blob permission enforcement
-  status: done
-  summary: >-
-    Split task29b and completed the first browse/file slice by requiring
-    authenticated local-session access plus organization-scoped repository
-    visibility on GET /api/v1/repos/{repo_id}/tree and
-    GET /api/v1/repos/{repo_id}/blob, returning 401 for missing or invalid auth,
-    returning 404 for authenticated requests against inaccessible repositories,
-    and preserving existing success and path-validation behavior for visible
-    repositories without changing ask or other repo endpoints yet.
-  tests:
-    - cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed (4 tests)
-    - cargo test -p sourcebot-api repo_blob_ -- --nocapture: passed (8 tests)
-    - cargo test -p sourcebot-api search_ -- --nocapture: passed (5 tests)
-    - cargo test -p sourcebot-api -- --nocapture: passed (127 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
-  review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the slice only changes tree/blob visibility enforcement, matches the required 401/404/success behaviors, and adds the expected coverage without ask scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security concerns or logic errors and noted only a non-blocking test-helper deduplication follow-up
-  commit: d9a4607d655bf0f03e0e67b9816f95691f5d51e3
-  next_task: task29b2
-current_task:
   id: task29b2
   title: Ask permission enforcement
+  status: done
+  summary: >-
+    Completed the remaining split task29b scope by requiring authenticated
+    local-session access plus organization-scoped repository visibility on POST
+    /api/v1/ask/completions, returning 401 for missing or invalid auth,
+    returning 404 for authenticated requests whose repo_scope includes any
+    inaccessible repository, and preserving existing success, thread
+    persistence, and bad-request validation behavior for visible repositories
+    without changing unrelated endpoints.
+  tests:
+    - cargo test -p sourcebot-api ask_completions_ -- --nocapture: passed (8 tests)
+    - cargo fmt --all --check: passed
+    - cargo check: passed
+    - cargo test -p sourcebot-api -- --nocapture: passed (129 tests)
+  review:
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays scoped to POST /api/v1/ask/completions, enforces the required 401/404 visibility behavior, preserves existing bad-request and success behavior, and found no blocking security or correctness issues
+  commit: a2e18b98bab119a82ff7e5ec42e91aa57b88bb5d
+  next_task: task30
+current_task:
+  id: task30
+  title: API keys
   status: pending
   summary: >-
-    Complete the remaining split task29b scope by applying the same authenticated
-    organization-scoped repository visibility model to POST /api/v1/ask/completions,
-    failing closed for unauthenticated or out-of-scope repo_scope requests while
-    keeping the slice narrow and leaving unrelated repo endpoints untouched.
+    Begin task30 by splitting API keys into the smallest practical slice for the
+    next run, then implement only that first slice with the same TDD, review,
+    commit, and push workflow.
 history:
+  - id: task29b2
+    status: done
+    summary: >-
+      Completed the remaining split task29b scope by requiring authenticated
+      local-session access plus organization-scoped repository visibility on
+      POST /api/v1/ask/completions, returning 401 for missing or invalid auth,
+      returning 404 for authenticated requests whose repo_scope includes any
+      inaccessible repository, and preserving existing success, thread
+      persistence, and bad-request validation behavior for visible repositories
+      without changing unrelated endpoints.
+    tests:
+      - cargo test -p sourcebot-api ask_completions_ -- --nocapture: passed (8 tests)
+      - cargo fmt --all --check: passed
+      - cargo check: passed
+      - cargo test -p sourcebot-api -- --nocapture: passed (129 tests)
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays scoped to POST /api/v1/ask/completions, enforces the required 401/404 visibility behavior, preserves existing bad-request and success behavior, and found no blocking security or correctness issues
+    commit: a2e18b98bab119a82ff7e5ec42e91aa57b88bb5d
+    next_task: task30
   - id: task29b1
     status: done
     summary: >-
