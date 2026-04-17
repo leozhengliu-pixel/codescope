@@ -5,27 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f54f49da4fd3652ac3c62521bac7cb30fdef5d1c
+  head: 95ebdb677988c5506ca7c56e62731a2ed844c298
 last_completed_task:
   id: task35e
   title: Persist accepted review webhook delivery attempts
   status: done
   summary: >-
-    Completed the next review-agent / webhook automation slice by extending the
-    shared OrganizationState persistence model with durable review webhook
-    delivery attempts, then updating the inbound POST /api/v1/review-webhooks/{webhook_id}/events
-    path to append accepted delivery-attempt metadata without overwriting
-    existing entries, while still deferring review-agent execution, retries,
-    status UI, and secret rotation.
+    Finalized the accepted review-webhook delivery-attempt persistence slice by
+    removing the redundant persisted organization_id field from delivery-attempt
+    records and narrowing the intake handler's write-lock scope so secret
+    verification and payload validation complete before the locked persistence
+    rewrite, while still appending accepted delivery metadata without
+    overwriting existing entries or adding review-agent execution, retries,
+    status UI, or secret rotation.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_webhook_delivery -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_append_delivery_attempts_without_overwriting_existing_entries -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_webhook_delivery_attempt -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the minimal accepted-delivery-attempt persistence slice, found no blocking correctness or security issues, and noted only a non-blocking follow-up to narrow write-lock scope plus optional negative-path coverage for rejected events
-  commit: f54f49da4fd3652ac3c62521bac7cb30fdef5d1c
+    code: approved by one independent post-implementation review; reviewer confirmed the finalized diff safely drops redundant delivery-attempt organization_id persistence, revalidates the webhook under the write lock before storing, and introduces no blocking correctness or security issues
+  commit: 95ebdb677988c5506ca7c56e62731a2ed844c298
   next_task: task35f
 current_task:
   id: task35f
@@ -41,21 +42,22 @@ history:
   - id: task35e
     status: done
     summary: >-
-      Completed the next review-agent / webhook automation slice by extending the
-      shared OrganizationState persistence model with durable review webhook
-      delivery attempts, then updating the inbound POST /api/v1/review-webhooks/{webhook_id}/events
-      path to append accepted delivery-attempt metadata without overwriting
-      existing entries, while still deferring review-agent execution, retries,
-      status UI, and secret rotation.
+      Finalized the accepted review-webhook delivery-attempt persistence slice by
+      removing the redundant persisted organization_id field from delivery-attempt
+      records and narrowing the intake handler's write-lock scope so secret
+      verification and payload validation complete before the locked persistence
+      rewrite, while still appending accepted delivery metadata without
+      overwriting existing entries or adding review-agent execution, retries,
+      status UI, or secret rotation.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_webhook_delivery -- --nocapture: passed (2 tests)
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_append_delivery_attempts_without_overwriting_existing_entries -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_webhook_delivery_attempt -- --nocapture: passed (2 tests)
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     review:
-      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the minimal accepted-delivery-attempt persistence slice, found no blocking correctness or security issues, and noted only a non-blocking follow-up to narrow write-lock scope plus optional negative-path coverage for rejected events
-    commit: f54f49da4fd3652ac3c62521bac7cb30fdef5d1c
+      code: approved by one independent post-implementation review; reviewer confirmed the finalized diff safely drops redundant delivery-attempt organization_id persistence, revalidates the webhook under the write lock before storing, and introduces no blocking correctness or security issues
+    commit: 95ebdb677988c5506ca7c56e62731a2ed844c298
     next_task: task35f
   - id: task35d
     status: done
