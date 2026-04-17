@@ -5,40 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 95ebdb677988c5506ca7c56e62731a2ed844c298
+  head: e4509b66c355200f760bf73611cbd494f2112635
 last_completed_task:
-  id: task35e
-  title: Persist accepted review webhook delivery attempts
+  id: task35f
+  title: Authenticated review webhook delivery-attempt listing endpoint
   status: done
   summary: >-
-    Finalized the accepted review-webhook delivery-attempt persistence slice by
-    removing the redundant persisted organization_id field from delivery-attempt
-    records and narrowing the intake handler's write-lock scope so secret
-    verification and payload validation complete before the locked persistence
-    rewrite, while still appending accepted delivery metadata without
-    overwriting existing entries or adding review-agent execution, retries,
-    status UI, or secret rotation.
+    Completed the next review-agent / webhook automation slice by adding a
+    minimal local-session-authenticated GET
+    /api/v1/auth/review-webhook-delivery-attempts endpoint that lists only
+    persisted review webhook delivery attempts tied to organizations visible to
+    the caller, filters out hidden-organization and orphaned webhook attempts,
+    and still defers review-agent execution, retries, status UI, and secret
+    rotation.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_webhook_delivery_attempt -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the finalized diff safely drops redundant delivery-attempt organization_id persistence, revalidates the webhook under the write lock before storing, and introduces no blocking correctness or security issues
-  commit: 95ebdb677988c5506ca7c56e62731a2ed844c298
-  next_task: task35f
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35f local-session-authenticated delivery-attempt listing slice, returns only attempts tied to visible organizations via visible review webhooks, and does not add retries, execution, status UI, deletion, or secret rotation
+    code: approved by one independent post-implementation review; reviewer confirmed the new authenticated delivery-attempt listing endpoint is authorization-safe and logically consistent with existing patterns, with only non-blocking suggestions about response ordering and extra multi-visible-item coverage
+  commit: e4509b66c355200f760bf73611cbd494f2112635
+  next_task: task35g
 current_task:
-  id: task35f
+  id: task35g
   parent_task: task35
-  title: Authenticated review webhook delivery-attempt listing endpoint
+  title: Review-agent run persistence model
   status: pending
   summary: >-
-    Add the next smallest review-agent / webhook automation slice by exposing a
-    local-session-authenticated GET endpoint that lists persisted review webhook
-    delivery attempts only for organizations visible to the caller, while still
-    deferring review-agent execution, retries, status UI, and secret rotation.
+    Split the remaining review-agent / webhook automation scope by first adding
+    a shared persistence-ready ReviewAgentRun model plus
+    OrganizationState.review_agent_runs storage and non-empty round-trip
+    coverage, while still deferring webhook-triggered execution, retries,
+    status UI, and secret rotation.
 history:
+  - id: task35f
+    status: done
+    summary: >-
+      Completed the next review-agent / webhook automation slice by adding a
+      minimal local-session-authenticated GET
+      /api/v1/auth/review-webhook-delivery-attempts endpoint that lists only
+      persisted review webhook delivery attempts tied to organizations visible to
+      the caller, filters out hidden-organization and orphaned webhook attempts,
+      and still defers review-agent execution, retries, status UI, and secret
+      rotation.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35f local-session-authenticated delivery-attempt listing slice, returns only attempts tied to visible organizations via visible review webhooks, and does not add retries, execution, status UI, deletion, or secret rotation
+      code: approved by one independent post-implementation review; reviewer confirmed the new authenticated delivery-attempt listing endpoint is authorization-safe and logically consistent with existing patterns, with only non-blocking suggestions about response ordering and extra multi-visible-item coverage
+    commit: e4509b66c355200f760bf73611cbd494f2112635
+    next_task: task35g
   - id: task35e
     status: done
     summary: >-
