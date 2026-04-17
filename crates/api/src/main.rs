@@ -1295,6 +1295,35 @@ async fn visible_browse_repo_ids_for_request(
     }
 }
 
+async fn ask_request_context(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(String, HashSet<String>), StatusCode> {
+    match authenticate_api_key_record(state, headers).await {
+        Ok(authenticated_api_key) => {
+            let visible_repo_ids =
+                visible_repo_ids_for_user_id(state, &authenticated_api_key.user_id).await?;
+            let scoped_visible_repo_ids = if authenticated_api_key.repo_scope.is_empty() {
+                visible_repo_ids
+            } else {
+                authenticated_api_key
+                    .repo_scope
+                    .into_iter()
+                    .filter(|repo_id| visible_repo_ids.contains(repo_id))
+                    .collect()
+            };
+
+            Ok((authenticated_api_key.user_id, scoped_visible_repo_ids))
+        }
+        Err(StatusCode::UNAUTHORIZED) => {
+            let session = authenticate_local_session_record(state, headers).await?;
+            let visible_repo_ids = visible_repo_ids_for_user_id(state, &session.user_id).await?;
+            Ok((DEFAULT_ASK_USER_ID.to_string(), visible_repo_ids))
+        }
+        Err(status) => Err(status),
+    }
+}
+
 async fn ensure_repo_visible_for_request(
     state: &AppState,
     headers: &HeaderMap,
@@ -1345,7 +1374,7 @@ async fn create_ask_completion(
     headers: HeaderMap,
     Json(request): Json<AskCompletionRequest>,
 ) -> Result<Json<AskCompletionResponse>, StatusCode> {
-    let visible_repo_ids = visible_repo_ids_for_request(&state, &headers).await?;
+    let (ask_user_id, visible_repo_ids) = ask_request_context(&state, &headers).await?;
     let repo_ids = state
         .catalog
         .list_repositories()
@@ -1383,7 +1412,7 @@ async fn create_ask_completion(
         state
             .ask_threads
             .append_message_for_user(
-                DEFAULT_ASK_USER_ID,
+                &ask_user_id,
                 thread_id,
                 AskMessage {
                     id: next_ask_entity_id("msg"),
@@ -1399,7 +1428,7 @@ async fn create_ask_completion(
         state
             .ask_threads
             .append_message_for_user(
-                DEFAULT_ASK_USER_ID,
+                &ask_user_id,
                 thread_id,
                 AskMessage {
                     id: next_ask_entity_id("msg"),
@@ -1419,7 +1448,7 @@ async fn create_ask_completion(
             .create_thread(AskThread {
                 id: next_ask_entity_id("thread"),
                 session_id: next_ask_entity_id("session"),
-                user_id: DEFAULT_ASK_USER_ID.into(),
+                user_id: ask_user_id,
                 title: ask_thread_title_from_prompt(&request.prompt),
                 repo_scope: request.repo_scope.clone(),
                 visibility: AskThreadVisibility::Private,
@@ -2091,6 +2120,293 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid_auth_response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_api_key_allows_repo_within_explicit_scope() {
+        let organization_state_path = unique_test_path("ask-api-key-scoped-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "ask-api-key-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_ask_scoped",
+            user_id,
+            "Ask scoped key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-api-key-scoped-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-api-key-scoped-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_ask_scoped:{api_key_secret}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
+        assert_eq!(payload.provider, "stub");
+        assert_eq!(payload.model.as_deref(), Some("stub-model"));
+        assert!(payload
+            .answer
+            .contains("where is build_router implemented?"));
+    }
+
+    #[tokio::test]
+    async fn ask_completions_api_key_returns_not_found_for_repo_outside_scope_even_when_owner_can_see_it(
+    ) {
+        let organization_state_path = unique_test_path("ask-api-key-hidden-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "ask-api-key-hidden-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_ask_limited",
+            user_id,
+            "Ask limited key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-api-key-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-api-key-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_ask_limited:{api_key_secret}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_demo_docs".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_api_key_inherits_owner_visible_repos_when_scope_is_empty() {
+        let organization_state_path = unique_test_path("ask-api-key-empty-scope-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "ask-api-key-empty-scope-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_ask_empty_scope",
+            user_id,
+            "Ask empty-scope key",
+            api_key_secret,
+            &[],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-api-key-empty-scope-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-api-key-empty-scope-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_ask_empty_scope:{api_key_secret}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_api_key_persists_threads_for_the_key_owner() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-api-key-persist-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "ask-api-key-persist-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_ask_persist",
+            user_id,
+            "Ask persistence key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let config = AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-api-key-persist-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-api-key-persist-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = build_router(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_ask_persist:{api_key_secret}"),
+                    )
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            ask_threads
+                .list_threads_for_user(user_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(ask_threads
+            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -5338,7 +5654,7 @@ mod tests {
         write_organization_state_fixture(
             &organization_state_path,
             user_id,
-            &["repo_sourcebot_rewrite", "repo_docs"],
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
         );
         let mut state: OrganizationState =
             serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
@@ -5398,7 +5714,7 @@ mod tests {
         write_organization_state_fixture(
             &organization_state_path,
             user_id,
-            &["repo_sourcebot_rewrite", "repo_docs"],
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
         );
         let mut state: OrganizationState =
             serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
@@ -5465,7 +5781,7 @@ mod tests {
         write_organization_state_fixture(
             &organization_state_path,
             user_id,
-            &["repo_sourcebot_rewrite", "repo_docs"],
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
         );
         let mut state: OrganizationState =
             serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
@@ -5474,7 +5790,7 @@ mod tests {
             user_id,
             "Search docs-only key",
             api_key_secret,
-            &["repo_docs"],
+            &["repo_demo_docs"],
         ));
         fs::write(
             &organization_state_path,
@@ -5486,7 +5802,7 @@ mod tests {
                 "repo_sourcebot_rewrite".to_string(),
                 search_root_rewrite.clone(),
             ),
-            ("repo_docs".to_string(), search_root_docs.clone()),
+            ("repo_demo_docs".to_string(), search_root_docs.clone()),
         ])));
         let app = test_app_with_search_store(
             AppConfig {
@@ -5524,7 +5840,7 @@ mod tests {
         assert!(payload
             .results
             .iter()
-            .all(|result| result.repo_id == "repo_docs"));
+            .all(|result| result.repo_id == "repo_demo_docs"));
     }
 
     #[tokio::test]
