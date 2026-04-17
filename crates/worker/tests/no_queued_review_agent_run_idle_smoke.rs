@@ -30,6 +30,35 @@ fn review_agent_run(id: &str, status: ReviewAgentRunStatus, created_at: &str) ->
 }
 
 #[tokio::test]
+async fn worker_binary_exits_cleanly_and_preserves_default_empty_state_when_persisted_state_has_no_review_agent_runs(
+) {
+    let path = unique_test_path("empty-persisted-state-idle-smoke");
+    let store = FileOrganizationStore::new(&path);
+    let initial_state = OrganizationState::default();
+    store
+        .store_organization_state(initial_state.clone())
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly when persisted state contains no review-agent runs"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted, initial_state);
+
+    fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_review_agent_run_exists()
 {
     let path = unique_test_path("no-queued-review-agent-run-idle-smoke");
