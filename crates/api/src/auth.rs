@@ -309,7 +309,7 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, OAuthClient, Organization,
         OrganizationInvite, OrganizationMembership, OrganizationRole, RepositoryPermissionBinding,
-        ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
+        ReviewAgentRun, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
     };
     use std::{
         fs,
@@ -745,6 +745,16 @@ mod tests {
                 review_id: "review_123".into(),
                 external_event_id: "evt_123".into(),
                 accepted_at: "2026-04-25T00:10:00Z".into(),
+            }],
+            review_agent_runs: vec![ReviewAgentRun {
+                id: "review_agent_run_1".into(),
+                organization_id: "org_acme".into(),
+                webhook_id: "webhook_review_1".into(),
+                delivery_attempt_id: "delivery_attempt_1".into(),
+                connection_id: "conn_github".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                review_id: "review_123".into(),
+                created_at: "2026-04-25T00:10:05Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
