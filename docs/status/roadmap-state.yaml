@@ -5,40 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 62903543028cf08a90b2947ff66b7295c5362ece
+  head: 262086496be5f8dc88e08906e5ed1e731e694f4f
 last_completed_task:
-  id: task32c1
-  title: Persist audit events for API-key create/revoke mutations
+  id: task32c2
+  title: Persist audit events for local-session logout and revoke mutations
   status: done
   summary: >-
-    Split task32c and completed the first auth-mutation audit slice by
-    appending persisted audit events when authenticated local-session users
-    create or revoke their own API keys, scoping each event to organizations
-    implied by the caller's currently visible repo permissions without yet
-    emitting audit events for logout/session revocation or adding UI filtering,
+    Completed the second auth-mutation audit slice by persisting audit events
+    for the existing local-session logout and session-revocation endpoints,
+    adding rollback coverage for write failures, and serializing all current
+    OrganizationState read-modify-write auth mutation paths behind one shared
+    AppState lock so logout/session revoke and API-key create/revoke updates do
+    not clobber each other, without changing audit-event listing, filtering UI,
     retention/export behavior, or analytics rollups.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_empty_scope_audit_events_ignore_unbound_membership_organizations -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::concurrent_local_session_audit_mutations_preserve_both_events -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (6 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::logout_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::revoke_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the API-key create/revoke audit persistence slice, records events alongside the existing mutations, maps scoped and empty repo_scope keys only to organizations implied by current repo permissions, and does not add logout/session-revoke emission, UI filtering, retention/export behavior, or analytics rollups
-    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly persists API-key create/revoke audit events, keeps empty repo_scope organization mapping aligned with current repo-permission visibility, and found no blocking correctness or security issues
-  commit: 62903543028cf08a90b2947ff66b7295c5362ece
-  next_task: task32c2
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session logout/session-revoke audit persistence slice plus directly necessary supporting rollback and serialization coverage, and does not add audit-event listing changes, filtering UI, retention/export behavior, or analytics rollups
+    code: approved by one independent post-implementation review; reviewer confirmed the shared AppState mutex now serializes the three production OrganizationState auth mutation paths (logout/session revoke plus API-key create/revoke) and found no remaining blocking correctness or security issues
+  commit: 262086496be5f8dc88e08906e5ed1e731e694f4f
+  next_task: task33
 current_task:
-  id: task32c2
-  parent_task: task32c
-  title: Persist audit events for local-session logout and revoke mutations
+  id: task33
+  title: Analytics
   status: pending
   summary: >-
-    Complete the next smallest remaining auth-mutation audit slice by
-    appending persisted audit events for the existing local-session logout and
-    session-revocation endpoints without changing audit-event listing,
-    filtering UI, retention/export behavior, or analytics rollups.
+    Start the next roadmap phase after audit-log slices by carving the analytics
+    milestone into the smallest architecture-complete first slice before any
+    broader UI or reporting work.
 history:
+  - id: task32c2
+    status: done
+    summary: >-
+      Completed the second auth-mutation audit slice by persisting audit events
+      for the existing local-session logout and session-revocation endpoints,
+      adding rollback coverage for write failures, and serializing all current
+      OrganizationState read-modify-write auth mutation paths behind one shared
+      AppState lock so logout/session revoke and API-key create/revoke updates do
+      not clobber each other, without changing audit-event listing, filtering UI,
+      retention/export behavior, or analytics rollups.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::concurrent_local_session_audit_mutations_preserve_both_events -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::logout_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::revoke_persists_audit_event_for_visible_organizations -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session logout/session-revoke audit persistence slice plus directly necessary supporting rollback and serialization coverage, and does not add audit-event listing changes, filtering UI, retention/export behavior, or analytics rollups
+      code: approved by one independent post-implementation review; reviewer confirmed the shared AppState mutex now serializes the three production OrganizationState auth mutation paths (logout/session revoke plus API-key create/revoke) and found no remaining blocking correctness or security issues
+    commit: 262086496be5f8dc88e08906e5ed1e731e694f4f
+    next_task: task33
   - id: task32c1
     status: done
     summary: >-
