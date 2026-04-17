@@ -146,6 +146,21 @@ pub struct ApiKey {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OAuthClient {
+    pub id: String,
+    pub organization_id: String,
+    pub name: String,
+    pub client_id: String,
+    pub client_secret_hash: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redirect_uris: Vec<String>,
+    pub created_by_user_id: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SearchContext {
     pub id: String,
     pub user_id: String,
@@ -208,6 +223,8 @@ pub struct OrganizationState {
     pub invites: Vec<OrganizationInvite>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_keys: Vec<ApiKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub oauth_clients: Vec<OAuthClient>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub search_contexts: Vec<SearchContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -609,6 +626,70 @@ mod tests {
     }
 
     #[test]
+    fn organization_state_serializes_oauth_clients_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            oauth_clients: vec![OAuthClient {
+                id: "oauth_client_acme_web".into(),
+                organization_id: "org_acme".into(),
+                name: "Acme Web App".into(),
+                client_id: "acme-web-client".into(),
+                client_secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$oauth$hash".into(),
+                redirect_uris: vec![
+                    "https://app.acme.test/callback".into(),
+                    "https://app.acme.test/auth/callback".into(),
+                ],
+                created_by_user_id: "user_admin".into(),
+                created_at: "2026-04-22T12:00:00Z".into(),
+                revoked_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "oauth_clients": [{
+                    "id": "oauth_client_acme_web",
+                    "organization_id": "org_acme",
+                    "name": "Acme Web App",
+                    "client_id": "acme-web-client",
+                    "client_secret_hash": "$argon2id$v=19$m=19456,t=2,p=1$oauth$hash",
+                    "redirect_uris": [
+                        "https://app.acme.test/callback",
+                        "https://app.acme.test/auth/callback"
+                    ],
+                    "created_by_user_id": "user_admin",
+                    "created_at": "2026-04-22T12:00:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_oauth_clients_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.oauth_clients.is_empty());
+    }
+
+    #[test]
     fn organization_models_round_trip_as_reusable_domain_data() {
         let state = OrganizationState {
             organizations: vec![Organization {
@@ -640,6 +721,7 @@ mod tests {
                 accepted_at: None,
             }],
             api_keys: Vec::new(),
+            oauth_clients: Vec::new(),
             search_contexts: Vec::new(),
             audit_events: Vec::new(),
             analytics_records: Vec::new(),

@@ -1856,7 +1856,7 @@ mod tests {
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState,
-        Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
+        OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
         OrganizationState, RepositoryPermissionBinding, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
@@ -2194,6 +2194,17 @@ mod tests {
                 revoked_at: None,
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
             }],
+            oauth_clients: vec![OAuthClient {
+                id: "oauth_client_acme_web".into(),
+                organization_id: "org_acme".into(),
+                name: "Acme Web App".into(),
+                client_id: "acme-web-client".into(),
+                client_secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$oauth$hash".into(),
+                redirect_uris: vec!["https://app.acme.test/callback".into()],
+                created_by_user_id: "user_admin".into(),
+                created_at: "2026-04-21T00:05:45Z".into(),
+                revoked_at: None,
+            }],
             search_contexts: vec![SearchContext {
                 id: "ctx_backend".into(),
                 user_id: "user_admin".into(),
@@ -2253,6 +2264,17 @@ mod tests {
                 created_at: "2026-04-21T00:07:30Z".into(),
                 revoked_at: Some("2026-04-22T00:07:30Z".into()),
                 repo_scope: vec!["repo_other".into()],
+            }],
+            oauth_clients: vec![OAuthClient {
+                id: "oauth_client_other".into(),
+                organization_id: "org_other".into(),
+                name: "Other App".into(),
+                client_id: "other-client".into(),
+                client_secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$oauth$other".into(),
+                redirect_uris: vec!["https://other.test/callback".into()],
+                created_by_user_id: "user_other".into(),
+                created_at: "2026-04-21T00:07:45Z".into(),
+                revoked_at: Some("2026-04-22T00:07:45Z".into()),
             }],
             search_contexts: vec![],
             audit_events: vec![],

@@ -307,7 +307,7 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 mod tests {
     use super::*;
     use sourcebot_models::{
-        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, Organization,
+        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, OAuthClient, Organization,
         OrganizationInvite, OrganizationMembership, OrganizationRole, RepositoryPermissionBinding,
         SearchContext,
     };
@@ -678,6 +678,17 @@ mod tests {
                 created_at: "2026-04-18T09:45:00Z".into(),
                 revoked_at: Some("2026-04-19T09:45:00Z".into()),
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            }],
+            oauth_clients: vec![OAuthClient {
+                id: "oauth_client_acme_web".into(),
+                organization_id: "org_acme".into(),
+                name: "Acme Web App".into(),
+                client_id: "acme-web-client".into(),
+                client_secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$oauth$hash".into(),
+                redirect_uris: vec!["https://app.acme.test/callback".into()],
+                created_by_user_id: "local_user_bootstrap_admin".into(),
+                created_at: "2026-04-18T09:46:00Z".into(),
+                revoked_at: Some("2026-04-20T09:46:00Z".into()),
             }],
             search_contexts: vec![SearchContext {
                 id: "ctx_backend".into(),
