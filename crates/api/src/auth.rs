@@ -309,7 +309,8 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, OAuthClient, Organization,
         OrganizationInvite, OrganizationMembership, OrganizationRole, RepositoryPermissionBinding,
-        ReviewAgentRun, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
+        ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
+        SearchContext,
     };
     use std::{
         fs,
@@ -754,6 +755,7 @@ mod tests {
                 connection_id: "conn_github".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 review_id: "review_123".into(),
+                status: ReviewAgentRunStatus::Queued,
                 created_at: "2026-04-25T00:10:05Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {

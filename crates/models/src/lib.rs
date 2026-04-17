@@ -237,6 +237,18 @@ pub struct ReviewWebhookDeliveryAttempt {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewAgentRunStatus {
+    Queued,
+}
+
+impl Default for ReviewAgentRunStatus {
+    fn default() -> Self {
+        Self::Queued
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReviewAgentRun {
     pub id: String,
     pub organization_id: String,
@@ -245,6 +257,8 @@ pub struct ReviewAgentRun {
     pub connection_id: String,
     pub repository_id: String,
     pub review_id: String,
+    #[serde(default)]
+    pub status: ReviewAgentRunStatus,
     pub created_at: String,
 }
 
@@ -748,6 +762,7 @@ mod tests {
                 connection_id: "conn_github".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 review_id: "review_123".into(),
+                status: ReviewAgentRunStatus::Queued,
                 created_at: "2026-04-25T00:10:05Z".into(),
             }],
             ..OrganizationState::default()
@@ -769,6 +784,7 @@ mod tests {
                     "connection_id": "conn_github",
                     "repository_id": "repo_sourcebot_rewrite",
                     "review_id": "review_123",
+                    "status": "queued",
                     "created_at": "2026-04-25T00:10:05Z"
                 }]
             })
@@ -787,6 +803,34 @@ mod tests {
         .unwrap();
 
         assert!(state.review_agent_runs.is_empty());
+    }
+
+    #[test]
+    fn organization_state_defaults_review_agent_run_status_to_queued_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }],
+            "review_agent_runs": [{
+                "id": "review_agent_run_1",
+                "organization_id": "org_acme",
+                "webhook_id": "webhook_review_1",
+                "delivery_attempt_id": "delivery_attempt_1",
+                "connection_id": "conn_github",
+                "repository_id": "repo_sourcebot_rewrite",
+                "review_id": "review_123",
+                "created_at": "2026-04-25T00:10:05Z"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(state.review_agent_runs.len(), 1);
+        assert_eq!(
+            state.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Queued
+        );
     }
 
     #[test]

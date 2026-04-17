@@ -30,8 +30,8 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, ReviewAgentRun, ReviewWebhook,
-    ReviewWebhookDeliveryAttempt, SearchContext,
+    OrganizationState, RepositoryDetail, RepositorySummary, ReviewAgentRun, ReviewAgentRunStatus,
+    ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -387,6 +387,7 @@ struct ReviewAgentRunListItemResponse {
     connection_id: String,
     repository_id: String,
     review_id: String,
+    status: ReviewAgentRunStatus,
     created_at: String,
 }
 
@@ -1325,6 +1326,7 @@ async fn intake_review_webhook_event(
         connection_id: connection_id.to_string(),
         repository_id: repository_id.to_string(),
         review_id: review_id.to_string(),
+        status: ReviewAgentRunStatus::Queued,
         created_at: current_timestamp(),
     });
     state
@@ -1455,6 +1457,7 @@ fn review_agent_run_list_item_response(run: ReviewAgentRun) -> ReviewAgentRunLis
         connection_id: run.connection_id,
         repository_id: run.repository_id,
         review_id: run.review_id,
+        status: run.status,
         created_at: run.created_at,
     }
 }
@@ -2483,8 +2486,8 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState,
         OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-        OrganizationState, RepositoryPermissionBinding, ReviewAgentRun, ReviewWebhook,
-        SearchContext,
+        OrganizationState, RepositoryPermissionBinding, ReviewAgentRun, ReviewAgentRunStatus,
+        ReviewWebhook, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -2745,6 +2748,7 @@ mod tests {
         connection_id: String,
         repository_id: String,
         review_id: String,
+        status: String,
         created_at: String,
     }
 
@@ -2992,6 +2996,7 @@ mod tests {
                 connection_id: "conn_github".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 review_id: "review_123".into(),
+                status: ReviewAgentRunStatus::Queued,
                 created_at: "2026-04-21T00:08:35Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
@@ -5624,6 +5629,7 @@ mod tests {
                     connection_id: "conn_github_acme".into(),
                     repository_id: "repo_sourcebot_rewrite".into(),
                     review_id: "review_visible".into(),
+                    status: ReviewAgentRunStatus::Queued,
                     created_at: "2026-04-25T00:15:00Z".into(),
                 },
                 ReviewAgentRun {
@@ -5634,6 +5640,7 @@ mod tests {
                     connection_id: "conn_github_hidden".into(),
                     repository_id: "repo_private".into(),
                     review_id: "review_hidden".into(),
+                    status: ReviewAgentRunStatus::Queued,
                     created_at: "2026-04-25T00:16:00Z".into(),
                 },
             ],
@@ -5673,6 +5680,7 @@ mod tests {
         assert_eq!(payload[0].connection_id, "conn_github_acme");
         assert_eq!(payload[0].repository_id, "repo_sourcebot_rewrite");
         assert_eq!(payload[0].review_id, "review_visible");
+        assert_eq!(payload[0].status, "queued");
         assert_eq!(payload[0].created_at, "2026-04-25T00:15:00Z");
 
         fs::remove_file(organization_state_path).unwrap();
@@ -6073,6 +6081,7 @@ mod tests {
         assert_eq!(review_agent_run.connection_id, "conn_local");
         assert_eq!(review_agent_run.repository_id, "repo_sourcebot_rewrite");
         assert_eq!(review_agent_run.review_id, "review_123");
+        assert_eq!(review_agent_run.status, ReviewAgentRunStatus::Queued);
         assert!(!review_agent_run.id.is_empty());
         assert!(!review_agent_run.created_at.is_empty());
 
