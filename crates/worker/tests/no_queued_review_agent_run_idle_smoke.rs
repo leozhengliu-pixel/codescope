@@ -1,0 +1,73 @@
+use sourcebot_api::auth::FileOrganizationStore;
+use sourcebot_core::OrganizationStore;
+use sourcebot_models::{OrganizationState, ReviewAgentRun, ReviewAgentRunStatus};
+use std::{
+    fs,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+fn unique_test_path(name: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("sourcebot-worker-{name}-{nanos}.json"))
+}
+
+fn review_agent_run(id: &str, status: ReviewAgentRunStatus, created_at: &str) -> ReviewAgentRun {
+    ReviewAgentRun {
+        id: id.into(),
+        organization_id: "org_acme".into(),
+        webhook_id: format!("webhook_{id}"),
+        delivery_attempt_id: format!("delivery_{id}"),
+        connection_id: "conn_github".into(),
+        repository_id: "repo_sourcebot_rewrite".into(),
+        review_id: format!("review_{id}"),
+        status,
+        created_at: created_at.into(),
+    }
+}
+
+#[tokio::test]
+async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_review_agent_run_exists()
+{
+    let path = unique_test_path("no-queued-review-agent-run-idle-smoke");
+    let store = FileOrganizationStore::new(&path);
+    let initial_state = OrganizationState {
+        review_agent_runs: vec![
+            review_agent_run(
+                "run_claimed",
+                ReviewAgentRunStatus::Claimed,
+                "2026-04-25T00:10:05Z",
+            ),
+            review_agent_run(
+                "run_completed",
+                ReviewAgentRunStatus::Completed,
+                "2026-04-25T00:10:06Z",
+            ),
+        ],
+        ..OrganizationState::default()
+    };
+    store
+        .store_organization_state(initial_state.clone())
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly when no queued review-agent run exists"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted, initial_state);
+
+    fs::remove_file(path).unwrap();
+}
