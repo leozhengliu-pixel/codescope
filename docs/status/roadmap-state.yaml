@@ -5,37 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ad61973518155f811c66690fbe5e18abfb7d6d67
+  head: 7a2f221f98ce0c37ebf0a6484183ee3845dec297
 last_completed_task:
-  id: task30c
-  title: API key listing endpoint
-  status: done
-  summary: >-
-    Completed the next smallest API-key slice by adding GET /api/v1/auth/api-keys,
-    authenticating with the existing local-session bearer flow, returning only
-    the current session user's persisted OrganizationState.api_keys entries,
-    preserving revoked_at and repo_scope metadata, and omitting secret_hash
-    while still deferring API-key creation, revocation, and API-key request auth
-    to later slices.
-  tests:
-    - cargo test -p sourcebot-api auth_api_keys_lists_only_current_users_keys_without_secret_hash -- --nocapture: passed (1 test)
-    - cargo test -p sourcebot-api auth_me_ -- --nocapture: passed (5 tests)
-    - cargo fmt --all --check: passed
-    - cargo check: passed
-  review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly implements a minimal authenticated API-key listing endpoint for the current local-session user without exposing secret_hash, stays within the requested listing-only scope, and noted only a non-blocking missing unauthenticated/invalid-session failure-path test follow-up
-  commit: ad61973518155f811c66690fbe5e18abfb7d6d67
-  next_task: task30d
-current_task:
   id: task30d
   title: API key creation endpoint
+  status: done
+  summary: >-
+    Completed the next smallest API-key slice by extending
+    /api/v1/auth/api-keys with authenticated POST creation for the current
+    local-session user, validating requested repo_scope entries against the
+    caller's visible repositories, persisting a new hashed OrganizationState
+    api_keys record, and returning the plaintext secret exactly once while still
+    deferring revocation and API-key request authentication to later slices.
+  tests:
+    - cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (3 tests)
+    - cargo check -p sourcebot-api: passed
+    - cargo fmt --all --check: passed
+  review:
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly adds authenticated API-key creation for local sessions, hashes and persists the secret without leaking secret_hash, validates repo_scope against the caller's visible repositories, and noted only non-blocking follow-ups around extra bad-request/unauthenticated coverage plus optional repo_scope deduplication
+  commit: 7a2f221f98ce0c37ebf0a6484183ee3845dec297
+  next_task: task30e
+current_task:
+  id: task30e
+  title: API key revocation endpoint
   status: pending
   summary: >-
     Complete the next smallest API-key slice by adding a minimal authenticated
-    API-key creation path for the current local-session user that persists a new
-    OrganizationState.api_keys entry, returns the plaintext secret exactly once,
-    and keeps revocation plus API-key request authentication for later slices.
+    revocation path for the current local-session user that can revoke one of
+    that user's persisted OrganizationState.api_keys records without yet adding
+    API-key request authentication or broader key-management UI flows.
 history:
+  - id: task30d
+    status: done
+    summary: >-
+      Completed the next smallest API-key slice by extending
+      /api/v1/auth/api-keys with authenticated POST creation for the current
+      local-session user, validating requested repo_scope entries against the
+      caller's visible repositories, persisting a new hashed OrganizationState
+      api_keys record, and returning the plaintext secret exactly once while
+      still deferring revocation and API-key request authentication to later
+      slices.
+    tests:
+      - cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (3 tests)
+      - cargo check -p sourcebot-api: passed
+      - cargo fmt --all --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly adds authenticated API-key creation for local sessions, hashes and persists the secret without leaking secret_hash, validates repo_scope against the caller's visible repositories, and noted only non-blocking follow-ups around extra bad-request/unauthenticated coverage plus optional repo_scope deduplication
+    commit: 7a2f221f98ce0c37ebf0a6484183ee3845dec297
+    next_task: task30e
   - id: task30c
     status: done
     summary: >-
