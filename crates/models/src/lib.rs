@@ -240,6 +240,7 @@ pub struct ReviewWebhookDeliveryAttempt {
 #[serde(rename_all = "snake_case")]
 pub enum ReviewAgentRunStatus {
     Queued,
+    Claimed,
 }
 
 impl Default for ReviewAgentRunStatus {
@@ -830,6 +831,43 @@ mod tests {
         assert_eq!(
             state.review_agent_runs[0].status,
             ReviewAgentRunStatus::Queued
+        );
+    }
+
+    #[test]
+    fn review_agent_run_status_serializes_claimed_in_snake_case() {
+        assert_eq!(
+            serde_json::to_value(ReviewAgentRunStatus::Claimed).unwrap(),
+            json!("claimed")
+        );
+    }
+
+    #[test]
+    fn organization_state_deserializes_claimed_review_agent_run_status() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }],
+            "review_agent_runs": [{
+                "id": "review_agent_run_1",
+                "organization_id": "org_acme",
+                "webhook_id": "webhook_review_1",
+                "delivery_attempt_id": "delivery_attempt_1",
+                "connection_id": "conn_github",
+                "repository_id": "repo_sourcebot_rewrite",
+                "review_id": "review_123",
+                "status": "claimed",
+                "created_at": "2026-04-25T00:10:05Z"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(state.review_agent_runs.len(), 1);
+        assert_eq!(
+            state.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Claimed
         );
     }
 
