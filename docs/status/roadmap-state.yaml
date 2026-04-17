@@ -5,41 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8f07265bfbf281a75a7a695397192e4d8a7dfb8a
+  head: 0538767ee6f452660d5982d6a8327ed04fe646ae
 last_completed_task:
-  id: task32a
-  title: Audit log shared model and persistence-ready state slice
+  id: task32b
+  title: Authenticated audit log listing endpoint
   status: done
   summary: >-
-    Split task32 and completed the first audit-log slice by adding reusable
-    AuditActor and AuditEvent shared models plus OrganizationState.audit_events
-    persistence-ready storage in sourcebot-models, then extending the real
-    file-backed organization-store and build_app_state regression coverage so
-    non-empty audit events round-trip cleanly without adding emission hooks,
-    list endpoints, filtering UI, retention, export, or analytics behavior.
+    Completed the next smallest audit-log slice by adding a minimal
+    local-session-authenticated GET /api/v1/auth/audit-events endpoint that
+    reads persisted OrganizationState.audit_events, filters results to
+    organizations visible to the caller via membership, and returns the stored
+    audit-event payload without adding emission hooks, filtering UI,
+    retention/export behavior, or analytics rollups.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models audit_event -- --nocapture: passed (3 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_list_only_events_for_organizations_visible_to_current_user -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_require_an_authenticated_session -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the shared audit-event persistence model plus non-empty organization-store/build_app_state round-trip coverage without adding emission hooks, list endpoints, filtering UI, retention, export, or analytics behavior
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds backward-compatible audit-event persistence storage and required round-trip coverage with no blocking correctness or security issues
-  commit: 8f07265bfbf281a75a7a695397192e4d8a7dfb8a
-  next_task: task32b
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal authenticated GET /api/v1/auth/audit-events listing slice, uses persisted organization audit events, filters by caller-visible organizations, and does not add emission hooks, UI filtering, retention/export behavior, or analytics rollups
+    code: approved by one independent post-implementation review; reviewer confirmed the new endpoint requires a valid local session, filters audit events to organizations visible to the caller, and found no blocking correctness or security issues
+  commit: 0538767ee6f452660d5982d6a8327ed04fe646ae
+  next_task: task32c
 current_task:
-  id: task32b
+  id: task32c
   parent_task: task32
-  title: Authenticated audit log listing endpoint
+  title: Persist auth audit events for local-session and API-key mutations
   status: pending
   summary: >-
-    Complete the next smallest audit-log slice by adding a minimal
-    local-session-authenticated GET /api/v1/auth/audit-events endpoint that
-    lists persisted organization audit_events visible to the caller without yet
-    adding emission hooks, filtering UI, retention/export behavior, or
-    analytics rollups.
+    Complete the next smallest audit-log slice by appending persisted audit
+    events for the existing authenticated auth mutations that already change
+    state (for example API-key create/revoke and session revocation/logout)
+    without yet adding UI filtering, retention/export behavior, or analytics
+    rollups.
 history:
+  - id: task32b
+    status: done
+    summary: >-
+      Completed the next smallest audit-log slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/audit-events endpoint that
+      reads persisted OrganizationState.audit_events, filters results to
+      organizations visible to the caller via membership, and returns the stored
+      audit-event payload without adding emission hooks, filtering UI,
+      retention/export behavior, or analytics rollups.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_list_only_events_for_organizations_visible_to_current_user -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_audit_events_require_an_authenticated_session -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal authenticated GET /api/v1/auth/audit-events listing slice, uses persisted organization audit events, filters by caller-visible organizations, and does not add emission hooks, UI filtering, retention/export behavior, or analytics rollups
+      code: approved by one independent post-implementation review; reviewer confirmed the new endpoint requires a valid local session, filters audit events to organizations visible to the caller, and found no blocking correctness or security issues
+    commit: 0538767ee6f452660d5982d6a8327ed04fe646ae
+    next_task: task32c
   - id: task32a
     status: done
     summary: >-
