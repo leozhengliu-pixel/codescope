@@ -1547,9 +1547,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore};
     use sourcebot_models::{
-        ApiKey, LocalAccount, LocalSessionState, Organization, OrganizationInvite,
-        OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
-        SearchContext,
+        ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState, Organization,
+        OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
+        RepositoryPermissionBinding, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -1872,6 +1872,22 @@ mod tests {
                 created_at: "2026-04-21T00:06:30Z".into(),
                 updated_at: "2026-04-21T00:07:00Z".into(),
             }],
+            audit_events: vec![AuditEvent {
+                id: "audit_key_cli_created".into(),
+                organization_id: "org_acme".into(),
+                actor: AuditActor {
+                    user_id: Some("user_admin".into()),
+                    api_key_id: Some("key_cli".into()),
+                },
+                action: "auth.api_key.created".into(),
+                target_type: "api_key".into(),
+                target_id: "key_cli".into(),
+                occurred_at: "2026-04-21T00:05:30Z".into(),
+                metadata: serde_json::json!({
+                    "name": "CLI key",
+                    "repo_scope": ["repo_sourcebot_rewrite"]
+                }),
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -1897,6 +1913,7 @@ mod tests {
                 repo_scope: vec!["repo_other".into()],
             }],
             search_contexts: vec![],
+            audit_events: vec![],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_other".into(),
                 repository_id: "repo_other".into(),

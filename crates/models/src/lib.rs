@@ -156,6 +156,28 @@ pub struct SearchContext {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditActor {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditEvent {
+    pub id: String,
+    pub organization_id: String,
+    #[serde(default, skip_serializing_if = "audit_actor_is_empty")]
+    pub actor: AuditActor,
+    pub action: String,
+    pub target_type: String,
+    pub target_id: String,
+    pub occurred_at: String,
+    #[serde(default, skip_serializing_if = "serde_json_value_is_null")]
+    pub metadata: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositoryPermissionBinding {
     pub organization_id: String,
@@ -178,7 +200,17 @@ pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub search_contexts: Vec<SearchContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit_events: Vec<AuditEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
+}
+
+fn audit_actor_is_empty(actor: &AuditActor) -> bool {
+    actor == &AuditActor::default()
+}
+
+fn serde_json_value_is_null(value: &serde_json::Value) -> bool {
+    value.is_null()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -596,6 +628,7 @@ mod tests {
             }],
             api_keys: Vec::new(),
             search_contexts: Vec::new(),
+            audit_events: Vec::new(),
             repo_permissions: Vec::new(),
         };
 
@@ -760,5 +793,101 @@ mod tests {
         .unwrap();
 
         assert!(state.search_contexts.is_empty());
+    }
+
+    #[test]
+    fn audit_event_serializes_as_reusable_persistence_model() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            audit_events: vec![AuditEvent {
+                id: "audit_1".into(),
+                organization_id: "org_acme".into(),
+                actor: AuditActor {
+                    user_id: Some("user_admin".into()),
+                    api_key_id: Some("key_ci".into()),
+                },
+                action: "auth.api_key.created".into(),
+                target_type: "api_key".into(),
+                target_id: "key_ci".into(),
+                occurred_at: "2026-04-21T02:00:00Z".into(),
+                metadata: serde_json::json!({
+                    "repo_scope": ["repo_sourcebot_rewrite"],
+                    "name": "CI key"
+                }),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "audit_events": [{
+                    "id": "audit_1",
+                    "organization_id": "org_acme",
+                    "actor": {
+                        "user_id": "user_admin",
+                        "api_key_id": "key_ci"
+                    },
+                    "action": "auth.api_key.created",
+                    "target_type": "api_key",
+                    "target_id": "key_ci",
+                    "occurred_at": "2026-04-21T02:00:00Z",
+                    "metadata": {
+                        "repo_scope": ["repo_sourcebot_rewrite"],
+                        "name": "CI key"
+                    }
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn audit_event_deserialize_defaults_missing_optional_fields() {
+        let event: AuditEvent = serde_json::from_value(json!({
+            "id": "audit_1",
+            "organization_id": "org_acme",
+            "action": "auth.api_key.created",
+            "target_type": "api_key",
+            "target_id": "key_ci",
+            "occurred_at": "2026-04-21T02:00:00Z"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            event,
+            AuditEvent {
+                id: "audit_1".into(),
+                organization_id: "org_acme".into(),
+                actor: AuditActor::default(),
+                action: "auth.api_key.created".into(),
+                target_type: "api_key".into(),
+                target_id: "key_ci".into(),
+                occurred_at: "2026-04-21T02:00:00Z".into(),
+                metadata: serde_json::Value::Null,
+            }
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_audit_events_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.audit_events.is_empty());
     }
 }

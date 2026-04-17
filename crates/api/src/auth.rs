@@ -307,8 +307,8 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 mod tests {
     use super::*;
     use sourcebot_models::{
-        ApiKey, LocalAccount, Organization, OrganizationInvite, OrganizationMembership,
-        OrganizationRole, RepositoryPermissionBinding, SearchContext,
+        ApiKey, AuditActor, AuditEvent, LocalAccount, Organization, OrganizationInvite,
+        OrganizationMembership, OrganizationRole, RepositoryPermissionBinding, SearchContext,
     };
     use std::{
         fs,
@@ -685,6 +685,22 @@ mod tests {
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
                 created_at: "2026-04-18T09:50:00Z".into(),
                 updated_at: "2026-04-19T09:50:00Z".into(),
+            }],
+            audit_events: vec![AuditEvent {
+                id: "audit_key_ci_created".into(),
+                organization_id: "org_acme".into(),
+                actor: AuditActor {
+                    user_id: Some("local_user_bootstrap_admin".into()),
+                    api_key_id: Some("key_ci".into()),
+                },
+                action: "auth.api_key.created".into(),
+                target_type: "api_key".into(),
+                target_id: "key_ci".into(),
+                occurred_at: "2026-04-18T09:45:00Z".into(),
+                metadata: serde_json::json!({
+                    "name": "CI key",
+                    "repo_scope": ["repo_sourcebot_rewrite"]
+                }),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
