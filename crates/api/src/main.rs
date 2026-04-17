@@ -1290,17 +1290,18 @@ async fn intake_review_webhook_event(
         })
         .ok_or(StatusCode::UNAUTHORIZED)?;
 
+    let delivery_attempt_id = format!(
+        "delivery_attempt_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
     organization_state
         .review_webhook_delivery_attempts
         .push(ReviewWebhookDeliveryAttempt {
-            id: format!(
-                "delivery_attempt_{}",
-                SaltString::generate(&mut OsRng)
-                    .to_string()
-                    .chars()
-                    .filter(|ch| ch.is_ascii_alphanumeric())
-                    .collect::<String>()
-            ),
+            id: delivery_attempt_id.clone(),
             webhook_id: webhook.id.clone(),
             connection_id: connection_id.to_string(),
             repository_id: repository_id.to_string(),
@@ -1309,6 +1310,23 @@ async fn intake_review_webhook_event(
             external_event_id: external_event_id.to_string(),
             accepted_at: current_timestamp(),
         });
+    organization_state.review_agent_runs.push(ReviewAgentRun {
+        id: format!(
+            "review_agent_run_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: webhook.organization_id.clone(),
+        webhook_id: webhook.id.clone(),
+        delivery_attempt_id,
+        connection_id: connection_id.to_string(),
+        repository_id: repository_id.to_string(),
+        review_id: review_id.to_string(),
+        created_at: current_timestamp(),
+    });
     state
         .organization_store
         .store_organization_state(organization_state)
@@ -6047,6 +6065,16 @@ mod tests {
         assert_eq!(delivery_attempt.external_event_id, "evt_123");
         assert!(!delivery_attempt.id.is_empty());
         assert!(!delivery_attempt.accepted_at.is_empty());
+        assert_eq!(persisted.review_agent_runs.len(), 1);
+        let review_agent_run = &persisted.review_agent_runs[0];
+        assert_eq!(review_agent_run.organization_id, "org_acme");
+        assert_eq!(review_agent_run.webhook_id, "review_webhook_1");
+        assert_eq!(review_agent_run.delivery_attempt_id, delivery_attempt.id);
+        assert_eq!(review_agent_run.connection_id, "conn_local");
+        assert_eq!(review_agent_run.repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(review_agent_run.review_id, "review_123");
+        assert!(!review_agent_run.id.is_empty());
+        assert!(!review_agent_run.created_at.is_empty());
 
         fs::remove_file(organization_state_path).unwrap();
     }
