@@ -1810,9 +1810,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
-        ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState, Organization,
-        OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
-        RepositoryPermissionBinding, SearchContext,
+        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState,
+        Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
+        OrganizationState, RepositoryPermissionBinding, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -2163,6 +2163,18 @@ mod tests {
                     "repo_scope": ["repo_sourcebot_rewrite"]
                 }),
             }],
+            analytics_records: vec![AnalyticsRecord {
+                id: "analytics_repo_count".into(),
+                organization_id: "org_acme".into(),
+                metric: "search.repo.count".into(),
+                recorded_at: "2026-04-21T00:08:00Z".into(),
+                value: serde_json::json!({
+                    "count": 1
+                }),
+                dimensions: serde_json::json!({
+                    "repo_id": "repo_sourcebot_rewrite"
+                }),
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -2189,6 +2201,7 @@ mod tests {
             }],
             search_contexts: vec![],
             audit_events: vec![],
+            analytics_records: vec![],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_other".into(),
                 repository_id: "repo_other".into(),

@@ -179,6 +179,17 @@ pub struct AuditEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnalyticsRecord {
+    pub id: String,
+    pub organization_id: String,
+    pub metric: String,
+    pub recorded_at: String,
+    pub value: serde_json::Value,
+    #[serde(default, skip_serializing_if = "serde_json_value_is_null")]
+    pub dimensions: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositoryPermissionBinding {
     pub organization_id: String,
     pub repository_id: String,
@@ -201,6 +212,8 @@ pub struct OrganizationState {
     pub search_contexts: Vec<SearchContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audit_events: Vec<AuditEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub analytics_records: Vec<AnalyticsRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
 }
@@ -629,6 +642,7 @@ mod tests {
             api_keys: Vec::new(),
             search_contexts: Vec::new(),
             audit_events: Vec::new(),
+            analytics_records: Vec::new(),
             repo_permissions: Vec::new(),
         };
 
@@ -889,5 +903,94 @@ mod tests {
         .unwrap();
 
         assert!(state.audit_events.is_empty());
+    }
+
+    #[test]
+    fn analytics_record_serializes_as_reusable_persistence_model() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            analytics_records: vec![AnalyticsRecord {
+                id: "analytics_1".into(),
+                organization_id: "org_acme".into(),
+                metric: "auth.api_key.count".into(),
+                recorded_at: "2026-04-21T03:00:00Z".into(),
+                value: serde_json::json!({
+                    "count": 3
+                }),
+                dimensions: serde_json::json!({
+                    "scope": "organization"
+                }),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "analytics_records": [{
+                    "id": "analytics_1",
+                    "organization_id": "org_acme",
+                    "metric": "auth.api_key.count",
+                    "recorded_at": "2026-04-21T03:00:00Z",
+                    "value": {
+                        "count": 3
+                    },
+                    "dimensions": {
+                        "scope": "organization"
+                    }
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn analytics_record_deserialize_defaults_missing_optional_fields() {
+        let record: AnalyticsRecord = serde_json::from_value(json!({
+            "id": "analytics_1",
+            "organization_id": "org_acme",
+            "metric": "auth.api_key.count",
+            "recorded_at": "2026-04-21T03:00:00Z",
+            "value": {
+                "count": 3
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            record,
+            AnalyticsRecord {
+                id: "analytics_1".into(),
+                organization_id: "org_acme".into(),
+                metric: "auth.api_key.count".into(),
+                recorded_at: "2026-04-21T03:00:00Z".into(),
+                value: serde_json::json!({
+                    "count": 3
+                }),
+                dimensions: serde_json::Value::Null,
+            }
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_analytics_records_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.analytics_records.is_empty());
     }
 }
