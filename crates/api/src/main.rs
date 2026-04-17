@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
-    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor, AuditEvent,
-    BootstrapState, BootstrapStatus, LocalSession, OrganizationState, RepositoryDetail,
+    AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
+    AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OrganizationState, RepositoryDetail,
     RepositorySummary, SearchContext,
 };
 use sourcebot_search::{
@@ -168,6 +168,7 @@ fn build_router(
             "/api/v1/auth/audit-events",
             get(list_authenticated_audit_events),
         )
+        .route("/api/v1/auth/analytics", get(list_authenticated_analytics))
         .route(
             "/api/v1/auth/api-keys/{api_key_id}/revoke",
             post(revoke_authenticated_api_key),
@@ -309,6 +310,16 @@ struct AuditEventListItemResponse {
     target_id: String,
     occurred_at: String,
     metadata: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct AnalyticsRecordListItemResponse {
+    id: String,
+    organization_id: String,
+    metric: String,
+    recorded_at: String,
+    value: serde_json::Value,
+    dimensions: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -778,6 +789,29 @@ async fn list_authenticated_audit_events(
     ))
 }
 
+async fn list_authenticated_analytics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AnalyticsRecordListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+
+    Ok(Json(
+        organization_state
+            .analytics_records
+            .into_iter()
+            .filter(|record| visible_organization_ids.contains(&record.organization_id))
+            .map(analytics_record_list_item_response)
+            .collect(),
+    ))
+}
+
 fn search_context_list_item_response(
     search_context: SearchContext,
     visible_repo_ids: &HashSet<String>,
@@ -805,6 +839,17 @@ fn audit_event_list_item_response(audit_event: AuditEvent) -> AuditEventListItem
         target_id: audit_event.target_id,
         occurred_at: audit_event.occurred_at,
         metadata: audit_event.metadata,
+    }
+}
+
+fn analytics_record_list_item_response(record: AnalyticsRecord) -> AnalyticsRecordListItemResponse {
+    AnalyticsRecordListItemResponse {
+        id: record.id,
+        organization_id: record.organization_id,
+        metric: record.metric,
+        recorded_at: record.recorded_at,
+        value: record.value,
+        dimensions: record.dimensions,
     }
 }
 
@@ -2017,6 +2062,16 @@ mod tests {
         target_id: String,
         occurred_at: String,
         metadata: serde_json::Value,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct AnalyticsRecordListItemResponseBody {
+        id: String,
+        organization_id: String,
+        metric: String,
+        recorded_at: String,
+        value: serde_json::Value,
+        dimensions: serde_json::Value,
     }
 
     #[derive(Debug, Serialize)]
@@ -4201,6 +4256,114 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/audit-events")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_analytics_list_only_records_for_organizations_visible_to_current_user() {
+        let organization_state_path = unique_test_path("auth-analytics-orgs");
+        let local_session_state_path = unique_test_path("auth-analytics-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-23T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-22T23:55:00Z".into(),
+            }],
+            analytics_records: vec![
+                AnalyticsRecord {
+                    id: "analytics_visible".into(),
+                    organization_id: "org_acme".into(),
+                    metric: "search.repo.count".into(),
+                    recorded_at: "2026-04-23T00:05:00Z".into(),
+                    value: serde_json::json!({"count": 7}),
+                    dimensions: serde_json::json!({"repo_id": "repo_sourcebot_rewrite"}),
+                },
+                AnalyticsRecord {
+                    id: "analytics_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    metric: "search.repo.count".into(),
+                    recorded_at: "2026-04-23T00:06:00Z".into(),
+                    value: serde_json::json!({"count": 99}),
+                    dimensions: serde_json::json!({"repo_id": "repo_private"}),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/analytics")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<AnalyticsRecordListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "analytics_visible");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].metric, "search.repo.count");
+        assert_eq!(payload[0].recorded_at, "2026-04-23T00:05:00Z");
+        assert_eq!(payload[0].value, serde_json::json!({"count": 7}));
+        assert_eq!(
+            payload[0].dimensions,
+            serde_json::json!({"repo_id": "repo_sourcebot_rewrite"})
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_analytics_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/analytics")
                     .body(Body::empty())
                     .unwrap(),
             )
