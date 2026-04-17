@@ -133,6 +133,19 @@ pub struct OrganizationInvite {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApiKey {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub secret_hash: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositoryPermissionBinding {
     pub organization_id: String,
     pub repository_id: String,
@@ -149,6 +162,8 @@ pub struct OrganizationState {
     pub accounts: Vec<LocalAccount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invites: Vec<OrganizationInvite>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub api_keys: Vec<ApiKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
 }
@@ -477,7 +492,62 @@ mod tests {
         assert!(state.memberships.is_empty());
         assert!(state.accounts.is_empty());
         assert!(state.invites.is_empty());
+        assert!(state.api_keys.is_empty());
         assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn organization_state_serializes_api_keys_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            api_keys: vec![ApiKey {
+                id: "key_123".into(),
+                user_id: "user_admin".into(),
+                name: "CI token".into(),
+                secret_hash: "hashed-secret".into(),
+                created_at: "2026-04-18T10:00:00Z".into(),
+                revoked_at: None,
+                repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "api_keys": [{
+                    "id": "key_123",
+                    "user_id": "user_admin",
+                    "name": "CI token",
+                    "secret_hash": "hashed-secret",
+                    "created_at": "2026-04-18T10:00:00Z",
+                    "repo_scope": ["repo_sourcebot_rewrite", "repo_demo_docs"]
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_api_keys_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.api_keys.is_empty());
     }
 
     #[test]
@@ -511,6 +581,7 @@ mod tests {
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
+            api_keys: Vec::new(),
             repo_permissions: Vec::new(),
         };
 
