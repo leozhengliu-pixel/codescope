@@ -5,38 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: dc08c74a901caeddf142b1044dfae06af0a0881b
+  head: 12e6acb0f5eadcd8daf74406f975cc45979a7c67
 last_completed_task:
-  id: task34c
-  title: Authenticated OAuth client creation endpoint
+  id: task35a
+  title: Review webhook persistence model
   status: done
   summary: >-
-    Completed the third OAuth client flows slice by adding a minimal
-    local-session-authenticated POST /api/v1/auth/oauth-clients endpoint that
-    requires admin membership in a visible organization, persists redirect URIs
-    plus an Argon2-hashed client secret, returns the plaintext client secret only
-    once at creation time, and does not add token issuance, authorization code
-    flows, OAuth login, revocation, or UI.
+    Split task35 and completed the first review-agent / webhook automation slice
+    by adding a reusable ReviewWebhook shared model plus
+    OrganizationState.review_webhooks persistence-ready storage in
+    sourcebot-models, then extending the real file-backed organization-store and
+    build_app_state regression coverage so non-empty review webhook data
+    round-trips cleanly without adding routes, webhook delivery handling, review
+    execution logic, or UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_oauth_clients_create -- --nocapture: passed (5 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_oauth_clients -- --nocapture: passed (7 tests)
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_review_webhooks_for_persistence -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_review_webhooks_to_empty_on_deserialize -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo check --workspace: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the minimal local-session-authenticated OAuth client creation slice, keeps creation within privileged visible-organization scope, persists redirect_uris plus only a hashed client secret, and does not add token issuance, authorization code flows, OAuth login, or UI
-    code: approved by one independent post-implementation review; reviewer confirmed the final diff enforces admin membership for organization-scoped OAuth client creation, stores only client_secret_hash durably while returning the plaintext secret once, and found no blocking correctness or security issues
-  commit: dc08c74a901caeddf142b1044dfae06af0a0881b
-  next_task: task35
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35a shared review-webhook persistence slice, adds only ReviewWebhook plus OrganizationState.review_webhooks and the required non-empty persistence-path coverage, and does not add routes, UI, webhook delivery logic, or review-agent execution behavior
+    code: approved by one independent post-implementation review; reviewer confirmed the uncommitted diff cleanly adds review_webhooks to persisted organization state and associated test fixtures with no blocking correctness or security issues
+  commit: 12e6acb0f5eadcd8daf74406f975cc45979a7c67
+  next_task: task35b
 current_task:
-  id: task35
-  title: Review agent / webhook automation
+  id: task35b
+  parent_task: task35
+  title: Authenticated review webhook listing endpoint
   status: pending
   summary: >-
-    Start phase-6 task35 by splitting review-agent / webhook automation into the
-    smallest architecture-complete slice before implementation, then land only
-    the first minimal server-side webhook or review-automation capability needed
-    for parity without broad UI or workflow expansion.
+    Add the next smallest review-agent / webhook automation slice by exposing a
+    minimal local-session-authenticated GET /api/v1/auth/review-webhooks
+    endpoint that returns persisted review webhook configurations only for
+    visible organizations and does not expose secret_hash or add creation,
+    inbound webhook execution, or review-agent workflow behavior.
 history:
+  - id: task35a
+    status: done
+    summary: >-
+      Split task35 and completed the first review-agent / webhook automation
+      slice by adding a reusable ReviewWebhook shared model plus
+      OrganizationState.review_webhooks persistence-ready storage in
+      sourcebot-models, then extending the real file-backed organization-store
+      and build_app_state regression coverage so non-empty review webhook data
+      round-trips cleanly without adding routes, webhook delivery handling,
+      review execution logic, or UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_review_webhooks_for_persistence -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_review_webhooks_to_empty_on_deserialize -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check --workspace: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35a shared review-webhook persistence slice, adds only ReviewWebhook plus OrganizationState.review_webhooks and the required non-empty persistence-path coverage, and does not add routes, UI, webhook delivery logic, or review-agent execution behavior
+      code: approved by one independent post-implementation review; reviewer confirmed the uncommitted diff cleanly adds review_webhooks to persisted organization state and associated test fixtures with no blocking correctness or security issues
+    commit: 12e6acb0f5eadcd8daf74406f975cc45979a7c67
+    next_task: task35b
   - id: task34c
     status: done
     summary: >-
