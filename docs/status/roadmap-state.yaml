@@ -5,41 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e4509b66c355200f760bf73611cbd494f2112635
+  head: db8c6607647f23fbd33d7d3e38d96d9d72a67441
 last_completed_task:
-  id: task35f
-  title: Authenticated review webhook delivery-attempt listing endpoint
+  id: task35g
+  title: Review-agent run persistence model
   status: done
   summary: >-
-    Completed the next review-agent / webhook automation slice by adding a
-    minimal local-session-authenticated GET
-    /api/v1/auth/review-webhook-delivery-attempts endpoint that lists only
-    persisted review webhook delivery attempts tied to organizations visible to
-    the caller, filters out hidden-organization and orphaned webhook attempts,
-    and still defers review-agent execution, retries, status UI, and secret
-    rotation.
+    Split the remaining review-agent / webhook automation scope by adding a
+    shared persistence-ready ReviewAgentRun model plus
+    OrganizationState.review_agent_runs storage and non-empty round-trip
+    coverage through the real file-backed organization-store and build_app_state
+    paths, while still deferring webhook-triggered execution, retries, status
+    UI, and secret rotation.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_agent_runs -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo check --workspace: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35f local-session-authenticated delivery-attempt listing slice, returns only attempts tied to visible organizations via visible review webhooks, and does not add retries, execution, status UI, deletion, or secret rotation
-    code: approved by one independent post-implementation review; reviewer confirmed the new authenticated delivery-attempt listing endpoint is authorization-safe and logically consistent with existing patterns, with only non-blocking suggestions about response ordering and extra multi-visible-item coverage
-  commit: e4509b66c355200f760bf73611cbd494f2112635
-  next_task: task35g
+    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the persistence-only task35g slice, adds backward-compatible ReviewAgentRun storage with non-empty real persistence round-trip coverage, and found no blocking correctness or security issues
+  commit: db8c6607647f23fbd33d7d3e38d96d9d72a67441
+  next_task: task35h
 current_task:
-  id: task35g
+  id: task35h
   parent_task: task35
-  title: Review-agent run persistence model
+  title: Authenticated review-agent run listing endpoint
   status: pending
   summary: >-
-    Split the remaining review-agent / webhook automation scope by first adding
-    a shared persistence-ready ReviewAgentRun model plus
-    OrganizationState.review_agent_runs storage and non-empty round-trip
-    coverage, while still deferring webhook-triggered execution, retries,
-    status UI, and secret rotation.
+    Add a minimal local-session-authenticated GET /api/v1/auth/review-agent-runs
+    endpoint that lists only persisted review-agent runs tied to organizations
+    visible to the caller, while still deferring webhook-triggered execution,
+    retries, status UI, and secret rotation.
 history:
+  - id: task35g
+    status: done
+    summary: >-
+      Split the remaining review-agent / webhook automation scope by adding a
+      shared persistence-ready ReviewAgentRun model plus
+      OrganizationState.review_agent_runs storage and non-empty round-trip
+      coverage through the real file-backed organization-store and
+      build_app_state paths, while still deferring webhook-triggered execution,
+      retries, status UI, and secret rotation.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models review_agent_runs -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo check --workspace: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the persistence-only task35g slice, adds backward-compatible ReviewAgentRun storage with non-empty real persistence round-trip coverage, and found no blocking correctness or security issues
+    commit: db8c6607647f23fbd33d7d3e38d96d9d72a67441
+    next_task: task35h
   - id: task35f
     status: done
     summary: >-
