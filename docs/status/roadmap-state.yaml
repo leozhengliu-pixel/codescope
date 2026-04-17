@@ -5,43 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 12e6acb0f5eadcd8daf74406f975cc45979a7c67
+  head: 024815815840d99ef446a516b56430d082014834
 last_completed_task:
-  id: task35a
-  title: Review webhook persistence model
+  id: task35b
+  title: Authenticated review webhook listing endpoint
   status: done
   summary: >-
-    Split task35 and completed the first review-agent / webhook automation slice
-    by adding a reusable ReviewWebhook shared model plus
-    OrganizationState.review_webhooks persistence-ready storage in
-    sourcebot-models, then extending the real file-backed organization-store and
-    build_app_state regression coverage so non-empty review webhook data
-    round-trips cleanly without adding routes, webhook delivery handling, review
-    execution logic, or UI.
+    Completed the next review-agent / webhook automation slice by adding a
+    minimal local-session-authenticated GET /api/v1/auth/review-webhooks
+    endpoint that returns persisted review webhook configurations only for
+    organizations visible to the caller while omitting secret_hash, without
+    adding creation, inbound webhook execution, review-agent workflow behavior,
+    or UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_review_webhooks_for_persistence -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_review_webhooks_to_empty_on_deserialize -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::build_app_state_constructs_file_backed_organization_store_from_configured_path -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo check --workspace: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35a shared review-webhook persistence slice, adds only ReviewWebhook plus OrganizationState.review_webhooks and the required non-empty persistence-path coverage, and does not add routes, UI, webhook delivery logic, or review-agent execution behavior
-    code: approved by one independent post-implementation review; reviewer confirmed the uncommitted diff cleanly adds review_webhooks to persisted organization state and associated test fixtures with no blocking correctness or security issues
-  commit: 12e6acb0f5eadcd8daf74406f975cc45979a7c67
-  next_task: task35b
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35b local-session-authenticated review-webhook listing slice, filters persisted review_webhooks to organizations visible to the caller, omits secret_hash from the response, and does not add creation flows, inbound webhook execution, review-agent workflow behavior, UI, or unrelated auth changes
+    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds GET /api/v1/auth/review-webhooks with visible-organization filtering and secret_hash omission, and found no blocking correctness or security issues
+  commit: 024815815840d99ef446a516b56430d082014834
+  next_task: task35c
 current_task:
-  id: task35b
+  id: task35c
   parent_task: task35
-  title: Authenticated review webhook listing endpoint
+  title: Authenticated review webhook creation endpoint
   status: pending
   summary: >-
     Add the next smallest review-agent / webhook automation slice by exposing a
-    minimal local-session-authenticated GET /api/v1/auth/review-webhooks
-    endpoint that returns persisted review webhook configurations only for
-    visible organizations and does not expose secret_hash or add creation,
-    inbound webhook execution, or review-agent workflow behavior.
+    minimal local-session-authenticated POST /api/v1/auth/review-webhooks
+    endpoint that requires admin membership in a visible organization, persists
+    a new review webhook with a hashed secret, returns the plaintext secret only
+    once at creation time, and does not add inbound webhook execution,
+    review-agent workflow behavior, secret rotation, deletion, or UI.
 history:
+  - id: task35b
+    status: done
+    summary: >-
+      Completed the next review-agent / webhook automation slice by adding a
+      minimal local-session-authenticated GET /api/v1/auth/review-webhooks
+      endpoint that returns persisted review webhook configurations only for
+      organizations visible to the caller while omitting secret_hash, without
+      adding creation, inbound webhook execution, review-agent workflow
+      behavior, or UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35b local-session-authenticated review-webhook listing slice, filters persisted review_webhooks to organizations visible to the caller, omits secret_hash from the response, and does not add creation flows, inbound webhook execution, review-agent workflow behavior, UI, or unrelated auth changes
+      code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds GET /api/v1/auth/review-webhooks with visible-organization filtering and secret_hash omission, and found no blocking correctness or security issues
+    commit: 024815815840d99ef446a516b56430d082014834
+    next_task: task35c
   - id: task35a
     status: done
     summary: >-
