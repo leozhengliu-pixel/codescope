@@ -5,46 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 568f734dc20168e5a530dec0f15259272298cd9e
+  head: b1d12d2ff072dda6a998c249fe81d87503da1ca7
 last_completed_task:
-  id: task35k5
-  title: Record one terminal failure status for a claimed review-agent run after a stub worker execution
+  id: task35k6a
+  title: Add explicit stub execution outcomes and restore completed-path worker routing
   status: done
   summary: >-
-    Completed the next review-agent worker slice by extending the shared,
-    file-backed store, and worker contracts with a terminal Failed status,
-    then recording exactly one claimed review-agent run as failed after the
-    explicit no-op stub execution boundary while preserving persisted failed
-    runs against stale whole-state writes, including stale completed rewrites,
-    and still deferring actual review logic, retries, rescheduling, and worker
-    loops.
+    Split task35k6 and completed the first slice by introducing an explicit
+    StubReviewAgentRunExecutionOutcome contract in sourcebot-worker, routing
+    run_worker_tick through that named outcome helper, defaulting the stub
+    boundary to Completed for now, preserving an explicit Failed-path helper
+    test, and still deferring real review logic, retries, rescheduling, and
+    worker loops.
   tests:
-    - cargo test -p sourcebot-models review_agent_run_status_serializes_failed_in_snake_case -- --nocapture: passed
-    - cargo test -p sourcebot-models organization_state_deserializes_failed_review_agent_run_status -- --nocapture: passed
-    - cargo test -p sourcebot-api file_organization_store_fails_a_claimed_review_agent_run -- --nocapture: passed
-    - cargo test -p sourcebot-api file_organization_store_preserves_failed_review_agent_run_when_stale_state_is_written -- --nocapture: passed
-    - cargo test -p sourcebot-api file_organization_store_preserves_persisted_failed_run_against_stale_completed_write -- --nocapture: passed
-    - cargo test -p sourcebot-worker run_worker_tick_fails_the_claimed_run_after_stub_execution -- --nocapture: passed
-    - cargo test -p sourcebot-worker run_worker_tick_records_a_failed_run_in_the_file_store_after_stub_execution -- --nocapture: passed
+    - cargo test -p sourcebot-worker tests::execute_claimed_review_agent_run_stub_returns_a_completed_outcome_by_default -- --exact --nocapture: passed
+    - cargo test -p sourcebot-worker tests::run_worker_tick_records_a_completed_run_in_the_file_store_after_stub_execution -- --exact --nocapture: passed
+    - cargo test -p sourcebot-worker tests::persist_stub_review_agent_run_execution_outcome_records_a_failed_run_when_requested -- --exact --nocapture: passed
     - cargo test -p sourcebot-worker -- --nocapture: passed (7 tests)
     - cargo fmt --all --check && cargo check -p sourcebot-worker && cargo check -p sourcebot-api: passed
-    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> cargo run -p sourcebot-worker: passed (failed queued run and persisted failed status)
+    - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> cargo run -p sourcebot-worker: passed (completed queued run and persisted completed status)
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays within the task35k5 failure-path slice by keeping the explicit stub execution boundary, recording exactly one claimed run as terminal Failed through the real store, and avoiding retries, polling, rescheduling, routes, UI, or real review execution
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues, confirmed failed-run persistence and stale whole-state overwrite protection including terminal-status mismatches, and found the narrowed diff architecture-complete for the failure-path slice
-  commit: 568f734dc20168e5a530dec0f15259272298cd9e
-  next_task: task35k6
+    spec: passed one independent spec-compliance review; reviewer confirmed the narrowed task35k6a diff adds only the explicit stub execution outcome contract, routes worker completion through that contract, keeps focused Failed-path helper coverage, and avoids real review logic, retries, scheduling, or broader automation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues, confirmed the explicit outcome helper cleanly drives the completed path while retaining explicit failed-path coverage, and noted only the non-blocking environment fact that cargo clippy was unavailable
+  commit: b1d12d2ff072dda6a998c249fe81d87503da1ca7
+  next_task: task35k6b
 current_task:
-  id: task35k6
-  parent_task: task35k
-  title: Represent stub worker execution outcomes explicitly before restoring both terminal completion and failure paths
+  id: task35k6b
+  parent_task: task35k6
+  title: Allow the explicit stub worker outcome contract to choose failure or completion without hard-coded completed default
   status: pending
   summary: >-
-    Add the smallest explicit stub execution outcome contract so the worker can
-    route a claimed review-agent run to Completed or Failed based on a named
-    placeholder result instead of hard-coding one terminal branch, while still
-    deferring real review logic, retries, rescheduling, and worker loops.
+    Add the smallest follow-up slice that moves beyond the current hard-coded
+    Completed default so stub worker execution can explicitly produce either
+    terminal outcome through the new outcome contract, while still deferring
+    real review logic, retries, rescheduling, and worker loops.
 history:
+  - id: task35k6a
+    status: done
+    summary: >-
+      Split task35k6 and completed the first slice by introducing an explicit
+      StubReviewAgentRunExecutionOutcome contract in sourcebot-worker, routing
+      run_worker_tick through that named outcome helper, defaulting the stub
+      boundary to Completed for now, preserving an explicit Failed-path helper
+      test, and still deferring real review logic, retries, rescheduling, and
+      worker loops.
+    tests:
+      - cargo test -p sourcebot-worker tests::execute_claimed_review_agent_run_stub_returns_a_completed_outcome_by_default -- --exact --nocapture: passed
+      - cargo test -p sourcebot-worker tests::run_worker_tick_records_a_completed_run_in_the_file_store_after_stub_execution -- --exact --nocapture: passed
+      - cargo test -p sourcebot-worker tests::persist_stub_review_agent_run_execution_outcome_records_a_failed_run_when_requested -- --exact --nocapture: passed
+      - cargo test -p sourcebot-worker -- --nocapture: passed (7 tests)
+      - cargo fmt --all --check && cargo check -p sourcebot-worker && cargo check -p sourcebot-api: passed
+      - SOURCEBOT_ORGANIZATION_STATE_PATH=<temp-smoke-state.json> cargo run -p sourcebot-worker: passed (completed queued run and persisted completed status)
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the narrowed task35k6a diff adds only the explicit stub execution outcome contract, routes worker completion through that contract, keeps focused Failed-path helper coverage, and avoids real review logic, retries, scheduling, or broader automation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues, confirmed the explicit outcome helper cleanly drives the completed path while retaining explicit failed-path coverage, and noted only the non-blocking environment fact that cargo clippy was unavailable
+    commit: b1d12d2ff072dda6a998c249fe81d87503da1ca7
+    next_task: task35k6b
   - id: task35k5
     status: done
     summary: >-
