@@ -5,40 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 83874037d865d29870cfb7ee57046c9c5831e784
+  head: 39fbc250a374804ba216b592acee30db04097c55
 last_completed_task:
-  id: task31a
-  title: Search context persistence model and round-trip coverage
+  id: task31b
+  title: Authenticated search context listing endpoint
   status: done
   summary: >-
-    Split task31 and completed the first search-context slice by adding a
-    reusable SearchContext domain model plus OrganizationState.search_contexts
-    persistence-ready storage in sourcebot-models, then extending the real
-    file-backed organization-store and build_app_state regression coverage so
-    non-empty saved search contexts round-trip cleanly without adding API
-    routes, UI, search expansion, or ask integration yet.
+    Completed the second search-context slice by adding a minimal
+    local-session-authenticated GET /api/v1/auth/search-contexts endpoint that
+    returns only the caller's persisted search_contexts, hides user_id from the
+    response, and filters stale repo_scope entries against the caller's current
+    visible repositories without adding create/update/delete flows or wiring
+    search and ask requests to expand named contexts.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models search_context -- --nocapture: passed (2 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (4 tests)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the shared SearchContext persistence model plus non-empty organization-store/build_app_state round-trip coverage without adding routes, UI, search expansion, or ask integration
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds SearchContext to the shared persistence model, updates the required persistence-path tests, and found no blocking correctness or security issues
-  commit: 83874037d865d29870cfb7ee57046c9c5831e784
-  next_task: task31b
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session-authenticated search-context listing endpoint, returns only the caller's persisted search_contexts, filters stale invisible repo_scope entries, and does not add CRUD flows or search/ask expansion
+    code: approved by one independent post-implementation review; reviewer confirmed caller ownership is enforced, stale repo_scope entries are filtered against current visibility, and found no blocking correctness or security issues
+  commit: 39fbc250a374804ba216b592acee30db04097c55
+  next_task: task32a
 current_task:
-  id: task31b
-  parent_task: task31
-  title: Authenticated search context listing endpoint
+  id: task32a
+  parent_task: task32
+  title: Audit log shared model and persistence-ready state slice
   status: pending
   summary: >-
-    Add the next smallest search-context slice by exposing a minimal
-    authenticated listing endpoint that returns only the caller's persisted
-    search_contexts without yet adding create/update/delete flows or wiring
-    search and ask requests to expand named contexts.
+    Split task32 and start with the smallest architecture-complete audit-log
+    slice by adding a reusable shared audit event model plus persistence-ready
+    state storage and round-trip coverage, without yet adding emission hooks,
+    list endpoints, filtering UI, or retention/export behavior.
 history:
+  - id: task31b
+    status: done
+    summary: >-
+      Completed the second search-context slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/search-contexts endpoint that
+      returns only the caller's persisted search_contexts, hides user_id from
+      the response, and filters stale repo_scope entries against the caller's
+      current visible repositories without adding create/update/delete flows or
+      wiring search and ask requests to expand named contexts.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_api_keys_ -- --nocapture: passed (4 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the local-session-authenticated search-context listing endpoint, returns only the caller's persisted search_contexts, filters stale invisible repo_scope entries, and does not add CRUD flows or search/ask expansion
+      code: approved by one independent post-implementation review; reviewer confirmed caller ownership is enforced, stale repo_scope entries are filtered against current visibility, and found no blocking correctness or security issues
+    commit: 39fbc250a374804ba216b592acee30db04097c55
+    next_task: task32a
   - id: task31a
     status: done
     summary: >-
