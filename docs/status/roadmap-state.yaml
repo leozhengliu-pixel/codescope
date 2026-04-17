@@ -5,36 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f88573ca6577a18e96c8cc1a9d5dcc54de95a45e
+  head: b44e69464c28363fc14aca34f8e28ab6e4eb0416
 last_completed_task:
-  id: task35h
-  title: Authenticated review-agent run listing endpoint
+  id: task35i
+  title: Review webhook intake creates persisted review-agent runs
   status: done
   summary: >-
-    Completed the next review-agent / webhook automation slice by adding a
-    minimal local-session-authenticated GET /api/v1/auth/review-agent-runs
-    endpoint that lists only persisted review-agent runs tied to organizations
-    visible to the caller, while still deferring webhook-triggered execution,
-    retries, status UI, and secret rotation.
+    Completed the next review-agent / webhook automation slice by extending the
+    accepted review-webhook intake path to persist a minimal ReviewAgentRun tied
+    to the configured webhook organization, the newly created delivery attempt,
+    and the accepted review payload identifiers, while still deferring actual
+    review execution, retries, status UI, and secret rotation.
   tests:
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_accept_verified_supported_event_for_configured_webhook -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_ -- --nocapture: passed (2 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the diff stays within the task35h authenticated review-agent-run listing slice, correctly requires a local session, filters persisted review_agent_runs to organizations visible to the caller, and found no blocking correctness or security issues
-  commit: f88573ca6577a18e96c8cc1a9d5dcc54de95a45e
-  next_task: task35i
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35i webhook-intake persistence slice, preserves the accepted webhook ack plus delivery-attempt flow, and adds only the minimal persisted ReviewAgentRun linkage required for the new run record
+    code: approved by one independent post-implementation review; reviewer confirmed the diff correctly persists a new ReviewAgentRun alongside the existing webhook delivery-attempt record for accepted review webhook events and found no blocking correctness or security issues
+  commit: b44e69464c28363fc14aca34f8e28ab6e4eb0416
+  next_task: task35j
 current_task:
-  id: task35i
+  id: task35j
   parent_task: task35
-  title: Review webhook intake creates persisted review-agent runs
+  title: Review-agent run queued-status persistence contract
   status: pending
   summary: >-
-    Extend the accepted review-webhook event path to append a minimal persisted
-    ReviewAgentRun record for the configured visible organization and delivery
-    attempt, while still deferring actual review execution, retries, status UI,
-    and secret rotation.
+    Extend ReviewAgentRun with a backward-compatible queued-status persistence
+    contract and the smallest required list/persistence coverage, while still
+    deferring actual review execution, retries, status UI, and secret rotation.
 history:
+  - id: task35i
+    status: done
+    summary: >-
+      Completed the next review-agent / webhook automation slice by extending the
+      accepted review-webhook intake path to persist a minimal ReviewAgentRun
+      tied to the configured webhook organization, the newly created delivery
+      attempt, and the accepted review payload identifiers, while still
+      deferring actual review execution, retries, status UI, and secret
+      rotation.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_accept_verified_supported_event_for_configured_webhook -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed (6 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the task35i webhook-intake persistence slice, preserves the accepted webhook ack plus delivery-attempt flow, and adds only the minimal persisted ReviewAgentRun linkage required for the new run record
+      code: approved by one independent post-implementation review; reviewer confirmed the diff correctly persists a new ReviewAgentRun alongside the existing webhook delivery-attempt record for accepted review webhook events and found no blocking correctness or security issues
+    commit: b44e69464c28363fc14aca34f8e28ab6e4eb0416
+    next_task: task35j
   - id: task35h
     status: done
     summary: >-
