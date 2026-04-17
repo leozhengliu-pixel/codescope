@@ -1146,8 +1146,8 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore};
     use sourcebot_models::{
-        LocalAccount, LocalSessionState, Organization, OrganizationInvite, OrganizationMembership,
-        OrganizationRole, OrganizationState, RepositoryPermissionBinding,
+        ApiKey, LocalAccount, LocalSessionState, Organization, OrganizationInvite,
+        OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
     };
     use sourcebot_search::build_search_store;
     use std::sync::Arc;
@@ -1400,6 +1400,15 @@ mod tests {
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
+            api_keys: vec![ApiKey {
+                id: "key_cli".into(),
+                user_id: "user_admin".into(),
+                name: "CLI key".into(),
+                secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$cli$hash".into(),
+                created_at: "2026-04-21T00:05:30Z".into(),
+                revoked_at: None,
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -1415,6 +1424,15 @@ mod tests {
             memberships: vec![],
             accounts: vec![],
             invites: vec![],
+            api_keys: vec![ApiKey {
+                id: "key_other".into(),
+                user_id: "user_other".into(),
+                name: "Other key".into(),
+                secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$other$hash".into(),
+                created_at: "2026-04-21T00:07:30Z".into(),
+                revoked_at: Some("2026-04-22T00:07:30Z".into()),
+                repo_scope: vec!["repo_other".into()],
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_other".into(),
                 repository_id: "repo_other".into(),

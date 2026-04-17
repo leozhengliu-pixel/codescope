@@ -307,8 +307,8 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 mod tests {
     use super::*;
     use sourcebot_models::{
-        LocalAccount, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-        RepositoryPermissionBinding,
+        ApiKey, LocalAccount, Organization, OrganizationInvite, OrganizationMembership,
+        OrganizationRole, RepositoryPermissionBinding,
     };
     use std::{
         fs,
@@ -668,6 +668,15 @@ mod tests {
                 expires_at: "2026-04-23T20:05:00Z".into(),
                 accepted_by_user_id: Some("local_user_member".into()),
                 accepted_at: Some("2026-04-17T08:00:00Z".into()),
+            }],
+            api_keys: vec![ApiKey {
+                id: "key_ci".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                name: "CI key".into(),
+                secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$ci$hash".into(),
+                created_at: "2026-04-18T09:45:00Z".into(),
+                revoked_at: Some("2026-04-19T09:45:00Z".into()),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
