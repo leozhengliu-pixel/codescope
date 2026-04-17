@@ -1226,22 +1226,50 @@ async fn get_repository_commit_diff(
     Ok(Json(diff))
 }
 
-async fn visible_repo_ids_for_request(
+async fn visible_repo_ids_for_user_id(
     state: &AppState,
-    headers: &HeaderMap,
+    user_id: &str,
 ) -> Result<HashSet<String>, StatusCode> {
-    let session = authenticate_local_session_record(state, headers).await?;
     let organization_state = state
         .organization_store
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(
-        visible_repo_ids_for_user(&organization_state, &session.user_id)
-            .into_iter()
-            .collect(),
-    )
+    Ok(visible_repo_ids_for_user(&organization_state, user_id)
+        .into_iter()
+        .collect())
+}
+
+async fn visible_repo_ids_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<HashSet<String>, StatusCode> {
+    let session = authenticate_local_session_record(state, headers).await?;
+    visible_repo_ids_for_user_id(state, &session.user_id).await
+}
+
+async fn visible_search_repo_ids_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<HashSet<String>, StatusCode> {
+    match authenticate_api_key_record(state, headers).await {
+        Ok(authenticated_api_key) => {
+            let visible_repo_ids =
+                visible_repo_ids_for_user_id(state, &authenticated_api_key.user_id).await?;
+            if authenticated_api_key.repo_scope.is_empty() {
+                return Ok(visible_repo_ids);
+            }
+
+            Ok(authenticated_api_key
+                .repo_scope
+                .into_iter()
+                .filter(|repo_id| visible_repo_ids.contains(repo_id))
+                .collect())
+        }
+        Err(StatusCode::UNAUTHORIZED) => visible_repo_ids_for_request(state, headers).await,
+        Err(status) => Err(status),
+    }
 }
 
 async fn ensure_repo_visible_for_request(
@@ -1262,7 +1290,7 @@ async fn search_repository_contents(
     headers: HeaderMap,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    let visible_repo_ids = visible_repo_ids_for_request(&state, &headers).await?;
+    let visible_repo_ids = visible_search_repo_ids_for_request(&state, &headers).await?;
 
     if query.q.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
@@ -1413,9 +1441,10 @@ mod tests {
         ApiKey, LocalAccount, LocalSessionState, Organization, OrganizationInvite,
         OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
     };
-    use sourcebot_search::build_search_store;
+    use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
     use std::{
+        collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
@@ -1655,6 +1684,21 @@ mod tests {
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
+            build_ask_thread_store(),
+        )
+    }
+
+    fn test_app_with_search_store(config: AppConfig, search: DynSearchStore) -> Router {
+        let bootstrap_state_path = config.bootstrap_state_path.clone();
+        let local_session_state_path = config.local_session_state_path.clone();
+        build_router(
+            config,
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(bootstrap_state_path),
+            build_local_session_store(local_session_state_path),
+            build_browse_store(),
+            build_commit_store(),
+            search,
             build_ask_thread_store(),
         )
     }
@@ -5076,6 +5120,271 @@ mod tests {
             .results
             .iter()
             .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
+    }
+
+    #[tokio::test]
+    async fn search_api_key_allows_repo_within_explicit_scope() {
+        let organization_state_path = unique_test_path("search-api-key-scoped-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "search-api-key-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_search_scoped",
+            user_id,
+            "Search scoped key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-api-key-scoped-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("search-api-key-scoped-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_search_scoped:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
+        assert!(!payload.results.is_empty());
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
+    }
+
+    #[tokio::test]
+    async fn search_api_key_returns_not_found_for_repo_outside_scope_even_when_owner_can_see_it() {
+        let organization_state_path = unique_test_path("search-api-key-hidden-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "search-api-key-hidden-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_search_limited",
+            user_id,
+            "Search limited key",
+            api_key_secret,
+            &["repo_sourcebot_rewrite"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-api-key-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("search-api-key-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_docs")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_search_limited:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn search_api_key_filters_unscoped_results_to_repo_scope() {
+        let search_root_rewrite = unique_test_path("search-api-key-scope-rewrite-root");
+        let search_root_docs = unique_test_path("search-api-key-scope-docs-root");
+        fs::create_dir_all(&search_root_rewrite).unwrap();
+        fs::create_dir_all(&search_root_docs).unwrap();
+        fs::write(
+            search_root_rewrite.join("main.rs"),
+            "fn scoped_search_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            search_root_docs.join("guide.md"),
+            "scoped_search_marker appears in docs too\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-api-key-filtered-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "search-api-key-filtered-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_search_docs_only",
+            user_id,
+            "Search docs-only key",
+            api_key_secret,
+            &["repo_docs"],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let search = Arc::new(LocalSearchStore::new(HashMap::from([
+            (
+                "repo_sourcebot_rewrite".to_string(),
+                search_root_rewrite.clone(),
+            ),
+            ("repo_docs".to_string(), search_root_docs.clone()),
+        ])));
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-api-key-filtered-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-api-key-filtered-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            search,
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=scoped_search_marker")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_search_docs_only:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, None);
+        assert!(!payload.results.is_empty());
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_docs"));
+    }
+
+    #[tokio::test]
+    async fn search_api_key_inherits_owner_visible_repos_when_scope_is_empty() {
+        let organization_state_path = unique_test_path("search-api-key-empty-scope-orgs");
+        let user_id = "user_api_key_member";
+        let api_key_secret = "search-api-key-empty-scope-secret";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.api_keys.push(seeded_api_key(
+            "key_search_empty_scope",
+            user_id,
+            "Search empty-scope key",
+            api_key_secret,
+            &[],
+        ));
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("search-api-key-empty-scope-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("search-api-key-empty-scope-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer key_search_empty_scope:{api_key_secret}"),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn search_api_key_rejects_malformed_bearer_tokens() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, "Bearer malformed-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
