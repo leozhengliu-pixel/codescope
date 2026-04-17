@@ -5,39 +5,51 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7c938c921e4a6a8874f14aa3ebbb405f11b66a2f
+  head: ec3199a0a3566662cef2076d8a0ba52ece30c8cc
 last_completed_task:
-  id: task33a
-  title: Analytics persistence model and file-backed round-trip coverage
+  id: task33b
+  title: Authenticated analytics listing endpoint
   status: done
   summary: >-
-    Split task33 and completed the first analytics slice by adding a reusable
-    AnalyticsRecord shared model plus OrganizationState.analytics_records
-    persistence-ready storage in sourcebot-models, then extending the
-    file-backed organization-store and build_app_state regression coverage so
-    non-empty analytics data round-trips cleanly without adding analytics
-    routes, dashboards, rollups, or event-emission hooks.
+    Completed the second analytics slice by adding a minimal local-session-authenticated
+    GET /api/v1/auth/analytics endpoint that returns only persisted analytics
+    records for organizations visible to the caller, without adding analytics
+    event emission, aggregation rollups, pagination, or dashboard UI.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models analytics_record -- --nocapture: passed (3 tests)
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api file_organization_store_persists_and_reads_organization_state -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api build_app_state_constructs_file_backed_organization_store_from_configured_path -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_analytics_ -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff stays scoped to the first analytics persistence slice by adding only the shared AnalyticsRecord model, backward-compatible OrganizationState storage, and focused file-backed round-trip coverage without adding routes, dashboards, rollups, or event-emission hooks
-    code: approved by one independent post-implementation review; reviewer confirmed the diff cleanly adds backward-compatible analytics storage and non-empty file-backed round-trip coverage with no blocking correctness or security issues
-  commit: 7c938c921e4a6a8874f14aa3ebbb405f11b66a2f
-  next_task: task33b
+    code: approved by one independent post-implementation review; reviewer confirmed the new /api/v1/auth/analytics route stays scoped to the minimal read-only analytics listing slice, correctly filters persisted analytics_records to organizations visible to the authenticated local-session user, and found no blocking correctness or security issues
+  commit: ec3199a0a3566662cef2076d8a0ba52ece30c8cc
+  next_task: task34
 current_task:
-  id: task33b
-  title: Authenticated analytics listing endpoint
+  id: task34
+  title: OAuth client flows
   status: pending
   summary: >-
-    Continue task33 by exposing a minimal read-only authenticated analytics
-    endpoint that lists persisted analytics records only for the caller's
-    visible organizations, without adding analytics event emission,
-    aggregation rollups, or dashboard UI.
+    Start task34 by carving the broad OAuth client flows roadmap item into the
+    next smallest durable slice before implementation.
 history:
+  - id: task33b
+    status: done
+    summary: >-
+      Completed the second analytics slice by adding a minimal local-session-authenticated
+      GET /api/v1/auth/analytics endpoint that returns only persisted analytics
+      records for organizations visible to the caller, without adding analytics
+      event emission, aggregation rollups, pagination, or dashboard UI.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_analytics_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_audit_events_ -- --nocapture: passed (2 tests)
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_search_contexts_ -- --nocapture: passed (3 tests)
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the new /api/v1/auth/analytics route stays scoped to the minimal read-only analytics listing slice, correctly filters persisted analytics_records to organizations visible to the authenticated local-session user, and found no blocking correctness or security issues
+    commit: ec3199a0a3566662cef2076d8a0ba52ece30c8cc
+    next_task: task34
   - id: task33a
     status: done
     summary: >-
