@@ -28,8 +28,9 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
-    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, BootstrapState, BootstrapStatus,
-    LocalSession, RepositoryDetail, RepositorySummary, SearchContext,
+    AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor, AuditEvent,
+    BootstrapState, BootstrapStatus, LocalSession, OrganizationState, RepositoryDetail,
+    RepositorySummary, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -161,6 +162,10 @@ fn build_router(
             get(list_authenticated_search_contexts),
         )
         .route(
+            "/api/v1/auth/audit-events",
+            get(list_authenticated_audit_events),
+        )
+        .route(
             "/api/v1/auth/api-keys/{api_key_id}/revoke",
             post(revoke_authenticated_api_key),
         )
@@ -289,6 +294,18 @@ struct SearchContextListItemResponse {
     created_at: String,
     updated_at: String,
     repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct AuditEventListItemResponse {
+    id: String,
+    organization_id: String,
+    actor: AuditActor,
+    action: String,
+    target_type: String,
+    target_id: String,
+    occurred_at: String,
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -735,6 +752,29 @@ async fn list_authenticated_search_contexts(
     ))
 }
 
+async fn list_authenticated_audit_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AuditEventListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+
+    Ok(Json(
+        organization_state
+            .audit_events
+            .into_iter()
+            .filter(|audit_event| visible_organization_ids.contains(&audit_event.organization_id))
+            .map(audit_event_list_item_response)
+            .collect(),
+    ))
+}
+
 fn search_context_list_item_response(
     search_context: SearchContext,
     visible_repo_ids: &HashSet<String>,
@@ -750,6 +790,31 @@ fn search_context_list_item_response(
             .filter(|repo_id| visible_repo_ids.contains(repo_id))
             .collect(),
     }
+}
+
+fn audit_event_list_item_response(audit_event: AuditEvent) -> AuditEventListItemResponse {
+    AuditEventListItemResponse {
+        id: audit_event.id,
+        organization_id: audit_event.organization_id,
+        actor: audit_event.actor,
+        action: audit_event.action,
+        target_type: audit_event.target_type,
+        target_id: audit_event.target_id,
+        occurred_at: audit_event.occurred_at,
+        metadata: audit_event.metadata,
+    }
+}
+
+fn visible_organization_ids_for_user(
+    organization_state: &OrganizationState,
+    user_id: &str,
+) -> HashSet<String> {
+    organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.user_id == user_id)
+        .map(|membership| membership.organization_id.clone())
+        .collect()
 }
 
 async fn create_authenticated_api_key(
@@ -1742,6 +1807,18 @@ mod tests {
         created_at: String,
         updated_at: String,
         repo_scope: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct AuditEventListItemResponseBody {
+        id: String,
+        organization_id: String,
+        actor: AuditActor,
+        action: String,
+        target_type: String,
+        target_id: String,
+        occurred_at: String,
+        metadata: serde_json::Value,
     }
 
     #[derive(Debug, Serialize)]
@@ -3712,6 +3789,132 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/search-contexts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_audit_events_list_only_events_for_organizations_visible_to_current_user() {
+        let organization_state_path = unique_test_path("auth-audit-events-orgs");
+        let local_session_state_path = unique_test_path("auth-audit-events-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-22T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-21T23:55:00Z".into(),
+            }],
+            audit_events: vec![
+                AuditEvent {
+                    id: "audit_visible".into(),
+                    organization_id: "org_acme".into(),
+                    actor: AuditActor {
+                        user_id: Some(user_id.into()),
+                        api_key_id: Some("key_visible".into()),
+                    },
+                    action: "auth.api_key.created".into(),
+                    target_type: "api_key".into(),
+                    target_id: "key_visible".into(),
+                    occurred_at: "2026-04-22T00:05:00Z".into(),
+                    metadata: serde_json::json!({
+                        "name": "Visible key",
+                        "repo_scope": ["repo_sourcebot_rewrite"]
+                    }),
+                },
+                AuditEvent {
+                    id: "audit_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    actor: AuditActor {
+                        user_id: Some("local_user_other".into()),
+                        api_key_id: None,
+                    },
+                    action: "auth.login".into(),
+                    target_type: "session".into(),
+                    target_id: "session_hidden".into(),
+                    occurred_at: "2026-04-22T00:06:00Z".into(),
+                    metadata: serde_json::json!({"ip": "127.0.0.1"}),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<AuditEventListItemResponseBody> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "audit_visible");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].actor.user_id.as_deref(), Some(user_id));
+        assert_eq!(payload[0].actor.api_key_id.as_deref(), Some("key_visible"));
+        assert_eq!(payload[0].action, "auth.api_key.created");
+        assert_eq!(payload[0].target_type, "api_key");
+        assert_eq!(payload[0].target_id, "key_visible");
+        assert_eq!(payload[0].occurred_at, "2026-04-22T00:05:00Z");
+        assert_eq!(
+            payload[0].metadata,
+            serde_json::json!({
+                "name": "Visible key",
+                "repo_scope": ["repo_sourcebot_rewrite"]
+            })
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_audit_events_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
                     .body(Body::empty())
                     .unwrap(),
             )
