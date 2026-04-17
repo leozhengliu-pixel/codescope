@@ -146,6 +146,17 @@ pub struct ApiKey {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SearchContext {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repo_scope: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositoryPermissionBinding {
     pub organization_id: String,
     pub repository_id: String,
@@ -164,6 +175,8 @@ pub struct OrganizationState {
     pub invites: Vec<OrganizationInvite>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_keys: Vec<ApiKey>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_contexts: Vec<SearchContext>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
 }
@@ -582,6 +595,7 @@ mod tests {
                 accepted_at: None,
             }],
             api_keys: Vec::new(),
+            search_contexts: Vec::new(),
             repo_permissions: Vec::new(),
         };
 
@@ -693,5 +707,58 @@ mod tests {
         .unwrap();
 
         assert!(state.repo_permissions.is_empty());
+    }
+
+    #[test]
+    fn search_context_serializes_as_reusable_persistence_model() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            search_contexts: vec![SearchContext {
+                id: "ctx_backend".into(),
+                user_id: "user_admin".into(),
+                name: "Backend repos".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
+                created_at: "2026-04-21T01:00:00Z".into(),
+                updated_at: "2026-04-21T01:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "search_contexts": [{
+                    "id": "ctx_backend",
+                    "user_id": "user_admin",
+                    "name": "Backend repos",
+                    "repo_scope": ["repo_sourcebot_rewrite", "repo_demo_docs"],
+                    "created_at": "2026-04-21T01:00:00Z",
+                    "updated_at": "2026-04-21T01:05:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_search_contexts_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.search_contexts.is_empty());
     }
 }

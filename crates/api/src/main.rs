@@ -1492,6 +1492,7 @@ mod tests {
     use sourcebot_models::{
         ApiKey, LocalAccount, LocalSessionState, Organization, OrganizationInvite,
         OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
+        SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -1797,6 +1798,14 @@ mod tests {
                 revoked_at: None,
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
             }],
+            search_contexts: vec![SearchContext {
+                id: "ctx_backend".into(),
+                user_id: "user_admin".into(),
+                name: "Backend repos".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                created_at: "2026-04-21T00:06:30Z".into(),
+                updated_at: "2026-04-21T00:07:00Z".into(),
+            }],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
@@ -1821,6 +1830,7 @@ mod tests {
                 revoked_at: Some("2026-04-22T00:07:30Z".into()),
                 repo_scope: vec!["repo_other".into()],
             }],
+            search_contexts: vec![],
             repo_permissions: vec![RepositoryPermissionBinding {
                 organization_id: "org_other".into(),
                 repository_id: "repo_other".into(),
