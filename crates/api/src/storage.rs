@@ -102,7 +102,7 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_tables_only() {
+    fn catalog_migration_inventory_bootstraps_catalog_and_task05b1_org_tables_only() {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
             .iter()
@@ -111,8 +111,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1].into_iter().collect(),
-            "expected only the first-slice catalog migration version"
+            [1, 2].into_iter().collect(),
+            "expected only the task05a + task05b1 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -124,8 +124,10 @@ mod tests {
         assert_eq!(
             migration_files,
             [
-                "0001_catalog_metadata.up.sql".to_string(),
                 "0001_catalog_metadata.down.sql".to_string(),
+                "0001_catalog_metadata.up.sql".to_string(),
+                "0002_org_metadata.down.sql".to_string(),
+                "0002_org_metadata.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -156,13 +158,65 @@ mod tests {
 
         for unexpected_snippet in [
             "CREATE TABLE organizations",
+            "CREATE TABLE local_accounts",
+            "CREATE TABLE organization_invites",
+            "CREATE TABLE organization_memberships",
+            "CREATE TABLE repository_permission_bindings",
             "CREATE TABLE sessions",
             "CREATE TABLE ask_threads",
             "CREATE TABLE review_agent_runs",
         ] {
             assert!(
                 !up_migration.contains(unexpected_snippet),
-                "unexpected later-slice table present: {unexpected_snippet}"
+                "unexpected later-slice table present in 0001: {unexpected_snippet}"
+            );
+        }
+
+        // Keep task05b1 limited to org/account/invite/membership schema only.
+        let task05b1_up_migration =
+            std::fs::read_to_string(migration_dir.join("0002_org_metadata.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE organizations",
+            "slug TEXT NOT NULL UNIQUE",
+            "CREATE TABLE local_accounts",
+            "email TEXT NOT NULL UNIQUE",
+            "created_at TIMESTAMPTZ NOT NULL",
+            "CREATE TABLE organization_memberships",
+            "organization_id TEXT NOT NULL REFERENCES organizations(id)",
+            "user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+            "role TEXT NOT NULL",
+            "CONSTRAINT organization_memberships_role_check",
+            "CHECK (role IN ('admin', 'viewer'))",
+            "joined_at TIMESTAMPTZ NOT NULL",
+            "PRIMARY KEY (organization_id, user_id)",
+            "CREATE TABLE organization_invites",
+            "organization_id TEXT NOT NULL REFERENCES organizations(id)",
+            "invited_by_user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+            "accepted_by_user_id TEXT REFERENCES local_accounts(id)",
+            "expires_at TIMESTAMPTZ NOT NULL",
+            "accepted_at TIMESTAMPTZ",
+            "CONSTRAINT organization_invites_role_check",
+            "CHECK (role IN ('admin', 'viewer'))",
+        ] {
+            assert!(
+                task05b1_up_migration.contains(expected_snippet),
+                "missing task05b1 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE repository_permission_bindings",
+            "CREATE TABLE sessions",
+            "CREATE TABLE ask_threads",
+            "CREATE TABLE review_agent_runs",
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task05b1_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0002: {unexpected_snippet}"
             );
         }
     }
