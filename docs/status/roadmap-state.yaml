@@ -5,43 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b7449c5bbecb2cf00ab68093d7bc7e2da338acd5
+  head: fe4d6ef62a7bbda54a02d5c4b3e503a0c73bcf32
 last_completed_task:
-  id: task04b2a
-  title: Extract one shared canonical repo-tree root builder for browse/search temp corpora
+  id: task04b2b
+  title: Centralize opt-in search ignored/binary and browse symlink variants behind shared fixture helpers
   status: done
   summary: >-
-    Added `crates/test_support/repo_tree_fixture.rs` as the first shared fixture
-    helper for the canonical `repo_test` README/src/target temp repo-tree layout,
-    rewired browse and search test stores to reuse it, updated the fixture ownership
-    docs, and kept search-only ignored/binary variants plus browse-only symlink
-    variants in their caller-local wrappers for the follow-up slice.
+    Added opt-in shared fixture helpers for the remaining search ignored/binary
+    corpus extras and browse symlink variants in `crates/test_support/repo_tree_fixture.rs`,
+    rewired the search and browse tests to use them, and reconciled the canonical
+    fixture layout doc so task04b2b now truthfully records the shared helper ownership
+    without touching commit temp-git helpers.
   tests:
-    - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_rejects_parent_directory_escapes_in_generated_paths -- --exact --nocapture: passed
-    - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_exposes_search_common_layout -- --exact --nocapture: passed
-    - cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_exposes_browse_common_layout -- --exact --nocapture: passed
-    - cargo test -p sourcebot-search: passed
-    - cargo test -p sourcebot-api browse::tests: passed
-    - cargo fmt --all --check: passed
-    - cargo check -p sourcebot-search -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::shared_repo_tree_fixture_can_add_search_ignored_and_binary_variants -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_can_add_browse_symlink_variants -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::local_search_store_skips_git_binary_and_large_files -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_globs_symlink_paths_visible_in_tree_entries -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_grep_skips_symlinked_files_outside_repo_root -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-search -p sourcebot-api: passed
     - git diff --check: passed
-    - python3 fixture docs marker validation: passed
+    - python3 task04b2b fixture docs reconciliation validation: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2a by extracting one shared canonical repo-tree root helper, preserving `repo_test`, leaving search-only ignored/binary variants and browse-only symlink variants local, and updating the ownership docs without claiming task04b2b is already done
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after the generated-path traversal guard and regression test were added to the shared helper
-  commit: b7449c5bbecb2cf00ab68093d7bc7e2da338acd5
-  next_task: task04b2b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2b by centralizing search ignored/binary variants and browse symlink variants behind opt-in shared fixture helpers, preserving the canonical layout contract and `repo_test`, and leaving commit temp-git helpers untouched after the fixture layout doc was reconciled to task04b2b
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the test-only fixture helper centralization diff and noted only a non-blocking suggestion about making the outside-root browse symlink target filename unique per temp root
+  commit: fe4d6ef62a7bbda54a02d5c4b3e503a0c73bcf32
+  next_task: task05a
 current_task:
-  id: task04b2b
-  parent_task: task04b2
-  title: Centralize opt-in search ignored/binary and browse symlink variants behind shared fixture helpers
+  id: task05a
+  parent_task: task05
+  title: Bootstrap the first SQLx migration for durable repository catalog metadata
   status: pending
   summary: >-
-    Extend the new shared repo-tree fixture support just enough to centralize the
-    remaining search ignored/binary variants and browse symlink variants behind
-    opt-in helpers, while preserving the canonical layout contract and leaving
-    commit temp-git helpers untouched.
+    Split the broad PostgreSQL schema bootstrap into the first smallest durable slice:
+    audit the existing PgCatalogStore skeleton and land the initial SQLx migration plus
+    repository catalog tables needed to replace the seeded in-memory catalog path later,
+    while explicitly deferring organizations, sessions, ask threads, and review-agent
+    state to later task05 follow-up slices.
 history:
+  - id: task04b2b
+    status: done
+    summary: >-
+      Added opt-in shared fixture helpers for the remaining search ignored/binary
+      corpus extras and browse symlink variants in `crates/test_support/repo_tree_fixture.rs`,
+      rewired the search and browse tests to use them, and reconciled the canonical
+      fixture layout doc so task04b2b now truthfully records the shared helper ownership
+      without touching commit temp-git helpers.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::shared_repo_tree_fixture_can_add_search_ignored_and_binary_variants -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_can_add_browse_symlink_variants -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::local_search_store_skips_git_binary_and_large_files -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_globs_symlink_paths_visible_in_tree_entries -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_grep_skips_symlinked_files_outside_repo_root -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-search -p sourcebot-api: passed
+      - git diff --check: passed
+      - python3 task04b2b fixture docs reconciliation validation: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2b by centralizing search ignored/binary variants and browse symlink variants behind opt-in shared fixture helpers, preserving the canonical layout contract and `repo_test`, and leaving commit temp-git helpers untouched after the fixture layout doc was reconciled to task04b2b
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the test-only fixture helper centralization diff and noted only a non-blocking suggestion about making the outside-root browse symlink target filename unique per temp root
+    commit: fe4d6ef62a7bbda54a02d5c4b3e503a0c73bcf32
+    next_task: task05a
   - id: task04b2a
     status: done
     summary: >-
