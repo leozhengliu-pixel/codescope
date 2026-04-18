@@ -102,7 +102,7 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_and_task05b5_review_agent_runs_only(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_and_task05b6_delivery_attempts_only(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -112,8 +112,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6].into_iter().collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 migration versions"
+            [1, 2, 3, 4, 5, 6, 7].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -137,6 +137,8 @@ mod tests {
                 "0005_ask_threads.up.sql".to_string(),
                 "0006_review_agent_runs.down.sql".to_string(),
                 "0006_review_agent_runs.up.sql".to_string(),
+                "0007_delivery_attempts.down.sql".to_string(),
+                "0007_delivery_attempts.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -349,6 +351,45 @@ mod tests {
             assert!(
                 !task05b5_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0006: {unexpected_snippet}"
+            );
+        }
+
+        let task05b6_up_migration =
+            std::fs::read_to_string(migration_dir.join("0007_delivery_attempts.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE delivery_attempts",
+            "id TEXT PRIMARY KEY",
+            "webhook_id TEXT NOT NULL",
+            "connection_id TEXT NOT NULL REFERENCES connections(id)",
+            "repository_id TEXT NOT NULL REFERENCES repositories(id)",
+            "event_type TEXT NOT NULL",
+            "review_id TEXT NOT NULL",
+            "external_event_id TEXT NOT NULL",
+            "accepted_at TIMESTAMPTZ NOT NULL",
+            "CONSTRAINT delivery_attempts_repository_connection_fk",
+            "FOREIGN KEY (repository_id, connection_id)",
+            "REFERENCES repositories(id, connection_id)",
+        ] {
+            assert!(
+                task05b6_up_migration.contains(expected_snippet),
+                "missing task05b6 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE review_webhooks",
+            "organization_id TEXT NOT NULL",
+            "secret_hash TEXT NOT NULL",
+            "created_by_user_id TEXT NOT NULL",
+            "created_at TIMESTAMPTZ NOT NULL",
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task05b6_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0007: {unexpected_snippet}"
             );
         }
     }
