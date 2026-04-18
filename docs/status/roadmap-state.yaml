@@ -5,70 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
+  head: 43f9433c9d8f3a42c8b985cbaad1e89dcdd3dd1e
 last_completed_task:
-  id: task13b1
-  title: Add optional provider-scoped connection config payload contract
+  id: task13b2
+  title: Populate seeded connection fixtures with provider-scoped config examples
   status: done
   summary: >-
-    Split broad task13b into the first smallest connection-config slice by
-    adding an optional shared provider-scoped `config` payload on `Connection`,
-    proving backward-compatible serde/default behavior for older payloads,
-    rejecting mismatched `kind`/`config.provider` combinations, and deferring
-    credential payloads, CRUD routes, seeded examples, and durable storage
-    wiring.
+    Closed the second task13b slice by populating the shared seeded connection
+    fixtures with truthful provider-scoped config examples for every supported
+    connection kind so the in-memory catalog seed path now carries concrete
+    GitHub, GitLab, Gitea, Gerrit, Bitbucket, Azure DevOps, generic Git, and
+    local connection metadata while still deferring credential payloads,
+    authenticated CRUD APIs, and durable connection storage wiring.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_deserializes_without_config_field_for_backward_compatibility -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_skips_serializing_absent_config -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_serializes_and_deserializes_provider_scoped_config_payload -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_mismatched_kind_and_config_provider -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_serializing_mismatched_kind_and_config_provider -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::seed_connections_include_provider_scoped_config_examples_for_each_supported_kind -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b1 by adding only the optional provider-scoped `Connection.config` contract plus focused backward-compatibility and mismatch-validation coverage, with no credential, CRUD, persistence, or frontend scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the manual `Connection` serializer is the minimal correct way to omit absent config while failing closed on mismatched provider payloads
-  commit: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
-  next_task: task13b2
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b2 by extending only the shared seeded connection fixtures with provider-scoped config examples for supported kinds, with no credential, CRUD, persistence, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the seeded fixture expansion is the minimal correct way to make the in-memory catalog path carry truthful provider-scoped examples for every currently modeled connection kind
+  commit: 43f9433c9d8f3a42c8b985cbaad1e89dcdd3dd1e
+  next_task: task13c
 current_task:
-  id: task13b2
-  parent_task: task13b
-  title: Populate seeded connection fixtures with provider-scoped config examples
+  id: task13c
+  parent_task: task13
+  title: Extend OrganizationState with durable connection records and serde coverage
   status: pending
   summary: >-
-    Extend the existing shared seeded connection fixtures so the in-memory
-    catalog path carries truthful provider-scoped config examples for supported
-    connection kinds, while still deferring credential payloads, authenticated
-    CRUD APIs, and durable connection storage wiring.
+    Add the first durable connection aggregate slice by extending
+    `OrganizationState` with a backward-compatible connections collection plus
+    focused serde/default and non-empty round-trip coverage, while still
+    deferring credential secrets, authenticated CRUD routes, and SQL-backed
+    storage wiring.
 history:
-  - id: task13b1
+  - id: task13b2
     status: done
     summary: >-
-      Split broad task13b into the first smallest connection-config slice by
-      adding an optional shared provider-scoped `config` payload on
-      `Connection`, proving backward-compatible serde/default behavior for older
-      payloads, rejecting mismatched `kind`/`config.provider` combinations, and
-      deferring credential payloads, CRUD routes, seeded examples, and durable
-      storage wiring.
+      Closed the second task13b slice by populating the shared seeded connection
+      fixtures with truthful provider-scoped config examples for every supported
+      connection kind so the in-memory catalog seed path now carries concrete
+      GitHub, GitLab, Gitea, Gerrit, Bitbucket, Azure DevOps, generic Git, and
+      local connection metadata while still deferring credential payloads,
+      authenticated CRUD APIs, and durable connection storage wiring.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_deserializes_without_config_field_for_backward_compatibility -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_skips_serializing_absent_config -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_serializes_and_deserializes_provider_scoped_config_payload -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_mismatched_kind_and_config_provider -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_serializing_mismatched_kind_and_config_provider -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::seed_connections_include_provider_scoped_config_examples_for_each_supported_kind -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b1 by adding only the optional provider-scoped `Connection.config` contract plus focused backward-compatibility and mismatch-validation coverage, with no credential, CRUD, persistence, or frontend scope creep
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the manual `Connection` serializer is the minimal correct way to omit absent config while failing closed on mismatched provider payloads
-    commit: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
-    next_task: task13b2
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b2 by extending only the shared seeded connection fixtures with provider-scoped config examples for supported kinds, with no credential, CRUD, persistence, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the seeded fixture expansion is the minimal correct way to make the in-memory catalog path carry truthful provider-scoped examples for every currently modeled connection kind
+    commit: 43f9433c9d8f3a42c8b985cbaad1e89dcdd3dd1e
+    next_task: task13c
   - id: task13a
     status: done
     summary: >-
