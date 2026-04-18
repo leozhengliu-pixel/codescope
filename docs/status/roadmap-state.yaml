@@ -5,35 +5,50 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 379e1ce03229e01ab879abb465e98a6120e85429
+  head: ed15653a79b8ed363bbe7c0366262a4db733ae0a
 last_completed_task:
-  id: task03d
-  title: Extend the parity gap report with the frontend domain
+  id: task03e
+  title: Extend the parity gap report with the auth/admin domain
   status: done
   summary: >-
-    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the frontend
+    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the auth/admin
     domain only, grounding conservative Partial/Missing parity judgments in the
-    live React shell, focused UI tests, acceptance inventory, parity matrix,
-    and roadmap while explicitly leaving auth/admin and ops for later slices.
+    live auth/session/admin code, acceptance inventory, parity matrix, and
+    roadmap while explicitly leaving ops for the later final task03 slice.
   tests:
-    - python3 frontend parity gap report marker validation: passed
+    - python3 auth/admin parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03d slice stays docs-only, limits scope to the frontend domain, uses conservative parity judgments grounded in the live UI/tests/specs/roadmap evidence, and keeps auth/admin plus ops deferred
-    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the frontend-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
-  commit: 379e1ce03229e01ab879abb465e98a6120e85429
-  next_task: task03e
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03e slice stays docs-only, limits scope to the auth/admin domain, uses conservative parity judgments grounded in the live auth/session/admin code plus acceptance inventory, parity matrix, and roadmap evidence, and keeps only ops deferred
+    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the auth/admin gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+  commit: ed15653a79b8ed363bbe7c0366262a4db733ae0a
+  next_task: task03f
 current_task:
-  id: task03e
+  id: task03f
   parent_task: task03
-  title: Extend the parity gap report with the auth/admin domain
+  title: Extend the parity gap report with the ops domain
   status: pending
   summary: >-
-    Add the next smallest parity gap-report slice by auditing the auth/admin
-    domain only, grounding its Missing/Partial/Complete judgments in the live
-    auth/session/admin code, acceptance inventory, parity matrix, and roadmap
-    while leaving ops for the later final task03 slice.
+    Add the final task03 parity gap-report slice by auditing the ops domain
+    only, grounding its Missing/Partial/Complete judgments in the live worker,
+    config, deployment, observability, and operator-facing code/docs plus the
+    acceptance inventory, parity matrix, and roadmap.
 history:
+  - id: task03e
+    status: done
+    summary: >-
+      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the auth/admin
+      domain only, grounding conservative Partial/Missing parity judgments in the
+      live auth/session/admin code, acceptance inventory, parity matrix, and
+      roadmap while explicitly leaving ops for the later final task03 slice.
+    tests:
+      - python3 auth/admin parity gap report marker validation: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03e slice stays docs-only, limits scope to the auth/admin domain, uses conservative parity judgments grounded in the live auth/session/admin code plus acceptance inventory, parity matrix, and roadmap evidence, and keeps only ops deferred
+      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the auth/admin gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+    commit: ed15653a79b8ed363bbe7c0366262a4db733ae0a
+    next_task: task03f
   - id: task03d
     status: done
     summary: >-
