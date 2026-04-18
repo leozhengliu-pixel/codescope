@@ -5,54 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
+  head: ccf92030f0c240955e350bc762fc0a0d10a8bdb7
 last_completed_task:
-  id: task02a
-  title: Reshape FEATURE_PARITY into a row-per-feature matrix with status and evidence placeholder columns
+  id: task03a
+  title: Create canonical parity gap report and audit the backend/API domain
   status: done
   summary: >-
-    Converted `specs/FEATURE_PARITY.md` from grouped checkbox bullets into a
-    stable row-per-feature matrix, preserving all 32 existing feature rows while
-    adding explicit `Status` and `Acceptance evidence` placeholder columns so
-    later parity-audit slices can record evidence-backed verdicts without
-    reformatting the document again.
+    Split broad task03 into the first smallest slice by creating
+    `docs/reports/2026-04-18-parity-gap-report.md` as the canonical parity gap
+    report, defining the Missing/Partial/Complete legend, and filling only the
+    backend/API domain with evidence-based gap statuses and next-gap guidance
+    grounded in the live API router, acceptance inventory, parity matrix, and
+    roadmap.
   tests:
-    - python3 matrix marker/row preservation validation for 32 feature rows: passed
-    - python3 table column-count validation for 4-column parity matrix: passed
+    - python3 parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task02a slice exactly preserves the existing feature inventory while converting it into a row-per-feature matrix with explicit per-row status and acceptance-evidence placeholder columns
-    code: approved by one independent post-implementation review; reviewer found the docs-only diff structurally sound, inventory-preserving, and free of blocking issues
-  commit: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
-  next_task: task03
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03a slice creates one canonical parity gap report, limits scope to the backend/API domain, defines the required Missing/Partial/Complete legend, and defers the remaining domains to later slices
+    code: approved by one independent post-implementation review; reviewer found the docs-only gap-report diff conservative, sufficiently grounded in the roadmap/parity matrix/acceptance inventory/live router evidence, and free of blocking issues
+  commit: ccf92030f0c240955e350bc762fc0a0d10a8bdb7
+  next_task: task03b
 current_task:
-  id: task03
+  id: task03b
   parent_task: task03
-  title: Gap report by domain
+  title: Extend the parity gap report with the worker domain
   status: pending
   summary: >-
-    Write a repo-local parity gap report covering backend, worker,
-    integrations, frontend, auth/admin, and ops, with explicit missing,
-    partial, and complete status so later implementation slices can target the
-    highest-value practical parity gaps first.
+    Add the next smallest parity gap-report slice by auditing the worker domain
+    only, grounding its Missing/Partial/Complete judgments in the current worker
+    entrypoint, worker acceptance inventory, parity matrix, and roadmap follow-up
+    tasks while leaving integrations, frontend, auth/admin, and ops for later
+    slices.
 history:
-  - id: task02a
+  - id: task03a
     status: done
     summary: >-
-      Converted `specs/FEATURE_PARITY.md` from grouped checkbox bullets into a
-      stable row-per-feature matrix, preserving all 32 existing feature rows
-      while adding explicit `Status` and `Acceptance evidence` placeholder
-      columns so later parity-audit slices can record evidence-backed verdicts
-      without reformatting the document again.
+      Split broad task03 into the first smallest slice by creating
+      `docs/reports/2026-04-18-parity-gap-report.md` as the canonical parity gap
+      report, defining the Missing/Partial/Complete legend, and filling only the
+      backend/API domain with evidence-based gap statuses and next-gap guidance
+      grounded in the live API router, acceptance inventory, parity matrix, and
+      roadmap.
     tests:
-      - python3 matrix marker/row preservation validation for 32 feature rows: passed
-      - python3 table column-count validation for 4-column parity matrix: passed
+      - python3 parity gap report marker validation: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the staged task02a slice exactly preserves the existing feature inventory while converting it into a row-per-feature matrix with explicit per-row status and acceptance-evidence placeholder columns
-      code: approved by one independent post-implementation review; reviewer found the docs-only diff structurally sound, inventory-preserving, and free of blocking issues
-    commit: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
-    next_task: task03
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03a slice creates one canonical parity gap report, limits scope to the backend/API domain, defines the required Missing/Partial/Complete legend, and defers the remaining domains to later slices
+      code: approved by one independent post-implementation review; reviewer found the docs-only gap-report diff conservative, sufficiently grounded in the roadmap/parity matrix/acceptance inventory/live router evidence, and free of blocking issues
+    commit: ccf92030f0c240955e350bc762fc0a0d10a8bdb7
+    next_task: task03b
   - id: task01a1
     status: done
     summary: >-
