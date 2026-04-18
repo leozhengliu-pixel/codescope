@@ -5,39 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e165e77ee577be547b82ed8a3cecc56eec8a7c8d
+  head: 3db0e7dcd738f2da6e6e8e515bcfac4286ca9bbd
 last_completed_task:
-  id: task05b6
-  title: Bootstrap the SQLx migration table for delivery attempts
+  id: task06a
+  title: Add a Makefile migration command for the SQLx metadata schema
   status: done
   summary: >-
-    Added `0007_delivery_attempts` as the final smallest task05b schema slice,
-    extending the SQLx migration inventory with only the durable review-webhook
-    delivery-attempt metadata table plus repository/connection consistency
-    constraints while still deferring review-webhook configuration, API keys,
-    OAuth clients, and analytics tables.
+    Split broad task06 into the first smallest workflow slice by adding one
+    reproducible `make sqlx-migrate` command that requires `DATABASE_URL`,
+    installs a pinned repo-local `sqlx-cli`, and runs the API metadata-schema
+    migrations from `crates/api/migrations`, while deferring broader local
+    bootstrapping docs and deterministic dev/test database setup.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_and_task05b6_delivery_attempts_only -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    - git diff --check: passed
+    - sh scripts/check_make_sqlx_migrate.sh: passed
+    - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:sourcebot@localhost:5432/sourcebot: passed
+    - make help: passed
+    - git diff --cached --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b6 by adding only `0007_delivery_attempts`, updating migration inventory coverage to versions `0001` through `0007`, matching the current delivery-attempt metadata contract, and explicitly deferring review-webhook configuration, API keys, OAuth clients, and analytics tables
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and judged the delivery-attempts migration scope, repository/connection consistency foreign key, down migration cleanup, and deferred-schema boundaries consistent with the intended durable-schema bootstrap
-  commit: e165e77ee577be547b82ed8a3cecc56eec8a7c8d
-  next_task: task06a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task06a by adding one Makefile migration command plus a small repo-local contract check, keeps the scope on running the metadata-schema migrations against `DATABASE_URL`, and defers broader bootstrap docs and deterministic dev/test DB setup
+    code: approved by one independent post-implementation review after one wording fix; reviewer found no blocking security or logic issues in the final `sqlx-migrate` target, `DATABASE_URL` guard, pinned repo-local `sqlx-cli` install, or Makefile contract-check script
+  commit: 3db0e7dcd738f2da6e6e8e515bcfac4286ca9bbd
+  next_task: task06b
 current_task:
-  id: task06a
+  id: task06b
   parent_task: task06
-  title: Add a Makefile migration command for the SQLx metadata schema
+  title: Document the local metadata-schema migration bootstrap workflow
   status: pending
   summary: >-
-    Split broad task06 into the first smallest workflow slice by adding one
-    reproducible local command for running the SQLx metadata migrations against
-    `DATABASE_URL`, while deferring the rest of the local bootstrapping docs and
-    deterministic dev/test database setup.
+    Continue task06 with the smallest remaining workflow slice by documenting how
+    to use `make dev-up` and `make sqlx-migrate` together for local metadata DB
+    bootstrap, while still deferring deterministic dev/test database setup.
 history:
+  - id: task06a
+    status: done
+    summary: >-
+      Split broad task06 into the first smallest workflow slice by adding one
+      reproducible `make sqlx-migrate` command that requires `DATABASE_URL`,
+      installs a pinned repo-local `sqlx-cli`, and runs the API metadata-schema
+      migrations from `crates/api/migrations`, while deferring broader local
+      bootstrapping docs and deterministic dev/test database setup.
+    tests:
+      - sh scripts/check_make_sqlx_migrate.sh: passed
+      - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:sourcebot@localhost:5432/sourcebot: passed
+      - make help: passed
+      - git diff --cached --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task06a by adding one Makefile migration command plus a small repo-local contract check, keeps the scope on running the metadata-schema migrations against `DATABASE_URL`, and defers broader bootstrap docs and deterministic dev/test DB setup
+      code: approved by one independent post-implementation review after one wording fix; reviewer found no blocking security or logic issues in the final `sqlx-migrate` target, `DATABASE_URL` guard, pinned repo-local `sqlx-cli` install, or Makefile contract-check script
+    commit: 3db0e7dcd738f2da6e6e8e515bcfac4286ca9bbd
+    next_task: task06b
   - id: task05b6
     status: done
     summary: >-
