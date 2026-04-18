@@ -5,36 +5,50 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3e19084d08858f084ee6653fa5d00bf7cde29cfd
+  head: 379e1ce03229e01ab879abb465e98a6120e85429
 last_completed_task:
-  id: task03c
-  title: Extend the parity gap report with the integrations domain
+  id: task03d
+  title: Extend the parity gap report with the frontend domain
   status: done
   summary: >-
-    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the
-    integrations domain only, grounding conservative Partial/Missing parity
-    judgments in the live integration models, API routes, MCP crate,
-    repo/detail UI surfaces, acceptance spec, parity matrix, and roadmap while
-    explicitly leaving frontend, auth/admin, and ops for later slices.
+    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the frontend
+    domain only, grounding conservative Partial/Missing parity judgments in the
+    live React shell, focused UI tests, acceptance inventory, parity matrix,
+    and roadmap while explicitly leaving auth/admin and ops for later slices.
   tests:
-    - python3 parity gap report marker validation: passed
+    - python3 frontend parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03c slice stays docs-only, limits scope to the integrations domain, uses conservative parity judgments, and keeps later domains deferred
-    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the integrations-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
-  commit: 3e19084d08858f084ee6653fa5d00bf7cde29cfd
-  next_task: task03d
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03d slice stays docs-only, limits scope to the frontend domain, uses conservative parity judgments grounded in the live UI/tests/specs/roadmap evidence, and keeps auth/admin plus ops deferred
+    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the frontend-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+  commit: 379e1ce03229e01ab879abb465e98a6120e85429
+  next_task: task03e
 current_task:
-  id: task03d
+  id: task03e
   parent_task: task03
-  title: Extend the parity gap report with the frontend domain
+  title: Extend the parity gap report with the auth/admin domain
   status: pending
   summary: >-
-    Add the next smallest parity gap-report slice by auditing the frontend
+    Add the next smallest parity gap-report slice by auditing the auth/admin
     domain only, grounding its Missing/Partial/Complete judgments in the live
-    web UI, acceptance inventory, parity matrix, and roadmap while leaving
-    auth/admin and ops for later slices.
+    auth/session/admin code, acceptance inventory, parity matrix, and roadmap
+    while leaving ops for the later final task03 slice.
 history:
+  - id: task03d
+    status: done
+    summary: >-
+      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the frontend
+      domain only, grounding conservative Partial/Missing parity judgments in the
+      live React shell, focused UI tests, acceptance inventory, parity matrix,
+      and roadmap while explicitly leaving auth/admin and ops for later slices.
+    tests:
+      - python3 frontend parity gap report marker validation: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03d slice stays docs-only, limits scope to the frontend domain, uses conservative parity judgments grounded in the live UI/tests/specs/roadmap evidence, and keeps auth/admin plus ops deferred
+      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the frontend-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+    commit: 379e1ce03229e01ab879abb465e98a6120e85429
+    next_task: task03e
   - id: task03c
     status: done
     summary: >-
