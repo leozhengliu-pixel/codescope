@@ -69,3 +69,87 @@ async fn worker_binary_accepts_explicit_completed_stub_outcome_and_persists_comp
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_processes_only_the_oldest_queued_run_per_invocation() {
+    let path = unique_test_path("single-oldest-queued-run-smoke");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            review_agent_runs: vec![
+                review_agent_run(
+                    "run_queued_newest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:07Z",
+                ),
+                review_agent_run(
+                    "run_queued_oldest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:05Z",
+                ),
+                review_agent_run(
+                    "run_queued_middle",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:06Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .env(
+            "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME",
+            "completed",
+        )
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly after processing one queued run"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted.review_agent_runs.len(), 3);
+    assert_eq!(persisted.review_agent_runs[0].id, "run_queued_newest");
+    assert_eq!(
+        persisted.review_agent_runs[0].status,
+        ReviewAgentRunStatus::Queued
+    );
+    assert_eq!(persisted.review_agent_runs[1].id, "run_queued_oldest");
+    assert_eq!(
+        persisted.review_agent_runs[1].status,
+        ReviewAgentRunStatus::Completed
+    );
+    assert_eq!(persisted.review_agent_runs[2].id, "run_queued_middle");
+    assert_eq!(
+        persisted.review_agent_runs[2].status,
+        ReviewAgentRunStatus::Queued
+    );
+
+    assert_eq!(
+        persisted
+            .review_agent_runs
+            .iter()
+            .filter(|run| run.status == ReviewAgentRunStatus::Completed)
+            .count(),
+        1,
+        "one worker invocation should record exactly one completed run"
+    );
+    assert_eq!(
+        persisted
+            .review_agent_runs
+            .iter()
+            .filter(|run| run.status == ReviewAgentRunStatus::Queued)
+            .count(),
+        2,
+        "one worker invocation should leave later queued runs untouched"
+    );
+
+    fs::remove_file(path).unwrap();
+}
