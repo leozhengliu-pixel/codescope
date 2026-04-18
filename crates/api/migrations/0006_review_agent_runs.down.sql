@@ -1,0 +1,2 @@
+DROP TABLE review_agent_runs;
+ALTER TABLE repositories DROP CONSTRAINT repositories_id_connection_id_unique;
