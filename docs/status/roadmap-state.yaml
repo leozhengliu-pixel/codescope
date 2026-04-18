@@ -5,43 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c11eacfe66072ec5a5115e34f106faf3995538c3
+  head: 664a1b4a3dd7caf3ddc0034ed66559ebc32f3f22
 last_completed_task:
-  id: task13c
-  title: Extend OrganizationState with durable connection records and serde coverage
+  id: task14a
+  title: Add authenticated connection listing from durable OrganizationState
   status: done
   summary: >-
-    Closed the first durable connection aggregate slice by extending
-    `OrganizationState` with a backward-compatible `connections` collection,
-    adding focused serde/default coverage, and proving a non-empty connection
-    record round-trips through the file-backed organization-state persistence
-    path while still deferring credential secrets, authenticated CRUD routes,
-    and SQL-backed storage wiring.
+    Closed the first externally visible connection CRUD slice by adding the
+    authenticated `GET /api/v1/auth/connections` endpoint backed by durable
+    `OrganizationState.connections`, returning the stored connection list for
+    authenticated organization admins while failing closed for viewer-only users
+    and still deferring create/update/delete mutations plus sync-status/admin
+    history work.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_to_empty_collections_and_serializes_cleanly -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_connections_for_persistence -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_connections_to_empty_on_deserialize -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_models_round_trip_as_reusable_domain_data -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_review_webhooks_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings in sourcebot-api storage migrator)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13c by adding only the backward-compatible `OrganizationState.connections` collection plus focused serde/default coverage and one non-empty file-backed round-trip proof, with no CRUD, credential, SQL, or frontend scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the patch is the minimal correct way to persist durable connection records in the existing organization-state aggregate
-  commit: c11eacfe66072ec5a5115e34f106faf3995538c3
-  next_task: task14a
+    code: approved by one independent post-implementation review; reviewer confirmed the patch lands exactly task14a by adding only the authenticated connection-listing slice from durable `OrganizationState.connections`, denying viewer-only users per acceptance, with no blocking security or logic issues
+  commit: 664a1b4a3dd7caf3ddc0034ed66559ebc32f3f22
+  next_task: task14b
 current_task:
-  id: task14a
+  id: task14b
   parent_task: task14
-  title: Add authenticated connection listing from durable OrganizationState
+  title: Add authenticated connection creation backed by durable OrganizationState
   status: pending
   summary: >-
-    Start Task 14 with the smallest externally visible CRUD slice by exposing an
-    authenticated connection-list endpoint backed by the durable
-    `OrganizationState.connections` collection, while deferring create/update/
-    delete mutations and sync-status/admin history work.
+    Continue Task 14 with the next smallest externally visible CRUD slice by
+    adding authenticated connection creation backed by durable
+    `OrganizationState.connections`, while still deferring update/delete
+    mutations and sync-status/admin history work.
 history:
+  - id: task14a
+    status: done
+    summary: >-
+      Closed the first externally visible connection CRUD slice by adding the
+      authenticated `GET /api/v1/auth/connections` endpoint backed by durable
+      `OrganizationState.connections`, returning the stored connection list for
+      authenticated organization admins while failing closed for viewer-only users
+      and still deferring create/update/delete mutations plus sync-status/admin
+      history work.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_review_webhooks_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer confirmed the patch lands exactly task14a by adding only the authenticated connection-listing slice from durable `OrganizationState.connections`, denying viewer-only users per acceptance, with no blocking security or logic issues
+    commit: 664a1b4a3dd7caf3ddc0034ed66559ebc32f3f22
+    next_task: task14b
   - id: task13c
     status: done
     summary: >-
