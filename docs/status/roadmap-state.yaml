@@ -5,41 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 786e5a2e2623e80bf57a0ff17efb9ac8cedb1e5d
+  head: 4d297eee1ee4f423b4c0536ad95c2fa852c5c918
 last_completed_task:
-  id: task35p
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs endpoint for review-agent runs tied to one visible persisted webhook
+  id: task35q
+  title: Reconcile and minimally harden the local-session-authenticated GET /api/v1/auth/review-agent-runs visibility contract
   status: done
   summary: >-
-    Completed the next review-agent automation slice by adding a minimal
-    local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs
-    endpoint that lists only persisted review-agent runs tied to one visible
-    persisted webhook, fails closed with 404 for hidden or missing webhooks, and
-    excludes inconsistent hidden-organization runs that reuse the visible webhook
-    id, while still deferring UI work, retries, worker-loop orchestration,
-    secret rotation, and real review execution.
+    Completed the next review-agent automation slice by reconciling the existing
+    local-session-authenticated GET /api/v1/auth/review-agent-runs list/detail
+    endpoints with the roadmap contract, tightening visibility from
+    organization-only checks to visible (webhook_id, organization_id) pairs so
+    hidden, orphaned, and inconsistent review-agent runs fail closed while still
+    deferring UI work, retries, worker-loop orchestration, secret rotation, and
+    real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_for_webhook_returns_only_runs_for_visible_webhook -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_list_only_runs_for_visible_organizations -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_detail_returns_not_found_for_hidden_or_missing_runs -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35p by adding only the minimal local-session-authenticated review-agent-run listing endpoint for one visible persisted webhook, with hidden and missing webhooks failing closed as 404, inconsistent hidden-organization runs excluded, and without UI work, retries, worker-loop orchestration, secret rotation, or real review execution
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-webhook resolution, organization-matched filtering, and fail-closed behavior are correct for the new nested review-agent-runs listing endpoint
-  commit: 786e5a2e2623e80bf57a0ff17efb9ac8cedb1e5d
-  next_task: task35q
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff keeps task35q minimal while correctly grounding review-agent-run visibility in visible webhooks plus organization scope, with hidden, missing, orphaned, and inconsistent webhook relationships failing closed
+  commit: 4d297eee1ee4f423b4c0536ad95c2fa852c5c918
+  next_task: task35r
 current_task:
-  id: task35q
+  id: task35r
   parent_task: task35
-  title: Reconcile and, if needed, close the minimal local-session-authenticated GET /api/v1/auth/review-agent-runs endpoint slice for review-agent runs visible to the current user
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs/{run_id} endpoint for one visible persisted review-agent run under one visible webhook
   status: pending
   summary: >-
-    Inspect the existing authenticated review-agent-runs list endpoint against the
-    roadmap slice, confirm the visible-organization contract and focused tests,
-    and close it with the minimal needed implementation or closure-only
-    bookkeeping while still deferring UI work, retries, worker-loop
-    orchestration, secret rotation, and real review execution.
+    Add the smallest next review-agent automation API slice by exposing one
+    local-session-authenticated nested review-agent-run detail endpoint scoped to
+    a single visible persisted webhook, with hidden or missing webhooks/runs
+    failing closed and without adding UI work, retries, worker-loop
+    orchestration, secret rotation, or real review execution.
 history:
+  - id: task35q
+    status: done
+    summary: >-
+      Completed the next review-agent automation slice by reconciling the existing
+      local-session-authenticated GET /api/v1/auth/review-agent-runs list/detail
+      endpoints with the roadmap contract, tightening visibility from
+      organization-only checks to visible (webhook_id, organization_id) pairs so
+      hidden, orphaned, and inconsistent review-agent runs fail closed while still
+      deferring UI work, retries, worker-loop orchestration, secret rotation, and
+      real review execution.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_list_only_runs_for_visible_organizations -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_detail_returns_not_found_for_hidden_or_missing_runs -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff keeps task35q minimal while correctly grounding review-agent-run visibility in visible webhooks plus organization scope, with hidden, missing, orphaned, and inconsistent webhook relationships failing closed
+    commit: 4d297eee1ee4f423b4c0536ad95c2fa852c5c918
+    next_task: task35r
   - id: task35p
     status: done
     summary: >-
@@ -80,26 +100,6 @@ history:
     commit: a02387e80435c85872f51eeddce1abb4501334db
     next_task: task35p
   - id: task35m
-    status: done
-    summary: >-
-      Completed the next review-agent automation slice by adding a minimal
-      local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id}
-      endpoint that returns exactly one persisted review-webhook delivery attempt
-      when it belongs to a webhook whose organization is visible to the caller,
-      while failing closed with 404 for hidden, orphaned, or missing attempts and
-      still deferring UI work, retries, worker-loop orchestration, and real review
-      execution.
-    tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts_detail -- --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    review:
-      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35m by adding only the minimal local-session-authenticated review-webhook-delivery-attempt detail endpoint for one visible persisted attempt, with hidden, orphaned, and missing attempts failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-webhook filtering, and fail-closed 404 behavior are correct for the new detail endpoint
-    commit: 2ebe86f9899e59614823490557d5eb70ef95f22a
-    next_task: task35n
-  - id: task35l
     status: done
     summary: >-
       Completed the next review-agent automation slice by adding a minimal
