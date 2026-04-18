@@ -5,39 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b3a02a24ccdea7f7f126d3afc67690f7519872e4
+  head: 4029b14de979cefb51f289dd3646aa864eb642da
 last_completed_task:
-  id: task05b1
-  title: Bootstrap SQLx migration tables for organizations, local accounts, invites, and memberships
+  id: task05b2
+  title: Bootstrap the SQLx migration table for repository permission bindings
   status: done
   summary: >-
-    Split broad task05b into the first smallest auth/admin migration slice by adding
-    `0002_org_metadata` for `organizations`, `local_accounts`, `organization_memberships`,
-    and `organization_invites`, plus focused migration-inventory coverage that proves
-    task05a remains catalog-only and task05b1 still defers repository permission bindings,
-    sessions, ask threads, review-agent tables, API keys, OAuth clients, and analytics.
+    Added `0003_repository_permission_bindings` as the next smallest task05b schema
+    slice, extending the SQLx migration inventory with only the
+    `repository_permission_bindings` table plus focused coverage that proves task05a
+    and task05b1 remain scope-locked while sessions, ask threads, review-agent
+    persistence, API keys, OAuth clients, and analytics tables stay deferred.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_and_task05b1_org_tables_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    - git diff --cached --check: passed
+    - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged diff lands exactly task05b1 by adding only the `organizations`, `local_accounts`, `organization_memberships`, and `organization_invites` migration slice, updating migration inventory coverage, and explicitly deferring repository permission bindings plus later auth/admin persistence tables
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the org metadata migration slice and judged the migration ordering, table constraints, and scope guards consistent with the intended durable-schema bootstrap
-  commit: b3a02a24ccdea7f7f126d3afc67690f7519872e4
-  next_task: task05b2
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b2 by adding only `0003_repository_permission_bindings`, updating migration inventory coverage to versions `0001` through `0003`, and explicitly deferring sessions, ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the repository-permission-bindings migration slice and judged the foreign keys, primary key, and scope guards consistent with the intended durable-schema bootstrap
+  commit: 4029b14de979cefb51f289dd3646aa864eb642da
+  next_task: task05b3
 current_task:
-  id: task05b2
+  id: task05b3
   parent_task: task05b
-  title: Bootstrap the SQLx migration table for repository permission bindings
+  title: Bootstrap the SQLx migration table for sessions
   status: pending
   summary: >-
-    Finish the remaining smallest task05b schema slice by adding only the
-    `repository_permission_bindings` table needed to continue the durable organization
-    state migration, while still deferring sessions, ask threads, review-agent
-    persistence, API keys, OAuth clients, and analytics tables.
+    Continue the durable auth/admin schema bootstrap by adding only the `sessions`
+    table needed for authenticated local-session persistence, while still deferring
+    ask threads, review-agent persistence, API keys, OAuth clients, and analytics
+    tables.
 history:
+  - id: task05b2
+    status: done
+    summary: >-
+      Added `0003_repository_permission_bindings` as the next smallest task05b schema
+      slice, extending the SQLx migration inventory with only the
+      `repository_permission_bindings` table plus focused coverage that proves task05a
+      and task05b1 remain scope-locked while sessions, ask threads, review-agent
+      persistence, API keys, OAuth clients, and analytics tables stay deferred.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b2 by adding only `0003_repository_permission_bindings`, updating migration inventory coverage to versions `0001` through `0003`, and explicitly deferring sessions, ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the repository-permission-bindings migration slice and judged the foreign keys, primary key, and scope guards consistent with the intended durable-schema bootstrap
+    commit: 4029b14de979cefb51f289dd3646aa864eb642da
+    next_task: task05b3
   - id: task05b1
     status: done
     summary: >-
