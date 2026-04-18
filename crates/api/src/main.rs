@@ -3161,6 +3161,7 @@ mod tests {
                 slug: "acme".into(),
                 name: "Acme".into(),
             }],
+            connections: vec![],
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),
                 user_id: "user_admin".into(),
@@ -3274,6 +3275,7 @@ mod tests {
                 slug: "other".into(),
                 name: "Other".into(),
             }],
+            connections: vec![],
             memberships: vec![],
             accounts: vec![],
             invites: vec![],

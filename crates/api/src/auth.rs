@@ -435,10 +435,10 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 mod tests {
     use super::*;
     use sourcebot_models::{
-        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, OAuthClient, Organization,
-        OrganizationInvite, OrganizationMembership, OrganizationRole, RepositoryPermissionBinding,
-        ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
-        SearchContext,
+        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, Connection, ConnectionConfig,
+        ConnectionKind, LocalAccount, OAuthClient, Organization, OrganizationInvite,
+        OrganizationMembership, OrganizationRole, RepositoryPermissionBinding, ReviewAgentRun,
+        ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
     };
     use std::{
         fs,
@@ -775,6 +775,14 @@ mod tests {
                 id: "org_acme".into(),
                 name: "Acme".into(),
                 slug: "acme".into(),
+            }],
+            connections: vec![Connection {
+                id: "conn_github".into(),
+                name: "GitHub Cloud".into(),
+                kind: ConnectionKind::GitHub,
+                config: Some(ConnectionConfig::GitHub {
+                    base_url: "https://github.com".into(),
+                }),
             }],
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),

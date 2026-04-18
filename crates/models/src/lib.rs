@@ -403,6 +403,8 @@ pub struct OrganizationState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub organizations: Vec<Organization>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connections: Vec<Connection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memberships: Vec<OrganizationMembership>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<LocalAccount>,
@@ -1044,6 +1046,7 @@ mod tests {
         let state = OrganizationState::default();
 
         assert!(state.organizations.is_empty());
+        assert!(state.connections.is_empty());
         assert!(state.memberships.is_empty());
         assert!(state.accounts.is_empty());
         assert!(state.invites.is_empty());
@@ -1095,6 +1098,60 @@ mod tests {
                 }]
             })
         );
+    }
+
+    #[test]
+    fn organization_state_serializes_connections_for_persistence() {
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![Connection {
+                id: "conn_github".into(),
+                name: "GitHub Cloud".into(),
+                kind: ConnectionKind::GitHub,
+                config: Some(ConnectionConfig::GitHub {
+                    base_url: "https://github.com".into(),
+                }),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "organizations": [{
+                    "id": "org_acme",
+                    "slug": "acme",
+                    "name": "Acme"
+                }],
+                "connections": [{
+                    "id": "conn_github",
+                    "name": "GitHub Cloud",
+                    "kind": "github",
+                    "config": {
+                        "provider": "github",
+                        "base_url": "https://github.com"
+                    }
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_connections_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.connections.is_empty());
     }
 
     #[test]
@@ -1493,6 +1550,14 @@ mod tests {
                 slug: "acme".into(),
                 name: "Acme".into(),
             }],
+            connections: vec![Connection {
+                id: "conn_github".into(),
+                name: "GitHub Cloud".into(),
+                kind: ConnectionKind::GitHub,
+                config: Some(ConnectionConfig::GitHub {
+                    base_url: "https://github.com".into(),
+                }),
+            }],
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),
                 user_id: "user_admin".into(),
@@ -1543,6 +1608,15 @@ mod tests {
                     "id": "org_acme",
                     "slug": "acme",
                     "name": "Acme"
+                }],
+                "connections": [{
+                    "id": "conn_github",
+                    "name": "GitHub Cloud",
+                    "kind": "github",
+                    "config": {
+                        "provider": "github",
+                        "base_url": "https://github.com"
+                    }
                 }],
                 "memberships": [{
                     "organization_id": "org_acme",
