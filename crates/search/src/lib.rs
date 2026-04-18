@@ -366,33 +366,22 @@ fn find_rust_symbol_end_line(lines: &[&str], start_index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    fn unique_temp_dir() -> PathBuf {
-        let suffix = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!("sourcebot-search-test-{nanos}-{suffix}"))
+    mod repo_tree_fixture {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test_support/repo_tree_fixture.rs"
+        ));
     }
 
     fn create_test_store() -> (LocalSearchStore, PathBuf) {
-        let root = unique_temp_dir();
-        fs::create_dir_all(root.join("src")).unwrap();
-        fs::create_dir_all(root.join(".git")).unwrap();
-        fs::create_dir_all(root.join("target")).unwrap();
-        fs::write(
-            root.join("src").join("main.rs"),
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search",
+            "build_router is documented here\n",
             "fn build_router() {}\nfn other() {}\n",
-        )
-        .unwrap();
-        fs::write(root.join("README.md"), "build_router is documented here\n").unwrap();
+            "target/generated.txt",
+        );
+        let root = fixture.root;
+        fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(
             root.join(".git").join("HEAD"),
             "build_router should be ignored\n",
@@ -408,6 +397,34 @@ mod tests {
 
         let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         (store, root)
+    }
+
+    #[test]
+    fn shared_repo_tree_fixture_exposes_search_common_layout() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-common-layout",
+            "build_router is documented here\n",
+            "fn build_router() {}\nfn other() {}\n",
+            "target/generated.txt",
+        );
+
+        repo_tree_fixture::assert_common_layout(&fixture.root, "target/generated.txt");
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[test]
+    fn shared_repo_tree_fixture_rejects_parent_directory_escapes_in_generated_paths() {
+        let panic = std::panic::catch_unwind(|| {
+            repo_tree_fixture::CanonicalRepoTreeRoot::create(
+                "search-invalid-generated-path",
+                "build_router is documented here\n",
+                "fn build_router() {}\nfn other() {}\n",
+                "target/../escape.txt",
+            )
+        });
+
+        assert!(panic.is_err());
     }
 
     #[test]

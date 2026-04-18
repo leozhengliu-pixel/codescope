@@ -41,8 +41,8 @@ This document closes only **task04b1**.
 
 | Family | Current owner today | Canonical repo id(s) / labels | Canonical on-disk shape today | Why this shape matters |
 | --- | --- | --- | --- | --- |
-| Search temp corpus | `crates/search/src/lib.rs` test-only `create_test_store()` | `repo_test` | temp root containing `src/main.rs`, `README.md`, `.git/HEAD`, `target/generated.txt`, `image.png`, `binary.dat` | Proves search returns source/doc hits while skipping `.git`, generated output, binary files, and over-size files |
-| Browse temp corpus | `crates/api/src/browse.rs` test-only `create_test_store()` | `repo_test` | temp root containing `README.md`, `src/main.rs`, `target/generated.rs`; some tests add `src/readme-link.rs` symlink | Proves tree/blob/glob/grep operate on a visible repo tree, including symlink and traversal edge cases |
+| Search temp corpus | `crates/test_support/repo_tree_fixture.rs` `CanonicalRepoTreeRoot::create(...)` for the shared temp root plus `crates/search/src/lib.rs` test-only `create_test_store()` for search-only extras | `repo_test` | temp root containing `src/main.rs`, `README.md`, `.git/HEAD`, `target/generated.txt`, `image.png`, `binary.dat` | Proves search returns source/doc hits while skipping `.git`, generated output, binary files, and over-size files |
+| Browse temp corpus | `crates/test_support/repo_tree_fixture.rs` `CanonicalRepoTreeRoot::create(...)` for the shared temp root plus `crates/api/src/browse.rs` test-only `create_test_store()` for browse-only symlink variants | `repo_test` | temp root containing `README.md`, `src/main.rs`, `target/generated.rs`; some tests add `src/readme-link.rs` symlink | Proves tree/blob/glob/grep operate on a visible repo tree, including symlink and traversal edge cases |
 | Commit seeded/special-case catalog corpus | `crates/api/src/commits.rs` `LocalCommitStore::seeded()` plus `crates/models/src/lib.rs` seeded repositories | `repo_sourcebot_rewrite`, `repo_demo_docs` | `repo_sourcebot_rewrite` is mapped to the live rewrite repo root; `repo_demo_docs` is a seeded catalog repo id that currently returns empty history via `EMPTY_HISTORY_REPO_IDS` | Separates real-history coverage from the explicit empty-history docs/demo case already exposed through the seeded catalog |
 | Commit synthetic temp-git corpus | `crates/api/src/commits.rs` test helpers `create_temp_git_repo(...)`, `write_text_file(...)`, `git_in(...)` | caller-chosen ids like `repo_temp` | throwaway git repo initialized with `git init`, explicit file writes, and deterministic commits | Proves diff/history edge cases without checking in copied upstream repositories |
 
@@ -50,8 +50,10 @@ This document closes only **task04b1**.
 
 ### 1. Search corpus contract
 
-The current search builder in `crates/search/src/lib.rs` is the canonical source
-for synthetic repo-search corpora until task04b2 extracts a shared helper.
+The current shared repo-tree root builder in `crates/test_support/repo_tree_fixture.rs`
+plus the search-local `create_test_store()` wrapper in `crates/search/src/lib.rs`
+are the canonical source for synthetic repo-search corpora after **task04b2a**.
+Remaining search-only ignored/binary variants stay local until later task04b2 slices.
 
 Required layout contract:
 
@@ -73,8 +75,10 @@ Required behavior contract:
 
 ### 2. Browse corpus contract
 
-The current browse builder in `crates/api/src/browse.rs` is the canonical source
-for tree/blob/glob/grep corpora until task04b2 extracts a shared helper.
+The current shared repo-tree root builder in `crates/test_support/repo_tree_fixture.rs`
+plus the browse-local `create_test_store()` wrapper in `crates/api/src/browse.rs`
+are the canonical source for tree/blob/glob/grep corpora after **task04b2a**.
+Browse-only symlink variants remain local until later task04b2 slices.
 
 Required layout contract:
 
@@ -132,37 +136,38 @@ Required contract:
 - use this mode for type-change, rename, patch-normalization, and other focused
   git edge cases
 
-## Shared builder ownership rules before centralization
+## Shared builder ownership rules after task04b2a
 
-Until task04b2 lands shared helpers, future parity work must follow these rules:
+After **task04b2a**, future parity work must follow these rules:
 
-1. **Do not invent a third repo-search temp layout** when the current behavior can
-   be expressed by extending `crates/search/src/lib.rs::create_test_store()`.
-2. **Do not invent a second browse tree shape** for generic file/tree/glob/grep
-   cases when `crates/api/src/browse.rs::create_test_store()` can be extended.
-3. **Use the seeded real rewrite repo only for real-history assertions.** Use the
+1. **Reuse `crates/test_support/repo_tree_fixture.rs` for the common temp root**
+   (`README.md`, `src/main.rs`, `target/*`) before adding another temp-tree helper.
+2. **Keep search-only ignored/binary extras in `crates/search/src/lib.rs` until a
+   later task04b2 slice centralizes them deliberately.**
+3. **Keep browse-only symlink variants in `crates/api/src/browse.rs` until a later
+   task04b2 slice centralizes them deliberately.**
+4. **Use the seeded real rewrite repo only for real-history assertions.** Use the
    temp-git builders for synthetic commit edge cases.
-4. **Keep repo ids stable** where existing tests already rely on them:
+5. **Keep repo ids stable** where existing tests already rely on them:
    - `repo_test` for search and browse temp stores
    - `repo_sourcebot_rewrite` / `repo_demo_docs` for seeded catalog/commit paths
-5. **Preserve clean-room authorship.** Add new files/content as rewrite-authored
+6. **Preserve clean-room authorship.** Add new files/content as rewrite-authored
    literals written during tests, not copied fixture directories or upstream repo
    snapshots.
-6. **Promote shared helpers before duplicating setup.** If a new parity slice needs
-   the same temp repo/tree in more than one file, task04b2 is the correct follow-up
-   rather than another ad hoc builder.
 
 ## Recommended follow-up for task04b2
 
-Task04b2 should be the first implementation slice after this document. It should:
+Task04b2 is now split into:
 
-1. create one shared repo-tree builder module for browse/search corpora,
-2. keep the current canonical paths (`README.md`, `src/main.rs`, `target/*`,
-   `.git/*`) and repo ids stable,
-3. expose focused opt-in helpers for symlink and binary/generated-file variants,
+1. **task04b2a** — extract the shared canonical repo-tree root builder used by both
+   browse and search temp corpora
+2. **task04b2b** — centralize the remaining search ignored/binary variants and
+   browse symlink variants behind opt-in shared helpers if they still have more
+   than one caller
+3. keep the current canonical paths (`README.md`, `src/main.rs`, `target/*`,
+   `.git/*`) and repo ids stable, and
 4. leave commit temp-git helpers in `crates/api/src/commits.rs` unless a second
-   caller actually needs them, and
-5. update this document plus `specs/fixtures-policy.md` when ownership changes.
+   caller actually needs them.
 
 ## What task04b1 intentionally does not claim
 

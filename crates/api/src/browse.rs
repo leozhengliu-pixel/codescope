@@ -637,43 +637,45 @@ pub fn build_browse_store() -> DynBrowseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    mod repo_tree_fixture {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../test_support/repo_tree_fixture.rs"
+        ));
+    }
     use sourcebot_core::{
         BlobStore, GlobStore, GrepStore, RepositoryBlob, RepositoryGlob, RepositoryGrep,
         RepositoryGrepMatch, RepositoryTreeEntryKind, TreeStore,
-    };
-    use std::{
-        sync::atomic::{AtomicU64, Ordering},
-        time::{SystemTime, UNIX_EPOCH},
     };
 
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    fn unique_temp_dir() -> PathBuf {
-        let suffix = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        std::env::temp_dir().join(format!("sourcebot-browse-test-{nanos}-{suffix}"))
-    }
-
     fn create_test_store() -> (LocalBrowseStore, PathBuf) {
-        let root = unique_temp_dir();
-        fs::create_dir_all(root.join("src")).unwrap();
-        fs::create_dir_all(root.join("target")).unwrap();
-        fs::write(root.join("README.md"), "hello world\n").unwrap();
-        fs::write(root.join("src").join("main.rs"), "fn main() {}\n").unwrap();
-        fs::write(
-            root.join("target").join("generated.rs"),
-            "pub fn generated() {}\n",
-        )
-        .unwrap();
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
 
         let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         (store, root)
+    }
+
+    #[test]
+    fn shared_repo_tree_fixture_exposes_browse_common_layout() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-common-layout",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+
+        repo_tree_fixture::assert_common_layout(&fixture.root, "target/generated.rs");
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
