@@ -5,38 +5,53 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ccf92030f0c240955e350bc762fc0a0d10a8bdb7
+  head: 6d35617616191d8e73e7ac933dd7906178f8e88a
 last_completed_task:
-  id: task03a
-  title: Create canonical parity gap report and audit the backend/API domain
+  id: task03b
+  title: Extend the parity gap report with the worker domain
   status: done
   summary: >-
-    Split broad task03 into the first smallest slice by creating
-    `docs/reports/2026-04-18-parity-gap-report.md` as the canonical parity gap
-    report, defining the Missing/Partial/Complete legend, and filling only the
-    backend/API domain with evidence-based gap statuses and next-gap guidance
-    grounded in the live API router, acceptance inventory, parity matrix, and
-    roadmap.
+    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the worker
+    domain only, grounding conservative Partial/Missing parity judgments in the
+    live worker entrypoint, worker library, focused smoke tests, acceptance
+    inventory/journey docs, parity matrix, and roadmap while explicitly leaving
+    integrations, frontend, auth/admin, and ops for later slices.
   tests:
     - python3 parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03a slice creates one canonical parity gap report, limits scope to the backend/API domain, defines the required Missing/Partial/Complete legend, and defers the remaining domains to later slices
-    code: approved by one independent post-implementation review; reviewer found the docs-only gap-report diff conservative, sufficiently grounded in the roadmap/parity matrix/acceptance inventory/live router evidence, and free of blocking issues
-  commit: ccf92030f0c240955e350bc762fc0a0d10a8bdb7
-  next_task: task03b
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03b slice stays docs-only, limits scope to the worker domain, and uses conservative worker parity judgments grounded in the live worker sources, worker tests, acceptance docs, parity matrix, roadmap, and state
+    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the worker-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+  commit: 6d35617616191d8e73e7ac933dd7906178f8e88a
+  next_task: task03c
 current_task:
-  id: task03b
+  id: task03c
   parent_task: task03
-  title: Extend the parity gap report with the worker domain
+  title: Extend the parity gap report with the integrations domain
   status: pending
   summary: >-
-    Add the next smallest parity gap-report slice by auditing the worker domain
-    only, grounding its Missing/Partial/Complete judgments in the current worker
-    entrypoint, worker acceptance inventory, parity matrix, and roadmap follow-up
-    tasks while leaving integrations, frontend, auth/admin, and ops for later
+    Add the next smallest parity gap-report slice by auditing the integrations
+    domain only, grounding its Missing/Partial/Complete judgments in the current
+    provider/integration code, acceptance inventory, parity matrix, and roadmap
+    follow-up tasks while leaving frontend, auth/admin, and ops for later
     slices.
 history:
+  - id: task03b
+    status: done
+    summary: >-
+      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the worker
+      domain only, grounding conservative Partial/Missing parity judgments in the
+      live worker entrypoint, worker library, focused smoke tests, acceptance
+      inventory/journey docs, parity matrix, and roadmap while explicitly leaving
+      integrations, frontend, auth/admin, and ops for later slices.
+    tests:
+      - python3 parity gap report marker validation: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03b slice stays docs-only, limits scope to the worker domain, and uses conservative worker parity judgments grounded in the live worker sources, worker tests, acceptance docs, parity matrix, roadmap, and state
+      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the worker-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+    commit: 6d35617616191d8e73e7ac933dd7906178f8e88a
+    next_task: task03c
   - id: task03a
     status: done
     summary: >-
