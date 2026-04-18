@@ -5,39 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7a4cbe20463e00ea33c7e1ba1c5616bae5f7f980
+  head: b3a02a24ccdea7f7f126d3afc67690f7519872e4
 last_completed_task:
-  id: task05a
-  title: Bootstrap the first SQLx migration for durable repository catalog metadata
+  id: task05b1
+  title: Bootstrap SQLx migration tables for organizations, local accounts, invites, and memberships
   status: done
   summary: >-
-    Added the first SQLx-backed catalog migration slice under `crates/api/migrations/`,
-    enabled `sqlx` migration support in the API crate, exposed the catalog migrator for
-    focused verification, and locked the scope to `connections` plus `repositories`
-    while explicitly deferring organizations, sessions, ask threads, and review-agent
-    tables to later task05 follow-up slices.
+    Split broad task05b into the first smallest auth/admin migration slice by adding
+    `0002_org_metadata` for `organizations`, `local_accounts`, `organization_memberships`,
+    and `organization_invites`, plus focused migration-inventory coverage that proves
+    task05a remains catalog-only and task05b1 still defers repository permission bindings,
+    sessions, ask threads, review-agent tables, API keys, OAuth clients, and analytics.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_tables_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_and_task05b1_org_tables_only -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
-    - git diff --check: passed
+    - git diff --cached --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff cleanly lands only the first catalog SQLx migration for `connections` and `repositories`, keeps later task05 tables deferred, and matches the intended task05a scope
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the SQLx migration bootstrap diff and judged the migration ordering plus enum-aligned checks consistent with the existing models
-  commit: 7a4cbe20463e00ea33c7e1ba1c5616bae5f7f980
-  next_task: task05b
+    spec: passed one independent post-implementation review; reviewer confirmed the staged diff lands exactly task05b1 by adding only the `organizations`, `local_accounts`, `organization_memberships`, and `organization_invites` migration slice, updating migration inventory coverage, and explicitly deferring repository permission bindings plus later auth/admin persistence tables
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the org metadata migration slice and judged the migration ordering, table constraints, and scope guards consistent with the intended durable-schema bootstrap
+  commit: b3a02a24ccdea7f7f126d3afc67690f7519872e4
+  next_task: task05b2
 current_task:
-  id: task05b
-  parent_task: task05
-  title: Bootstrap SQLx migration tables for organizations, accounts, invites, memberships, and repository permission bindings
+  id: task05b2
+  parent_task: task05b
+  title: Bootstrap the SQLx migration table for repository permission bindings
   status: pending
   summary: >-
-    Extend the durable metadata schema with the next smallest auth/admin slice by
-    adding only the organization, local-account, invite, membership, and repo-permission
-    binding tables needed to begin replacing file-backed organization state later,
-    while still deferring sessions, ask threads, and review-agent persistence.
+    Finish the remaining smallest task05b schema slice by adding only the
+    `repository_permission_bindings` table needed to continue the durable organization
+    state migration, while still deferring sessions, ask threads, review-agent
+    persistence, API keys, OAuth clients, and analytics tables.
 history:
+  - id: task05b1
+    status: done
+    summary: >-
+      Split broad task05b into the first smallest auth/admin migration slice by adding
+      `0002_org_metadata` for `organizations`, `local_accounts`, `organization_memberships`,
+      and `organization_invites`, plus focused migration-inventory coverage that proves
+      task05a remains catalog-only and task05b1 still defers repository permission bindings,
+      sessions, ask threads, review-agent tables, API keys, OAuth clients, and analytics.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_and_task05b1_org_tables_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - git diff --cached --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged diff lands exactly task05b1 by adding only the `organizations`, `local_accounts`, `organization_memberships`, and `organization_invites` migration slice, updating migration inventory coverage, and explicitly deferring repository permission bindings plus later auth/admin persistence tables
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the org metadata migration slice and judged the migration ordering, table constraints, and scope guards consistent with the intended durable-schema bootstrap
+    commit: b3a02a24ccdea7f7f126d3afc67690f7519872e4
+    next_task: task05b2
   - id: task05a
     status: done
     summary: >-
