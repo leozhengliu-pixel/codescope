@@ -5,8 +5,11 @@ use sourcebot_models::{
     seed_connections, seed_repositories, Connection, Repository, RepositoryDetail,
     RepositorySummary,
 };
+use sqlx::migrate::Migrator;
 use std::sync::Arc;
 use tracing::warn;
+
+static CATALOG_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub type DynCatalogStore = Arc<dyn CatalogStore>;
 
@@ -43,6 +46,10 @@ impl CatalogStore for InMemoryCatalogStore {
 #[allow(dead_code)]
 pub struct PgCatalogStore {
     pool: sqlx::PgPool,
+}
+
+pub fn catalog_migrator() -> &'static Migrator {
+    &CATALOG_MIGRATOR
 }
 
 #[allow(dead_code)]
@@ -93,6 +100,72 @@ pub async fn build_catalog_store(database_url: Option<&str>) -> Result<DynCatalo
 mod tests {
     use super::*;
     use sourcebot_models::{ConnectionKind, SyncState};
+
+    #[test]
+    fn catalog_migration_inventory_bootstraps_catalog_tables_only() {
+        let migrations = catalog_migrator().iter().collect::<Vec<_>>();
+        let migration_versions = migrations
+            .iter()
+            .map(|migration| migration.version)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            migration_versions,
+            [1].into_iter().collect(),
+            "expected only the first-slice catalog migration version"
+        );
+
+        let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+        let migration_files = std::fs::read_dir(&migration_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(
+            migration_files,
+            [
+                "0001_catalog_metadata.up.sql".to_string(),
+                "0001_catalog_metadata.down.sql".to_string(),
+            ]
+            .into_iter()
+            .collect()
+        );
+
+        let up_migration =
+            std::fs::read_to_string(migration_dir.join("0001_catalog_metadata.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE connections",
+            "id TEXT PRIMARY KEY",
+            "name TEXT NOT NULL",
+            "kind TEXT NOT NULL",
+            "CONSTRAINT connections_kind_check",
+            "CHECK (kind IN ('github', 'gitlab', 'local'))",
+            "CREATE TABLE repositories",
+            "default_branch TEXT NOT NULL",
+            "connection_id TEXT NOT NULL REFERENCES connections(id)",
+            "sync_state TEXT NOT NULL",
+            "CONSTRAINT repositories_sync_state_check",
+            "CHECK (sync_state IN ('pending', 'ready', 'error'))",
+        ] {
+            assert!(
+                up_migration.contains(expected_snippet),
+                "missing migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE organizations",
+            "CREATE TABLE sessions",
+            "CREATE TABLE ask_threads",
+            "CREATE TABLE review_agent_runs",
+        ] {
+            assert!(
+                !up_migration.contains(unexpected_snippet),
+                "unexpected later-slice table present: {unexpected_snippet}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn in_memory_store_uses_provided_catalog_data() {
