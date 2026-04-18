@@ -5,44 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 48922e426c3de8d9a384de0e481a59d0b3b96391
+  head: 3b168a93def95e4f76c497cf7f10006f222d7852
 last_completed_task:
-  id: task35k6g
-  title: Add real worker-binary idle smoke coverage when the organization-state file is missing
+  id: task35k6h
+  title: Add strict no-write idle smoke coverage for an existing organization-state file with no queued review-agent runs
   status: done
   summary: >-
-    Completed the next review-agent worker slice by adding focused real-binary idle
-    smoke coverage that proves sourcebot-worker exits successfully when
-    SOURCEBOT_ORGANIZATION_STATE_PATH points at a missing organization-state file,
-    leaves that file absent on the idle path, and still resolves the effective
-    organization state to OrganizationState::default(), while continuing to defer
-    real review logic, retries, rescheduling, and worker loops.
+    Completed the next review-agent worker slice by tightening the real-binary
+    idle contract for an already-present organization-state file, proving
+    sourcebot-worker exits successfully with no queued review-agent runs while
+    leaving the existing file bytes and modification time unchanged, and still
+    deferring real review logic, retries, rescheduling, and worker loops.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_and_leaves_default_empty_effective_state_when_organization_state_file_is_missing -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_without_rewriting_existing_state_when_no_queued_review_agent_run_exists -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6g by adding only a focused real worker-binary idle smoke test for a missing organization-state file, proving successful exit plus default effective state without adding execution, retries, rescheduling, or worker loops
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the missing-file idle smoke assertion is correct because FileOrganizationStore intentionally resolves a missing file as OrganizationState::default() and the worker does not persist on the idle path
-  commit: 48922e426c3de8d9a384de0e481a59d0b3b96391
-  next_task: task35k6h
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6h by adding only focused strict no-write idle smoke coverage for an already-present organization-state file with no queued review-agent runs, using the real sourcebot-worker binary and only minimal test-support dependency wiring
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the worker idle path does not write through the runtime store APIs when no queued review-agent run exists, so the new byte-for-byte and mtime assertions are sound for this slice
+  commit: 3b168a93def95e4f76c497cf7f10006f222d7852
+  next_task: task35k7
 current_task:
-  id: task35k6h
-  parent_task: task35k6
-  title: Add strict no-write idle smoke coverage for an existing organization-state file with no queued review-agent runs
+  id: task35k7
+  parent_task: task35k
+  title: Add real worker-binary smoke coverage that processes only the oldest queued review-agent run per invocation
   status: pending
   summary: >-
-    Lock the one-shot worker idle contract down with one smallest follow-up slice that
-    proves sourcebot-worker does not rewrite an already-present organization-state file
-    when no queued review-agent run exists, while still deferring real review logic,
-    retries, rescheduling, and worker loops.
+    Lock the one-shot worker execution contract down with one smallest follow-up
+    slice that seeds multiple queued review-agent runs, proves sourcebot-worker
+    processes exactly one oldest queued run per invocation through the real
+    file-backed state path, and still defers retries, polling loops,
+    rescheduling, and real review execution.
 history:
+  - id: task35k6h
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by tightening the real-binary
+      idle contract for an already-present organization-state file, proving
+      sourcebot-worker exits successfully with no queued review-agent runs while
+      leaving the existing file bytes and modification time unchanged, and still
+      deferring real review logic, retries, rescheduling, and worker loops.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_without_rewriting_existing_state_when_no_queued_review_agent_run_exists -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6h by adding only focused strict no-write idle smoke coverage for an already-present organization-state file with no queued review-agent runs, using the real sourcebot-worker binary and only minimal test-support dependency wiring
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the worker idle path does not write through the runtime store APIs when no queued review-agent run exists, so the new byte-for-byte and mtime assertions are sound for this slice
+    commit: 3b168a93def95e4f76c497cf7f10006f222d7852
+    next_task: task35k7
   - id: task35k6g
     status: done
     summary: >-
-      Completed the next review-agent worker slice by adding focused real-binary idle
-      smoke coverage that proves sourcebot-worker exits successfully when
+      Completed the next review-agent worker slice by adding focused real-binary
+      idle smoke coverage that proves sourcebot-worker exits successfully when
       SOURCEBOT_ORGANIZATION_STATE_PATH points at a missing organization-state file,
       leaves that file absent on the idle path, and still resolves the effective
       organization state to OrganizationState::default(), while continuing to defer
