@@ -5,42 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5315f45047ce1df3b74f407f6f3a0572a2d111a9
+  head: 0dc8848f51464e8d5d0dfb5b079f036c4020c6ad
 last_completed_task:
-  id: task06c2a
-  title: Add deterministic metadata test DB reset contract
+  id: task06c2b1
+  title: Add sqlx-test metadata workflow wrapper
   status: done
   summary: >-
-    Split broad task06c2 into the first smallest deterministic local-test slice
-    by extending `.env.example` with `TEST_DATABASE_URL`, adding a guarded
-    `make sqlx-test-reset` target that only resets the dedicated local
-    `sourcebot_test` database via the repo-local `.sqlx-cli`, documenting that
-    workflow in `README.md`, and extending the shell contract checks while
-    deferring broader test-run automation and durable-store migration work.
+    Split broad task06c2b into the smallest truthful closure slice by adding a
+    reproducible `make sqlx-test` wrapper that composes the guarded
+    `sqlx-test-reset` flow with the focused `sourcebot-api` metadata storage
+    tests, documents that wrapper in `README.md`, adds a dedicated shell
+    contract check, and explicitly records that the workflow still does not
+    provide full Postgres-backed runtime parity.
   tests:
-    - ./scripts/check_local_metadata_env_contract.sh: passed
-    - ./scripts/check_metadata_bootstrap_docs.sh: passed
+    - sh ./scripts/check_sqlx_test_workflow.sh: passed
+    - sh ./scripts/check_local_metadata_env_contract.sh .: passed
+    - sh ./scripts/check_metadata_bootstrap_docs.sh README.md: passed
     - sh ./scripts/check_make_sqlx_migrate.sh: passed
     - make help: passed
-    - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && rm .env: passed
-    - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test-reset: failed closed as expected
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+    - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && make -n sqlx-test && rm .env: passed
+    - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test: failed closed as expected
+    - cp .env.example .env && make dev-up && CARGO=/opt/data/home/.cargo/bin/cargo make sqlx-test && rm .env: blocked by cron environment missing docker (`make: docker: No such file or directory`)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the feature/work diff cleanly lands task06c2a by adding only deterministic `TEST_DATABASE_URL` defaults, one local-only `sqlx-test-reset` target, README coverage, shell contract checks, and a `*_test`/local safety guard while deferring broader test workflow and durable-store work
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after controller-grounded checks confirmed the Makefile guard matches both localhost alternatives and rejects non-local/non-`_test` reset targets
-  commit: 5315f45047ce1df3b74f407f6f3a0572a2d111a9
-  next_task: task06c2b
+    spec: passed one independent post-implementation review; reviewer confirmed the staged diff cleanly lands task06c2b1 by adding only the `make sqlx-test` wrapper, aligned README/help/contract-check coverage, and truthful scope notes that keep full Postgres-backed runtime parity deferred
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the wrapper safely delegates destructive reset behavior to the existing guarded `sqlx-test-reset` target before running the focused metadata storage tests
+  commit: 0dc8848f51464e8d5d0dfb5b079f036c4020c6ad
+  next_task: task07a
 current_task:
-  id: task06c2b
-  parent_task: task06c2
-  title: Add deterministic metadata test-run workflow wrapper
+  id: task07a
+  parent_task: task07
+  title: Add first Postgres-backed catalog store contract test
   status: pending
   summary: >-
-    Finish the remaining task06c2 work by adding the next smallest local test
-    workflow slice that turns the reset contract into one reproducible
-    metadata-test-run wrapper or documented invocation path, without expanding
-    into runtime durable-store migration or CI orchestration.
+    Split broad task07 into the smallest persistence-parity slice by adding one
+    failing-then-passing contract test that proves `build_catalog_store` can
+    construct a real SQL-backed catalog path instead of always falling back to
+    the seeded in-memory store, without yet attempting the full catalog-store
+    migration.
 history:
+  - id: task06c2b1
+    status: done
+    summary: >-
+      Split broad task06c2b into the smallest truthful closure slice by adding
+      a reproducible `make sqlx-test` wrapper that composes the guarded
+      `sqlx-test-reset` flow with the focused `sourcebot-api` metadata storage
+      tests, documents that wrapper in `README.md`, adds a dedicated shell
+      contract check, and explicitly records that the workflow still does not
+      provide full Postgres-backed runtime parity.
+    tests:
+      - sh ./scripts/check_sqlx_test_workflow.sh: passed
+      - sh ./scripts/check_local_metadata_env_contract.sh .: passed
+      - sh ./scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - sh ./scripts/check_make_sqlx_migrate.sh: passed
+      - make help: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && make -n sqlx-test && rm .env: passed
+      - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test: failed closed as expected
+      - cp .env.example .env && make dev-up && CARGO=/opt/data/home/.cargo/bin/cargo make sqlx-test && rm .env: blocked by cron environment missing docker (`make: docker: No such file or directory`)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged diff cleanly lands task06c2b1 by adding only the `make sqlx-test` wrapper, aligned README/help/contract-check coverage, and truthful scope notes that keep full Postgres-backed runtime parity deferred
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the wrapper safely delegates destructive reset behavior to the existing guarded `sqlx-test-reset` target before running the focused metadata storage tests
+    commit: 0dc8848f51464e8d5d0dfb5b079f036c4020c6ad
+    next_task: task07a
   - id: task06c2a
     status: done
     summary: >-
