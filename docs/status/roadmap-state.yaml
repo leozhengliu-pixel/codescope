@@ -5,38 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2dfb1e73dd5a54d2bb2a246db136210b5fc5443e
+  head: 160090194cd947856e31186a5ce87bb4ac5ad196
 last_completed_task:
-  id: task05b3
-  title: Bootstrap the SQLx migration table for sessions
+  id: task05b4
+  title: Bootstrap the SQLx migration table for ask threads
   status: done
   summary: >-
-    Added `0004_sessions` as the next smallest task05b schema slice, extending the
-    SQLx migration inventory with only the `sessions` table needed for durable local
-    session persistence while proving task05a, task05b1, and task05b2 remain
-    scope-locked and ask threads, review-agent persistence, API keys, OAuth clients,
-    and analytics tables stay deferred.
+    Added `0005_ask_threads` as the next smallest task05b schema slice, extending the
+    SQLx migration inventory with only the `ask_threads` table needed for durable
+    ask-thread metadata persistence while enforcing session referential integrity and
+    one-thread-per-user-session uniqueness, and still deferring ask_messages,
+    review-agent persistence, delivery attempts, API keys, OAuth clients, and analytics.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_and_task05b3_sessions_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_and_task05b4_ask_threads_only -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b3 by adding only `0004_sessions`, updating migration inventory coverage to versions `0001` through `0004`, matching the LocalSession contract with `id`, `user_id`, `secret_hash`, and `created_at`, and explicitly deferring ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the sessions migration slice and judged the foreign-key dependency on `local_accounts`, the minimal schema contract, and the down migration consistent with the intended durable-schema bootstrap
-  commit: 2dfb1e73dd5a54d2bb2a246db136210b5fc5443e
-  next_task: task05b4
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b4 by adding only `0005_ask_threads`, updating migration inventory coverage to versions `0001` through `0005`, matching the current ask-thread metadata contract, preserving one-thread-per-user-session lookup semantics, and explicitly deferring ask_messages, review-agent persistence, delivery attempts, API keys, OAuth clients, and analytics tables
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the ask-threads migration slice and judged the `sessions(id)` foreign key, `local_accounts(id)` foreign key, visibility constraint, uniqueness invariant, and down migration consistent with the intended durable-schema bootstrap
+  commit: 160090194cd947856e31186a5ce87bb4ac5ad196
+  next_task: task05b5
 current_task:
-  id: task05b4
+  id: task05b5
   parent_task: task05b
-  title: Bootstrap the SQLx migration table for ask threads
+  title: Bootstrap the SQLx migration table for review agent runs
   status: pending
   summary: >-
-    Continue the durable auth/admin schema bootstrap by adding only the `ask_threads`
-    table needed for durable ask-thread metadata persistence, while still deferring
-    review-agent persistence, API keys, OAuth clients, and analytics tables.
+    Continue the durable auth/admin schema bootstrap by adding only the
+    `review_agent_runs` table needed for durable review-agent run metadata
+    persistence, while still deferring delivery attempts, API keys, OAuth clients,
+    and analytics tables.
 history:
+  - id: task05b4
+    status: done
+    summary: >-
+      Added `0005_ask_threads` as the next smallest task05b schema slice, extending the
+      SQLx migration inventory with only the `ask_threads` table needed for durable
+      ask-thread metadata persistence while enforcing session referential integrity and
+      one-thread-per-user-session uniqueness, and still deferring ask_messages,
+      review-agent persistence, delivery attempts, API keys, OAuth clients, and analytics.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_and_task05b4_ask_threads_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b4 by adding only `0005_ask_threads`, updating migration inventory coverage to versions `0001` through `0005`, matching the current ask-thread metadata contract, preserving one-thread-per-user-session lookup semantics, and explicitly deferring ask_messages, review-agent persistence, delivery attempts, API keys, OAuth clients, and analytics tables
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the ask-threads migration slice and judged the `sessions(id)` foreign key, `local_accounts(id)` foreign key, visibility constraint, uniqueness invariant, and down migration consistent with the intended durable-schema bootstrap
+    commit: 160090194cd947856e31186a5ce87bb4ac5ad196
+    next_task: task05b5
   - id: task05b3
     status: done
     summary: >-
