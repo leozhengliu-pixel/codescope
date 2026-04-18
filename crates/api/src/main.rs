@@ -1171,12 +1171,21 @@ async fn list_authenticated_review_agent_runs(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let visible_organization_ids =
         visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let visible_webhook_scopes: HashSet<(String, String)> = organization_state
+        .review_webhooks
+        .iter()
+        .filter(|webhook| visible_organization_ids.contains(&webhook.organization_id))
+        .map(|webhook| (webhook.id.clone(), webhook.organization_id.clone()))
+        .collect();
 
     Ok(Json(
         organization_state
             .review_agent_runs
             .into_iter()
-            .filter(|run| visible_organization_ids.contains(&run.organization_id))
+            .filter(|run| {
+                visible_webhook_scopes
+                    .contains(&(run.webhook_id.clone(), run.organization_id.clone()))
+            })
             .map(review_agent_run_list_item_response)
             .collect(),
     ))
@@ -1195,11 +1204,21 @@ async fn get_authenticated_review_agent_run(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let visible_organization_ids =
         visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let visible_webhook_scopes: HashSet<(String, String)> = organization_state
+        .review_webhooks
+        .iter()
+        .filter(|webhook| visible_organization_ids.contains(&webhook.organization_id))
+        .map(|webhook| (webhook.id.clone(), webhook.organization_id.clone()))
+        .collect();
 
     let run = organization_state
         .review_agent_runs
         .into_iter()
-        .find(|run| run.id == run_id && visible_organization_ids.contains(&run.organization_id))
+        .find(|run| {
+            run.id == run_id
+                && visible_webhook_scopes
+                    .contains(&(run.webhook_id.clone(), run.organization_id.clone()))
+        })
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(review_agent_run_list_item_response(run)))
@@ -6967,6 +6986,28 @@ mod tests {
                 name: "Member User".into(),
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_visible".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:10:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_hidden".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:11:00Z".into(),
+                },
+            ],
             review_agent_runs: vec![
                 ReviewAgentRun {
                     id: "review_agent_run_visible".into(),
@@ -6989,6 +7030,28 @@ mod tests {
                     review_id: "review_hidden".into(),
                     status: ReviewAgentRunStatus::Queued,
                     created_at: "2026-04-25T00:16:00Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "review_agent_run_inconsistent_hidden_webhook".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "review_webhook_hidden".into(),
+                    delivery_attempt_id: "delivery_attempt_inconsistent".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_inconsistent_hidden_webhook".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:17:00Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "review_agent_run_orphaned_visible_org".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "review_webhook_missing".into(),
+                    delivery_attempt_id: "delivery_attempt_orphaned".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_orphaned_visible_org".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:18:00Z".into(),
                 },
             ],
             ..OrganizationState::default()
@@ -7066,6 +7129,28 @@ mod tests {
                 name: "Member User".into(),
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_visible".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:10:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_hidden".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:11:00Z".into(),
+                },
+            ],
             review_agent_runs: vec![
                 ReviewAgentRun {
                     id: "review_agent_run_visible".into(),
@@ -7180,6 +7265,28 @@ mod tests {
                 name: "Member User".into(),
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_visible".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:10:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "secret_hash_hidden".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:11:00Z".into(),
+                },
+            ],
             review_agent_runs: vec![
                 ReviewAgentRun {
                     id: "review_agent_run_visible".into(),
@@ -7202,6 +7309,28 @@ mod tests {
                     review_id: "review_hidden".into(),
                     status: ReviewAgentRunStatus::Queued,
                     created_at: "2026-04-25T00:16:00Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "review_agent_run_inconsistent_hidden_webhook".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "review_webhook_hidden".into(),
+                    delivery_attempt_id: "delivery_attempt_inconsistent".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_inconsistent_hidden_webhook".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:17:00Z".into(),
+                },
+                ReviewAgentRun {
+                    id: "review_agent_run_orphaned_visible_org".into(),
+                    organization_id: "org_acme".into(),
+                    webhook_id: "review_webhook_missing".into(),
+                    delivery_attempt_id: "delivery_attempt_orphaned".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    review_id: "review_orphaned_visible_org".into(),
+                    status: ReviewAgentRunStatus::Queued,
+                    created_at: "2026-04-25T00:18:00Z".into(),
                 },
             ],
             ..OrganizationState::default()
@@ -7229,6 +7358,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        let inconsistent_hidden_webhook_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-agent-runs/review_agent_run_inconsistent_hidden_webhook")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            inconsistent_hidden_webhook_response.status(),
+            StatusCode::NOT_FOUND
+        );
+
+        let orphaned_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-agent-runs/review_agent_run_orphaned_visible_org")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(orphaned_response.status(), StatusCode::NOT_FOUND);
 
         let missing_response = app
             .oneshot(
