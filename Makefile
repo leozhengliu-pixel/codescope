@@ -7,8 +7,10 @@ endif
 
 CARGO ?= cargo
 API_ADDR ?= 127.0.0.1:3000
+SQLX_CLI_VERSION ?= 0.8.6
+SQLX_CLI_ROOT ?= .sqlx-cli
 
-.PHONY: help fmt check test api dev-up dev-down dev-logs
+.PHONY: help fmt check test api dev-up dev-down dev-logs sqlx-migrate
 
 help:
 	@printf '%s\n' \
@@ -16,6 +18,7 @@ help:
 	  'make check     - cargo check workspace' \
 	  'make test      - cargo test workspace' \
 	  'make api       - run sourcebot-api' \
+	  'make sqlx-migrate - run SQLx database migrations for the metadata schema against DATABASE_URL' \
 	  'make dev-up    - start local postgres via docker compose' \
 	  'make dev-down  - stop local postgres' \
 	  'make dev-logs  - show postgres logs'
@@ -40,3 +43,8 @@ dev-down:
 
 dev-logs:
 	docker compose logs -f postgres
+
+sqlx-migrate:
+	@: "$${DATABASE_URL:?DATABASE_URL must be set}"
+	$(CARGO) install --locked sqlx-cli --version $(SQLX_CLI_VERSION) --no-default-features --features rustls,postgres --root $(SQLX_CLI_ROOT)
+	DATABASE_URL="$$DATABASE_URL" $(SQLX_CLI_ROOT)/bin/sqlx migrate run --source crates/api/migrations
