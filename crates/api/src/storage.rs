@@ -102,7 +102,7 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_and_task05b3_sessions_only(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -112,8 +112,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3].into_iter().collect(),
-            "expected only the task05a + task05b1 + task05b2 migration versions"
+            [1, 2, 3, 4].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 + task05b3 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -131,6 +131,8 @@ mod tests {
                 "0002_org_metadata.up.sql".to_string(),
                 "0003_repository_permission_bindings.down.sql".to_string(),
                 "0003_repository_permission_bindings.up.sql".to_string(),
+                "0004_sessions.down.sql".to_string(),
+                "0004_sessions.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -248,6 +250,35 @@ mod tests {
             assert!(
                 !task05b2_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0003: {unexpected_snippet}"
+            );
+        }
+
+        let task05b3_up_migration =
+            std::fs::read_to_string(migration_dir.join("0004_sessions.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE sessions",
+            "id TEXT PRIMARY KEY",
+            "user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+            "secret_hash TEXT NOT NULL",
+            "created_at TIMESTAMPTZ NOT NULL",
+        ] {
+            assert!(
+                task05b3_up_migration.contains(expected_snippet),
+                "missing task05b3 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE ask_threads",
+            "CREATE TABLE review_agent_runs",
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task05b3_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0004: {unexpected_snippet}"
             );
         }
     }
