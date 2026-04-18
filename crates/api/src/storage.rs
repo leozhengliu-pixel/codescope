@@ -417,6 +417,7 @@ mod tests {
                 id: "conn_custom".into(),
                 name: "Custom GitHub".into(),
                 kind: ConnectionKind::GitHub,
+                config: None,
             }],
         );
 
@@ -444,6 +445,7 @@ mod tests {
                     id: "conn_custom".into(),
                     name: "Custom GitHub".into(),
                     kind: ConnectionKind::GitHub,
+                    config: None,
                 },
             })
         );

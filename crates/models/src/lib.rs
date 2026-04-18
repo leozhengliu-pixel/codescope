@@ -1,9 +1,11 @@
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionKind {
+    #[serde(rename = "github")]
     GitHub,
+    #[serde(rename = "gitlab")]
     GitLab,
     Gitea,
     Gerrit,
@@ -12,6 +14,138 @@ pub enum ConnectionKind {
     AzureDevOps,
     GenericGit,
     Local,
+}
+
+impl ConnectionKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::GitHub => "github",
+            Self::GitLab => "gitlab",
+            Self::Gitea => "gitea",
+            Self::Gerrit => "gerrit",
+            Self::Bitbucket => "bitbucket",
+            Self::AzureDevOps => "azure_devops",
+            Self::GenericGit => "generic_git",
+            Self::Local => "local",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum ConnectionConfig {
+    #[serde(rename = "github")]
+    GitHub {
+        base_url: String,
+    },
+    #[serde(rename = "gitlab")]
+    GitLab {
+        base_url: String,
+    },
+    Gitea {
+        base_url: String,
+    },
+    Gerrit {
+        base_url: String,
+    },
+    Bitbucket {
+        base_url: String,
+    },
+    #[serde(rename = "azure_devops")]
+    AzureDevOps {
+        base_url: String,
+    },
+    GenericGit {
+        base_url: String,
+    },
+    Local {
+        repo_path: String,
+    },
+}
+
+impl ConnectionConfig {
+    fn provider_kind(&self) -> ConnectionKind {
+        match self {
+            Self::GitHub { .. } => ConnectionKind::GitHub,
+            Self::GitLab { .. } => ConnectionKind::GitLab,
+            Self::Gitea { .. } => ConnectionKind::Gitea,
+            Self::Gerrit { .. } => ConnectionKind::Gerrit,
+            Self::Bitbucket { .. } => ConnectionKind::Bitbucket,
+            Self::AzureDevOps { .. } => ConnectionKind::AzureDevOps,
+            Self::GenericGit { .. } => ConnectionKind::GenericGit,
+            Self::Local { .. } => ConnectionKind::Local,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Connection {
+    pub id: String,
+    pub name: String,
+    pub kind: ConnectionKind,
+    pub config: Option<ConnectionConfig>,
+}
+
+impl Serialize for Connection {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.clone().validate().map_err(serde::ser::Error::custom)?;
+
+        let mut state =
+            serializer.serialize_struct("Connection", if self.config.is_some() { 4 } else { 3 })?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("kind", &self.kind)?;
+        if let Some(config) = &self.config {
+            state.serialize_field("config", config)?;
+        }
+        state.end()
+    }
+}
+
+impl Connection {
+    fn validate(self) -> Result<Self, String> {
+        if let Some(config) = &self.config {
+            let provider_kind = config.provider_kind();
+            if self.kind != provider_kind {
+                return Err(format!(
+                    "connection kind `{}` does not match config provider `{}`",
+                    self.kind.as_str(),
+                    provider_kind.as_str()
+                ));
+            }
+        }
+
+        Ok(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for Connection {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct ConnectionWire {
+            id: String,
+            name: String,
+            kind: ConnectionKind,
+            #[serde(default)]
+            config: Option<ConnectionConfig>,
+        }
+
+        let wire = ConnectionWire::deserialize(deserializer)?;
+        Connection {
+            id: wire.id,
+            name: wire.name,
+            kind: wire.kind,
+            config: wire.config,
+        }
+        .validate()
+        .map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,13 +168,6 @@ pub enum AskThreadVisibility {
 pub enum AskMessageRole {
     User,
     Assistant,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Connection {
-    pub id: String,
-    pub name: String,
-    pub kind: ConnectionKind,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -435,11 +562,13 @@ pub fn seed_connections() -> Vec<Connection> {
             id: "conn_github".into(),
             name: "GitHub Cloud".into(),
             kind: ConnectionKind::GitHub,
+            config: None,
         },
         Connection {
             id: "conn_local".into(),
             name: "Local Mirrors".into(),
             kind: ConnectionKind::Local,
+            config: None,
         },
     ]
 }
@@ -503,6 +632,129 @@ mod tests {
         for (variant, expected_name) in variants.into_iter().zip(expected) {
             assert_eq!(serde_json::to_value(variant).unwrap(), json!(expected_name));
         }
+    }
+
+    #[test]
+    fn connection_deserializes_without_config_field_for_backward_compatibility() {
+        let connection: Connection = serde_json::from_value(json!({
+            "id": "conn_github",
+            "name": "GitHub Cloud",
+            "kind": "github"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            connection,
+            Connection {
+                id: "conn_github".into(),
+                name: "GitHub Cloud".into(),
+                kind: ConnectionKind::GitHub,
+                config: None,
+            }
+        );
+    }
+
+    #[test]
+    fn connection_skips_serializing_absent_config() {
+        let connection = Connection {
+            id: "conn_github".into(),
+            name: "GitHub Cloud".into(),
+            kind: ConnectionKind::GitHub,
+            config: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(&connection).unwrap(),
+            json!({
+                "id": "conn_github",
+                "name": "GitHub Cloud",
+                "kind": "github"
+            })
+        );
+    }
+
+    #[test]
+    fn connection_serializes_and_deserializes_provider_scoped_config_payload() {
+        let connection = Connection {
+            id: "conn_local".into(),
+            name: "Local Mirrors".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: "/srv/sourcebot/repos".into(),
+            }),
+        };
+
+        let serialized = serde_json::to_value(&connection).unwrap();
+        assert_eq!(
+            serialized,
+            json!({
+                "id": "conn_local",
+                "name": "Local Mirrors",
+                "kind": "local",
+                "config": {
+                    "provider": "local",
+                    "repo_path": "/srv/sourcebot/repos"
+                }
+            })
+        );
+
+        let deserialized: Connection = serde_json::from_value(json!({
+            "id": "conn_gitlab",
+            "name": "GitLab Self-Hosted",
+            "kind": "gitlab",
+            "config": {
+                "provider": "gitlab",
+                "base_url": "https://gitlab.example.com"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            deserialized,
+            Connection {
+                id: "conn_gitlab".into(),
+                name: "GitLab Self-Hosted".into(),
+                kind: ConnectionKind::GitLab,
+                config: Some(ConnectionConfig::GitLab {
+                    base_url: "https://gitlab.example.com".into(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn connection_rejects_mismatched_kind_and_config_provider() {
+        let error = serde_json::from_value::<Connection>(json!({
+            "id": "conn_bad",
+            "name": "Broken Connection",
+            "kind": "github",
+            "config": {
+                "provider": "gitlab",
+                "base_url": "https://gitlab.example.com"
+            }
+        }))
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("connection kind `github` does not match config provider `gitlab`"));
+    }
+
+    #[test]
+    fn connection_rejects_serializing_mismatched_kind_and_config_provider() {
+        let error = serde_json::to_value(Connection {
+            id: "conn_bad".into(),
+            name: "Broken Connection".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::GitLab {
+                base_url: "https://gitlab.example.com".into(),
+            }),
+        })
+        .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("connection kind `github` does not match config provider `gitlab`"));
     }
 
     #[test]
