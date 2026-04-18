@@ -10,7 +10,7 @@ API_ADDR ?= 127.0.0.1:3000
 SQLX_CLI_VERSION ?= 0.8.6
 SQLX_CLI_ROOT ?= .sqlx-cli
 
-.PHONY: help fmt check test api dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset
+.PHONY: help fmt check test api dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset sqlx-test
 
 help:
 	@printf '%s\n' \
@@ -20,6 +20,7 @@ help:
 	  'make api       - run sourcebot-api' \
 	  'make sqlx-migrate - run SQLx database migrations for the metadata schema against DATABASE_URL' \
 	  'make sqlx-test-reset - drop, recreate, and re-migrate the deterministic test metadata database via TEST_DATABASE_URL' \
+	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata storage tests' \
 	  'make dev-up    - start local postgres via docker compose' \
 	  'make dev-down  - stop local postgres' \
 	  'make dev-logs  - show postgres logs'
@@ -53,8 +54,13 @@ sqlx-migrate:
 sqlx-test-reset:
 	@: "$${TEST_DATABASE_URL:?TEST_DATABASE_URL must be set}"
 	@case "$$TEST_DATABASE_URL" in \
-	  postgres://*@127.0.0.1:5432/sourcebot_test|postgres://*@localhost:5432/sourcebot_test) ;; \
+	  postgres://*@127.0.0.1:***@localhost:5432/sourcebot_test) ;; \
 	  *) printf '%s\n' 'TEST_DATABASE_URL must target the dedicated local sourcebot_test database on 127.0.0.1 or localhost' >&2; exit 1 ;; \
 	esac
 	$(CARGO) install --locked sqlx-cli --version $(SQLX_CLI_VERSION) --no-default-features --features rustls,postgres --root $(SQLX_CLI_ROOT)
 	DATABASE_URL="$$TEST_DATABASE_URL" $(SQLX_CLI_ROOT)/bin/sqlx database reset --source crates/api/migrations -y
+
+sqlx-test:
+	@: "$${TEST_DATABASE_URL:?TEST_DATABASE_URL must be set}"
+	$(MAKE) sqlx-test-reset
+	DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture
