@@ -179,6 +179,10 @@ fn build_router(
             get(get_authenticated_review_webhook),
         )
         .route(
+            "/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts",
+            get(list_authenticated_review_webhook_delivery_attempts_for_webhook),
+        )
+        .route(
             "/api/v1/auth/review-webhook-delivery-attempts",
             get(list_authenticated_review_webhook_delivery_attempts),
         )
@@ -1020,6 +1024,38 @@ async fn get_authenticated_review_webhook(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(review_webhook_list_item_response(webhook)))
+}
+
+async fn list_authenticated_review_webhook_delivery_attempts_for_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(webhook_id): Path<String>,
+) -> Result<Json<Vec<ReviewWebhookDeliveryAttemptListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+
+    let visible_webhook = organization_state
+        .review_webhooks
+        .iter()
+        .find(|webhook| {
+            webhook.id == webhook_id && visible_organization_ids.contains(&webhook.organization_id)
+        })
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(Json(
+        organization_state
+            .review_webhook_delivery_attempts
+            .into_iter()
+            .filter(|attempt| attempt.webhook_id == visible_webhook.id)
+            .map(review_webhook_delivery_attempt_list_item_response)
+            .collect(),
+    ))
 }
 
 async fn list_authenticated_review_webhook_delivery_attempts(
@@ -5961,6 +5997,308 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhook_delivery_attempts_for_webhook_returns_only_attempts_for_visible_webhook(
+    ) {
+        let organization_state_path =
+            unique_test_path("auth-review-webhook-delivery-attempts-for-webhook-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-review-webhook-delivery-attempts-for-webhook-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-25T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-24T23:55:00Z".into(),
+            }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$visible$hash".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:05:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_other_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme_other".into(),
+                    repository_id: "repo_other_visible".into(),
+                    events: vec!["pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$other$hash".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:05:30Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$hidden$hash".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:06:00Z".into(),
+                },
+            ],
+            review_webhook_delivery_attempts: vec![
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_visible_a".into(),
+                    webhook_id: "review_webhook_visible".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_123".into(),
+                    external_event_id: "evt_123".into(),
+                    accepted_at: "2026-04-25T00:10:00Z".into(),
+                },
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_visible_b".into(),
+                    webhook_id: "review_webhook_visible".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_124".into(),
+                    external_event_id: "evt_124".into(),
+                    accepted_at: "2026-04-25T00:10:30Z".into(),
+                },
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_other_visible".into(),
+                    webhook_id: "review_webhook_other_visible".into(),
+                    connection_id: "conn_github_acme_other".into(),
+                    repository_id: "repo_other_visible".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_other".into(),
+                    external_event_id: "evt_other".into(),
+                    accepted_at: "2026-04-25T00:11:00Z".into(),
+                },
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_hidden".into(),
+                    webhook_id: "review_webhook_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_hidden".into(),
+                    external_event_id: "evt_hidden".into(),
+                    accepted_at: "2026-04-25T00:11:30Z".into(),
+                },
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_orphaned".into(),
+                    webhook_id: "review_webhook_missing".into(),
+                    connection_id: "conn_github_orphaned".into(),
+                    repository_id: "repo_orphaned".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_orphaned".into(),
+                    external_event_id: "evt_orphaned".into(),
+                    accepted_at: "2026-04-25T00:12:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks/review_webhook_visible/delivery-attempts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<ReviewWebhookDeliveryAttemptListItemResponseBody> =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 2);
+        assert_eq!(payload[0].id, "delivery_attempt_visible_a");
+        assert_eq!(payload[0].webhook_id, "review_webhook_visible");
+        assert_eq!(payload[0].connection_id, "conn_github_acme");
+        assert_eq!(payload[0].repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload[0].event_type, "pull_request_review");
+        assert_eq!(payload[0].review_id, "review_123");
+        assert_eq!(payload[0].external_event_id, "evt_123");
+        assert_eq!(payload[0].accepted_at, "2026-04-25T00:10:00Z");
+        assert_eq!(payload[1].id, "delivery_attempt_visible_b");
+        assert_eq!(payload[1].webhook_id, "review_webhook_visible");
+        assert_eq!(payload[1].review_id, "review_124");
+        assert_eq!(payload[1].external_event_id, "evt_124");
+        assert_eq!(payload[1].accepted_at, "2026-04-25T00:10:30Z");
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhook_delivery_attempts_for_webhook_requires_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks/review_webhook_visible/delivery-attempts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_review_webhook_delivery_attempts_for_webhook_returns_not_found_for_hidden_or_missing_webhooks(
+    ) {
+        let organization_state_path =
+            unique_test_path("auth-review-webhook-delivery-attempts-for-webhook-missing-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-review-webhook-delivery-attempts-for-webhook-missing-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-25T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-24T23:55:00Z".into(),
+            }],
+            review_webhooks: vec![
+                ReviewWebhook {
+                    id: "review_webhook_visible".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$visible$hash".into(),
+                    created_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:05:00Z".into(),
+                },
+                ReviewWebhook {
+                    id: "review_webhook_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    events: vec!["pull_request_review".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$hidden$hash".into(),
+                    created_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-25T00:06:00Z".into(),
+                },
+            ],
+            review_webhook_delivery_attempts: vec![
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_visible".into(),
+                    webhook_id: "review_webhook_visible".into(),
+                    connection_id: "conn_github_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_123".into(),
+                    external_event_id: "evt_123".into(),
+                    accepted_at: "2026-04-25T00:10:00Z".into(),
+                },
+                ReviewWebhookDeliveryAttempt {
+                    id: "delivery_attempt_hidden".into(),
+                    webhook_id: "review_webhook_hidden".into(),
+                    connection_id: "conn_github_hidden".into(),
+                    repository_id: "repo_private".into(),
+                    event_type: "pull_request_review".into(),
+                    review_id: "review_hidden".into(),
+                    external_event_id: "evt_hidden".into(),
+                    accepted_at: "2026-04-25T00:11:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks/review_webhook_hidden/delivery-attempts")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        let missing_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/review-webhooks/review_webhook_missing/delivery-attempts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
