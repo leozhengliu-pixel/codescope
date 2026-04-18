@@ -5,65 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2ec69ba860d4a853008021d3cf9566d8ad2d877c
+  head: 6496c7bb39188e2eceb5260881eb41cb3ffd2f8b
 last_completed_task:
-  id: task35u
-  title: Add focused webhook-intake-to-authenticated-API coverage proving one accepted review event persists a review-agent run that is readable through the nested per-webhook review-agent-run detail endpoint
+  id: task35v
+  title: Add focused webhook-intake-to-authenticated-API coverage proving one accepted review event persists a delivery attempt that is readable through the nested per-webhook delivery-attempt listing endpoint
   status: done
   summary: >-
     Completed the next review-agent automation integration slice by adding one
     focused end-to-end test that proves an accepted review webhook event persists
-    a review-agent run and that the same persisted run is readable through the
-    authenticated nested per-webhook review-agent-run detail endpoint, while
+    a delivery attempt and that the same persisted attempt is readable through the
+    authenticated nested per-webhook delivery-attempt listing endpoint, while
     still deferring retries, worker-loop orchestration, secret rotation, UI
     work, and real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_persist_review_agent_run_readable_via_authenticated_detail_endpoint -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_persist_delivery_attempt_readable_via_authenticated_listing_endpoint -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_accept_verified_supported_event_for_configured_webhook -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_for_webhook_detail_returns_visible_run -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_webhook_delivery_attempts_for_webhook_returns_only_attempts_for_visible_webhook -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task35u by adding only one focused integration test that connects accepted webhook intake to persisted review-agent-run state and then to the authenticated nested per-webhook review-agent-run detail endpoint, without adding unrelated product behavior
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new test exercises the intended persisted-event flow through the authenticated per-webhook review-agent-run detail endpoint without changing runtime behavior
-  commit: 2ec69ba860d4a853008021d3cf9566d8ad2d877c
-  next_task: task35v
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task35v by adding only one focused integration test that connects accepted webhook intake to persisted delivery-attempt state and then to the authenticated nested per-webhook delivery-attempt listing endpoint, without adding unrelated product behavior
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new test exercises the intended persisted-event flow through the authenticated per-webhook delivery-attempt listing endpoint without changing runtime behavior
+  commit: 6496c7bb39188e2eceb5260881eb41cb3ffd2f8b
+  next_task: task35w
 current_task:
-  id: task35v
+  id: task35w
   parent_task: task35
-  title: Add focused webhook-intake-to-authenticated-API coverage proving one accepted review event persists a delivery attempt that is readable through the nested per-webhook delivery-attempt listing endpoint
+  title: Add focused webhook-intake-to-authenticated-API coverage proving one accepted review event persists a review-agent run that is readable through the nested per-webhook review-agent-run listing endpoint
   status: pending
   summary: >-
     Add the next smallest review-agent automation integration slice by proving one
-    accepted webhook event persists a delivery attempt that remains readable
-    through the authenticated nested per-webhook delivery-attempt listing API,
+    accepted webhook event persists a review-agent run that remains readable
+    through the authenticated nested per-webhook review-agent-run listing API,
     while still deferring retries, worker-loop orchestration, secret rotation,
     UI work, and real review execution.
 history:
-  - id: task35u
+  - id: task35v
     status: done
     summary: >-
       Completed the next review-agent automation integration slice by adding one
       focused end-to-end test that proves an accepted review webhook event
-      persists a review-agent run and that the same persisted run is readable
-      through the authenticated nested per-webhook review-agent-run detail
+      persists a delivery attempt and that the same persisted attempt is readable
+      through the authenticated nested per-webhook delivery-attempt listing
       endpoint, while still deferring retries, worker-loop orchestration, secret
       rotation, UI work, and real review execution.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_persist_review_agent_run_readable_via_authenticated_detail_endpoint -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_persist_delivery_attempt_readable_via_authenticated_listing_endpoint -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::review_webhook_events_accept_verified_supported_event_for_configured_webhook -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_agent_runs_for_webhook_detail_returns_visible_run -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api tests::auth_review_webhook_delivery_attempts_for_webhook_returns_only_attempts_for_visible_webhook -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_ -- --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task35u by adding only one focused integration test that connects accepted webhook intake to persisted review-agent-run state and then to the authenticated nested per-webhook review-agent-run detail endpoint, without adding unrelated product behavior
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new test exercises the intended persisted-event flow through the authenticated per-webhook review-agent-run detail endpoint without changing runtime behavior
-    commit: 2ec69ba860d4a853008021d3cf9566d8ad2d877c
-    next_task: task35v
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task35v by adding only one focused integration test that connects accepted webhook intake to persisted delivery-attempt state and then to the authenticated nested per-webhook delivery-attempt listing endpoint, without adding unrelated product behavior
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new test exercises the intended persisted-event flow through the authenticated per-webhook delivery-attempt listing endpoint without changing runtime behavior
+    commit: 6496c7bb39188e2eceb5260881eb41cb3ffd2f8b
+    next_task: task35w
   - id: task35t
     status: done
     summary: >-
