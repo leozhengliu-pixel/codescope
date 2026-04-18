@@ -5,40 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3c66b1de0b0d78b8a6847764a5e0f1785d6a0c30
+  head: 5315f45047ce1df3b74f407f6f3a0572a2d111a9
 last_completed_task:
-  id: task06c1
-  title: Add deterministic local metadata DB env-template contract
+  id: task06c2a
+  title: Add deterministic metadata test DB reset contract
   status: done
   summary: >-
-    Split broad task06c into the first smallest local-dev slice by making
-    `.env.example` the runnable metadata DB bootstrap contract, documenting the
-    `cp .env.example .env` -> `make dev-up` -> `make sqlx-migrate` flow in
-    `README.md`, and adding shell checks that keep `.env.example`,
-    `docker-compose.yml`, `Makefile`, and the bootstrap docs aligned while
-    truthfully deferring deterministic test-database setup.
+    Split broad task06c2 into the first smallest deterministic local-test slice
+    by extending `.env.example` with `TEST_DATABASE_URL`, adding a guarded
+    `make sqlx-test-reset` target that only resets the dedicated local
+    `sourcebot_test` database via the repo-local `.sqlx-cli`, documenting that
+    workflow in `README.md`, and extending the shell contract checks while
+    deferring broader test-run automation and durable-store migration work.
   tests:
     - ./scripts/check_local_metadata_env_contract.sh: passed
     - ./scripts/check_metadata_bootstrap_docs.sh: passed
     - sh ./scripts/check_make_sqlx_migrate.sh: passed
-    - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && rm .env: passed
+    - make help: passed
+    - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && rm .env: passed
+    - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test-reset: failed closed as expected
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the slice cleanly lands task06c1 by adding only the runnable local metadata env-template/bootstrap contract, keeping scope on local-dev defaults, and explicitly deferring broader deterministic test DB setup
-    code: approved by one independent post-implementation review; reviewer found no blocking logic or security issues after the env-template and contract script were grounded with the live non-redacted password invariants and targeted checks
-  commit: 3c66b1de0b0d78b8a6847764a5e0f1785d6a0c30
-  next_task: task06c2
+    spec: passed one independent post-implementation review; reviewer confirmed the feature/work diff cleanly lands task06c2a by adding only deterministic `TEST_DATABASE_URL` defaults, one local-only `sqlx-test-reset` target, README coverage, shell contract checks, and a `*_test`/local safety guard while deferring broader test workflow and durable-store work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after controller-grounded checks confirmed the Makefile guard matches both localhost alternatives and rejects non-local/non-`_test` reset targets
+  commit: 5315f45047ce1df3b74f407f6f3a0572a2d111a9
+  next_task: task06c2b
 current_task:
-  id: task06c2
-  parent_task: task06c
-  title: Add deterministic metadata test-database bootstrap coverage
+  id: task06c2b
+  parent_task: task06c2
+  title: Add deterministic metadata test-run workflow wrapper
   status: pending
   summary: >-
-    Finish the remaining task06c workflow by adding the first smallest
-    deterministic test-oriented metadata DB bootstrap slice, so local test runs
-    can rely on a reproducible database setup without expanding into broader
-    durable-store migration work.
+    Finish the remaining task06c2 work by adding the next smallest local test
+    workflow slice that turns the reset contract into one reproducible
+    metadata-test-run wrapper or documented invocation path, without expanding
+    into runtime durable-store migration or CI orchestration.
 history:
+  - id: task06c2a
+    status: done
+    summary: >-
+      Split broad task06c2 into the first smallest deterministic local-test
+      slice by extending `.env.example` with `TEST_DATABASE_URL`, adding a
+      guarded `make sqlx-test-reset` target that only resets the dedicated
+      local `sourcebot_test` database via the repo-local `.sqlx-cli`,
+      documenting that workflow in `README.md`, and extending the shell
+      contract checks while deferring broader test-run automation and
+      durable-store migration work.
+    tests:
+      - ./scripts/check_local_metadata_env_contract.sh: passed
+      - ./scripts/check_metadata_bootstrap_docs.sh: passed
+      - sh ./scripts/check_make_sqlx_migrate.sh: passed
+      - make help: passed
+      - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && rm .env: passed
+      - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test-reset: failed closed as expected
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the feature/work diff cleanly lands task06c2a by adding only deterministic `TEST_DATABASE_URL` defaults, one local-only `sqlx-test-reset` target, README coverage, shell contract checks, and a `*_test`/local safety guard while deferring broader test workflow and durable-store work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after controller-grounded checks confirmed the Makefile guard matches both localhost alternatives and rejects non-local/non-`_test` reset targets
+    commit: 5315f45047ce1df3b74f407f6f3a0572a2d111a9
+    next_task: task06c2b
   - id: task06c1
     status: done
     summary: >-
