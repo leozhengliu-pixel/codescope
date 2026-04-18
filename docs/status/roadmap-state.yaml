@@ -5,54 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 03bedbb0707084c308d634138afe11f71946c480
+  head: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
 last_completed_task:
-  id: task01a2
-  title: Map the indexed route, page, worker, and operator surfaces into explicit user/admin/operator journeys and missing acceptance-spec follow-ups
+  id: task02a
+  title: Reshape FEATURE_PARITY into a row-per-feature matrix with status and evidence placeholder columns
   status: done
   summary: >-
-    Added `specs/acceptance/journeys.md` as the next parity-audit slice, turning
-    the indexed route, page, worker, and operator surfaces into explicit user,
-    admin, and operator journeys, identifying which flows already have an
-    acceptance home and which admin/operator/runtime areas still need dedicated
-    acceptance specs before broader parity implementation proceeds.
+    Converted `specs/FEATURE_PARITY.md` from grouped checkbox bullets into a
+    stable row-per-feature matrix, preserving all 32 existing feature rows while
+    adding explicit `Status` and `Acceptance evidence` placeholder columns so
+    later parity-audit slices can record evidence-backed verdicts without
+    reformatting the document again.
   tests:
+    - python3 matrix marker/row preservation validation for 32 feature rows: passed
+    - python3 table column-count validation for 4-column parity matrix: passed
     - git diff --check: passed
-    - python3 reference validation for specs/acceptance/index.md and specs/acceptance/journeys.md existing repo/doc links: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task01a2 slice stays grounded in current rewrite evidence, groups surfaces into explicit user/admin/operator journeys, and names the missing dedicated acceptance specs for the still-unowned admin/operator/runtime flows without inventing shipped behavior
-    code: approved by one independent post-implementation review after one corrective iteration; reviewer confirmed the final docs are internally consistent with existing acceptance coverage and no longer overstate commits, ask-threading, or onboarding as missing prerequisite specs
-  commit: 03bedbb0707084c308d634138afe11f71946c480
-  next_task: task02a
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task02a slice exactly preserves the existing feature inventory while converting it into a row-per-feature matrix with explicit per-row status and acceptance-evidence placeholder columns
+    code: approved by one independent post-implementation review; reviewer found the docs-only diff structurally sound, inventory-preserving, and free of blocking issues
+  commit: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
+  next_task: task03
 current_task:
-  id: task02a
-  parent_task: task02
-  title: Reshape FEATURE_PARITY into a row-per-feature matrix with status and evidence placeholder columns
+  id: task03
+  parent_task: task03
+  title: Gap report by domain
   status: pending
   summary: >-
-    Take the current checklist in `specs/FEATURE_PARITY.md` and convert it into
-    the first smallest parity-matrix slice: preserve the existing feature rows,
-    but restructure them into a stable matrix with per-row status and acceptance-
-    evidence placeholder columns so later runs can fill evidence without
-    reformatting the document again.
+    Write a repo-local parity gap report covering backend, worker,
+    integrations, frontend, auth/admin, and ops, with explicit missing,
+    partial, and complete status so later implementation slices can target the
+    highest-value practical parity gaps first.
 history:
-  - id: task01a2
+  - id: task02a
     status: done
     summary: >-
-      Added `specs/acceptance/journeys.md` as the next parity-audit slice,
-      turning the indexed route, page, worker, and operator surfaces into
-      explicit user, admin, and operator journeys, identifying which flows
-      already have an acceptance home and which admin/operator/runtime areas
-      still need dedicated acceptance specs before broader parity
-      implementation proceeds.
+      Converted `specs/FEATURE_PARITY.md` from grouped checkbox bullets into a
+      stable row-per-feature matrix, preserving all 32 existing feature rows
+      while adding explicit `Status` and `Acceptance evidence` placeholder
+      columns so later parity-audit slices can record evidence-backed verdicts
+      without reformatting the document again.
     tests:
+      - python3 matrix marker/row preservation validation for 32 feature rows: passed
+      - python3 table column-count validation for 4-column parity matrix: passed
       - git diff --check: passed
-      - python3 reference validation for specs/acceptance/index.md and specs/acceptance/journeys.md existing repo/doc links: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the staged task01a2 slice stays grounded in current rewrite evidence, groups surfaces into explicit user/admin/operator journeys, and names the missing dedicated acceptance specs for the still-unowned admin/operator/runtime flows without inventing shipped behavior
-      code: approved by one independent post-implementation review after one corrective iteration; reviewer confirmed the final docs are internally consistent with existing acceptance coverage and no longer overstate commits, ask-threading, or onboarding as missing prerequisite specs
-    commit: 03bedbb0707084c308d634138afe11f71946c480
-    next_task: task02a
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task02a slice exactly preserves the existing feature inventory while converting it into a row-per-feature matrix with explicit per-row status and acceptance-evidence placeholder columns
+      code: approved by one independent post-implementation review; reviewer found the docs-only diff structurally sound, inventory-preserving, and free of blocking issues
+    commit: eda0e3fe554dc3a96b6717a17fd02c5096e9cb91
+    next_task: task03
   - id: task01a1
     status: done
     summary: >-
