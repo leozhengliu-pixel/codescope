@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fd41e7c9435757630a001d7a4864254c9378af42
+  head: ac70325c65d8745c6bca5d21ba9060e481444351
 last_completed_task:
   id: task07a
   title: Add first Postgres-backed catalog store contract test
@@ -29,17 +29,32 @@ last_completed_task:
   commit: fd41e7c9435757630a001d7a4864254c9378af42
   next_task: task07b
 current_task:
-  id: task07b
-  parent_task: task07
-  title: Add first Postgres-backed repository listing query
+  id: task13a
+  parent_task: task13
+  title: Extend connection kinds for remaining parity providers
   status: pending
   summary: >-
-    Continue broad task07 with the next smallest durable-catalog slice by
-    implementing one focused Postgres-backed `list_repositories` query path that
-    returns the existing repository summary contract from the SQL metadata tables
-    instead of the seeded in-memory catalog, while still deferring repository
-    detail parity and broader catalog-store migration work.
+    Task07b is blocked on missing local Postgres runtime verification in the cron
+    environment, so continue with the next unblocked parity slice by expanding
+    the shared connection domain model and serde contract to cover the remaining
+    provider kinds required by `specs/FEATURE_PARITY.md` while deferring
+    provider-specific credentials, CRUD routes, and durable persistence wiring.
 history:
+  - id: task07b
+    status: blocked
+    summary: >-
+      Task07b could not truthfully close in this cron environment because the
+      first real Postgres-backed `list_repositories` slice needs a live metadata
+      database for TDD and query verification, but the host currently has no
+      reachable local Postgres runtime and no local bootstrap tooling (`postgres`,
+      `initdb`, `pg_ctl`, or `docker`) available to start one.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api storage::tests::build_catalog_store_with_database_uses_postgres_catalog_store_path -- --exact --nocapture: passed
+      - bash /dev/tcp/127.0.0.1/5432 connectivity probe: failed (`Connection refused`)
+      - command -v postgres/initdb/pg_ctl/docker: no local bootstrap binaries found
+    review:
+      code: controller assessed the blocker directly against live repo and environment state; no code diff was attempted because task07b requires a reachable Postgres runtime before a failing-then-passing query test can be written and verified truthfully
+    next_task: task13a
   - id: task07a
     status: done
     summary: >-
@@ -2212,3 +2227,12 @@ notes:
     - If a task is too large, split it and only do the first subtask.
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
     - Use docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
+  blockers:
+    - id: task07b
+      title: Add first Postgres-backed repository listing query
+      status: blocked
+      workaround: >-
+        Start a reachable local Postgres metadata database (or restore Docker/
+        Compose/bootstrap binaries) so task07b can be implemented with a real
+        failing-then-passing query test against the SQL metadata schema instead
+        of guessing at an unverified query path.
