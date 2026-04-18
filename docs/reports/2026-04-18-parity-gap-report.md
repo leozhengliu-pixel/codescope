@@ -54,11 +54,30 @@ Grounding for this slice comes from the live worker entrypoint in `crates/worker
 - The acceptance corpus itself confirms that gap: `specs/acceptance/index.md` still marks worker execution parity as a missing dedicated acceptance spec, while `specs/acceptance/journeys.md` says the current worker evidence is enough only to justify creating `specs/acceptance/worker-runtime.md`, not to claim full worker automation parity.
 - Because roadmap Phase 8 still reserves real orchestration, execution, and retry behavior for later tasks, this slice treats most current worker capability areas as **Partial** and the missing orchestration/observability layers as **Missing**.
 
+## Integrations domain
+
+Grounding for this slice comes from the integrations acceptance spec in `specs/acceptance/integrations.md`, the feature inventory rows in `specs/FEATURE_PARITY.md`, the live API router and authenticated/public integration-adjacent endpoints in `crates/api/src/main.rs`, the shared connection/OAuth/review-webhook models in `crates/models/src/lib.rs`, the repo/detail assembly in `crates/core/src/lib.rs`, the sample catalog/auth fixtures in `crates/api/src/storage.rs` and `crates/api/src/auth.rs`, the MCP crate in `crates/mcp/src/lib.rs`, the current frontend repo/detail connection display in `web/src/App.tsx`, and the roadmap follow-up tasks in `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`.
+
+| Capability area | Current rewrite evidence | Status | Highest-value next gap(s) |
+| --- | --- | --- | --- |
+| GitHub-oriented connection and review-webhook baseline | `crates/models/src/lib.rs` defines `ConnectionKind::GitHub`; repo/detail responses carry `connection` metadata; `crates/api/src/main.rs` exposes authenticated review-webhook CRUD/listing plus the public `/api/v1/review-webhooks/{webhook_id}/events` intake route; fixtures in `crates/api/src/auth.rs` exercise a `conn_github`-backed webhook/review-agent flow. | Partial | Finish real GitHub connection auth/configuration and repository enumeration/sync from roadmap Task 56, then complete provider webhook validation, event normalization, idempotency, and operator-visible failure handling from Task 62. |
+| GitLab and generic/local Git connection modeling | `crates/models/src/lib.rs` already includes `ConnectionKind::GitLab` and `ConnectionKind::Local`, and repo/detail + frontend repo panels surface connection kind plus `sync_state`; acceptance integrations explicitly expects local/generic Git ingestion without a SaaS provider. | Partial | Add authenticated connection CRUD plus real local/generic Git and GitLab ingestion/enumeration flows, then prove per-connection/per-repository sync behavior with dedicated acceptance coverage from roadmap Tasks 13, 14, 18, and 57. |
+| Gitea, Gerrit, Bitbucket, and Azure DevOps providers | `specs/FEATURE_PARITY.md` lists Gitea, Gerrit, Bitbucket, and Azure DevOps as required integration rows, but the current rewrite models/routes/tests do not expose provider-specific connection kinds, auth flows, or sync behavior for them. | Missing | Implement provider-specific connection models and sync/auth flows for roadmap Tasks 58–59 before claiming multi-host parity. |
+| OIDC / SSO provider login and external account mapping | `specs/acceptance/integrations.md` expects OIDC/SSO login, but the live auth surface in `crates/api/src/main.rs` is still local bootstrap/login/session management plus OAuth client admin endpoints; repo-wide code search in this run found no `oidc`, `sso`, or `openid` implementation paths. | Missing | Land roadmap Task 60 and the acceptance/doc follow-ups needed for identity-provider metadata, login callbacks, and mapping external identities to local users/orgs. |
+| MCP server retrieval surface | `crates/mcp/src/lib.rs` publishes an MCP manifest, retrieval tool definitions, and `execute_tool_call(...)` support for `list_repos`, `list_tree`, `read_file`, `glob`, and `grep`, giving the rewrite a real repository-aware MCP contract at the library layer. | Partial | Add the transport/runtime/auth wiring and explicit permission-scoped acceptance evidence required by roadmap Task 46 so MCP parity is proven beyond crate-local contracts. |
+| Public REST API contract and machine-readable responses | `crates/api/src/main.rs` serves versioned `/api/v1/...` routes across config, repo browse/search, auth, OAuth-client, and review-webhook surfaces, while `web/src/App.tsx` consumes typed JSON repo/detail responses that include connection and sync metadata. | Partial | Expand endpoint completeness, integration-specific acceptance evidence, and durable connection/repository operations so the public API satisfies the broader connector/admin/operator contracts promised by the integrations acceptance spec. |
+
+### Evidence notes
+
+- The rewrite already has meaningful integration-adjacent scaffolding: shared connection models, repo/detail responses that surface connection metadata and `sync_state`, GitHub-backed review-webhook ingestion/inspection endpoints, a versioned public REST API, and a standalone MCP crate.
+- Even so, the current evidence is still mostly **shared-contract** or **fixture-backed** rather than end-to-end provider parity. There is no authenticated connection-management surface yet, no real provider auth/credential exchange, no repo-enumeration/import workflow, and no broad sync/recovery behavior tied to specific external hosts.
+- The gap is especially clear for identity and provider breadth: the current codebase has local auth plus OAuth-client admin records, but no OIDC/SSO login path, and no concrete implementation evidence for Gitea, Gerrit, Bitbucket, or Azure DevOps.
+- Because roadmap Phase 7 and Phase 8 still reserve the real provider, identity, and webhook-hardening work for later tasks, this slice keeps all current integrations capability areas at **Partial** or **Missing** rather than over-claiming parity from shared models alone.
+
 ## Remaining domains
 
 Later slices should extend this document with:
 
-- Integrations
 - Frontend
 - Auth/admin
 - Ops
