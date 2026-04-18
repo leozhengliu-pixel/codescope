@@ -102,7 +102,7 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_and_task05b3_sessions_only(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_and_task05b4_ask_threads_only(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -112,8 +112,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4].into_iter().collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 migration versions"
+            [1, 2, 3, 4, 5].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -133,6 +133,8 @@ mod tests {
                 "0003_repository_permission_bindings.up.sql".to_string(),
                 "0004_sessions.down.sql".to_string(),
                 "0004_sessions.up.sql".to_string(),
+                "0005_ask_threads.down.sql".to_string(),
+                "0005_ask_threads.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -279,6 +281,43 @@ mod tests {
             assert!(
                 !task05b3_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0004: {unexpected_snippet}"
+            );
+        }
+
+        let task05b4_up_migration =
+            std::fs::read_to_string(migration_dir.join("0005_ask_threads.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE ask_threads",
+            "id TEXT PRIMARY KEY",
+            "session_id TEXT NOT NULL REFERENCES sessions(id)",
+            "user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+            "title TEXT NOT NULL",
+            "repo_scope TEXT[] NOT NULL",
+            "visibility TEXT NOT NULL",
+            "CONSTRAINT ask_threads_visibility_check",
+            "CHECK (visibility IN ('private', 'shared'))",
+            "created_at TIMESTAMPTZ NOT NULL",
+            "updated_at TIMESTAMPTZ NOT NULL",
+            "UNIQUE (user_id, session_id)",
+        ] {
+            assert!(
+                task05b4_up_migration.contains(expected_snippet),
+                "missing task05b4 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE ask_messages",
+            "CREATE TABLE review_agent_runs",
+            "CREATE TABLE delivery_attempts",
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task05b4_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0005: {unexpected_snippet}"
             );
         }
     }
