@@ -5,58 +5,57 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4029b14de979cefb51f289dd3646aa864eb642da
+  head: 2dfb1e73dd5a54d2bb2a246db136210b5fc5443e
 last_completed_task:
-  id: task05b2
-  title: Bootstrap the SQLx migration table for repository permission bindings
+  id: task05b3
+  title: Bootstrap the SQLx migration table for sessions
   status: done
   summary: >-
-    Added `0003_repository_permission_bindings` as the next smallest task05b schema
-    slice, extending the SQLx migration inventory with only the
-    `repository_permission_bindings` table plus focused coverage that proves task05a
-    and task05b1 remain scope-locked while sessions, ask threads, review-agent
-    persistence, API keys, OAuth clients, and analytics tables stay deferred.
+    Added `0004_sessions` as the next smallest task05b schema slice, extending the
+    SQLx migration inventory with only the `sessions` table needed for durable local
+    session persistence while proving task05a, task05b1, and task05b2 remain
+    scope-locked and ask threads, review-agent persistence, API keys, OAuth clients,
+    and analytics tables stay deferred.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_and_task05b3_sessions_only -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b2 by adding only `0003_repository_permission_bindings`, updating migration inventory coverage to versions `0001` through `0003`, and explicitly deferring sessions, ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the repository-permission-bindings migration slice and judged the foreign keys, primary key, and scope guards consistent with the intended durable-schema bootstrap
-  commit: 4029b14de979cefb51f289dd3646aa864eb642da
-  next_task: task05b3
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b3 by adding only `0004_sessions`, updating migration inventory coverage to versions `0001` through `0004`, matching the LocalSession contract with `id`, `user_id`, `secret_hash`, and `created_at`, and explicitly deferring ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the sessions migration slice and judged the foreign-key dependency on `local_accounts`, the minimal schema contract, and the down migration consistent with the intended durable-schema bootstrap
+  commit: 2dfb1e73dd5a54d2bb2a246db136210b5fc5443e
+  next_task: task05b4
 current_task:
-  id: task05b3
+  id: task05b4
   parent_task: task05b
-  title: Bootstrap the SQLx migration table for sessions
+  title: Bootstrap the SQLx migration table for ask threads
   status: pending
   summary: >-
-    Continue the durable auth/admin schema bootstrap by adding only the `sessions`
-    table needed for authenticated local-session persistence, while still deferring
-    ask threads, review-agent persistence, API keys, OAuth clients, and analytics
-    tables.
+    Continue the durable auth/admin schema bootstrap by adding only the `ask_threads`
+    table needed for durable ask-thread metadata persistence, while still deferring
+    review-agent persistence, API keys, OAuth clients, and analytics tables.
 history:
-  - id: task05b2
+  - id: task05b3
     status: done
     summary: >-
-      Added `0003_repository_permission_bindings` as the next smallest task05b schema
-      slice, extending the SQLx migration inventory with only the
-      `repository_permission_bindings` table plus focused coverage that proves task05a
-      and task05b1 remain scope-locked while sessions, ask threads, review-agent
-      persistence, API keys, OAuth clients, and analytics tables stay deferred.
+      Added `0004_sessions` as the next smallest task05b schema slice, extending the
+      SQLx migration inventory with only the `sessions` table needed for durable local
+      session persistence while proving task05a, task05b1, and task05b2 remain
+      scope-locked and ask threads, review-agent persistence, API keys, OAuth clients,
+      and analytics tables stay deferred.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_and_task05b3_sessions_only -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b2 by adding only `0003_repository_permission_bindings`, updating migration inventory coverage to versions `0001` through `0003`, and explicitly deferring sessions, ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the repository-permission-bindings migration slice and judged the foreign keys, primary key, and scope guards consistent with the intended durable-schema bootstrap
-    commit: 4029b14de979cefb51f289dd3646aa864eb642da
-    next_task: task05b3
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b3 by adding only `0004_sessions`, updating migration inventory coverage to versions `0001` through `0004`, matching the LocalSession contract with `id`, `user_id`, `secret_hash`, and `created_at`, and explicitly deferring ask threads, review-agent persistence, API keys, OAuth clients, and analytics tables
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the sessions migration slice and judged the foreign-key dependency on `local_accounts`, the minimal schema contract, and the down migration consistent with the intended durable-schema bootstrap
+    commit: 2dfb1e73dd5a54d2bb2a246db136210b5fc5443e
+    next_task: task05b4
   - id: task05b1
     status: done
     summary: >-
