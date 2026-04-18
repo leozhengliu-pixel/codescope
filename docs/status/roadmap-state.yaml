@@ -5,35 +5,50 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ed15653a79b8ed363bbe7c0366262a4db733ae0a
+  head: 69b59d7c0bc370a63b894e9ca406b94600d2db33
 last_completed_task:
-  id: task03e
-  title: Extend the parity gap report with the auth/admin domain
+  id: task03f
+  title: Extend the parity gap report with the ops domain
   status: done
   summary: >-
-    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the auth/admin
-    domain only, grounding conservative Partial/Missing parity judgments in the
-    live auth/session/admin code, acceptance inventory, parity matrix, and
-    roadmap while explicitly leaving ops for the later final task03 slice.
+    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the ops domain
+    only, grounding conservative Partial/Missing parity judgments in the live
+    runtime/config/deployment/worker/operator evidence and closing task03 domain
+    coverage without broadening into implementation work.
   tests:
-    - python3 auth/admin parity gap report marker validation: passed
+    - python3 ops parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03e slice stays docs-only, limits scope to the auth/admin domain, uses conservative parity judgments grounded in the live auth/session/admin code plus acceptance inventory, parity matrix, and roadmap evidence, and keeps only ops deferred
-    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the auth/admin gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
-  commit: ed15653a79b8ed363bbe7c0366262a4db733ae0a
-  next_task: task03f
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03f slice stays docs-only, limits scope to the ops domain plus the expected task03 coverage-closing note, and uses conservative parity judgments grounded in live repo evidence
+    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the ops gap report additions factually grounded, scope-disciplined, and suitable as the canonical final task03 domain slice
+  commit: 69b59d7c0bc370a63b894e9ca406b94600d2db33
+  next_task: task04a
 current_task:
-  id: task03f
-  parent_task: task03
-  title: Extend the parity gap report with the ops domain
+  id: task04a
+  parent_task: task04
+  title: Create the canonical fixtures policy document and source inventory
   status: pending
   summary: >-
-    Add the final task03 parity gap-report slice by auditing the ops domain
-    only, grounding its Missing/Partial/Complete judgments in the live worker,
-    config, deployment, observability, and operator-facing code/docs plus the
-    acceptance inventory, parity matrix, and roadmap.
+    Split broad roadmap task04 into the first smallest slice: create the
+    canonical fixture-policy document that inventories the required fixture
+    families and clean-room source constraints before filling domain-specific
+    fixture generation and reuse rules in later task04 slices.
 history:
+  - id: task03f
+    status: done
+    summary: >-
+      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the ops domain
+      only, grounding conservative Partial/Missing parity judgments in the live
+      runtime/config/deployment/worker/operator evidence and closing task03 domain
+      coverage without broadening into implementation work.
+    tests:
+      - python3 ops parity gap report marker validation: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03f slice stays docs-only, limits scope to the ops domain plus the expected task03 coverage-closing note, and uses conservative parity judgments grounded in live repo evidence
+      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the ops gap report additions factually grounded, scope-disciplined, and suitable as the canonical final task03 domain slice
+    commit: 69b59d7c0bc370a63b894e9ca406b94600d2db33
+    next_task: task04a
   - id: task03e
     status: done
     summary: >-
