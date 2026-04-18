@@ -5,35 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 88281df353082a1b54f3d14b45ea70562c37d3fa
+  head: 6e9d9356186eb230a9236223f46fa7c84f13374e
 last_completed_task:
-  id: task04a
-  title: Create the canonical fixtures policy document and source inventory
+  id: task04b1
+  title: Define the canonical repository / git / search corpus layout and current builder ownership
   status: done
   summary: >-
-    Added `specs/fixtures-policy.md` as the canonical clean-room fixture policy and
-    source inventory, grounding the current repo-owned fixture families in live
-    catalog/search/browse/commit/auth/worker/provider/frontend evidence while
-    explicitly deferring centralization and dedicated corpus extraction to later
-    task04 slices.
+    Added `specs/repo-git-search-fixture-layout.md` to freeze the current clean-room
+    repository, git, and search fixture corpus contracts, documenting the live owner
+    helpers, repo ids, path/layout expectations, and task04b1/task04b2 split while
+    updating `specs/fixtures-policy.md` to reference the new layout doc and defer
+    actual helper centralization to task04b2.
   tests:
-    - python3 fixture policy structure and repo path references: passed
-    - git diff --check: passed
+    - python3 fixture layout marker validation: passed
+    - git diff --cached --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only slice cleanly lands task04a as the canonical fixture policy plus source inventory, stays aligned with the roadmap/state scope, and avoids overclaiming fixture centralization
-    code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues and judged the cited fixture families grounded in the live repo sources
-  commit: 88281df353082a1b54f3d14b45ea70562c37d3fa
-  next_task: task04b
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only feature diff cleanly lands task04b1, stays grounded in the live search/browse/commit/model sources, and correctly defers roadmap-state synchronization plus builder centralization to later closure work
+    code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues in the fixture layout doc after correcting the repo_demo_docs empty-history and browse symlink-behavior claims
+  commit: 6e9d9356186eb230a9236223f46fa7c84f13374e
+  next_task: task04b2
 current_task:
-  id: task04b
-  parent_task: task04
-  title: Define the canonical repository/git/search corpus layout and shared builders
+  id: task04b2
+  parent_task: task04b
+  title: Extract shared repo / git / search fixture builders while preserving the canonical layout contract
   status: pending
   summary: >-
-    Build the next smallest task04 slice by defining or extracting the shared
-    repository/git/search fixture corpus layout and builders that later parity
-    search, browse, and commit slices should reuse.
+    Centralize the shared browse/search repo-tree fixture builders into reusable
+    helpers that preserve the newly documented canonical repo ids and path/layout
+    contract, while leaving commit temp-git helpers in place unless a second caller
+    proves they should move too.
 history:
+  - id: task04b1
+    status: done
+    summary: >-
+      Added `specs/repo-git-search-fixture-layout.md` to freeze the current clean-room
+      repository, git, and search fixture corpus contracts, documenting the live owner
+      helpers, repo ids, path/layout expectations, and task04b1/task04b2 split while
+      updating `specs/fixtures-policy.md` to reference the new layout doc and defer
+      actual helper centralization to task04b2.
+    tests:
+      - python3 fixture layout marker validation: passed
+      - git diff --cached --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only feature diff cleanly lands task04b1, stays grounded in the live search/browse/commit/model sources, and correctly defers roadmap-state synchronization plus builder centralization to later closure work
+      code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues in the fixture layout doc after correcting the repo_demo_docs empty-history and browse symlink-behavior claims
+    commit: 6e9d9356186eb230a9236223f46fa7c84f13374e
+    next_task: task04b2
   - id: task04a
     status: done
     summary: >-
