@@ -5,36 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6e9d9356186eb230a9236223f46fa7c84f13374e
+  head: b7449c5bbecb2cf00ab68093d7bc7e2da338acd5
 last_completed_task:
-  id: task04b1
-  title: Define the canonical repository / git / search corpus layout and current builder ownership
+  id: task04b2a
+  title: Extract one shared canonical repo-tree root builder for browse/search temp corpora
   status: done
   summary: >-
-    Added `specs/repo-git-search-fixture-layout.md` to freeze the current clean-room
-    repository, git, and search fixture corpus contracts, documenting the live owner
-    helpers, repo ids, path/layout expectations, and task04b1/task04b2 split while
-    updating `specs/fixtures-policy.md` to reference the new layout doc and defer
-    actual helper centralization to task04b2.
+    Added `crates/test_support/repo_tree_fixture.rs` as the first shared fixture
+    helper for the canonical `repo_test` README/src/target temp repo-tree layout,
+    rewired browse and search test stores to reuse it, updated the fixture ownership
+    docs, and kept search-only ignored/binary variants plus browse-only symlink
+    variants in their caller-local wrappers for the follow-up slice.
   tests:
-    - python3 fixture layout marker validation: passed
-    - git diff --cached --check: passed
+    - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_rejects_parent_directory_escapes_in_generated_paths -- --exact --nocapture: passed
+    - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_exposes_search_common_layout -- --exact --nocapture: passed
+    - cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_exposes_browse_common_layout -- --exact --nocapture: passed
+    - cargo test -p sourcebot-search: passed
+    - cargo test -p sourcebot-api browse::tests: passed
+    - cargo fmt --all --check: passed
+    - cargo check -p sourcebot-search -p sourcebot-api: passed
+    - git diff --check: passed
+    - python3 fixture docs marker validation: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only feature diff cleanly lands task04b1, stays grounded in the live search/browse/commit/model sources, and correctly defers roadmap-state synchronization plus builder centralization to later closure work
-    code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues in the fixture layout doc after correcting the repo_demo_docs empty-history and browse symlink-behavior claims
-  commit: 6e9d9356186eb230a9236223f46fa7c84f13374e
-  next_task: task04b2
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2a by extracting one shared canonical repo-tree root helper, preserving `repo_test`, leaving search-only ignored/binary variants and browse-only symlink variants local, and updating the ownership docs without claiming task04b2b is already done
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after the generated-path traversal guard and regression test were added to the shared helper
+  commit: b7449c5bbecb2cf00ab68093d7bc7e2da338acd5
+  next_task: task04b2b
 current_task:
-  id: task04b2
-  parent_task: task04b
-  title: Extract shared repo / git / search fixture builders while preserving the canonical layout contract
+  id: task04b2b
+  parent_task: task04b2
+  title: Centralize opt-in search ignored/binary and browse symlink variants behind shared fixture helpers
   status: pending
   summary: >-
-    Centralize the shared browse/search repo-tree fixture builders into reusable
-    helpers that preserve the newly documented canonical repo ids and path/layout
-    contract, while leaving commit temp-git helpers in place unless a second caller
-    proves they should move too.
+    Extend the new shared repo-tree fixture support just enough to centralize the
+    remaining search ignored/binary variants and browse symlink variants behind
+    opt-in helpers, while preserving the canonical layout contract and leaving
+    commit temp-git helpers untouched.
 history:
+  - id: task04b2a
+    status: done
+    summary: >-
+      Added `crates/test_support/repo_tree_fixture.rs` as the first shared fixture
+      helper for the canonical `repo_test` README/src/target temp repo-tree layout,
+      rewired browse and search test stores to reuse it, updated the fixture ownership
+      docs, and kept search-only ignored/binary variants plus browse-only symlink
+      variants in their caller-local wrappers for the follow-up slice.
+    tests:
+      - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_rejects_parent_directory_escapes_in_generated_paths -- --exact --nocapture: passed
+      - cargo test -p sourcebot-search tests::shared_repo_tree_fixture_exposes_search_common_layout -- --exact --nocapture: passed
+      - cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_exposes_browse_common_layout -- --exact --nocapture: passed
+      - cargo test -p sourcebot-search: passed
+      - cargo test -p sourcebot-api browse::tests: passed
+      - cargo fmt --all --check: passed
+      - cargo check -p sourcebot-search -p sourcebot-api: passed
+      - git diff --check: passed
+      - python3 fixture docs marker validation: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2a by extracting one shared canonical repo-tree root helper, preserving `repo_test`, leaving search-only ignored/binary variants and browse-only symlink variants local, and updating the ownership docs without claiming task04b2b is already done
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues after the generated-path traversal guard and regression test were added to the shared helper
+    commit: b7449c5bbecb2cf00ab68093d7bc7e2da338acd5
+    next_task: task04b2b
   - id: task04b1
     status: done
     summary: >-
@@ -50,7 +80,7 @@ history:
       spec: passed one independent post-implementation review; reviewer confirmed the docs-only feature diff cleanly lands task04b1, stays grounded in the live search/browse/commit/model sources, and correctly defers roadmap-state synchronization plus builder centralization to later closure work
       code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues in the fixture layout doc after correcting the repo_demo_docs empty-history and browse symlink-behavior claims
     commit: 6e9d9356186eb230a9236223f46fa7c84f13374e
-    next_task: task04b2
+    next_task: task04b2a
   - id: task04a
     status: done
     summary: >-
