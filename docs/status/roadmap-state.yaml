@@ -5,40 +5,70 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d4491132463c6391e3d09f7a9fb5c7c1778278a0
+  head: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
 last_completed_task:
-  id: task13a
-  title: Extend connection kinds for remaining parity providers
+  id: task13b1
+  title: Add optional provider-scoped connection config payload contract
   status: done
   summary: >-
-    Closed the first task13 slice by extending the shared `ConnectionKind`
-    domain enum and serde contract to cover the remaining provider kinds
-    required by `specs/FEATURE_PARITY.md` (`gitea`, `gerrit`, `bitbucket`,
-    `azure_devops`, and `generic_git`) while explicitly deferring provider
-    credential payloads, CRUD routes, and durable persistence wiring.
+    Split broad task13b into the first smallest connection-config slice by
+    adding an optional shared provider-scoped `config` payload on `Connection`,
+    proving backward-compatible serde/default behavior for older payloads,
+    rejecting mismatched `kind`/`config.provider` combinations, and deferring
+    credential payloads, CRUD routes, seeded examples, and durable storage
+    wiring.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_deserializes_remaining_parity_provider_strings -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_serializes_remaining_parity_provider_variants_with_snake_case_names -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_deserializes_without_config_field_for_backward_compatibility -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_skips_serializing_absent_config -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_serializes_and_deserializes_provider_scoped_config_payload -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_mismatched_kind_and_config_provider -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_serializing_mismatched_kind_and_config_provider -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13a by adding only the missing shared provider kinds plus focused serde contract coverage, with no CRUD, credential, persistence, or frontend scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the explicit `azure_devops` serde rename is the minimal correct fix for Azure DevOps parity naming
-  commit: d4491132463c6391e3d09f7a9fb5c7c1778278a0
-  next_task: task13b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b1 by adding only the optional provider-scoped `Connection.config` contract plus focused backward-compatibility and mismatch-validation coverage, with no credential, CRUD, persistence, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the manual `Connection` serializer is the minimal correct way to omit absent config while failing closed on mismatched provider payloads
+  commit: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
+  next_task: task13b2
 current_task:
-  id: task13b
-  parent_task: task13
-  title: Add provider-scoped connection config payload model
+  id: task13b2
+  parent_task: task13b
+  title: Populate seeded connection fixtures with provider-scoped config examples
   status: pending
   summary: >-
-    Continue task13 with the next smallest connection-domain slice by adding a
-    shared provider-scoped configuration payload contract for the supported
-    connection kinds, along with backward-compatible serde/default coverage,
-    while still deferring authenticated CRUD routes and durable storage wiring.
+    Extend the existing shared seeded connection fixtures so the in-memory
+    catalog path carries truthful provider-scoped config examples for supported
+    connection kinds, while still deferring credential payloads, authenticated
+    CRUD APIs, and durable connection storage wiring.
 history:
+  - id: task13b1
+    status: done
+    summary: >-
+      Split broad task13b into the first smallest connection-config slice by
+      adding an optional shared provider-scoped `config` payload on
+      `Connection`, proving backward-compatible serde/default behavior for older
+      payloads, rejecting mismatched `kind`/`config.provider` combinations, and
+      deferring credential payloads, CRUD routes, seeded examples, and durable
+      storage wiring.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_deserializes_without_config_field_for_backward_compatibility -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_skips_serializing_absent_config -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_serializes_and_deserializes_provider_scoped_config_payload -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_mismatched_kind_and_config_provider -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_rejects_serializing_mismatched_kind_and_config_provider -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b1 by adding only the optional provider-scoped `Connection.config` contract plus focused backward-compatibility and mismatch-validation coverage, with no credential, CRUD, persistence, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the manual `Connection` serializer is the minimal correct way to omit absent config while failing closed on mismatched provider payloads
+    commit: 29f6cd1daf294fafc0a21ce63f9476e5bfcc5f7d
+    next_task: task13b2
   - id: task13a
     status: done
     summary: >-
