@@ -5,39 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3b168a93def95e4f76c497cf7f10006f222d7852
+  head: d24294f8c985235cefbfe7f4dbcb6a162c61d1ba
 last_completed_task:
-  id: task35k6h
-  title: Add strict no-write idle smoke coverage for an existing organization-state file with no queued review-agent runs
+  id: task35k7
+  title: Add real worker-binary smoke coverage that processes only the oldest queued review-agent run per invocation
   status: done
   summary: >-
-    Completed the next review-agent worker slice by tightening the real-binary
-    idle contract for an already-present organization-state file, proving
-    sourcebot-worker exits successfully with no queued review-agent runs while
-    leaving the existing file bytes and modification time unchanged, and still
-    deferring real review logic, retries, rescheduling, and worker loops.
+    Completed the next review-agent worker slice by adding focused real-binary
+    smoke coverage that seeds multiple queued review-agent runs, proves a single
+    sourcebot-worker invocation processes only the oldest queued run through the
+    real file-backed state path, leaves later queued runs untouched, and still
+    defers retries, polling loops, rescheduling, and real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke worker_binary_exits_cleanly_without_rewriting_existing_state_when_no_queued_review_agent_run_exists -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke worker_binary_processes_only_the_oldest_queued_run_per_invocation -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 6 smoke tests)
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k6h by adding only focused strict no-write idle smoke coverage for an already-present organization-state file with no queued review-agent runs, using the real sourcebot-worker binary and only minimal test-support dependency wiring
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the worker idle path does not write through the runtime store APIs when no queued review-agent run exists, so the new byte-for-byte and mtime assertions are sound for this slice
-  commit: 3b168a93def95e4f76c497cf7f10006f222d7852
-  next_task: task35k7
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k7 by adding only focused real sourcebot-worker binary smoke coverage for one invocation against multiple queued review-agent runs, proving the oldest queued run alone is processed while later queued runs remain untouched
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the added smoke test matches the existing oldest-queued selection and one-claim-per-invocation worker semantics
+  commit: d24294f8c985235cefbfe7f4dbcb6a162c61d1ba
+  next_task: task35k8
 current_task:
-  id: task35k7
+  id: task35k8
   parent_task: task35k
-  title: Add real worker-binary smoke coverage that processes only the oldest queued review-agent run per invocation
+  title: Add repeated worker-binary smoke coverage that advances to the next-oldest queued review-agent run on a second invocation
   status: pending
   summary: >-
-    Lock the one-shot worker execution contract down with one smallest follow-up
-    slice that seeds multiple queued review-agent runs, proves sourcebot-worker
-    processes exactly one oldest queued run per invocation through the real
-    file-backed state path, and still defers retries, polling loops,
-    rescheduling, and real review execution.
+    Lock the next one-shot worker progression contract down with one smallest
+    follow-up slice that seeds multiple queued review-agent runs, runs the real
+    sourcebot-worker binary twice against the same file-backed state, and proves
+    the second invocation advances to the next-oldest remaining queued run while
+    still deferring retries, polling loops, rescheduling, and real review
+    execution.
 history:
+  - id: task35k7
+    status: done
+    summary: >-
+      Completed the next review-agent worker slice by adding focused real-binary
+      smoke coverage that seeds multiple queued review-agent runs, proves a single
+      sourcebot-worker invocation processes only the oldest queued run through the
+      real file-backed state path, leaves later queued runs untouched, and still
+      defers retries, polling loops, rescheduling, and real review execution.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke worker_binary_processes_only_the_oldest_queued_run_per_invocation -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed (8 unit tests + 6 smoke tests)
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k7 by adding only focused real sourcebot-worker binary smoke coverage for one invocation against multiple queued review-agent runs, proving the oldest queued run alone is processed while later queued runs remain untouched
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the added smoke test matches the existing oldest-queued selection and one-claim-per-invocation worker semantics
+    commit: d24294f8c985235cefbfe7f4dbcb6a162c61d1ba
+    next_task: task35k8
   - id: task35k6h
     status: done
     summary: >-
