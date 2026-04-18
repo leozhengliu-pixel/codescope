@@ -5,41 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2ebe86f9899e59614823490557d5eb70ef95f22a
+  head: 8aaff5f173085f099a1e61f0bd2e5b9f8a02bdb0
 last_completed_task:
-  id: task35m
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id} endpoint for one visible persisted delivery attempt
+  id: task35n
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id} endpoint for one visible persisted webhook
   status: done
   summary: >-
     Completed the next review-agent automation slice by adding a minimal
-    local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id}
-    endpoint that returns exactly one persisted review-webhook delivery attempt
-    when it belongs to a webhook whose organization is visible to the caller,
-    while failing closed with 404 for hidden, orphaned, or missing attempts and
-    still deferring UI work, retries, worker-loop orchestration, and real review
-    execution.
+    local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}
+    endpoint that returns exactly one persisted review webhook when it belongs to
+    an organization visible to the caller, while failing closed with 404 for
+    hidden or missing webhooks, omitting secret_hash from the response, and still
+    deferring UI work, retries, worker-loop orchestration, secret rotation, and
+    real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts_detail -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_returns_visible_webhook_and_hides_secret_hash -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_requires_an_authenticated_session -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_returns_not_found_for_hidden_or_missing_webhooks -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35m by adding only the minimal local-session-authenticated review-webhook-delivery-attempt detail endpoint for one visible persisted attempt, with hidden, orphaned, and missing attempts failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-webhook filtering, and fail-closed 404 behavior are correct for the new detail endpoint
-  commit: 2ebe86f9899e59614823490557d5eb70ef95f22a
-  next_task: task35n
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35n by adding only the minimal local-session-authenticated review-webhook detail endpoint for one visible persisted webhook, with hidden and missing webhooks failing closed as 404, secret_hash still omitted, and without UI work, retries, worker-loop orchestration, secret rotation, or real review execution
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-organization filtering, fail-closed 404 behavior, and secret_hash omission are correct for the new detail endpoint
+  commit: 8aaff5f173085f099a1e61f0bd2e5b9f8a02bdb0
+  next_task: task35o
 current_task:
-  id: task35n
+  id: task35o
   parent_task: task35
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id} endpoint for one visible persisted webhook
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts endpoint for delivery attempts tied to one visible persisted webhook
   status: pending
   summary: >-
     Expose the next smallest review-agent automation slice by adding a minimal
-    local-session-authenticated detail endpoint that returns exactly one
-    persisted review webhook when it belongs to an organization visible to the
-    caller, while still deferring UI work, retries, worker-loop orchestration,
-    secret rotation, and real review execution.
+    local-session-authenticated endpoint that lists only persisted review-webhook
+    delivery attempts tied to one visible persisted webhook, while still
+    deferring UI work, retries, worker-loop orchestration, secret rotation, and
+    real review execution.
 history:
+  - id: task35n
+    status: done
+    summary: >-
+      Completed the next review-agent automation slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id}
+      endpoint that returns exactly one persisted review webhook when it belongs to
+      an organization visible to the caller, while failing closed with 404 for
+      hidden or missing webhooks, omitting secret_hash from the response, and still
+      deferring UI work, retries, worker-loop orchestration, secret rotation, and
+      real review execution.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_returns_visible_webhook_and_hides_secret_hash -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_requires_an_authenticated_session -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks_detail_returns_not_found_for_hidden_or_missing_webhooks -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhooks -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35n by adding only the minimal local-session-authenticated review-webhook detail endpoint for one visible persisted webhook, with hidden and missing webhooks failing closed as 404, secret_hash still omitted, and without UI work, retries, worker-loop orchestration, secret rotation, or real review execution
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-organization filtering, fail-closed 404 behavior, and secret_hash omission are correct for the new detail endpoint
+    commit: 8aaff5f173085f099a1e61f0bd2e5b9f8a02bdb0
+    next_task: task35o
   - id: task35m
     status: done
     summary: >-
