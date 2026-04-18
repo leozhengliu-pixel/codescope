@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This document closes **task04b1** of the full-parity roadmap by defining the
-canonical clean-room layout for the repository, git-history, and search-index
-fixture families already used in `sourcebot-rewrite`.
+This document records the canonical clean-room layout for the repository, git-history,
+and search-index fixture families used in `sourcebot-rewrite` through **task04b2b**
+of the full-parity roadmap.
 
-It does **not** centralize the builders yet. Instead, it freezes:
+It now freezes:
 
-- which live fixture builders already own each corpus family,
+- which live fixture builders own each corpus family after task04b2b,
 - which shared paths/IDs/content shapes later parity slices must preserve, and
-- which follow-up slice should extract reusable helpers instead of duplicating new
+- which follow-up work remains intentionally local or deferred instead of adding new
   inline temp-directory or temp-git setup.
 
 ## Governing sources
@@ -27,15 +27,19 @@ It does **not** centralize the builders yet. Instead, it freezes:
 - `crates/api/src/commits.rs`
 - `crates/models/src/lib.rs`
 
-## Scope boundary for task04b1
+## Scope boundary through task04b2b
 
-Task04b was too broad for one execution unit, so this run splits it into:
+Task04b was too broad for one execution unit, so the roadmap split it into:
 
 - **task04b1** — define the canonical repository / git / search corpus layout and
   current builder ownership
-- **task04b2** — extract or centralize the shared repo/git/search builder helpers
+- **task04b2a** — extract the shared canonical repo-tree root builder used by both
+  browse and search temp corpora
+- **task04b2b** — centralize the remaining search ignored/binary variants and
+  browse symlink variants behind opt-in shared helpers
 
-This document closes only **task04b1**.
+This document now reflects the canonical builder ownership and layout contract after
+**task04b2b** while still leaving commit temp-git helpers untouched.
 
 ## Canonical fixture families
 
@@ -52,8 +56,8 @@ This document closes only **task04b1**.
 
 The current shared repo-tree root builder in `crates/test_support/repo_tree_fixture.rs`
 plus the search-local `create_test_store()` wrapper in `crates/search/src/lib.rs`
-are the canonical source for synthetic repo-search corpora after **task04b2a**.
-Remaining search-only ignored/binary variants stay local until later task04b2 slices.
+are the canonical source for synthetic repo-search corpora after **task04b2b**.
+Ignored and binary search-only variants are now added through opt-in shared fixture helpers.
 
 Required layout contract:
 
@@ -77,8 +81,8 @@ Required behavior contract:
 
 The current shared repo-tree root builder in `crates/test_support/repo_tree_fixture.rs`
 plus the browse-local `create_test_store()` wrapper in `crates/api/src/browse.rs`
-are the canonical source for tree/blob/glob/grep corpora after **task04b2a**.
-Browse-only symlink variants remain local until later task04b2 slices.
+are the canonical source for tree/blob/glob/grep corpora after **task04b2b**.
+Browse-only symlink variants are now added through opt-in shared fixture helpers.
 
 Required layout contract:
 
@@ -136,16 +140,18 @@ Required contract:
 - use this mode for type-change, rename, patch-normalization, and other focused
   git edge cases
 
-## Shared builder ownership rules after task04b2a
+## Shared builder ownership rules after task04b2b
 
-After **task04b2a**, future parity work must follow these rules:
+After **task04b2b**, future parity work must follow these rules:
 
 1. **Reuse `crates/test_support/repo_tree_fixture.rs` for the common temp root**
    (`README.md`, `src/main.rs`, `target/*`) before adding another temp-tree helper.
-2. **Keep search-only ignored/binary extras in `crates/search/src/lib.rs` until a
-   later task04b2 slice centralizes them deliberately.**
-3. **Keep browse-only symlink variants in `crates/api/src/browse.rs` until a later
-   task04b2 slice centralizes them deliberately.**
+2. **Add search ignored/binary extras through the opt-in shared helper in**
+   `crates/test_support/repo_tree_fixture.rs` **unless a later slice deliberately
+   changes the canonical search corpus contract.**
+3. **Add browse symlink variants through the opt-in shared helper in**
+   `crates/test_support/repo_tree_fixture.rs` **unless a later slice deliberately
+   changes the canonical browse corpus contract.**
 4. **Use the seeded real rewrite repo only for real-history assertions.** Use the
    temp-git builders for synthetic commit edge cases.
 5. **Keep repo ids stable** where existing tests already rely on them:

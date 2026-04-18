@@ -380,20 +380,8 @@ mod tests {
             "fn build_router() {}\nfn other() {}\n",
             "target/generated.txt",
         );
+        fixture.add_search_ignored_and_binary_variants();
         let root = fixture.root;
-        fs::create_dir_all(root.join(".git")).unwrap();
-        fs::write(
-            root.join(".git").join("HEAD"),
-            "build_router should be ignored\n",
-        )
-        .unwrap();
-        fs::write(
-            root.join("target").join("generated.txt"),
-            "build_router should also be ignored\n",
-        )
-        .unwrap();
-        fs::write(root.join("image.png"), b"not really an image").unwrap();
-        fs::write(root.join("binary.dat"), [0_u8, 159, 146, 150]).unwrap();
 
         let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         (store, root)
@@ -425,6 +413,34 @@ mod tests {
         });
 
         assert!(panic.is_err());
+    }
+
+    #[test]
+    fn shared_repo_tree_fixture_can_add_search_ignored_and_binary_variants() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-variants",
+            "build_router is documented here\n",
+            "fn build_router() {}\nfn other() {}\n",
+            "target/generated.txt",
+        );
+
+        fixture.add_search_ignored_and_binary_variants();
+
+        assert_eq!(
+            fs::read_to_string(fixture.root.join(".git").join("HEAD")).unwrap(),
+            "build_router should be ignored\n"
+        );
+        assert_eq!(
+            fs::read_to_string(fixture.root.join("target").join("generated.txt")).unwrap(),
+            "build_router should also be ignored\n"
+        );
+        assert!(fixture.root.join("image.png").is_file());
+        assert_eq!(
+            fs::read(fixture.root.join("binary.dat")).unwrap(),
+            vec![0_u8, 159, 146, 150]
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]

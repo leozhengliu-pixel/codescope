@@ -648,9 +648,6 @@ mod tests {
         RepositoryGrepMatch, RepositoryTreeEntryKind, TreeStore,
     };
 
-    #[cfg(unix)]
-    use std::os::unix::fs::symlink;
-
     fn create_test_store() -> (LocalBrowseStore, PathBuf) {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
             "browse",
@@ -675,6 +672,30 @@ mod tests {
 
         repo_tree_fixture::assert_common_layout(&fixture.root, "target/generated.rs");
 
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shared_repo_tree_fixture_can_add_browse_symlink_variants() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-symlink-variants",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+
+        let outside_path = fixture.add_browse_symlink_variants();
+
+        assert!(fixture.root.join("src").join("readme-link.rs").exists());
+        let outside_link = fixture.root.join("src").join("outside-secret.rs");
+        assert!(outside_link.exists());
+        assert_eq!(
+            fs::read_to_string(&outside_link).unwrap(),
+            "secret generated token\n"
+        );
+
+        fs::remove_file(outside_path).unwrap();
         fs::remove_dir_all(fixture.root).unwrap();
     }
 
@@ -730,11 +751,8 @@ mod tests {
     #[test]
     fn local_browse_store_globs_symlink_paths_visible_in_tree_entries() {
         let (store, root) = create_test_store();
-        symlink(
-            root.join("README.md"),
-            root.join("src").join("readme-link.rs"),
-        )
-        .unwrap();
+        let outside_path = repo_tree_fixture::CanonicalRepoTreeRoot { root: root.clone() }
+            .add_browse_symlink_variants();
 
         let tree = store.get_tree("repo_test", "src").unwrap().unwrap();
         assert!(tree.entries.iter().any(|entry| {
@@ -746,6 +764,7 @@ mod tests {
         let glob = store.glob_paths("repo_test", "src/*.rs").unwrap().unwrap();
         assert!(glob.paths.contains(&"src/readme-link.rs".to_string()));
 
+        fs::remove_file(outside_path).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -838,9 +857,8 @@ mod tests {
     #[test]
     fn local_browse_store_grep_skips_symlinked_files_outside_repo_root() {
         let (store, root) = create_test_store();
-        let outside_path = root.parent().unwrap().join("outside-secret.txt");
-        fs::write(&outside_path, "secret generated token\n").unwrap();
-        symlink(&outside_path, root.join("src").join("outside-secret.rs")).unwrap();
+        let outside_path = repo_tree_fixture::CanonicalRepoTreeRoot { root: root.clone() }
+            .add_browse_symlink_variants();
 
         let grep = store.grep("repo_test", "generated").unwrap().unwrap();
 

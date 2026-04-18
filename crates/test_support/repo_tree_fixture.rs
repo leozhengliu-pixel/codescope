@@ -5,6 +5,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
+
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 pub struct CanonicalRepoTreeRoot {
@@ -29,6 +32,39 @@ impl CanonicalRepoTreeRoot {
         fs::write(&generated_full_path, generated_fixture_contents(generated_path)).unwrap();
 
         Self { root }
+    }
+
+    #[allow(dead_code)]
+    pub fn add_search_ignored_and_binary_variants(&self) {
+        fs::create_dir_all(self.root.join(".git")).unwrap();
+        fs::write(
+            self.root.join(".git").join("HEAD"),
+            "build_router should be ignored\n",
+        )
+        .unwrap();
+        fs::write(
+            self.root.join("target").join("generated.txt"),
+            "build_router should also be ignored\n",
+        )
+        .unwrap();
+        fs::write(self.root.join("image.png"), b"not really an image").unwrap();
+        fs::write(self.root.join("binary.dat"), [0_u8, 159, 146, 150]).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    pub fn add_browse_symlink_variants(&self) -> PathBuf {
+        symlink(
+            self.root.join("README.md"),
+            self.root.join("src").join("readme-link.rs"),
+        )
+        .unwrap();
+
+        let outside_path = self.root.parent().unwrap().join("outside-secret.txt");
+        fs::write(&outside_path, "secret generated token\n").unwrap();
+        symlink(&outside_path, self.root.join("src").join("outside-secret.rs")).unwrap();
+
+        outside_path
     }
 }
 
