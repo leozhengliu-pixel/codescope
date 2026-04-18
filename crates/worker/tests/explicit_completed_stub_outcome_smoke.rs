@@ -266,3 +266,99 @@ async fn worker_binary_advances_to_the_next_oldest_queued_run_on_a_second_invoca
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_advances_the_final_remaining_queued_run_on_a_third_invocation() {
+    let path = unique_test_path("third-invocation-final-queued-run-smoke");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            review_agent_runs: vec![
+                review_agent_run(
+                    "run_queued_newest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:07Z",
+                ),
+                review_agent_run(
+                    "run_queued_oldest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:05Z",
+                ),
+                review_agent_run(
+                    "run_queued_middle",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:06Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    run_worker_binary(&path);
+    run_worker_binary(&path);
+
+    let after_second_invocation = store.organization_state().await.unwrap();
+    assert_eq!(
+        after_second_invocation.review_agent_runs[0].status,
+        ReviewAgentRunStatus::Queued
+    );
+    assert_eq!(
+        after_second_invocation.review_agent_runs[1].status,
+        ReviewAgentRunStatus::Completed
+    );
+    assert_eq!(
+        after_second_invocation.review_agent_runs[2].status,
+        ReviewAgentRunStatus::Completed
+    );
+
+    run_worker_binary(&path);
+
+    let after_third_invocation = store.organization_state().await.unwrap();
+    assert_eq!(after_third_invocation.review_agent_runs.len(), 3);
+    assert_eq!(
+        after_third_invocation.review_agent_runs[0].id,
+        "run_queued_newest"
+    );
+    assert_eq!(
+        after_third_invocation.review_agent_runs[0].status,
+        ReviewAgentRunStatus::Completed
+    );
+    assert_eq!(
+        after_third_invocation.review_agent_runs[1].id,
+        "run_queued_oldest"
+    );
+    assert_eq!(
+        after_third_invocation.review_agent_runs[1].status,
+        ReviewAgentRunStatus::Completed
+    );
+    assert_eq!(
+        after_third_invocation.review_agent_runs[2].id,
+        "run_queued_middle"
+    );
+    assert_eq!(
+        after_third_invocation.review_agent_runs[2].status,
+        ReviewAgentRunStatus::Completed
+    );
+
+    assert_eq!(
+        after_third_invocation
+            .review_agent_runs
+            .iter()
+            .filter(|run| run.status == ReviewAgentRunStatus::Completed)
+            .count(),
+        3,
+        "three worker invocations should record three completed runs"
+    );
+    assert_eq!(
+        after_third_invocation
+            .review_agent_runs
+            .iter()
+            .filter(|run| run.status == ReviewAgentRunStatus::Queued)
+            .count(),
+        0,
+        "the third worker invocation should advance the final remaining queued run"
+    );
+
+    fs::remove_file(path).unwrap();
+}
