@@ -362,3 +362,72 @@ async fn worker_binary_advances_the_final_remaining_queued_run_on_a_third_invoca
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_exits_cleanly_without_mutating_completed_state_on_a_fourth_invocation() {
+    let path = unique_test_path("fourth-invocation-idle-after-completing-all-queued-runs");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            review_agent_runs: vec![
+                review_agent_run(
+                    "run_queued_newest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:07Z",
+                ),
+                review_agent_run(
+                    "run_queued_oldest",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:05Z",
+                ),
+                review_agent_run(
+                    "run_queued_middle",
+                    ReviewAgentRunStatus::Queued,
+                    "2026-04-25T00:10:06Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    run_worker_binary(&path);
+    run_worker_binary(&path);
+    run_worker_binary(&path);
+
+    let completed_after_third_invocation = store.organization_state().await.unwrap();
+    assert_eq!(
+        completed_after_third_invocation
+            .review_agent_runs
+            .iter()
+            .filter(|run| run.status == ReviewAgentRunStatus::Completed)
+            .count(),
+        3,
+        "the third worker invocation should complete the final remaining queued run before the fourth idle invocation"
+    );
+    let completed_bytes_after_third_invocation = fs::read(&path).unwrap();
+    let completed_modified_after_third_invocation =
+        fs::metadata(&path).unwrap().modified().unwrap();
+
+    run_worker_binary(&path);
+
+    let bytes_after_fourth_invocation = fs::read(&path).unwrap();
+    let modified_after_fourth_invocation = fs::metadata(&path).unwrap().modified().unwrap();
+    assert_eq!(
+        bytes_after_fourth_invocation, completed_bytes_after_third_invocation,
+        "the fourth worker invocation should not rewrite the already-completed organization-state file"
+    );
+    assert_eq!(
+        modified_after_fourth_invocation, completed_modified_after_third_invocation,
+        "the fourth worker invocation should leave the already-completed organization-state file modification time unchanged"
+    );
+
+    let persisted_after_fourth_invocation = store.organization_state().await.unwrap();
+    assert_eq!(
+        persisted_after_fourth_invocation,
+        completed_after_third_invocation,
+        "the fourth worker invocation should preserve the already-completed persisted state once no queued review-agent runs remain"
+    );
+
+    fs::remove_file(path).unwrap();
+}
