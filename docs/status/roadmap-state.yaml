@@ -5,62 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 13f33880befd855d1a993c449f8a5c457072122a
+  head: 9b8723b953c524fe7777ea4ddff0a1918bd5f174
 last_completed_task:
-  id: task14c
-  title: Add authenticated connection update backed by durable OrganizationState
+  id: task14d
+  title: Add authenticated connection delete backed by durable OrganizationState
   status: done
   summary: >-
-    Closed the next connection CRUD slice by adding authenticated
-    `PUT /api/v1/auth/connections/{connection_id}`, updating durable
-    `OrganizationState.connections` in place, preserving existing connection IDs,
-    rejecting blank names and mismatched provider configs, and failing closed for
-    viewer-only or otherwise non-admin authenticated users while still deferring
-    delete mutations and connection settings UI work.
+    Closed the final connection CRUD API slice by adding authenticated
+    `DELETE /api/v1/auth/connections/{connection_id}`, removing durable
+    `OrganizationState.connections` records for organization admins, failing
+    closed for viewer-only or otherwise non-admin authenticated users, rejecting
+    missing connection IDs with `404`, and preserving referential integrity by
+    refusing deletion with `409` when review-webhook state still references the
+    connection while still deferring the connection settings UI work.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_update_rejects_missing_connection_id -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_update -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_delete_rejects_connection_referenced_by_review_webhook_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_delete -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14c by adding only the authenticated connection-update slice backed by durable `OrganizationState.connections`, including 404 precedence for missing connection IDs even when the payload is invalid or malformed, with no delete/UI/settings/sync/ownership scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves fail-closed auth semantics while updating the existing durable connection record in place
-  commit: 13f33880befd855d1a993c449f8a5c457072122a
-  next_task: task14d
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14d by adding only the authenticated connection-delete slice backed by durable `OrganizationState.connections`, including `404` for missing connection IDs, `409` when review-webhook state still references the connection, and no UI/settings/sync/status scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the delete handler matches the existing connection-manageability model while preserving fail-closed auth semantics and preventing review-state dangling references
+  commit: 9b8723b953c524fe7777ea4ddff0a1918bd5f174
+  next_task: task15a
 current_task:
-  id: task14d
-  parent_task: task14
-  title: Add authenticated connection delete backed by durable OrganizationState
+  id: task15a
+  parent_task: task15
+  title: Build read-only authenticated connections settings screen backed by GET /api/v1/auth/connections
   status: pending
   summary: >-
-    Continue Task 14 with the remaining smallest externally visible CRUD slice by
-    adding authenticated connection deletion backed by durable
-    `OrganizationState.connections`, while still deferring connection settings UI
-    work.
+    Split broad Task 15 into the first smallest frontend slice by rendering the
+    existing authenticated connection inventory in the settings UI for eligible
+    users, while still deferring create/edit/delete forms and richer sync/status
+    controls.
 history:
-  - id: task14c
+  - id: task14d
     status: done
     summary: >-
-      Closed the next connection CRUD slice by adding authenticated
-      `PUT /api/v1/auth/connections/{connection_id}`, updating durable
-      `OrganizationState.connections` in place, preserving existing connection IDs,
-      rejecting blank names and mismatched provider configs, and failing closed for
-      viewer-only or otherwise non-admin authenticated users while still deferring
-      delete mutations and connection settings UI work.
+      Closed the final connection CRUD API slice by adding authenticated
+      `DELETE /api/v1/auth/connections/{connection_id}`, removing durable
+      `OrganizationState.connections` records for organization admins, failing
+      closed for viewer-only or otherwise non-admin authenticated users, rejecting
+      missing connection IDs with `404`, and preserving referential integrity by
+      refusing deletion with `409` when review-webhook state still references the
+      connection while still deferring the connection settings UI work.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_update_rejects_missing_connection_id -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_update -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_delete_rejects_connection_referenced_by_review_webhook_state -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_delete -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14c by adding only the authenticated connection-update slice backed by durable `OrganizationState.connections`, including 404 precedence for missing connection IDs even when the payload is invalid or malformed, with no delete/UI/settings/sync/ownership scope creep
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves fail-closed auth semantics while updating the existing durable connection record in place
-    commit: 13f33880befd855d1a993c449f8a5c457072122a
-    next_task: task14d
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14d by adding only the authenticated connection-delete slice backed by durable `OrganizationState.connections`, including `404` for missing connection IDs, `409` when review-webhook state still references the connection, and no UI/settings/sync/status scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the delete handler matches the existing connection-manageability model while preserving fail-closed auth semantics and preventing review-state dangling references
+    commit: 9b8723b953c524fe7777ea4ddff0a1918bd5f174
+    next_task: task15a
   - id: task14b
     status: done
     summary: >-
