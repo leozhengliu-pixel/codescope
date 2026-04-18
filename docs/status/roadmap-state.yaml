@@ -1,43 +1,58 @@
 version: 1
 roadmap:
-  path: docs/plans/2026-04-14-sourcebot-rewrite-plan.md
-  total_tasks: 35
+  path: docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md
+  total_tasks: 85
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a08ac36063df07c4374ae3495825f8fc88069fbf
+  head: e319358cc461f06d98576c403350e6d8815e1694
 last_completed_task:
-  id: task35z
-  title: Add focused webhook-intake-to-authenticated-API coverage proving one accepted review event persists a delivery attempt that is readable through the authenticated global review-webhook-delivery-attempt detail endpoint
+  id: roadmap-bootstrap-2026-04-18
+  title: Publish the full-parity Sourcebot rewrite roadmap and reopen autonomous execution against the next unfinished parity slice
   status: done
   summary: >-
-    Completed the next review-agent automation integration slice by adding one
-    focused end-to-end test that proves an accepted review webhook event persists
-    a delivery attempt and that the same persisted attempt is readable through the
-    authenticated global review-webhook-delivery-attempt detail endpoint, while
-    still deferring retries, worker-loop orchestration, secret rotation, UI
-    work, and real review execution.
+    Replaced the completed MVP-era roadmap with a new full-parity roadmap that
+    targets practical 100% Sourcebot replacement coverage across backend,
+    frontend, integrations, worker orchestration, auth/admin, and operator
+    workflows, and advanced the canonical state file to the first new parity
+    audit slice.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::review_webhook_events_persist_delivery_attempt_readable_via_authenticated_attempt_detail_endpoint -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_review_webhook_delivery_attempts_detail_returns_visible_attempt -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api review_webhook_events_persist_delivery_attempt_readable_via_authenticated_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    - docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md written: passed
+    - docs/status/roadmap-state.yaml advanced to task01a: passed
+    - git status --short && git branch --show-current && git rev-parse HEAD: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task35z by adding only one focused integration test that connects accepted webhook intake to persisted delivery-attempt state and then to the authenticated global review-webhook-delivery-attempt detail endpoint, without adding unrelated product behavior
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the new test exercises the intended persisted-event flow through the authenticated global review-webhook-delivery-attempt detail endpoint without changing runtime behavior
-  commit: a08ac36063df07c4374ae3495825f8fc88069fbf
-  next_task: none
+    spec: passed one planning review; the new roadmap now defines a concrete 100% parity target instead of stopping at the earlier narrowed rewrite scope, and the first execution slice correctly starts with parity contract inventory before broad implementation.
+    code: approved for bootstrap; the state file now cleanly supersedes the completed 35-task roadmap without erasing prior history and points the next run at one smallest parity-audit slice.
+  commit: e319358cc461f06d98576c403350e6d8815e1694
+  next_task: task01a
 current_task:
-  id: roadmap-complete
-  parent_task: task35
-  title: Roadmap complete
-  status: done
+  id: task01a
+  parent_task: task01
+  title: Inventory upstream route, page, worker, and operator surfaces into a rewrite-owned parity acceptance index
+  status: pending
   summary: >-
-    All roadmap tasks recorded in docs/plans/2026-04-14-sourcebot-rewrite-plan.md
-    are currently complete. Resume only if a new roadmap slice is added.
+    Create the first smallest full-parity audit slice by enumerating the upstream
+    product surfaces that must be matched, storing them in clean-room rewrite
+    acceptance docs so all later implementation work is driven by explicit parity
+    contracts rather than ad-hoc local optimization.
 history:
+  - id: roadmap-bootstrap-2026-04-18
+    status: done
+    summary: >-
+      Replaced the completed MVP-era roadmap with a new full-parity roadmap that
+      targets practical 100% Sourcebot replacement coverage across backend,
+      frontend, integrations, worker orchestration, auth/admin, and operator
+      workflows, and advanced the canonical state file to the first new parity
+      audit slice.
+    tests:
+      - docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md written: passed
+      - docs/status/roadmap-state.yaml advanced to task01a: passed
+      - git status --short && git branch --show-current && git rev-parse HEAD: passed
+    review:
+      spec: passed one planning review; the new roadmap now defines a concrete 100% parity target instead of stopping at the earlier narrowed rewrite scope, and the first execution slice correctly starts with parity contract inventory before broad implementation.
+      code: approved for bootstrap; the state file now cleanly supersedes the completed 35-task roadmap without erasing prior history and points the next run at one smallest parity-audit slice.
+    commit: e319358cc461f06d98576c403350e6d8815e1694
+    next_task: task01a
   - id: task35z
     status: done
     summary: >-
@@ -1793,7 +1808,8 @@ notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
     - Execute exactly one smallest deliverable task per execution unit.
-    - A task is complete only after implementation, tests, docs, review, and commit.
+    - A task is complete only after implementation, tests, docs, review, commit, and push.
     - After each task, update this file with status, summary, tests, commit, and next task.
     - If a task is too large, split it and only do the first subtask.
-    - If blocked, write blocked reason and suggested workaround, then pick another task in the next unit.
+    - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
+    - Use docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
