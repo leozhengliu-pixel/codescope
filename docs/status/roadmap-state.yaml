@@ -5,62 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7f60e1ce6ce5e509d1a1b7fd2724fc410e23e39f
+  head: be62793bef7c47a5ec967ac164437675308b3cdf
 last_completed_task:
-  id: task35k9
-  title: Add repeated worker-binary smoke coverage that advances the final remaining queued review-agent run on a third invocation
+  id: task35k10
+  title: Add repeated worker-binary smoke coverage that exits cleanly without mutating state on a fourth invocation after all queued review-agent runs are completed
   status: done
   summary: >-
     Completed the next review-agent worker slice by adding focused real-binary
     smoke coverage that seeds multiple queued review-agent runs, invokes the real
-    sourcebot-worker binary three times against the same file-backed state, and
-    proves the third invocation advances the final remaining queued run while
-    still deferring retries, polling loops, rescheduling, and real review
-    execution. The runtime semantics already existed, so this slice landed as a
-    test-only closure without production behavior changes.
+    sourcebot-worker binary four times against the same file-backed state, and
+    proves the fourth invocation exits cleanly without mutating the already-
+    completed persisted state once no queued review-agent runs remain. The
+    runtime semantics already existed, so this slice landed as a test-only
+    closure without production behavior changes, retries, polling loops,
+    rescheduling, or real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_advances_the_final_remaining_queued_run_on_a_third_invocation -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_exits_cleanly_without_mutating_completed_state_on_a_fourth_invocation -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k9 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary three times, and proves the third invocation advances the final remaining queued review-agent run without production behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned third-invocation smoke test over the existing oldest-queued and one-claim-per-invocation worker semantics
-  commit: 7f60e1ce6ce5e509d1a1b7fd2724fc410e23e39f
-  next_task: task35k10
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k10 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary four times, and proves the fourth invocation is a clean idle no-mutation path after the first three invocations completed all queued runs, without production behavior changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned fourth-invocation smoke test over the existing oldest-queued, one-claim-per-invocation, and idle no-write worker semantics
+  commit: be62793bef7c47a5ec967ac164437675308b3cdf
+  next_task: task35l
 current_task:
-  id: task35k10
-  parent_task: task35k
-  title: Add repeated worker-binary smoke coverage that exits cleanly without mutating state on a fourth invocation after all queued review-agent runs are completed
+  id: task35l
+  parent_task: task35
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id} endpoint for one visible persisted run
   status: pending
   summary: >-
-    Lock the next smallest repeated one-shot worker progression contract down by
-    seeding multiple queued review-agent runs, running the real sourcebot-worker
-    binary four times against the same file-backed state, and proving the fourth
-    invocation exits cleanly without mutating the already-completed persisted
-    state once no queued review-agent runs remain, while still deferring
-    retries, polling loops, rescheduling, and real review execution.
+    Expose the next smallest review-agent automation slice by adding a minimal
+    local-session-authenticated detail endpoint that returns exactly one
+    persisted review-agent run when it belongs to an organization visible to the
+    caller, while still deferring UI work, retries, worker-loop orchestration,
+    and real review execution.
 history:
-  - id: task35k9
+  - id: task35k10
     status: done
     summary: >-
       Completed the next review-agent worker slice by adding focused real-binary
       smoke coverage that seeds multiple queued review-agent runs, invokes the real
-      sourcebot-worker binary three times against the same file-backed state, and
-      proves the third invocation advances the final remaining queued run while
-      still deferring retries, polling loops, rescheduling, and real review
-      execution. The runtime semantics already existed, so this slice landed as a
-      test-only closure without production behavior changes.
+      sourcebot-worker binary four times against the same file-backed state, and
+      proves the fourth invocation exits cleanly without mutating the already-
+      completed persisted state once no queued review-agent runs remain. The
+      runtime semantics already existed, so this slice landed as a test-only
+      closure without production behavior changes, retries, polling loops,
+      rescheduling, or real review execution.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_advances_the_final_remaining_queued_run_on_a_third_invocation -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_exits_cleanly_without_mutating_completed_state_on_a_fourth_invocation -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
     review:
-      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k9 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary three times, and proves the third invocation advances the final remaining queued review-agent run without production behavior changes
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned third-invocation smoke test over the existing oldest-queued and one-claim-per-invocation worker semantics
-    commit: 7f60e1ce6ce5e509d1a1b7fd2724fc410e23e39f
-    next_task: task35k10
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k10 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary four times, and proves the fourth invocation is a clean idle no-mutation path after the first three invocations completed all queued runs, without production behavior changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned fourth-invocation smoke test over the existing oldest-queued, one-claim-per-invocation, and idle no-write worker semantics
+    commit: be62793bef7c47a5ec967ac164437675308b3cdf
+    next_task: task35l
   - id: task35k8
     status: done
     summary: >-
