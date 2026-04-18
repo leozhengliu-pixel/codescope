@@ -106,7 +106,7 @@ impl Serialize for Connection {
 }
 
 impl Connection {
-    fn validate(self) -> Result<Self, String> {
+    pub fn validate(self) -> Result<Self, String> {
         if let Some(config) = &self.config {
             let provider_kind = config.provider_kind();
             if self.kind != provider_kind {
