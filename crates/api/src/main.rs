@@ -165,7 +165,7 @@ fn build_router(
         )
         .route(
             "/api/v1/auth/connections/{connection_id}",
-            put(update_authenticated_connection),
+            put(update_authenticated_connection).delete(delete_authenticated_connection),
         )
         .route(
             "/api/v1/auth/api-keys",
@@ -1014,6 +1014,64 @@ async fn update_authenticated_connection(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(updated_connection))
+}
+
+async fn delete_authenticated_connection(
+    State(state): State<AppState>,
+    Path(connection_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let can_manage_connections = visible_organization_ids.iter().any(|organization_id| {
+        user_is_organization_admin(&organization_state, &session.user_id, organization_id)
+    });
+
+    if !can_manage_connections {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let Some(existing_connection_index) = organization_state
+        .connections
+        .iter()
+        .position(|connection| connection.id == connection_id)
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    let connection_is_referenced_by_review_state = organization_state
+        .review_webhooks
+        .iter()
+        .any(|webhook| webhook.connection_id == connection_id)
+        || organization_state
+            .review_webhook_delivery_attempts
+            .iter()
+            .any(|attempt| attempt.connection_id == connection_id)
+        || organization_state
+            .review_agent_runs
+            .iter()
+            .any(|run| run.connection_id == connection_id);
+    if connection_is_referenced_by_review_state {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    organization_state
+        .connections
+        .remove(existing_connection_index);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_authenticated_api_keys(
@@ -6645,6 +6703,321 @@ mod tests {
             .unwrap();
 
         assert_eq!(malformed_json_response.status(), StatusCode::NOT_FOUND);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.connections, vec![existing_connection]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_delete_removes_existing_connection_for_organization_admin() {
+        let organization_state_path = unique_test_path("auth-connections-delete-orgs");
+        let local_session_state_path = unique_test_path("auth-connections-delete-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let deleted_connection = Connection {
+            id: "conn_github_acme".into(),
+            name: "Acme GitHub".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::GitHub {
+                base_url: "https://github.example.com".into(),
+            }),
+        };
+        let remaining_connection = Connection {
+            id: "conn_gitlab_acme".into(),
+            name: "Acme GitLab".into(),
+            kind: ConnectionKind::GitLab,
+            config: Some(ConnectionConfig::GitLab {
+                base_url: "https://gitlab.example.com".into(),
+            }),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![deleted_connection.clone(), remaining_connection.clone()],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/connections/conn_github_acme")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.connections, vec![remaining_connection]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_delete_rejects_connection_referenced_by_review_webhook_state() {
+        let organization_state_path = unique_test_path("auth-connections-delete-referenced-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-connections-delete-referenced-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let existing_connection = Connection {
+            id: "conn_github_acme".into(),
+            name: "Acme GitHub".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::GitHub {
+                base_url: "https://github.example.com".into(),
+            }),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![existing_connection.clone()],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: existing_connection.id.clone(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request".into()],
+                secret_hash: "secret_hash".into(),
+                created_by_user_id: user_id.into(),
+                created_at: "2026-04-24T01:00:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/connections/conn_github_acme")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted, state);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_delete_rejects_viewer_membership() {
+        let organization_state_path = unique_test_path("auth-connections-delete-viewer-orgs");
+        let local_session_state_path = unique_test_path("auth-connections-delete-viewer-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let existing_connection = Connection {
+            id: "conn_github_acme".into(),
+            name: "Acme GitHub".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::GitHub {
+                base_url: "https://github.example.com".into(),
+            }),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![existing_connection.clone()],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/connections/conn_github_acme")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.connections, vec![existing_connection]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_delete_requires_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/connections/conn_github_acme")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_connections_delete_rejects_missing_connection_id() {
+        let organization_state_path = unique_test_path("auth-connections-delete-missing-orgs");
+        let local_session_state_path = unique_test_path("auth-connections-delete-missing-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let existing_connection = Connection {
+            id: "conn_github_acme".into(),
+            name: "Acme GitHub".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::GitHub {
+                base_url: "https://github.example.com".into(),
+            }),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![existing_connection.clone()],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/connections/conn_missing")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let persisted: OrganizationState =
             serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
