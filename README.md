@@ -37,9 +37,14 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make sqlx-migrate
    ```
-4. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for the local-only `sourcebot` / `sourcebot` bootstrap defaults.
-5. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; this workflow only bootstraps the metadata schema for upcoming durable-store slices.
-6. Deterministic dev/test database setup remains deferred to a later roadmap slice.
+4. Reset the dedicated deterministic local test database when a local test run needs a clean metadata schema:
+   ```bash
+   make sqlx-test-reset
+   ```
+5. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for both the local-only `sourcebot` bootstrap database and the dedicated `sourcebot_test` test database.
+6. `make sqlx-test-reset` uses `TEST_DATABASE_URL` plus the repo-local `.sqlx-cli` install root to drop, recreate, and re-migrate the deterministic local test database.
+7. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
+8. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; these workflows only bootstrap the metadata schema for upcoming durable-store slices.
 
 ## License
 Current default: MIT.
