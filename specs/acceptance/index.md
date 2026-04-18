@@ -28,7 +28,8 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Ask and chat | `specs/acceptance/ask.md` | Present | Covers ask behavior at a high level; later parity tasks still need thread lifecycle and citation/UI parity details. |
 | Auth and permissions | `specs/acceptance/auth.md` | Present | Covers local auth + permission boundaries; later parity tasks must expand onboarding/orgs/invites/API keys/OAuth details. |
 | Integrations | `specs/acceptance/integrations.md` | Present | Covers provider-facing behavior broadly; later parity tasks must split/expand per host/provider and webhook/operator flows. |
-| Frontend route/page parity index | `specs/acceptance/index.md` | Present in this slice | New index created by task01a1 to anchor route/page/worker/operator inventory. |
+| Journey map and missing-spec prerequisites | `specs/acceptance/journeys.md` | Present in this slice | Maps indexed surfaces into user/admin/operator journeys and names the missing dedicated acceptance specs that must be created before broader implementation proceeds. |
+| Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
 | Worker execution parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box worker/operator acceptance spec in a later Task 1 slice. |
 | Operator workflows parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box operator/admin/runtime acceptance spec in a later Task 1 slice. |
 
@@ -84,9 +85,9 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 ## Immediate follow-up gaps exposed by this index
 1. The acceptance corpus has broad domain specs, but no dedicated worker/operator black-box specs yet.
-2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; later Task 1 slices should map them into explicit user journeys and missing UI shells.
-3. `specs/FEATURE_PARITY.md` remains a checklist without per-row evidence placeholders; Task 2 should expand it after this index exists.
-4. Review-agent, OAuth, analytics, audit, and settings/admin flows now have an index home but still need finer-grained acceptance expansion.
+2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
+3. `specs/FEATURE_PARITY.md` remains a checklist without per-row evidence placeholders; Task 2 should expand it after this index and journey map exist.
+4. Review-agent, OAuth, analytics, audit, settings/admin navigation, worker runtime, and repository-operations flows still need finer-grained dedicated acceptance specs before broader implementation proceeds.
 
-## Next recommended slice after this document
-- Create the next Task 1 sub-slice that maps the indexed surfaces above into explicit user/admin/operator journeys and identifies which missing acceptance-spec documents must exist before implementation proceeds.
+## Related follow-up document
+- `specs/acceptance/journeys.md` maps the indexed surfaces above into explicit user/admin/operator journeys and identifies the minimum dedicated missing acceptance-spec documents exposed by the current rewrite evidence.
