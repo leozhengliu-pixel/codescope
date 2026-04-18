@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 
 type SyncState = 'pending' | 'ready' | 'error';
 
@@ -173,12 +173,31 @@ type AuthConnectionConfig =
       repo_path: string;
     };
 
+type AuthConnectionKind = AuthConnectionConfig['provider'];
+
 type AuthConnection = {
   id: string;
   name: string;
   kind: string;
   config?: AuthConnectionConfig;
 };
+
+type CreateAuthConnectionRequest = {
+  name: string;
+  kind: AuthConnectionKind;
+  config?: AuthConnectionConfig;
+};
+
+const authConnectionKindOptions: AuthConnectionKind[] = [
+  'github',
+  'gitlab',
+  'gitea',
+  'gerrit',
+  'bitbucket',
+  'azure_devops',
+  'generic_git',
+  'local',
+];
 
 function useHashLocation() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
@@ -192,8 +211,8 @@ function useHashLocation() {
   return hash;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(path);
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = init ? await fetch(path, init) : await fetch(path);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -1110,6 +1129,12 @@ function SettingsConnectionsPage() {
   const [connections, setConnections] = useState<AuthConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [connectionName, setConnectionName] = useState('');
+  const [connectionKind, setConnectionKind] = useState<AuthConnectionKind>('github');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [repoPath, setRepoPath] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -1138,11 +1163,112 @@ function SettingsConnectionsPage() {
     };
   }, []);
 
+  const createDisabled = loading || isCreating;
+
+  const handleCreateConnection = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCreateError(null);
+    setIsCreating(true);
+
+    const request: CreateAuthConnectionRequest = {
+      name: connectionName,
+      kind: connectionKind,
+      config:
+        connectionKind === 'local'
+          ? {
+              provider: 'local',
+              repo_path: repoPath,
+            }
+          : {
+              provider: connectionKind,
+              base_url: baseUrl,
+            },
+    };
+
+    try {
+      const createdConnection = await fetchJson<AuthConnection>('/api/v1/auth/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+
+      setConnections((currentConnections) => [...currentConnections, createdConnection]);
+      setConnectionName('');
+      setBaseUrl('');
+      setRepoPath('');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <Panel
       title="Authenticated connections"
-      subtitle="Read-only inventory from the authenticated connections API. Create, edit, delete, and sync controls remain out of scope."
+      subtitle="Create new authenticated connections from the existing authenticated API while edit, delete, and richer sync controls remain out of scope."
     >
+      {!loading && !error ? (
+        <form onSubmit={handleCreateConnection} style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
+          <div style={detailGridStyle}>
+            <label style={fieldLabelStyle}>
+              <span>Connection name</span>
+              <input
+                value={connectionName}
+                onChange={(event) => setConnectionName(event.target.value)}
+                style={inputStyle}
+                disabled={createDisabled}
+              />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              <span>Connection kind</span>
+              <select
+                value={connectionKind}
+                onChange={(event) => setConnectionKind(event.target.value as AuthConnectionKind)}
+                style={inputStyle}
+                disabled={createDisabled}
+              >
+                {authConnectionKindOptions.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {connectionKind === 'local' ? (
+              <label style={fieldLabelStyle}>
+                <span>Repo path</span>
+                <input
+                  value={repoPath}
+                  onChange={(event) => setRepoPath(event.target.value)}
+                  style={inputStyle}
+                  disabled={createDisabled}
+                />
+              </label>
+            ) : (
+              <label style={fieldLabelStyle}>
+                <span>Base URL</span>
+                <input
+                  value={baseUrl}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  style={inputStyle}
+                  disabled={createDisabled}
+                />
+              </label>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button type="submit" style={primaryButtonStyle} disabled={createDisabled}>
+              {isCreating ? 'Creating…' : 'Create connection'}
+            </button>
+            {createError ? <div>Failed to create connection: {createError}</div> : null}
+          </div>
+        </form>
+      ) : null}
+
       {loading ? <div>Loading connections…</div> : null}
       {!loading && error ? <div>Failed to load connections: {error}</div> : null}
       {!loading && !error && connections.length === 0 ? <div>No authenticated connections are available.</div> : null}

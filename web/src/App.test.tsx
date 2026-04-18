@@ -375,13 +375,13 @@ describe('App', () => {
     expect(screen.getByText('Binary file or patch unavailable.')).toBeInTheDocument();
   });
 
-  it('renders a read-only authenticated connections inventory on the settings route', async () => {
+  it('renders the authenticated connections inventory and creates a new github connection from the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
 
-      if (url === '/api/v1/auth/connections') {
+      if (url === '/api/v1/auth/connections' && !init) {
         return jsonResponse([
           {
             id: 'conn-1',
@@ -404,6 +404,34 @@ describe('App', () => {
         ]);
       }
 
+      if (url === '/api/v1/auth/connections' && init?.method === 'POST') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: ' Acme GitHub ',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.example.com',
+            },
+          })
+        );
+
+        return jsonResponse(
+          {
+            id: 'conn-3',
+            name: 'Acme GitHub',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.example.com',
+            },
+          },
+          true,
+          201
+        );
+      }
+
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
@@ -415,8 +443,144 @@ describe('App', () => {
     expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
     expect(screen.getByText('Local Mirror')).toBeInTheDocument();
     expect(screen.getByText('Repo path: /srv/git/mirror')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/connections');
+
+    fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: ' Acme GitHub ' } });
+    fireEvent.change(screen.getByLabelText('Connection kind'), { target: { value: 'github' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://github.example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create connection' }));
+
+    expect(await screen.findByText('Acme GitHub')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.example.com')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ' Acme GitHub ',
+          kind: 'github',
+          config: {
+            provider: 'github',
+            base_url: 'https://github.example.com',
+          },
+        }),
+      });
+    });
+  });
+
+  it('renders all supported authenticated connection kind options on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    const kindSelect = screen.getByLabelText('Connection kind');
+    const optionValues = Array.from(kindSelect.querySelectorAll('option')).map((option) => option.textContent);
+    expect(optionValues).toEqual([
+      'github',
+      'gitlab',
+      'gitea',
+      'gerrit',
+      'bitbucket',
+      'azure_devops',
+      'generic_git',
+      'local',
+    ]);
+  });
+
+  it('shows authenticated connection management controls only after the initial settings inventory finishes loading', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveConnections: ((value: Response) => void) | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      (async (input, init) => {
+        const url = String(input);
+
+        if (url === '/api/v1/auth/connections' && !init) {
+          return await new Promise<Response>((resolve) => {
+            resolveConnections = resolve;
+          });
+        }
+
+        throw new Error(`Unhandled fetch: ${url}`);
+      }) as typeof fetch
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText('Loading connections…')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Connection name')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Connection kind')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create connection' })).not.toBeInTheDocument();
+
+    resolveConnections?.(jsonResponse([]));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading connections…')).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Connection name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Connection kind')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create connection' })).not.toBeDisabled();
+  });
+
+  it('shows authenticated connection creation failures on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/connections' && init?.method === 'POST') {
+        return jsonResponse({}, false, 403);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'Denied connection' } });
+    fireEvent.change(screen.getByLabelText('Connection kind'), { target: { value: 'local' } });
+    fireEvent.change(screen.getByLabelText('Repo path'), { target: { value: '/srv/git/denied' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create connection' }));
+
+    expect(await screen.findByText('Failed to create connection: Request failed: 403')).toBeInTheDocument();
+    expect(screen.queryByText('Denied connection')).not.toBeInTheDocument();
+  });
+
+  it('hides authenticated connection management controls when the settings inventory cannot be loaded', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections') {
+        return jsonResponse({}, false, 403);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Failed to load connections: Request failed: 403')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Connection name')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Connection kind')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create connection' })).not.toBeInTheDocument();
   });
 
   it('shows authenticated connection loading failures on the settings route', async () => {
