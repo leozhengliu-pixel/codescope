@@ -5,36 +5,54 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 348457aa17fed50e7eaffcfd3bd545688a973b66
+  head: 03bedbb0707084c308d634138afe11f71946c480
 last_completed_task:
-  id: task01a1
-  title: Create the first parity acceptance surface index for current route, page, worker, and operator families
+  id: task01a2
+  title: Map the indexed route, page, worker, and operator surfaces into explicit user/admin/operator journeys and missing acceptance-spec follow-ups
   status: done
   summary: >-
-    Created `specs/acceptance/index.md` as the first smallest full-parity audit
-    slice, inventorying the current rewrite API route families, frontend page/panel
-    surfaces, worker entrypoint behaviors, and operator-facing workflow anchors,
-    while mapping each area to existing or explicitly missing acceptance specs so
-    later parity work can attach to a concrete clean-room contract.
+    Added `specs/acceptance/journeys.md` as the next parity-audit slice, turning
+    the indexed route, page, worker, and operator surfaces into explicit user,
+    admin, and operator journeys, identifying which flows already have an
+    acceptance home and which admin/operator/runtime areas still need dedicated
+    acceptance specs before broader parity implementation proceeds.
   tests:
     - git diff --check: passed
-    - python3 reference validation for specs/acceptance/index.md repo file links: passed
+    - python3 reference validation for specs/acceptance/index.md and specs/acceptance/journeys.md existing repo/doc links: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the new acceptance index truthfully inventories the current rewrite route/page/worker/operator surface families using only the allowed roadmap/state/spec/router/frontend/worker evidence and correctly marks missing worker/operator/admin/frontend parity areas as planned rather than shipped
-    code: approved by one independent post-implementation review; reviewer found the docs-only slice appropriately scoped, factually grounded, and suitable as the first acceptance-index anchor for later parity expansion
-  commit: 348457aa17fed50e7eaffcfd3bd545688a973b66
-  next_task: task01a2
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task01a2 slice stays grounded in current rewrite evidence, groups surfaces into explicit user/admin/operator journeys, and names the missing dedicated acceptance specs for the still-unowned admin/operator/runtime flows without inventing shipped behavior
+    code: approved by one independent post-implementation review after one corrective iteration; reviewer confirmed the final docs are internally consistent with existing acceptance coverage and no longer overstate commits, ask-threading, or onboarding as missing prerequisite specs
+  commit: 03bedbb0707084c308d634138afe11f71946c480
+  next_task: task02a
 current_task:
-  id: task01a2
-  parent_task: task01
-  title: Map the indexed route, page, worker, and operator surfaces into explicit user/admin/operator journeys and missing acceptance-spec follow-ups
+  id: task02a
+  parent_task: task02
+  title: Reshape FEATURE_PARITY into a row-per-feature matrix with status and evidence placeholder columns
   status: pending
   summary: >-
-    Use the new acceptance index as the source inventory, then write the next
-    smallest parity-audit slice that groups those surfaces into concrete user,
-    admin, and operator journeys and identifies which dedicated acceptance specs
-    still need to be created before broad implementation work continues.
+    Take the current checklist in `specs/FEATURE_PARITY.md` and convert it into
+    the first smallest parity-matrix slice: preserve the existing feature rows,
+    but restructure them into a stable matrix with per-row status and acceptance-
+    evidence placeholder columns so later runs can fill evidence without
+    reformatting the document again.
 history:
+  - id: task01a2
+    status: done
+    summary: >-
+      Added `specs/acceptance/journeys.md` as the next parity-audit slice,
+      turning the indexed route, page, worker, and operator surfaces into
+      explicit user, admin, and operator journeys, identifying which flows
+      already have an acceptance home and which admin/operator/runtime areas
+      still need dedicated acceptance specs before broader parity
+      implementation proceeds.
+    tests:
+      - git diff --check: passed
+      - python3 reference validation for specs/acceptance/index.md and specs/acceptance/journeys.md existing repo/doc links: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task01a2 slice stays grounded in current rewrite evidence, groups surfaces into explicit user/admin/operator journeys, and names the missing dedicated acceptance specs for the still-unowned admin/operator/runtime flows without inventing shipped behavior
+      code: approved by one independent post-implementation review after one corrective iteration; reviewer confirmed the final docs are internally consistent with existing acceptance coverage and no longer overstate commits, ask-threading, or onboarding as missing prerequisite specs
+    commit: 03bedbb0707084c308d634138afe11f71946c480
+    next_task: task02a
   - id: task01a1
     status: done
     summary: >-
