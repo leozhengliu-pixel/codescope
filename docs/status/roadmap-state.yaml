@@ -5,41 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ac70325c65d8745c6bca5d21ba9060e481444351
+  head: d4491132463c6391e3d09f7a9fb5c7c1778278a0
 last_completed_task:
-  id: task07a
-  title: Add first Postgres-backed catalog store contract test
+  id: task13a
+  title: Extend connection kinds for remaining parity providers
   status: done
   summary: >-
-    Split broad task07 into the smallest persistence-parity slice by replacing
-    the fallback-only contract with a failing-then-passing test proving
-    `build_catalog_store(Some(DATABASE_URL))` now constructs the Postgres-backed
-    catalog store path via a lazy SQLx pool instead of always serving the
-    seeded in-memory catalog, while still deferring real catalog queries and the
-    full durable-store migration.
+    Closed the first task13 slice by extending the shared `ConnectionKind`
+    domain enum and serde contract to cover the remaining provider kinds
+    required by `specs/FEATURE_PARITY.md` (`gitea`, `gerrit`, `bitbucket`,
+    `azure_devops`, and `generic_git`) while explicitly deferring provider
+    credential payloads, CRUD routes, and durable persistence wiring.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api storage::tests::build_catalog_store_with_database_uses_postgres_catalog_store_path -- --exact --nocapture: passed
-    - cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
-    - cargo fmt --all --check: passed
-    - cargo check -p sourcebot-api: passed with pre-existing dead_code warnings for catalog migrator in non-test builds
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_deserializes_remaining_parity_provider_strings -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_serializes_remaining_parity_provider_variants_with_snake_case_names -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task07a by adding only the first contract test plus the minimal lazy PgCatalogStore construction path needed to stop `build_catalog_store` from silently falling back to the seeded in-memory catalog when `DATABASE_URL` is configured
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the lazy SQLx pool is a truthful minimal implementation for this slice because it exercises the Postgres branch without requiring a live server while real catalog queries remain deferred
-  commit: fd41e7c9435757630a001d7a4864254c9378af42
-  next_task: task07b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13a by adding only the missing shared provider kinds plus focused serde contract coverage, with no CRUD, credential, persistence, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the explicit `azure_devops` serde rename is the minimal correct fix for Azure DevOps parity naming
+  commit: d4491132463c6391e3d09f7a9fb5c7c1778278a0
+  next_task: task13b
 current_task:
-  id: task13a
+  id: task13b
   parent_task: task13
-  title: Extend connection kinds for remaining parity providers
+  title: Add provider-scoped connection config payload model
   status: pending
   summary: >-
-    Task07b is blocked on missing local Postgres runtime verification in the cron
-    environment, so continue with the next unblocked parity slice by expanding
-    the shared connection domain model and serde contract to cover the remaining
-    provider kinds required by `specs/FEATURE_PARITY.md` while deferring
-    provider-specific credentials, CRUD routes, and durable persistence wiring.
+    Continue task13 with the next smallest connection-domain slice by adding a
+    shared provider-scoped configuration payload contract for the supported
+    connection kinds, along with backward-compatible serde/default coverage,
+    while still deferring authenticated CRUD routes and durable storage wiring.
 history:
+  - id: task13a
+    status: done
+    summary: >-
+      Closed the first task13 slice by extending the shared `ConnectionKind`
+      domain enum and serde contract to cover the remaining provider kinds
+      required by `specs/FEATURE_PARITY.md` (`gitea`, `gerrit`, `bitbucket`,
+      `azure_devops`, and `generic_git`) while explicitly deferring provider
+      credential payloads, CRUD routes, and durable persistence wiring.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_deserializes_remaining_parity_provider_strings -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::connection_kind_serializes_remaining_parity_provider_variants_with_snake_case_names -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13a by adding only the missing shared provider kinds plus focused serde contract coverage, with no CRUD, credential, persistence, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the explicit `azure_devops` serde rename is the minimal correct fix for Azure DevOps parity naming
+    commit: d4491132463c6391e3d09f7a9fb5c7c1778278a0
+    next_task: task13b
   - id: task07b
     status: blocked
     summary: >-
