@@ -1452,6 +1452,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "serde_json",
  "sourcebot-api",
  "sourcebot-config",
  "sourcebot-core",

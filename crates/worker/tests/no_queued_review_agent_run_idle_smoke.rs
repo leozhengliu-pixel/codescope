@@ -1,3 +1,4 @@
+use serde_json::json;
 use sourcebot_api::auth::FileOrganizationStore;
 use sourcebot_core::OrganizationStore;
 use sourcebot_models::{OrganizationState, ReviewAgentRun, ReviewAgentRunStatus};
@@ -59,8 +60,8 @@ async fn worker_binary_exits_cleanly_and_preserves_default_empty_state_when_pers
 }
 
 #[tokio::test]
-async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_review_agent_run_exists()
-{
+async fn worker_binary_exits_cleanly_without_rewriting_existing_state_when_no_queued_review_agent_run_exists(
+) {
     let path = unique_test_path("no-queued-review-agent-run-idle-smoke");
     let store = FileOrganizationStore::new(&path);
     let initial_state = OrganizationState {
@@ -78,10 +79,37 @@ async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_revie
         ],
         ..OrganizationState::default()
     };
-    store
-        .store_organization_state(initial_state.clone())
-        .await
-        .unwrap();
+    let initial_bytes = serde_json::to_vec(&json!({
+        "connections": [],
+        "local_sessions": [],
+        "review_agent_runs": [
+            {
+                "id": "run_claimed",
+                "organization_id": "org_acme",
+                "webhook_id": "webhook_run_claimed",
+                "delivery_attempt_id": "delivery_run_claimed",
+                "connection_id": "conn_github",
+                "repository_id": "repo_sourcebot_rewrite",
+                "review_id": "review_run_claimed",
+                "status": "claimed",
+                "created_at": "2026-04-25T00:10:05Z"
+            },
+            {
+                "id": "run_completed",
+                "organization_id": "org_acme",
+                "webhook_id": "webhook_run_completed",
+                "delivery_attempt_id": "delivery_run_completed",
+                "connection_id": "conn_github",
+                "repository_id": "repo_sourcebot_rewrite",
+                "review_id": "review_run_completed",
+                "status": "completed",
+                "created_at": "2026-04-25T00:10:06Z"
+            }
+        ]
+    }))
+    .unwrap();
+    fs::write(&path, &initial_bytes).unwrap();
+    let initial_modified = fs::metadata(&path).unwrap().modified().unwrap();
 
     let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
         .expect("cargo should expose the built sourcebot-worker binary path");
@@ -93,6 +121,17 @@ async fn worker_binary_exits_cleanly_without_mutating_state_when_no_queued_revie
     assert!(
         output.status.success(),
         "worker should exit cleanly when no queued review-agent run exists"
+    );
+
+    let final_bytes = fs::read(&path).unwrap();
+    let final_modified = fs::metadata(&path).unwrap().modified().unwrap();
+    assert_eq!(
+        final_bytes, initial_bytes,
+        "worker idle path should not rewrite an existing organization-state file when no queued review-agent run exists"
+    );
+    assert_eq!(
+        final_modified, initial_modified,
+        "worker idle path should leave the existing organization-state file modification time unchanged"
     );
 
     let persisted = store.organization_state().await.unwrap();
