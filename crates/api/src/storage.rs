@@ -102,7 +102,8 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_and_task05b1_org_tables_only() {
+    fn catalog_migration_inventory_bootstraps_catalog_org_and_task05b2_repository_permission_bindings_only(
+    ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
             .iter()
@@ -111,8 +112,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2].into_iter().collect(),
-            "expected only the task05a + task05b1 migration versions"
+            [1, 2, 3].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -128,6 +129,8 @@ mod tests {
                 "0001_catalog_metadata.up.sql".to_string(),
                 "0002_org_metadata.down.sql".to_string(),
                 "0002_org_metadata.up.sql".to_string(),
+                "0003_repository_permission_bindings.down.sql".to_string(),
+                "0003_repository_permission_bindings.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -157,10 +160,6 @@ mod tests {
         }
 
         for unexpected_snippet in [
-            "CREATE TABLE organizations",
-            "CREATE TABLE local_accounts",
-            "CREATE TABLE organization_invites",
-            "CREATE TABLE organization_memberships",
             "CREATE TABLE repository_permission_bindings",
             "CREATE TABLE sessions",
             "CREATE TABLE ask_threads",
@@ -217,6 +216,38 @@ mod tests {
             assert!(
                 !task05b1_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0002: {unexpected_snippet}"
+            );
+        }
+
+        let task05b2_up_migration = std::fs::read_to_string(
+            migration_dir.join("0003_repository_permission_bindings.up.sql"),
+        )
+        .unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE repository_permission_bindings",
+            "organization_id TEXT NOT NULL REFERENCES organizations(id)",
+            "repository_id TEXT NOT NULL REFERENCES repositories(id)",
+            "synced_at TIMESTAMPTZ NOT NULL",
+            "PRIMARY KEY (organization_id, repository_id)",
+        ] {
+            assert!(
+                task05b2_up_migration.contains(expected_snippet),
+                "missing task05b2 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE sessions",
+            "CREATE TABLE ask_threads",
+            "CREATE TABLE review_agent_runs",
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task05b2_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0003: {unexpected_snippet}"
             );
         }
     }
