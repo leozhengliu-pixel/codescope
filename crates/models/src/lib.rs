@@ -562,13 +562,65 @@ pub fn seed_connections() -> Vec<Connection> {
             id: "conn_github".into(),
             name: "GitHub Cloud".into(),
             kind: ConnectionKind::GitHub,
-            config: None,
+            config: Some(ConnectionConfig::GitHub {
+                base_url: "https://github.com".into(),
+            }),
+        },
+        Connection {
+            id: "conn_gitlab".into(),
+            name: "GitLab Self-Hosted".into(),
+            kind: ConnectionKind::GitLab,
+            config: Some(ConnectionConfig::GitLab {
+                base_url: "https://gitlab.example.com".into(),
+            }),
+        },
+        Connection {
+            id: "conn_gitea".into(),
+            name: "Gitea".into(),
+            kind: ConnectionKind::Gitea,
+            config: Some(ConnectionConfig::Gitea {
+                base_url: "https://gitea.example.com".into(),
+            }),
+        },
+        Connection {
+            id: "conn_gerrit".into(),
+            name: "Gerrit".into(),
+            kind: ConnectionKind::Gerrit,
+            config: Some(ConnectionConfig::Gerrit {
+                base_url: "https://gerrit.example.com".into(),
+            }),
+        },
+        Connection {
+            id: "conn_bitbucket".into(),
+            name: "Bitbucket".into(),
+            kind: ConnectionKind::Bitbucket,
+            config: Some(ConnectionConfig::Bitbucket {
+                base_url: "https://bitbucket.example.com".into(),
+            }),
+        },
+        Connection {
+            id: "conn_azure_devops".into(),
+            name: "Azure DevOps".into(),
+            kind: ConnectionKind::AzureDevOps,
+            config: Some(ConnectionConfig::AzureDevOps {
+                base_url: "https://dev.azure.com/sourcebot".into(),
+            }),
+        },
+        Connection {
+            id: "conn_generic_git".into(),
+            name: "Generic Git".into(),
+            kind: ConnectionKind::GenericGit,
+            config: Some(ConnectionConfig::GenericGit {
+                base_url: "https://git.example.com".into(),
+            }),
         },
         Connection {
             id: "conn_local".into(),
             name: "Local Mirrors".into(),
             kind: ConnectionKind::Local,
-            config: None,
+            config: Some(ConnectionConfig::Local {
+                repo_path: "/srv/sourcebot/repos".into(),
+            }),
         },
     ]
 }
@@ -755,6 +807,79 @@ mod tests {
         assert!(error
             .to_string()
             .contains("connection kind `github` does not match config provider `gitlab`"));
+    }
+
+    #[test]
+    fn seed_connections_include_provider_scoped_config_examples_for_each_supported_kind() {
+        assert_eq!(
+            seed_connections(),
+            vec![
+                Connection {
+                    id: "conn_github".into(),
+                    name: "GitHub Cloud".into(),
+                    kind: ConnectionKind::GitHub,
+                    config: Some(ConnectionConfig::GitHub {
+                        base_url: "https://github.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_gitlab".into(),
+                    name: "GitLab Self-Hosted".into(),
+                    kind: ConnectionKind::GitLab,
+                    config: Some(ConnectionConfig::GitLab {
+                        base_url: "https://gitlab.example.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_gitea".into(),
+                    name: "Gitea".into(),
+                    kind: ConnectionKind::Gitea,
+                    config: Some(ConnectionConfig::Gitea {
+                        base_url: "https://gitea.example.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_gerrit".into(),
+                    name: "Gerrit".into(),
+                    kind: ConnectionKind::Gerrit,
+                    config: Some(ConnectionConfig::Gerrit {
+                        base_url: "https://gerrit.example.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_bitbucket".into(),
+                    name: "Bitbucket".into(),
+                    kind: ConnectionKind::Bitbucket,
+                    config: Some(ConnectionConfig::Bitbucket {
+                        base_url: "https://bitbucket.example.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_azure_devops".into(),
+                    name: "Azure DevOps".into(),
+                    kind: ConnectionKind::AzureDevOps,
+                    config: Some(ConnectionConfig::AzureDevOps {
+                        base_url: "https://dev.azure.com/sourcebot".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_generic_git".into(),
+                    name: "Generic Git".into(),
+                    kind: ConnectionKind::GenericGit,
+                    config: Some(ConnectionConfig::GenericGit {
+                        base_url: "https://git.example.com".into(),
+                    }),
+                },
+                Connection {
+                    id: "conn_local".into(),
+                    name: "Local Mirrors".into(),
+                    kind: ConnectionKind::Local,
+                    config: Some(ConnectionConfig::Local {
+                        repo_path: "/srv/sourcebot/repos".into(),
+                    }),
+                },
+            ]
+        );
     }
 
     #[test]
