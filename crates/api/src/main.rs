@@ -8785,6 +8785,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn review_webhook_events_persist_delivery_attempt_readable_via_authenticated_attempt_detail_endpoint(
+    ) {
+        let organization_state_path =
+            unique_test_path("review-webhook-events-auth-global-detail-orgs");
+        let local_session_state_path =
+            unique_test_path("review-webhook-events-auth-global-detail-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let webhook_secret = "review-webhook-secret";
+        let secret_hash = Argon2::default()
+            .hash_password(webhook_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-25T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-24T23:55:00Z".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash,
+                created_by_user_id: user_id.into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!("Bearer review_webhook_1:{webhook_secret}"),
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted.review_webhook_delivery_attempts.len(), 1);
+        let delivery_attempt = &persisted.review_webhook_delivery_attempts[0];
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/auth/review-webhook-delivery-attempts/{}",
+                        delivery_attempt.id
+                    ))
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: ReviewWebhookDeliveryAttemptListItemResponseBody = read_json(response).await;
+        assert_eq!(payload.id, delivery_attempt.id);
+        assert_eq!(payload.webhook_id, "review_webhook_1");
+        assert_eq!(payload.connection_id, "conn_local");
+        assert_eq!(payload.repository_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.event_type, "pull_request_review");
+        assert_eq!(payload.review_id, "review_123");
+        assert_eq!(payload.external_event_id, "evt_123");
+        assert_eq!(payload.accepted_at, delivery_attempt.accepted_at);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn review_webhook_events_persist_review_agent_run_readable_via_authenticated_listing_endpoint(
     ) {
         let organization_state_path = unique_test_path("review-webhook-events-auth-run-list-orgs");
