@@ -2,7 +2,7 @@
 
 _This document is the canonical repo-local parity gap report for `sourcebot-rewrite`._
 
-This report tracks parity gaps against the 2026-04-18 full-parity roadmap. Task `03` is too broad for a single slice, so the completed slices now cover **task03a** (**backend/API**), **task03b** (**worker**), **task03c** (**integrations**), **task03d** (**frontend**), and **task03e** (**auth/admin**). Later slices should extend this same document with additional domains instead of creating competing gap reports.
+This report tracks parity gaps against the 2026-04-18 full-parity roadmap. Task `03` is too broad for a single slice, so the completed slices now cover **task03a** (**backend/API**), **task03b** (**worker**), **task03c** (**integrations**), **task03d** (**frontend**), **task03e** (**auth/admin**), and **task03f** (**ops**). Later roadmap slices should extend this same document with implementation evidence instead of creating competing gap reports.
 
 ## Status legend
 
@@ -114,8 +114,26 @@ Grounding for this slice comes from the auth acceptance spec in `specs/acceptanc
 - The acceptance corpus itself confirms that gap: `specs/acceptance/auth.md` still describes onboarding, roles, invites, API keys, and permission enforcement at a high level, while `specs/acceptance/journeys.md` explicitly says richer admin-observability, OAuth-client, review-automation, and settings-navigation docs must be created before broader auth/admin implementation proceeds.
 - Because roadmap Phase 6 still reserves onboarding UX, org/invite flows, linked-account work, API key completion, permission-sync hardening, and settings navigation for later tasks, this slice keeps current auth/admin capability areas at **Partial** or **Missing** instead of over-claiming parity from route presence and shared models alone.
 
-## Remaining domains
+## Ops domain
 
-Later slices should extend this document with:
+Grounding for this slice comes from the project README in `README.md`, the local Postgres bootstrap file in `docker-compose.yml`, the live runtime/env contract in `crates/config/src/lib.rs`, the API startup/config/health surface in `crates/api/src/main.rs` plus `crates/api/src/storage.rs`, the worker entrypoint in `crates/worker/src/main.rs`, the acceptance inventory and journey map in `specs/acceptance/index.md` and `specs/acceptance/journeys.md`, the feature rows in `specs/FEATURE_PARITY.md`, and the later operator/runtime work scheduled in `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`.
 
-- Ops
+| Capability area | Current rewrite evidence | Status | Highest-value next gap(s) |
+| --- | --- | --- | --- |
+| Local self-host bootstrap and runtime config baseline | `README.md` declares the clean-room stack and self-hosting intent; `docker-compose.yml` provisions a local Postgres 16 service with a healthcheck; `crates/config/src/lib.rs` defines env-driven runtime config for bind address, `DATABASE_URL`, bootstrap/session/org state paths, and optional LLM settings. | Partial | Add operator-focused acceptance coverage plus end-to-end local deployment docs/scripts that start the API, web, and worker surfaces together instead of only documenting the stack and a standalone Postgres dependency. |
+| Service liveness and public config visibility | `crates/api/src/main.rs` exposes `/healthz` and `/api/v1/config`; `AppConfig::public_view()` deliberately redacts secret values to `has_database_url` / `has_llm_api_key`; config tests in `crates/config/src/lib.rs` and `crates/api/src/main.rs` prove secret-hiding behavior. | Partial | Create `specs/acceptance/operator-runtime.md`, add richer readiness/dependency health checks, and expand runtime-config evidence beyond the current liveness/public-config baseline. |
+| Durable metadata DB readiness and migration workflow | `docker-compose.yml` can launch Postgres and `AppConfig` accepts `DATABASE_URL`, but `crates/api/src/storage.rs` still warns that `PgCatalogStore` is a skeleton and falls back to the seeded in-memory catalog when `DATABASE_URL` is set; repo searches in this run found no migration files or migration workflow docs. | Missing | Land roadmap Phase 1 Tasks 5–12: real SQLx schema/migrations, durable catalog/auth/org/review stores, and upgrade-safe local-dev bootstrap/migration coverage. |
+| Background worker invocation and automation control plane | `crates/worker/src/main.rs` loads env config, builds the organization-state store from `config.organization_state_path`, and runs exactly one `run_worker_tick(...)`; `specs/acceptance/index.md` and `specs/acceptance/journeys.md` still mark worker/operator runtime acceptance docs as missing prerequisites. | Partial | Add dedicated operator/worker runtime acceptance docs, continuous worker scheduling/retry/supervision behavior, and operator-visible runtime controls instead of a one-shot binary plus logs only. |
+| Operator observability and admin-visible runtime surfaces | `crates/api/src/main.rs` already exposes authenticated audit, analytics, review-webhook, delivery-attempt, and review-agent-run visibility endpoints; repo and UI surfaces already expose repository `sync_state`; API and worker binaries both initialize `tracing_subscriber` logging. | Partial | Add dedicated operator/admin observability specs plus richer queue depth, failure, last-run, sync/index history, and settings/navigation surfaces so observability parity is not limited to logs and authenticated JSON listings. |
+| Upgrade-safe deployment, recovery, and runbook parity | `README.md` currently stops at goals/stack/clean-room rules; the repo has no dedicated operator-runtime acceptance spec, no repo-local deployment/runbook docs for API+web+worker bring-up, and no documented backup/restore or upgrade workflow. | Missing | Create the operator/runtime and repository-operations acceptance docs, then add concrete deployment, recovery, and upgrade-safe runbooks before claiming practical operator parity. |
+
+### Evidence notes
+
+- The rewrite already has a real **operator-facing baseline**: env-driven config, local Postgres bootstrap scaffolding, `/healthz`, `/api/v1/config`, authenticated audit/analytics/review-runtime visibility endpoints, and a runnable `sourcebot-worker` binary.
+- Even so, the current ops evidence is still **bootstrap-oriented and local-dev focused**. Postgres exists mainly as a future dependency, durable metadata storage is still unfinished, and runtime orchestration remains one-shot rather than supervised or continuously scheduled.
+- The acceptance corpus itself confirms this gap: `specs/acceptance/index.md` and `specs/acceptance/journeys.md` still treat operator runtime, worker runtime, and repository operations as missing dedicated acceptance homes rather than closed parity areas.
+- Because roadmap Phase 1, Phase 2, Phase 8, Phase 9, and Phase 11 still reserve migrations, durable stores, sync/index operations, retry/scheduling, and production-grade deployment/observability/runbook work for later tasks, this slice keeps ops capability areas at **Partial** or **Missing** instead of over-claiming parity from bootstrap scaffolding alone.
+
+## Domain coverage status
+
+Task `03` now has canonical gap-report coverage for backend/API, worker, integrations, frontend, auth/admin, and ops. Later roadmap slices should update the evidence inside these existing domain sections rather than create a second parity gap report.
