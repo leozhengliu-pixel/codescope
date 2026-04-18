@@ -29,9 +29,9 @@ use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
-    AuditEvent, BootstrapState, BootstrapStatus, LocalSession, OAuthClient, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, ReviewAgentRun, ReviewAgentRunStatus,
-    ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
+    AuditEvent, BootstrapState, BootstrapStatus, Connection, LocalSession, OAuthClient,
+    OrganizationRole, OrganizationState, RepositoryDetail, RepositorySummary, ReviewAgentRun,
+    ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -157,6 +157,10 @@ fn build_router(
         )
         .route("/api/v1/auth/login", post(login_local_admin))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
+        .route(
+            "/api/v1/auth/connections",
+            get(list_authenticated_connections),
+        )
         .route(
             "/api/v1/auth/api-keys",
             get(list_authenticated_api_keys).post(create_authenticated_api_key),
@@ -864,6 +868,29 @@ async fn get_authenticated_local_admin(
         session_id: session.id,
         created_at: session.created_at,
     }))
+}
+
+async fn list_authenticated_connections(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Connection>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let can_manage_connections = visible_organization_ids.iter().any(|organization_id| {
+        user_is_organization_admin(&organization_state, &session.user_id, organization_id)
+    });
+
+    if !can_manage_connections {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(Json(organization_state.connections))
 }
 
 async fn list_authenticated_api_keys(
@@ -2747,10 +2774,11 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
-        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, LocalAccount, LocalSessionState,
-        OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-        OrganizationState, RepositoryPermissionBinding, ReviewAgentRun, ReviewAgentRunStatus,
-        ReviewWebhook, SearchContext,
+        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, Connection, ConnectionConfig,
+        ConnectionKind, LocalAccount, LocalSessionState, OAuthClient, Organization,
+        OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
+        RepositoryPermissionBinding, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
+        SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use std::sync::Arc;
@@ -5651,6 +5679,161 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/oauth-clients")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_connections_lists_durable_connections_for_organization_admin() {
+        let organization_state_path = unique_test_path("auth-connections-orgs");
+        let local_session_state_path = unique_test_path("auth-connections-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let expected_connections = vec![
+            Connection {
+                id: "conn_github_acme".into(),
+                name: "Acme GitHub".into(),
+                kind: ConnectionKind::GitHub,
+                config: Some(ConnectionConfig::GitHub {
+                    base_url: "https://github.example.com".into(),
+                }),
+            },
+            Connection {
+                id: "conn_gitlab_acme".into(),
+                name: "Acme GitLab".into(),
+                kind: ConnectionKind::GitLab,
+                config: Some(ConnectionConfig::GitLab {
+                    base_url: "https://gitlab.example.com".into(),
+                }),
+            },
+        ];
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: expected_connections.clone(),
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/connections")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<Connection> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload, expected_connections);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_rejects_viewer_membership() {
+        let organization_state_path = unique_test_path("auth-connections-viewer-orgs");
+        let local_session_state_path = unique_test_path("auth-connections-viewer-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![Connection {
+                id: "conn_github_acme".into(),
+                name: "Acme GitHub".into(),
+                kind: ConnectionKind::GitHub,
+                config: Some(ConnectionConfig::GitHub {
+                    base_url: "https://github.example.com".into(),
+                }),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/connections")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_connections_require_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/connections")
                     .body(Body::empty())
                     .unwrap(),
             )
