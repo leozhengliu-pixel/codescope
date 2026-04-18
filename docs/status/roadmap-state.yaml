@@ -5,40 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 664a1b4a3dd7caf3ddc0034ed66559ebc32f3f22
+  head: b1e6f24026ba083e7dec9c7acea449e01d1233d7
 last_completed_task:
-  id: task14a
-  title: Add authenticated connection listing from durable OrganizationState
+  id: task14b
+  title: Add authenticated connection creation backed by durable OrganizationState
   status: done
   summary: >-
-    Closed the first externally visible connection CRUD slice by adding the
-    authenticated `GET /api/v1/auth/connections` endpoint backed by durable
-    `OrganizationState.connections`, returning the stored connection list for
-    authenticated organization admins while failing closed for viewer-only users
-    and still deferring create/update/delete mutations plus sync-status/admin
-    history work.
+    Closed the next connection CRUD slice by adding authenticated
+    `POST /api/v1/auth/connections`, validating trimmed names plus
+    kind/config compatibility, persisting created connections into durable
+    `OrganizationState.connections`, and failing closed for viewer-only or
+    otherwise non-admin authenticated users while still deferring update/delete
+    mutations and connection settings UI work.
   tests:
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_create -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_review_webhooks_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the patch lands exactly task14a by adding only the authenticated connection-listing slice from durable `OrganizationState.connections`, denying viewer-only users per acceptance, with no blocking security or logic issues
-  commit: 664a1b4a3dd7caf3ddc0034ed66559ebc32f3f22
-  next_task: task14b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14b by adding only the authenticated connection-creation slice backed by durable `OrganizationState.connections`, with no update/delete/UI/credential/ownership scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves the listing slice's fail-closed admin boundary while validating input before persistence
+  commit: b1e6f24026ba083e7dec9c7acea449e01d1233d7
+  next_task: task14c
 current_task:
-  id: task14b
+  id: task14c
   parent_task: task14
-  title: Add authenticated connection creation backed by durable OrganizationState
+  title: Add authenticated connection update backed by durable OrganizationState
   status: pending
   summary: >-
     Continue Task 14 with the next smallest externally visible CRUD slice by
-    adding authenticated connection creation backed by durable
-    `OrganizationState.connections`, while still deferring update/delete
-    mutations and sync-status/admin history work.
+    adding authenticated connection update backed by durable
+    `OrganizationState.connections`, while still deferring delete mutations and
+    connection settings UI work.
 history:
+  - id: task14b
+    status: done
+    summary: >-
+      Closed the next connection CRUD slice by adding authenticated
+      `POST /api/v1/auth/connections`, validating trimmed names plus
+      kind/config compatibility, persisting created connections into durable
+      `OrganizationState.connections`, and failing closed for viewer-only or
+      otherwise non-admin authenticated users while still deferring update/delete
+      mutations and connection settings UI work.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_create -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14b by adding only the authenticated connection-creation slice backed by durable `OrganizationState.connections`, with no update/delete/UI/credential/ownership scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves the listing slice's fail-closed admin boundary while validating input before persistence
+    commit: b1e6f24026ba083e7dec9c7acea449e01d1233d7
+    next_task: task14c
   - id: task14a
     status: done
     summary: >-
