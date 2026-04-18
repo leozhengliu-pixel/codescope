@@ -20,6 +20,7 @@ fixture corpus without replacing this document.
 - `specs/acceptance/index.md`
 - `specs/acceptance/journeys.md`
 - `docs/reports/2026-04-18-parity-gap-report.md`
+- `specs/repo-git-search-fixture-layout.md`
 
 ## Clean-room rules for fixtures
 
@@ -128,7 +129,8 @@ slices must build from.
 
 ## Recommended next task04 decomposition
 
-- `task04b` — define the canonical repository/git/search corpus layout and shared builders
+- `task04b1` — define the canonical repository / git / search corpus layout and current builder ownership
+- `task04b2` — extract shared repo / git / search fixture builders while preserving the canonical layout contract
 - `task04c` — centralize auth/org/review state fixture builders
 - `task04d` — extract shared webhook payload/event fixture helpers
 - `task04e` — centralize frontend/provider mock fixtures and contract builders

@@ -1,0 +1,173 @@
+# Repository / Git / Search Fixture Layout
+
+## Purpose
+
+This document closes **task04b1** of the full-parity roadmap by defining the
+canonical clean-room layout for the repository, git-history, and search-index
+fixture families already used in `sourcebot-rewrite`.
+
+It does **not** centralize the builders yet. Instead, it freezes:
+
+- which live fixture builders already own each corpus family,
+- which shared paths/IDs/content shapes later parity slices must preserve, and
+- which follow-up slice should extract reusable helpers instead of duplicating new
+  inline temp-directory or temp-git setup.
+
+## Governing sources
+
+- `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`
+- `docs/status/roadmap-state.yaml`
+- `specs/fixtures-policy.md`
+- `specs/CLEAN_ROOM_RULES.md`
+- `specs/FEATURE_PARITY.md`
+- `specs/acceptance/index.md`
+- `docs/reports/2026-04-18-parity-gap-report.md`
+- `crates/search/src/lib.rs`
+- `crates/api/src/browse.rs`
+- `crates/api/src/commits.rs`
+- `crates/models/src/lib.rs`
+
+## Scope boundary for task04b1
+
+Task04b was too broad for one execution unit, so this run splits it into:
+
+- **task04b1** — define the canonical repository / git / search corpus layout and
+  current builder ownership
+- **task04b2** — extract or centralize the shared repo/git/search builder helpers
+
+This document closes only **task04b1**.
+
+## Canonical fixture families
+
+| Family | Current owner today | Canonical repo id(s) / labels | Canonical on-disk shape today | Why this shape matters |
+| --- | --- | --- | --- | --- |
+| Search temp corpus | `crates/search/src/lib.rs` test-only `create_test_store()` | `repo_test` | temp root containing `src/main.rs`, `README.md`, `.git/HEAD`, `target/generated.txt`, `image.png`, `binary.dat` | Proves search returns source/doc hits while skipping `.git`, generated output, binary files, and over-size files |
+| Browse temp corpus | `crates/api/src/browse.rs` test-only `create_test_store()` | `repo_test` | temp root containing `README.md`, `src/main.rs`, `target/generated.rs`; some tests add `src/readme-link.rs` symlink | Proves tree/blob/glob/grep operate on a visible repo tree, including symlink and traversal edge cases |
+| Commit seeded/special-case catalog corpus | `crates/api/src/commits.rs` `LocalCommitStore::seeded()` plus `crates/models/src/lib.rs` seeded repositories | `repo_sourcebot_rewrite`, `repo_demo_docs` | `repo_sourcebot_rewrite` is mapped to the live rewrite repo root; `repo_demo_docs` is a seeded catalog repo id that currently returns empty history via `EMPTY_HISTORY_REPO_IDS` | Separates real-history coverage from the explicit empty-history docs/demo case already exposed through the seeded catalog |
+| Commit synthetic temp-git corpus | `crates/api/src/commits.rs` test helpers `create_temp_git_repo(...)`, `write_text_file(...)`, `git_in(...)` | caller-chosen ids like `repo_temp` | throwaway git repo initialized with `git init`, explicit file writes, and deterministic commits | Proves diff/history edge cases without checking in copied upstream repositories |
+
+## Canonical layout contract by family
+
+### 1. Search corpus contract
+
+The current search builder in `crates/search/src/lib.rs` is the canonical source
+for synthetic repo-search corpora until task04b2 extracts a shared helper.
+
+Required layout contract:
+
+- root directory created by `unique_temp_dir()`
+- visible source file at `src/main.rs`
+- visible documentation file at `README.md`
+- ignored VCS file at `.git/HEAD`
+- ignored generated/build output at `target/generated.txt`
+- binary-ish files such as `image.png` and `binary.dat`
+- repo mapping `repo_test -> <temp-root>`
+
+Required behavior contract:
+
+- source hits in `src/main.rs` remain searchable
+- documentation hits in `README.md` remain searchable
+- `.git/*` contents must not surface in results
+- generated/build output under `target/` must not surface in results
+- binary and oversize files must be excluded
+
+### 2. Browse corpus contract
+
+The current browse builder in `crates/api/src/browse.rs` is the canonical source
+for tree/blob/glob/grep corpora until task04b2 extracts a shared helper.
+
+Required layout contract:
+
+- root directory created by `unique_temp_dir()`
+- top-level `README.md`
+- visible source file `src/main.rs`
+- visible generated file `target/generated.rs`
+- repo mapping `repo_test -> <temp-root>`
+- optional in-test symlink `src/readme-link.rs` pointing at `README.md` for
+  symlink parity checks
+
+Required behavior contract:
+
+- tree listings expose both `README.md` and `src/`
+- glob results may include paths also visible in tree listings, including
+  `target/generated.rs`
+- blob reads return exact contents for visible files
+- parent-directory traversal like `../etc` is rejected before filesystem access
+- current grep symlink handling is constrained to the repo root; glob behavior must
+  keep following the live browse contract and should only gain stricter root
+  enforcement in a later implementation slice that updates this document
+
+### 3. Commit corpus contract
+
+The current commit fixtures intentionally use **two** corpus modes and both are
+canonical until task04b2 or later parity work says otherwise.
+
+#### 3a. Seeded real-repo + empty-history mode
+
+Canonical owner: `LocalCommitStore::seeded()` in `crates/api/src/commits.rs`.
+
+Required contract:
+
+- seeded repo id `repo_sourcebot_rewrite` maps to the live
+  `sourcebot-rewrite` workspace repo
+- seeded repo id `repo_demo_docs` stays available as a seeded catalog entry whose
+  commit-store behavior is the explicit empty-history special case in
+  `EMPTY_HISTORY_REPO_IDS`
+- list/detail assertions against real git history should use `repo_sourcebot_rewrite`
+  and may compare against live `git rev-parse` / `git log` output from the rewrite repo
+- `repo_demo_docs` is for the empty-history contract, not a second mapped on-disk repo root
+- this mode is for real-history parity coverage plus the explicit empty-history behavior,
+  not synthetic edge-case shaping
+
+#### 3b. Synthetic temp-git mode
+
+Canonical owners: `create_temp_git_repo(...)`, `write_text_file(...)`, and
+`git_in(...)` in `crates/api/src/commits.rs` tests.
+
+Required contract:
+
+- initialize a fresh temp repo with `git init`
+- author files through repo-owned helper writes, not checked-in fixture repos
+- shape history through explicit commits in the test itself
+- use this mode for type-change, rename, patch-normalization, and other focused
+  git edge cases
+
+## Shared builder ownership rules before centralization
+
+Until task04b2 lands shared helpers, future parity work must follow these rules:
+
+1. **Do not invent a third repo-search temp layout** when the current behavior can
+   be expressed by extending `crates/search/src/lib.rs::create_test_store()`.
+2. **Do not invent a second browse tree shape** for generic file/tree/glob/grep
+   cases when `crates/api/src/browse.rs::create_test_store()` can be extended.
+3. **Use the seeded real rewrite repo only for real-history assertions.** Use the
+   temp-git builders for synthetic commit edge cases.
+4. **Keep repo ids stable** where existing tests already rely on them:
+   - `repo_test` for search and browse temp stores
+   - `repo_sourcebot_rewrite` / `repo_demo_docs` for seeded catalog/commit paths
+5. **Preserve clean-room authorship.** Add new files/content as rewrite-authored
+   literals written during tests, not copied fixture directories or upstream repo
+   snapshots.
+6. **Promote shared helpers before duplicating setup.** If a new parity slice needs
+   the same temp repo/tree in more than one file, task04b2 is the correct follow-up
+   rather than another ad hoc builder.
+
+## Recommended follow-up for task04b2
+
+Task04b2 should be the first implementation slice after this document. It should:
+
+1. create one shared repo-tree builder module for browse/search corpora,
+2. keep the current canonical paths (`README.md`, `src/main.rs`, `target/*`,
+   `.git/*`) and repo ids stable,
+3. expose focused opt-in helpers for symlink and binary/generated-file variants,
+4. leave commit temp-git helpers in `crates/api/src/commits.rs` unless a second
+   caller actually needs them, and
+5. update this document plus `specs/fixtures-policy.md` when ownership changes.
+
+## What task04b1 intentionally does not claim
+
+- It does **not** claim repo/git/search fixture builders are centralized today.
+- It does **not** add a `tests/fixtures/` directory yet.
+- It does **not** rename the current helper functions.
+- It does **not** expand auth/webhook/frontend/provider fixture families; those stay
+  for later task04 slices.
