@@ -5,37 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6d35617616191d8e73e7ac933dd7906178f8e88a
+  head: 3e19084d08858f084ee6653fa5d00bf7cde29cfd
 last_completed_task:
-  id: task03b
-  title: Extend the parity gap report with the worker domain
+  id: task03c
+  title: Extend the parity gap report with the integrations domain
   status: done
   summary: >-
-    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the worker
-    domain only, grounding conservative Partial/Missing parity judgments in the
-    live worker entrypoint, worker library, focused smoke tests, acceptance
-    inventory/journey docs, parity matrix, and roadmap while explicitly leaving
-    integrations, frontend, auth/admin, and ops for later slices.
+    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the
+    integrations domain only, grounding conservative Partial/Missing parity
+    judgments in the live integration models, API routes, MCP crate,
+    repo/detail UI surfaces, acceptance spec, parity matrix, and roadmap while
+    explicitly leaving frontend, auth/admin, and ops for later slices.
   tests:
     - python3 parity gap report marker validation: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03b slice stays docs-only, limits scope to the worker domain, and uses conservative worker parity judgments grounded in the live worker sources, worker tests, acceptance docs, parity matrix, roadmap, and state
-    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the worker-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
-  commit: 6d35617616191d8e73e7ac933dd7906178f8e88a
-  next_task: task03c
+    spec: passed one independent post-implementation review; reviewer confirmed the staged task03c slice stays docs-only, limits scope to the integrations domain, uses conservative parity judgments, and keeps later domains deferred
+    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the integrations-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+  commit: 3e19084d08858f084ee6653fa5d00bf7cde29cfd
+  next_task: task03d
 current_task:
-  id: task03c
+  id: task03d
   parent_task: task03
-  title: Extend the parity gap report with the integrations domain
+  title: Extend the parity gap report with the frontend domain
   status: pending
   summary: >-
-    Add the next smallest parity gap-report slice by auditing the integrations
-    domain only, grounding its Missing/Partial/Complete judgments in the current
-    provider/integration code, acceptance inventory, parity matrix, and roadmap
-    follow-up tasks while leaving frontend, auth/admin, and ops for later
-    slices.
+    Add the next smallest parity gap-report slice by auditing the frontend
+    domain only, grounding its Missing/Partial/Complete judgments in the live
+    web UI, acceptance inventory, parity matrix, and roadmap while leaving
+    auth/admin and ops for later slices.
 history:
+  - id: task03c
+    status: done
+    summary: >-
+      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the
+      integrations domain only, grounding conservative Partial/Missing parity
+      judgments in the live integration models, API routes, MCP crate,
+      repo/detail UI surfaces, acceptance spec, parity matrix, and roadmap
+      while explicitly leaving frontend, auth/admin, and ops for later slices.
+    tests:
+      - python3 parity gap report marker validation: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged task03c slice stays docs-only, limits scope to the integrations domain, uses conservative parity judgments, and keeps later domains deferred
+      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the integrations-domain gap report additions factually grounded, scope-disciplined, and suitable as the next canonical parity-gap slice
+    commit: 3e19084d08858f084ee6653fa5d00bf7cde29cfd
+    next_task: task03d
   - id: task03b
     status: done
     summary: >-
