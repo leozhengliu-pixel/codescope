@@ -5,37 +5,55 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3db0e7dcd738f2da6e6e8e515bcfac4286ca9bbd
+  head: 908e39d2d647f5ad473bde25e8f619e6ed7a0c1a
 last_completed_task:
-  id: task06a
-  title: Add a Makefile migration command for the SQLx metadata schema
+  id: task06b
+  title: Document the local metadata-schema migration bootstrap workflow
   status: done
   summary: >-
-    Split broad task06 into the first smallest workflow slice by adding one
-    reproducible `make sqlx-migrate` command that requires `DATABASE_URL`,
-    installs a pinned repo-local `sqlx-cli`, and runs the API metadata-schema
-    migrations from `crates/api/migrations`, while deferring broader local
-    bootstrapping docs and deterministic dev/test database setup.
+    Closed the next smallest task06 slice by documenting the local metadata DB
+    bootstrap flow in `README.md`, showing how to run `make dev-up`, export the
+    local `DATABASE_URL`, and invoke `make sqlx-migrate`, while truthfully
+    recording that the API still falls back to the seeded in-memory catalog and
+    that deterministic dev/test DB setup remains deferred.
   tests:
-    - sh scripts/check_make_sqlx_migrate.sh: passed
-    - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:sourcebot@localhost:5432/sourcebot: passed
+    - sh scripts/check_metadata_bootstrap_docs.sh README.md: passed
     - make help: passed
-    - git diff --cached --check: passed
+    - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:***@127.0.0.1:5432/sourcebot: passed
+    - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task06a by adding one Makefile migration command plus a small repo-local contract check, keeps the scope on running the metadata-schema migrations against `DATABASE_URL`, and defers broader bootstrap docs and deterministic dev/test DB setup
-    code: approved by one independent post-implementation review after one wording fix; reviewer found no blocking security or logic issues in the final `sqlx-migrate` target, `DATABASE_URL` guard, pinned repo-local `sqlx-cli` install, or Makefile contract-check script
-  commit: 3db0e7dcd738f2da6e6e8e515bcfac4286ca9bbd
-  next_task: task06b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task06b by documenting the `make dev-up` -> `DATABASE_URL` -> `make sqlx-migrate` local metadata-schema bootstrap flow, keeps the scope on metadata bootstrap only, and explicitly defers deterministic dev/test DB setup without overclaiming runtime parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the README bootstrap workflow docs or the small shell contract check, noting only a non-blocking robustness suggestion about validating code-fence ordering more strictly
+  commit: 908e39d2d647f5ad473bde25e8f619e6ed7a0c1a
+  next_task: task06c
 current_task:
-  id: task06b
+  id: task06c
   parent_task: task06
-  title: Document the local metadata-schema migration bootstrap workflow
+  title: Add deterministic dev/test metadata database setup coverage
   status: pending
   summary: >-
-    Continue task06 with the smallest remaining workflow slice by documenting how
-    to use `make dev-up` and `make sqlx-migrate` together for local metadata DB
-    bootstrap, while still deferring deterministic dev/test database setup.
+    Finish the remaining task06 workflow work by adding the first smallest
+    deterministic local dev/test metadata DB setup slice, so migrations and
+    follow-up parity tasks can rely on a reproducible database bootstrap path.
 history:
+  - id: task06b
+    status: done
+    summary: >-
+      Closed the next smallest task06 slice by documenting the local metadata DB
+      bootstrap flow in `README.md`, showing how to run `make dev-up`, export the
+      local `DATABASE_URL`, and invoke `make sqlx-migrate`, while truthfully
+      recording that the API still falls back to the seeded in-memory catalog and
+      that deterministic dev/test DB setup remains deferred.
+    tests:
+      - sh scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - make help: passed
+      - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:***@127.0.0.1:5432/sourcebot: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task06b by documenting the `make dev-up` -> `DATABASE_URL` -> `make sqlx-migrate` local metadata-schema bootstrap flow, keeps the scope on metadata bootstrap only, and explicitly defers deterministic dev/test DB setup without overclaiming runtime parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the README bootstrap workflow docs or the small shell contract check, noting only a non-blocking robustness suggestion about validating code-fence ordering more strictly
+    commit: 908e39d2d647f5ad473bde25e8f619e6ed7a0c1a
+    next_task: task06c
   - id: task06a
     status: done
     summary: >-
@@ -46,7 +64,7 @@ history:
       bootstrapping docs and deterministic dev/test database setup.
     tests:
       - sh scripts/check_make_sqlx_migrate.sh: passed
-      - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:sourcebot@localhost:5432/sourcebot: passed
+      - make -n sqlx-migrate DATABASE_URL=postgres://sourcebot:***@localhost:5432/sourcebot: passed
       - make help: passed
       - git diff --cached --check: passed
     review:
