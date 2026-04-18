@@ -5,39 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2ee81c4d3dfe2f7d0d3c867bc5a05161c04cd8dc
+  head: dced786191ad30609075817f45b39a476e5be756
 last_completed_task:
-  id: task15a
-  title: Build read-only authenticated connections settings screen backed by GET /api/v1/auth/connections
+  id: task15b
+  title: Add authenticated connection creation form backed by POST /api/v1/auth/connections
   status: done
   summary: >-
-    Closed the first connection settings UI slice by adding a dedicated
-    `#/settings/connections` frontend route, fetching the authenticated durable
-    connection inventory from `GET /api/v1/auth/connections`, and rendering a
-    read-only settings view for eligible users while still deferring
-    create/edit/delete forms and richer sync/status controls.
+    Closed the next connection settings UI slice by extending
+    `#/settings/connections` with an authenticated creation form backed by
+    `POST /api/v1/auth/connections`, exposing all currently supported provider
+    kinds, appending newly created connections to the rendered inventory, and
+    failing closed by withholding management controls until the initial
+    authenticated inventory loads successfully while still deferring delete/edit
+    controls and richer sync/status surfaces.
   tests:
-    - npx vitest run src/App.test.tsx -t "renders a read-only authenticated connections inventory on the settings route": passed
-    - npx vitest run src/App.test.tsx -t "shows authenticated connection loading failures on the settings route": passed
-    - npm test: passed (15/15)
+    - npx vitest run src/App.test.tsx -t "renders all supported authenticated connection kind options on the settings route": passed
+    - npx vitest run src/App.test.tsx -t "shows authenticated connection management controls only after the initial settings inventory finishes loading": passed
+    - npx vitest run src/App.test.tsx -t "hides authenticated connection management controls when the settings inventory cannot be loaded": passed
+    - npx vitest run src/App.test.tsx -t "authenticated connection": passed (6 tests)
+    - npm test: passed (19/19)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15a by adding only the `#/settings/connections` frontend route plus the read-only authenticated connection inventory backed by `GET /api/v1/auth/connections`, with no create/edit/delete or sync/status scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the settings page preserves existing repo routing while adding only the intended authenticated read-only inventory slice
-  commit: 2ee81c4d3dfe2f7d0d3c867bc5a05161c04cd8dc
-  next_task: task15b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15b by adding only the authenticated settings-screen creation form backed by `POST /api/v1/auth/connections`, keeping edit/delete/richer sync controls deferred, and failing closed for non-eligible users when the authenticated inventory cannot be loaded
+    code: approved by one independent post-implementation review; reviewer found no blocking logic or security issues in the `web/src/App.tsx` and `web/src/App.test.tsx` diff and suggested only optional client-side empty-field validation as future polish
+  commit: dced786191ad30609075817f45b39a476e5be756
+  next_task: task15c
 current_task:
-  id: task15b
+  id: task15c
   parent_task: task15
-  title: Add authenticated connection creation form backed by POST /api/v1/auth/connections
+  title: Add authenticated connection deletion controls on the settings screen backed by DELETE /api/v1/auth/connections/:id
   status: pending
   summary: >-
-    Continue Task 15 with the next smallest UI slice by letting eligible users
-    create a new connection from the settings screen via the existing
-    authenticated create API, while still deferring edit/delete forms and richer
-    sync/status controls.
+    Continue Task 15 with the next smallest management slice by letting eligible
+    users remove an existing connection from `#/settings/connections` via the
+    existing authenticated delete API, while still deferring edit forms and
+    richer sync/status controls.
 history:
+  - id: task15b
+    status: done
+    summary: >-
+      Closed the next connection settings UI slice by extending
+      `#/settings/connections` with an authenticated creation form backed by
+      `POST /api/v1/auth/connections`, exposing all currently supported provider
+      kinds, appending newly created connections to the rendered inventory, and
+      failing closed by withholding management controls until the initial
+      authenticated inventory loads successfully while still deferring
+      delete/edit controls and richer sync/status surfaces.
+    tests:
+      - npx vitest run src/App.test.tsx -t "renders all supported authenticated connection kind options on the settings route": passed
+      - npx vitest run src/App.test.tsx -t "shows authenticated connection management controls only after the initial settings inventory finishes loading": passed
+      - npx vitest run src/App.test.tsx -t "hides authenticated connection management controls when the settings inventory cannot be loaded": passed
+      - npx vitest run src/App.test.tsx -t "authenticated connection": passed (6 tests)
+      - npm test: passed (19/19)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15b by adding only the authenticated settings-screen creation form backed by `POST /api/v1/auth/connections`, keeping edit/delete/richer sync controls deferred, and failing closed for non-eligible users when the authenticated inventory cannot be loaded
+      code: approved by one independent post-implementation review; reviewer found no blocking logic or security issues in the `web/src/App.tsx` and `web/src/App.test.tsx` diff and suggested only optional client-side empty-field validation as future polish
+    commit: dced786191ad30609075817f45b39a476e5be756
+    next_task: task15c
   - id: task15a
     status: done
     summary: >-
