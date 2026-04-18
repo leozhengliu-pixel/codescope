@@ -5,60 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e6f8d53f1027f9cc90838bd27a7546e41b4718fb
+  head: e165e77ee577be547b82ed8a3cecc56eec8a7c8d
 last_completed_task:
-  id: task05b5
-  title: Bootstrap the SQLx migration table for review agent runs
+  id: task05b6
+  title: Bootstrap the SQLx migration table for delivery attempts
   status: done
   summary: >-
-    Added `0006_review_agent_runs` as the next smallest task05b schema slice,
-    extending the SQLx migration inventory with only the durable review-agent-run
-    metadata table plus the minimal repository visibility and repository/connection
-    consistency constraints available in the current schema, while still deferring
-    review webhooks, delivery attempts, API keys, OAuth clients, and analytics tables.
+    Added `0007_delivery_attempts` as the final smallest task05b schema slice,
+    extending the SQLx migration inventory with only the durable review-webhook
+    delivery-attempt metadata table plus repository/connection consistency
+    constraints while still deferring review-webhook configuration, API keys,
+    OAuth clients, and analytics tables.
   tests:
-    - /opt/data/home/.cargo/bin/cargo clean -p sourcebot-api && /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_and_task05b5_review_agent_runs_only -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_and_task05b5_review_agent_runs_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_and_task05b6_delivery_attempts_only -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged diff lands exactly task05b5 by adding only `0006_review_agent_runs`, updating migration inventory coverage to versions `0001` through `0006`, preserving the deferred webhook/delivery-attempt tables, and accepting only the minimal additional org/repo plus repo/connection integrity constraints available in the current schema
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and judged the review-agent-runs status constraint, repository visibility foreign key, repository/connection consistency foreign key, down migration cleanup, and deferred-scope boundaries consistent with the intended durable-schema bootstrap
-  commit: e6f8d53f1027f9cc90838bd27a7546e41b4718fb
-  next_task: task05b6
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b6 by adding only `0007_delivery_attempts`, updating migration inventory coverage to versions `0001` through `0007`, matching the current delivery-attempt metadata contract, and explicitly deferring review-webhook configuration, API keys, OAuth clients, and analytics tables
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and judged the delivery-attempts migration scope, repository/connection consistency foreign key, down migration cleanup, and deferred-schema boundaries consistent with the intended durable-schema bootstrap
+  commit: e165e77ee577be547b82ed8a3cecc56eec8a7c8d
+  next_task: task06a
 current_task:
-  id: task05b6
-  parent_task: task05b
-  title: Bootstrap the SQLx migration table for delivery attempts
+  id: task06a
+  parent_task: task06
+  title: Add a Makefile migration command for the SQLx metadata schema
   status: pending
   summary: >-
-    Continue the durable auth/admin schema bootstrap by adding only the
-    `delivery_attempts` table needed for durable review-webhook delivery-attempt
-    metadata persistence, while still deferring review-webhook configuration,
-    API keys, OAuth clients, and analytics tables.
+    Split broad task06 into the first smallest workflow slice by adding one
+    reproducible local command for running the SQLx metadata migrations against
+    `DATABASE_URL`, while deferring the rest of the local bootstrapping docs and
+    deterministic dev/test database setup.
 history:
-  - id: task05b5
+  - id: task05b6
     status: done
     summary: >-
-      Added `0006_review_agent_runs` as the next smallest task05b schema slice,
-      extending the SQLx migration inventory with only the durable review-agent-run
-      metadata table plus the minimal repository visibility and repository/connection
-      consistency constraints available in the current schema, while still deferring
-      review webhooks, delivery attempts, API keys, OAuth clients, and analytics tables.
+      Added `0007_delivery_attempts` as the final smallest task05b schema slice,
+      extending the SQLx migration inventory with only the durable review-webhook
+      delivery-attempt metadata table plus repository/connection consistency
+      constraints while still deferring review-webhook configuration, API keys,
+      OAuth clients, and analytics tables.
     tests:
-      - /opt/data/home/.cargo/bin/cargo clean -p sourcebot-api && /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_and_task05b5_review_agent_runs_only -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_and_task05b5_review_agent_runs_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_and_task05b6_delivery_attempts_only -- --exact --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
       - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the staged diff lands exactly task05b5 by adding only `0006_review_agent_runs`, updating migration inventory coverage to versions `0001` through `0006`, preserving the deferred webhook/delivery-attempt tables, and accepting only the minimal additional org/repo plus repo/connection integrity constraints available in the current schema
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and judged the review-agent-runs status constraint, repository visibility foreign key, repository/connection consistency foreign key, down migration cleanup, and deferred-scope boundaries consistent with the intended durable-schema bootstrap
-    commit: e6f8d53f1027f9cc90838bd27a7546e41b4718fb
-    next_task: task05b6
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff lands exactly task05b6 by adding only `0007_delivery_attempts`, updating migration inventory coverage to versions `0001` through `0007`, matching the current delivery-attempt metadata contract, and explicitly deferring review-webhook configuration, API keys, OAuth clients, and analytics tables
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and judged the delivery-attempts migration scope, repository/connection consistency foreign key, down migration cleanup, and deferred-schema boundaries consistent with the intended durable-schema bootstrap
+    commit: e165e77ee577be547b82ed8a3cecc56eec8a7c8d
+    next_task: task06a
   - id: task05b4
     status: done
     summary: >-
