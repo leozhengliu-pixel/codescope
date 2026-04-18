@@ -5,63 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: be62793bef7c47a5ec967ac164437675308b3cdf
+  head: b57ea12187755b556ccdb750a6ede506dfd25d53
 last_completed_task:
-  id: task35k10
-  title: Add repeated worker-binary smoke coverage that exits cleanly without mutating state on a fourth invocation after all queued review-agent runs are completed
+  id: task35l
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id} endpoint for one visible persisted run
   status: done
   summary: >-
-    Completed the next review-agent worker slice by adding focused real-binary
-    smoke coverage that seeds multiple queued review-agent runs, invokes the real
-    sourcebot-worker binary four times against the same file-backed state, and
-    proves the fourth invocation exits cleanly without mutating the already-
-    completed persisted state once no queued review-agent runs remain. The
-    runtime semantics already existed, so this slice landed as a test-only
-    closure without production behavior changes, retries, polling loops,
-    rescheduling, or real review execution.
+    Completed the next review-agent automation slice by adding a minimal
+    local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id}
+    endpoint that returns exactly one persisted review-agent run when it belongs
+    to an organization visible to the caller, while failing closed with 404 for
+    hidden or missing runs and still deferring UI work, retries, worker-loop
+    orchestration, and real review execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_exits_cleanly_without_mutating_completed_state_on_a_fourth_invocation -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_detail -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k10 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary four times, and proves the fourth invocation is a clean idle no-mutation path after the first three invocations completed all queued runs, without production behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned fourth-invocation smoke test over the existing oldest-queued, one-claim-per-invocation, and idle no-write worker semantics
-  commit: be62793bef7c47a5ec967ac164437675308b3cdf
-  next_task: task35l
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35l by adding only the minimal local-session-authenticated review-agent-run detail endpoint for one visible persisted run, with hidden and missing runs failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visibility filtering, and fail-closed 404 behavior are correct for the new detail endpoint
+  commit: b57ea12187755b556ccdb750a6ede506dfd25d53
+  next_task: task35m
 current_task:
-  id: task35l
+  id: task35m
   parent_task: task35
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id} endpoint for one visible persisted run
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id} endpoint for one visible persisted delivery attempt
   status: pending
   summary: >-
     Expose the next smallest review-agent automation slice by adding a minimal
     local-session-authenticated detail endpoint that returns exactly one
-    persisted review-agent run when it belongs to an organization visible to the
-    caller, while still deferring UI work, retries, worker-loop orchestration,
-    and real review execution.
+    persisted review-webhook delivery attempt when it belongs to an organization
+    visible to the caller, while still deferring UI work, retries, worker-loop
+    orchestration, and real review execution.
 history:
-  - id: task35k10
+  - id: task35l
     status: done
     summary: >-
-      Completed the next review-agent worker slice by adding focused real-binary
-      smoke coverage that seeds multiple queued review-agent runs, invokes the real
-      sourcebot-worker binary four times against the same file-backed state, and
-      proves the fourth invocation exits cleanly without mutating the already-
-      completed persisted state once no queued review-agent runs remain. The
-      runtime semantics already existed, so this slice landed as a test-only
-      closure without production behavior changes, retries, polling loops,
-      rescheduling, or real review execution.
+      Completed the next review-agent automation slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id}
+      endpoint that returns exactly one persisted review-agent run when it belongs
+      to an organization visible to the caller, while failing closed with 404 for
+      hidden or missing runs and still deferring UI work, retries, worker-loop
+      orchestration, and real review execution.
     tests:
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_exits_cleanly_without_mutating_completed_state_on_a_fourth_invocation -- --exact --nocapture: passed
-      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_detail -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     review:
-      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35k10 by adding only focused real sourcebot-worker binary smoke coverage that seeds multiple queued review-agent runs, invokes the same file-backed sourcebot-worker binary four times, and proves the fourth invocation is a clean idle no-mutation path after the first three invocations completed all queued runs, without production behavior changes
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the diff is a narrow, task-aligned fourth-invocation smoke test over the existing oldest-queued, one-claim-per-invocation, and idle no-write worker semantics
-    commit: be62793bef7c47a5ec967ac164437675308b3cdf
-    next_task: task35l
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35l by adding only the minimal local-session-authenticated review-agent-run detail endpoint for one visible persisted run, with hidden and missing runs failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visibility filtering, and fail-closed 404 behavior are correct for the new detail endpoint
+    commit: b57ea12187755b556ccdb750a6ede506dfd25d53
+    next_task: task35m
   - id: task35k8
     status: done
     summary: >-
