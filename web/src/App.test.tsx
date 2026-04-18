@@ -375,6 +375,69 @@ describe('App', () => {
     expect(screen.getByText('Binary file or patch unavailable.')).toBeInTheDocument();
   });
 
+  it('renders a read-only authenticated connections inventory on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections') {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByText('Kind: github')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
+    expect(screen.getByText('Local Mirror')).toBeInTheDocument();
+    expect(screen.getByText('Repo path: /srv/git/mirror')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create/i })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/connections');
+  });
+
+  it('shows authenticated connection loading failures on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections') {
+        return jsonResponse({}, false, 403);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(await screen.findByText('Failed to load connections: Request failed: 403')).toBeInTheDocument();
+  });
+
   it('finds definitions for the selected file symbol and renders ordered navigable candidates with revision metadata', async () => {
     window.location.hash = '#/repos/repo-42';
 

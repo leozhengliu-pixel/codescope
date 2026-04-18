@@ -163,6 +163,23 @@ type CommitDiffResponse = {
   files: CommitDiffFile[];
 };
 
+type AuthConnectionConfig =
+  | {
+      provider: 'github' | 'gitlab' | 'gitea' | 'gerrit' | 'bitbucket' | 'azure_devops' | 'generic_git';
+      base_url: string;
+    }
+  | {
+      provider: 'local';
+      repo_path: string;
+    };
+
+type AuthConnection = {
+  id: string;
+  name: string;
+  kind: string;
+  config?: AuthConnectionConfig;
+};
+
 function useHashLocation() {
   const [hash, setHash] = useState(() => window.location.hash || '#/');
 
@@ -1077,6 +1094,80 @@ function BrowsePanel({ repoId }: { repoId: string }) {
   );
 }
 
+function connectionConfigSummary(connection: AuthConnection) {
+  if (!connection.config) {
+    return null;
+  }
+
+  if ('base_url' in connection.config) {
+    return `Base URL: ${connection.config.base_url}`;
+  }
+
+  return `Repo path: ${connection.config.repo_path}`;
+}
+
+function SettingsConnectionsPage() {
+  const [connections, setConnections] = useState<AuthConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<AuthConnection[]>('/api/v1/auth/connections')
+      .then((data) => {
+        if (!cancelled) {
+          setConnections(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setConnections([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel
+      title="Authenticated connections"
+      subtitle="Read-only inventory from the authenticated connections API. Create, edit, delete, and sync controls remain out of scope."
+    >
+      {loading ? <div>Loading connections…</div> : null}
+      {!loading && error ? <div>Failed to load connections: {error}</div> : null}
+      {!loading && !error && connections.length === 0 ? <div>No authenticated connections are available.</div> : null}
+      {!loading && !error && connections.length > 0 ? (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {connections.map((connection) => {
+            const configSummary = connectionConfigSummary(connection);
+
+            return (
+              <article key={connection.id} style={detailCardStyle}>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{connection.name}</div>
+                  <div style={{ color: '#57606a' }}>Kind: {connection.kind}</div>
+                  <div style={{ color: '#57606a' }}>Connection id: {connection.id}</div>
+                  {configSummary ? <div style={{ color: '#57606a' }}>{configSummary}</div> : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
 function Panel({
   title,
   subtitle,
@@ -1292,6 +1383,10 @@ export function App() {
   const hash = useHashLocation();
 
   const route = useMemo(() => {
+    if (hash === '#/settings/connections') {
+      return { kind: 'settings-connections' as const };
+    }
+
     const match = hash.match(/^#\/repos\/([^/]+)$/);
     if (match) {
       return { kind: 'repo' as const, repoId: decodeURIComponent(match[1]) };
@@ -1314,9 +1409,19 @@ export function App() {
         <p style={{ color: '#57606a', marginTop: 8 }}>
           Clean-room code intelligence workspace: repository inventory, sync state, and API-backed detail views.
         </p>
+        <nav style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+          <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
+            Repositories
+          </a>
+          <a href="#/settings/connections" style={{ color: '#0969da', fontWeight: 600 }}>
+            Settings / Connections
+          </a>
+        </nav>
       </header>
 
-      {route.kind === 'repo' ? <RepoDetailPage repoId={route.repoId} /> : <RepoListPage />}
+      {route.kind === 'repo' ? <RepoDetailPage repoId={route.repoId} /> : null}
+      {route.kind === 'settings-connections' ? <SettingsConnectionsPage /> : null}
+      {route.kind === 'home' ? <RepoListPage /> : null}
     </main>
   );
 }
