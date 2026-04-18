@@ -62,6 +62,13 @@ impl PgCatalogStore {
         Ok(Self { pool })
     }
 
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
+    }
+
     pub fn pool(&self) -> &sqlx::PgPool {
         &self.pool
     }
@@ -87,10 +94,12 @@ impl CatalogStore for PgCatalogStore {
 }
 
 pub async fn build_catalog_store(database_url: Option<&str>) -> Result<DynCatalogStore> {
-    if database_url.is_some() {
+    if let Some(database_url) = database_url {
         warn!(
-            "DATABASE_URL is configured, but PgCatalogStore is still a skeleton; falling back to seeded in-memory catalog store"
+            "DATABASE_URL is configured; using lazy PgCatalogStore skeleton until catalog queries are implemented"
         );
+
+        return Ok(Arc::new(PgCatalogStore::connect_lazy(database_url)?));
     }
 
     Ok(Arc::new(InMemoryCatalogStore::seeded()))
@@ -451,16 +460,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_catalog_store_with_database_still_uses_seeded_in_memory_store() {
-        let store = build_catalog_store(Some(
-            "postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot",
-        ))
-        .await
-        .unwrap();
-        let repositories = store.list_repositories().await.unwrap();
+    async fn build_catalog_store_with_database_uses_postgres_catalog_store_path() {
+        let store = build_catalog_store(Some("postgres://sourcebot:***@127.0.0.1:5432/sourcebot"))
+            .await
+            .unwrap();
+        let error = store.list_repositories().await.unwrap_err();
 
-        assert!(repositories
-            .iter()
-            .any(|repository| repository.id == "repo_sourcebot_rewrite"));
+        assert!(
+            error
+                .to_string()
+                .contains("postgres catalog store list_repositories is not implemented yet"),
+            "expected postgres-backed catalog store error, got: {error:?}"
+        );
     }
 }
