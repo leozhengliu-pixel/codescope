@@ -5,40 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b57ea12187755b556ccdb750a6ede506dfd25d53
+  head: 2ebe86f9899e59614823490557d5eb70ef95f22a
 last_completed_task:
-  id: task35l
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id} endpoint for one visible persisted run
+  id: task35m
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id} endpoint for one visible persisted delivery attempt
   status: done
   summary: >-
     Completed the next review-agent automation slice by adding a minimal
-    local-session-authenticated GET /api/v1/auth/review-agent-runs/{run_id}
-    endpoint that returns exactly one persisted review-agent run when it belongs
-    to an organization visible to the caller, while failing closed with 404 for
-    hidden or missing runs and still deferring UI work, retries, worker-loop
-    orchestration, and real review execution.
+    local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id}
+    endpoint that returns exactly one persisted review-webhook delivery attempt
+    when it belongs to a webhook whose organization is visible to the caller,
+    while failing closed with 404 for hidden, orphaned, or missing attempts and
+    still deferring UI work, retries, worker-loop orchestration, and real review
+    execution.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs_detail -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_agent_runs -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts_detail -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
   review:
-    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35l by adding only the minimal local-session-authenticated review-agent-run detail endpoint for one visible persisted run, with hidden and missing runs failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visibility filtering, and fail-closed 404 behavior are correct for the new detail endpoint
-  commit: b57ea12187755b556ccdb750a6ede506dfd25d53
-  next_task: task35m
+    spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35m by adding only the minimal local-session-authenticated review-webhook-delivery-attempt detail endpoint for one visible persisted attempt, with hidden, orphaned, and missing attempts failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-webhook filtering, and fail-closed 404 behavior are correct for the new detail endpoint
+  commit: 2ebe86f9899e59614823490557d5eb70ef95f22a
+  next_task: task35n
 current_task:
-  id: task35m
+  id: task35n
   parent_task: task35
-  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id} endpoint for one visible persisted delivery attempt
+  title: Add a minimal local-session-authenticated GET /api/v1/auth/review-webhooks/{webhook_id} endpoint for one visible persisted webhook
   status: pending
   summary: >-
     Expose the next smallest review-agent automation slice by adding a minimal
     local-session-authenticated detail endpoint that returns exactly one
-    persisted review-webhook delivery attempt when it belongs to an organization
-    visible to the caller, while still deferring UI work, retries, worker-loop
-    orchestration, and real review execution.
+    persisted review webhook when it belongs to an organization visible to the
+    caller, while still deferring UI work, retries, worker-loop orchestration,
+    secret rotation, and real review execution.
 history:
+  - id: task35m
+    status: done
+    summary: >-
+      Completed the next review-agent automation slice by adding a minimal
+      local-session-authenticated GET /api/v1/auth/review-webhook-delivery-attempts/{attempt_id}
+      endpoint that returns exactly one persisted review-webhook delivery attempt
+      when it belongs to a webhook whose organization is visible to the caller,
+      while failing closed with 404 for hidden, orphaned, or missing attempts and
+      still deferring UI work, retries, worker-loop orchestration, and real review
+      execution.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts_detail -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api auth_review_webhook_delivery_attempts -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+    review:
+      spec: passed one independent spec-compliance review; reviewer confirmed the diff lands exactly task35m by adding only the minimal local-session-authenticated review-webhook-delivery-attempt detail endpoint for one visible persisted attempt, with hidden, orphaned, and missing attempts failing closed as 404, and without UI work, retries, worker-loop orchestration, or real review execution
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the route wiring, local-session authentication, visible-webhook filtering, and fail-closed 404 behavior are correct for the new detail endpoint
+    commit: 2ebe86f9899e59614823490557d5eb70ef95f22a
+    next_task: task35n
   - id: task35l
     status: done
     summary: >-
