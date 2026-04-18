@@ -5,40 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b1e6f24026ba083e7dec9c7acea449e01d1233d7
+  head: 13f33880befd855d1a993c449f8a5c457072122a
 last_completed_task:
-  id: task14b
-  title: Add authenticated connection creation backed by durable OrganizationState
+  id: task14c
+  title: Add authenticated connection update backed by durable OrganizationState
   status: done
   summary: >-
     Closed the next connection CRUD slice by adding authenticated
-    `POST /api/v1/auth/connections`, validating trimmed names plus
-    kind/config compatibility, persisting created connections into durable
-    `OrganizationState.connections`, and failing closed for viewer-only or
-    otherwise non-admin authenticated users while still deferring update/delete
-    mutations and connection settings UI work.
+    `PUT /api/v1/auth/connections/{connection_id}`, updating durable
+    `OrganizationState.connections` in place, preserving existing connection IDs,
+    rejecting blank names and mismatched provider configs, and failing closed for
+    viewer-only or otherwise non-admin authenticated users while still deferring
+    delete mutations and connection settings UI work.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_create -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_update_rejects_missing_connection_id -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_update -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
     - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14b by adding only the authenticated connection-creation slice backed by durable `OrganizationState.connections`, with no update/delete/UI/credential/ownership scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves the listing slice's fail-closed admin boundary while validating input before persistence
-  commit: b1e6f24026ba083e7dec9c7acea449e01d1233d7
-  next_task: task14c
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14c by adding only the authenticated connection-update slice backed by durable `OrganizationState.connections`, including 404 precedence for missing connection IDs even when the payload is invalid or malformed, with no delete/UI/settings/sync/ownership scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves fail-closed auth semantics while updating the existing durable connection record in place
+  commit: 13f33880befd855d1a993c449f8a5c457072122a
+  next_task: task14d
 current_task:
-  id: task14c
+  id: task14d
   parent_task: task14
-  title: Add authenticated connection update backed by durable OrganizationState
+  title: Add authenticated connection delete backed by durable OrganizationState
   status: pending
   summary: >-
-    Continue Task 14 with the next smallest externally visible CRUD slice by
-    adding authenticated connection update backed by durable
-    `OrganizationState.connections`, while still deferring delete mutations and
-    connection settings UI work.
+    Continue Task 14 with the remaining smallest externally visible CRUD slice by
+    adding authenticated connection deletion backed by durable
+    `OrganizationState.connections`, while still deferring connection settings UI
+    work.
 history:
+  - id: task14c
+    status: done
+    summary: >-
+      Closed the next connection CRUD slice by adding authenticated
+      `PUT /api/v1/auth/connections/{connection_id}`, updating durable
+      `OrganizationState.connections` in place, preserving existing connection IDs,
+      rejecting blank names and mismatched provider configs, and failing closed for
+      viewer-only or otherwise non-admin authenticated users while still deferring
+      delete mutations and connection settings UI work.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api tests::auth_connections_update_rejects_missing_connection_id -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_update -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_connections_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-models: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task14c by adding only the authenticated connection-update slice backed by durable `OrganizationState.connections`, including 404 precedence for missing connection IDs even when the payload is invalid or malformed, with no delete/UI/settings/sync/ownership scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the handler preserves fail-closed auth semantics while updating the existing durable connection record in place
+    commit: 13f33880befd855d1a993c449f8a5c457072122a
+    next_task: task14d
   - id: task14b
     status: done
     summary: >-
