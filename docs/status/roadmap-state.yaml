@@ -5,42 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 43f9433c9d8f3a42c8b985cbaad1e89dcdd3dd1e
+  head: c11eacfe66072ec5a5115e34f106faf3995538c3
 last_completed_task:
-  id: task13b2
-  title: Populate seeded connection fixtures with provider-scoped config examples
+  id: task13c
+  title: Extend OrganizationState with durable connection records and serde coverage
   status: done
   summary: >-
-    Closed the second task13b slice by populating the shared seeded connection
-    fixtures with truthful provider-scoped config examples for every supported
-    connection kind so the in-memory catalog seed path now carries concrete
-    GitHub, GitLab, Gitea, Gerrit, Bitbucket, Azure DevOps, generic Git, and
-    local connection metadata while still deferring credential payloads,
-    authenticated CRUD APIs, and durable connection storage wiring.
+    Closed the first durable connection aggregate slice by extending
+    `OrganizationState` with a backward-compatible `connections` collection,
+    adding focused serde/default coverage, and proving a non-empty connection
+    record round-trips through the file-backed organization-state persistence
+    path while still deferring credential secrets, authenticated CRUD routes,
+    and SQL-backed storage wiring.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::seed_connections_include_provider_scoped_config_examples_for_each_supported_kind -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_to_empty_collections_and_serializes_cleanly -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_connections_for_persistence -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_connections_to_empty_on_deserialize -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_models_round_trip_as_reusable_domain_data -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings in sourcebot-api storage migrator)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13b2 by extending only the shared seeded connection fixtures with provider-scoped config examples for supported kinds, with no credential, CRUD, persistence, or frontend scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the seeded fixture expansion is the minimal correct way to make the in-memory catalog path carry truthful provider-scoped examples for every currently modeled connection kind
-  commit: 43f9433c9d8f3a42c8b985cbaad1e89dcdd3dd1e
-  next_task: task13c
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13c by adding only the backward-compatible `OrganizationState.connections` collection plus focused serde/default coverage and one non-empty file-backed round-trip proof, with no CRUD, credential, SQL, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the patch is the minimal correct way to persist durable connection records in the existing organization-state aggregate
+  commit: c11eacfe66072ec5a5115e34f106faf3995538c3
+  next_task: task14a
 current_task:
-  id: task13c
-  parent_task: task13
-  title: Extend OrganizationState with durable connection records and serde coverage
+  id: task14a
+  parent_task: task14
+  title: Add authenticated connection listing from durable OrganizationState
   status: pending
   summary: >-
-    Add the first durable connection aggregate slice by extending
-    `OrganizationState` with a backward-compatible connections collection plus
-    focused serde/default and non-empty round-trip coverage, while still
-    deferring credential secrets, authenticated CRUD routes, and SQL-backed
-    storage wiring.
+    Start Task 14 with the smallest externally visible CRUD slice by exposing an
+    authenticated connection-list endpoint backed by the durable
+    `OrganizationState.connections` collection, while deferring create/update/
+    delete mutations and sync-status/admin history work.
 history:
+  - id: task13c
+    status: done
+    summary: >-
+      Closed the first durable connection aggregate slice by extending
+      `OrganizationState` with a backward-compatible `connections` collection,
+      adding focused serde/default coverage, and proving a non-empty connection
+      record round-trips through the file-backed organization-state persistence
+      path while still deferring credential secrets, authenticated CRUD routes,
+      and SQL-backed storage wiring.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_to_empty_collections_and_serializes_cleanly -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_connections_for_persistence -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_defaults_connections_to_empty_on_deserialize -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_models_round_trip_as_reusable_domain_data -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings in sourcebot-api storage migrator)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task13c by adding only the backward-compatible `OrganizationState.connections` collection plus focused serde/default coverage and one non-empty file-backed round-trip proof, with no CRUD, credential, SQL, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and confirmed the patch is the minimal correct way to persist durable connection records in the existing organization-state aggregate
+    commit: c11eacfe66072ec5a5115e34f106faf3995538c3
+    next_task: task14a
   - id: task13b2
     status: done
     summary: >-
