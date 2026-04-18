@@ -5,46 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0dc8848f51464e8d5d0dfb5b079f036c4020c6ad
+  head: fd41e7c9435757630a001d7a4864254c9378af42
 last_completed_task:
-  id: task06c2b1
-  title: Add sqlx-test metadata workflow wrapper
+  id: task07a
+  title: Add first Postgres-backed catalog store contract test
   status: done
   summary: >-
-    Split broad task06c2b into the smallest truthful closure slice by adding a
-    reproducible `make sqlx-test` wrapper that composes the guarded
-    `sqlx-test-reset` flow with the focused `sourcebot-api` metadata storage
-    tests, documents that wrapper in `README.md`, adds a dedicated shell
-    contract check, and explicitly records that the workflow still does not
-    provide full Postgres-backed runtime parity.
+    Split broad task07 into the smallest persistence-parity slice by replacing
+    the fallback-only contract with a failing-then-passing test proving
+    `build_catalog_store(Some(DATABASE_URL))` now constructs the Postgres-backed
+    catalog store path via a lazy SQLx pool instead of always serving the
+    seeded in-memory catalog, while still deferring real catalog queries and the
+    full durable-store migration.
   tests:
-    - sh ./scripts/check_sqlx_test_workflow.sh: passed
-    - sh ./scripts/check_local_metadata_env_contract.sh .: passed
-    - sh ./scripts/check_metadata_bootstrap_docs.sh README.md: passed
-    - sh ./scripts/check_make_sqlx_migrate.sh: passed
-    - make help: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
-    - cp .env.example .env && make -n dev-up && make -n sqlx-migrate && make -n sqlx-test-reset && make -n sqlx-test && rm .env: passed
-    - TEST_DATABASE_URL=postgres://sourcebot:***@db.example.com:5432/sourcebot_prod CARGO=true make sqlx-test: failed closed as expected
-    - cp .env.example .env && make dev-up && CARGO=/opt/data/home/.cargo/bin/cargo make sqlx-test && rm .env: blocked by cron environment missing docker (`make: docker: No such file or directory`)
+    - cargo test -p sourcebot-api --bin sourcebot-api storage::tests::build_catalog_store_with_database_uses_postgres_catalog_store_path -- --exact --nocapture: passed
+    - cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+    - cargo fmt --all --check: passed
+    - cargo check -p sourcebot-api: passed with pre-existing dead_code warnings for catalog migrator in non-test builds
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged diff cleanly lands task06c2b1 by adding only the `make sqlx-test` wrapper, aligned README/help/contract-check coverage, and truthful scope notes that keep full Postgres-backed runtime parity deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the wrapper safely delegates destructive reset behavior to the existing guarded `sqlx-test-reset` target before running the focused metadata storage tests
-  commit: 0dc8848f51464e8d5d0dfb5b079f036c4020c6ad
-  next_task: task07a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task07a by adding only the first contract test plus the minimal lazy PgCatalogStore construction path needed to stop `build_catalog_store` from silently falling back to the seeded in-memory catalog when `DATABASE_URL` is configured
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the lazy SQLx pool is a truthful minimal implementation for this slice because it exercises the Postgres branch without requiring a live server while real catalog queries remain deferred
+  commit: fd41e7c9435757630a001d7a4864254c9378af42
+  next_task: task07b
 current_task:
-  id: task07a
+  id: task07b
   parent_task: task07
-  title: Add first Postgres-backed catalog store contract test
+  title: Add first Postgres-backed repository listing query
   status: pending
   summary: >-
-    Split broad task07 into the smallest persistence-parity slice by adding one
-    failing-then-passing contract test that proves `build_catalog_store` can
-    construct a real SQL-backed catalog path instead of always falling back to
-    the seeded in-memory store, without yet attempting the full catalog-store
-    migration.
+    Continue broad task07 with the next smallest durable-catalog slice by
+    implementing one focused Postgres-backed `list_repositories` query path that
+    returns the existing repository summary contract from the SQL metadata tables
+    instead of the seeded in-memory catalog, while still deferring repository
+    detail parity and broader catalog-store migration work.
 history:
+  - id: task07a
+    status: done
+    summary: >-
+      Split broad task07 into the smallest persistence-parity slice by replacing
+      the fallback-only contract with a failing-then-passing test proving
+      `build_catalog_store(Some(DATABASE_URL))` now constructs the
+      Postgres-backed catalog store path via a lazy SQLx pool instead of always
+      serving the seeded in-memory catalog, while still deferring real catalog
+      queries and the full durable-store migration.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api storage::tests::build_catalog_store_with_database_uses_postgres_catalog_store_path -- --exact --nocapture: passed
+      - cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - cargo fmt --all --check: passed
+      - cargo check -p sourcebot-api: passed with pre-existing dead_code warnings for catalog migrator in non-test builds
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task07a by adding only the first contract test plus the minimal lazy PgCatalogStore construction path needed to stop `build_catalog_store` from silently falling back to the seeded in-memory catalog when `DATABASE_URL` is configured
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues and agreed the lazy SQLx pool is a truthful minimal implementation for this slice because it exercises the Postgres branch without requiring a live server while real catalog queries remain deferred
+    commit: fd41e7c9435757630a001d7a4864254c9378af42
+    next_task: task07b
   - id: task06c2b1
     status: done
     summary: >-
