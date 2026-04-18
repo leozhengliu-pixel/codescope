@@ -25,20 +25,21 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
 - `specs/CLEAN_ROOM_RULES.md`
 
 ## Local metadata DB bootstrap
-1. Start the local Postgres service:
+1. Copy the example env file for the deterministic local Postgres defaults:
+   ```bash
+   cp .env.example .env
+   ```
+2. Start the local Postgres service:
    ```bash
    make dev-up
-   ```
-2. Set `DATABASE_URL` to the local metadata database:
-   ```bash
-   export DATABASE_URL=postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot
    ```
 3. Run the SQLx metadata-schema migrations:
    ```bash
    make sqlx-migrate
    ```
-4. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; this workflow only bootstraps the metadata schema for upcoming durable-store slices.
-5. Deterministic dev/test database setup remains deferred to a later roadmap slice.
+4. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for the local-only `sourcebot` / `sourcebot` bootstrap defaults.
+5. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; this workflow only bootstraps the metadata schema for upcoming durable-store slices.
+6. Deterministic dev/test database setup remains deferred to a later roadmap slice.
 
 ## License
 Current default: MIT.
