@@ -5,37 +5,53 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e319358cc461f06d98576c403350e6d8815e1694
+  head: 348457aa17fed50e7eaffcfd3bd545688a973b66
 last_completed_task:
-  id: roadmap-bootstrap-2026-04-18
-  title: Publish the full-parity Sourcebot rewrite roadmap and reopen autonomous execution against the next unfinished parity slice
+  id: task01a1
+  title: Create the first parity acceptance surface index for current route, page, worker, and operator families
   status: done
   summary: >-
-    Replaced the completed MVP-era roadmap with a new full-parity roadmap that
-    targets practical 100% Sourcebot replacement coverage across backend,
-    frontend, integrations, worker orchestration, auth/admin, and operator
-    workflows, and advanced the canonical state file to the first new parity
-    audit slice.
+    Created `specs/acceptance/index.md` as the first smallest full-parity audit
+    slice, inventorying the current rewrite API route families, frontend page/panel
+    surfaces, worker entrypoint behaviors, and operator-facing workflow anchors,
+    while mapping each area to existing or explicitly missing acceptance specs so
+    later parity work can attach to a concrete clean-room contract.
   tests:
-    - docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md written: passed
-    - docs/status/roadmap-state.yaml advanced to task01a: passed
-    - git status --short && git branch --show-current && git rev-parse HEAD: passed
+    - git diff --check: passed
+    - python3 reference validation for specs/acceptance/index.md repo file links: passed
   review:
-    spec: passed one planning review; the new roadmap now defines a concrete 100% parity target instead of stopping at the earlier narrowed rewrite scope, and the first execution slice correctly starts with parity contract inventory before broad implementation.
-    code: approved for bootstrap; the state file now cleanly supersedes the completed 35-task roadmap without erasing prior history and points the next run at one smallest parity-audit slice.
-  commit: e319358cc461f06d98576c403350e6d8815e1694
-  next_task: task01a
+    spec: passed one independent post-implementation review; reviewer confirmed the new acceptance index truthfully inventories the current rewrite route/page/worker/operator surface families using only the allowed roadmap/state/spec/router/frontend/worker evidence and correctly marks missing worker/operator/admin/frontend parity areas as planned rather than shipped
+    code: approved by one independent post-implementation review; reviewer found the docs-only slice appropriately scoped, factually grounded, and suitable as the first acceptance-index anchor for later parity expansion
+  commit: 348457aa17fed50e7eaffcfd3bd545688a973b66
+  next_task: task01a2
 current_task:
-  id: task01a
+  id: task01a2
   parent_task: task01
-  title: Inventory upstream route, page, worker, and operator surfaces into a rewrite-owned parity acceptance index
+  title: Map the indexed route, page, worker, and operator surfaces into explicit user/admin/operator journeys and missing acceptance-spec follow-ups
   status: pending
   summary: >-
-    Create the first smallest full-parity audit slice by enumerating the upstream
-    product surfaces that must be matched, storing them in clean-room rewrite
-    acceptance docs so all later implementation work is driven by explicit parity
-    contracts rather than ad-hoc local optimization.
+    Use the new acceptance index as the source inventory, then write the next
+    smallest parity-audit slice that groups those surfaces into concrete user,
+    admin, and operator journeys and identifies which dedicated acceptance specs
+    still need to be created before broad implementation work continues.
 history:
+  - id: task01a1
+    status: done
+    summary: >-
+      Created `specs/acceptance/index.md` as the first smallest full-parity audit
+      slice, inventorying the current rewrite API route families, frontend
+      page/panel surfaces, worker entrypoint behaviors, and operator-facing
+      workflow anchors, while mapping each area to existing or explicitly
+      missing acceptance specs so later parity work can attach to a concrete
+      clean-room contract.
+    tests:
+      - git diff --check: passed
+      - python3 reference validation for specs/acceptance/index.md repo file links: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the new acceptance index truthfully inventories the current rewrite route/page/worker/operator surface families using only the allowed roadmap/state/spec/router/frontend/worker evidence and correctly marks missing worker/operator/admin/frontend parity areas as planned rather than shipped
+      code: approved by one independent post-implementation review; reviewer found the docs-only slice appropriately scoped, factually grounded, and suitable as the first acceptance-index anchor for later parity expansion
+    commit: 348457aa17fed50e7eaffcfd3bd545688a973b66
+    next_task: task01a2
   - id: roadmap-bootstrap-2026-04-18
     status: done
     summary: >-
