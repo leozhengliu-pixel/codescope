@@ -5,46 +5,58 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fe4d6ef62a7bbda54a02d5c4b3e503a0c73bcf32
+  head: 7a4cbe20463e00ea33c7e1ba1c5616bae5f7f980
 last_completed_task:
-  id: task04b2b
-  title: Centralize opt-in search ignored/binary and browse symlink variants behind shared fixture helpers
+  id: task05a
+  title: Bootstrap the first SQLx migration for durable repository catalog metadata
   status: done
   summary: >-
-    Added opt-in shared fixture helpers for the remaining search ignored/binary
-    corpus extras and browse symlink variants in `crates/test_support/repo_tree_fixture.rs`,
-    rewired the search and browse tests to use them, and reconciled the canonical
-    fixture layout doc so task04b2b now truthfully records the shared helper ownership
-    without touching commit temp-git helpers.
+    Added the first SQLx-backed catalog migration slice under `crates/api/migrations/`,
+    enabled `sqlx` migration support in the API crate, exposed the catalog migrator for
+    focused verification, and locked the scope to `connections` plus `repositories`
+    while explicitly deferring organizations, sessions, ask threads, and review-agent
+    tables to later task05 follow-up slices.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::shared_repo_tree_fixture_can_add_search_ignored_and_binary_variants -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::shared_repo_tree_fixture_can_add_browse_symlink_variants -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search tests::local_search_store_skips_git_binary_and_large_files -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_globs_symlink_paths_visible_in_tree_entries -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests::local_browse_store_grep_skips_symlinked_files_outside_repo_root -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-search: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api browse::tests: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_tables_only -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-search -p sourcebot-api: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
     - git diff --check: passed
-    - python3 task04b2b fixture docs reconciliation validation: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task04b2b by centralizing search ignored/binary variants and browse symlink variants behind opt-in shared fixture helpers, preserving the canonical layout contract and `repo_test`, and leaving commit temp-git helpers untouched after the fixture layout doc was reconciled to task04b2b
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the test-only fixture helper centralization diff and noted only a non-blocking suggestion about making the outside-root browse symlink target filename unique per temp root
-  commit: fe4d6ef62a7bbda54a02d5c4b3e503a0c73bcf32
-  next_task: task05a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff cleanly lands only the first catalog SQLx migration for `connections` and `repositories`, keeps later task05 tables deferred, and matches the intended task05a scope
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the SQLx migration bootstrap diff and judged the migration ordering plus enum-aligned checks consistent with the existing models
+  commit: 7a4cbe20463e00ea33c7e1ba1c5616bae5f7f980
+  next_task: task05b
 current_task:
-  id: task05a
+  id: task05b
   parent_task: task05
-  title: Bootstrap the first SQLx migration for durable repository catalog metadata
+  title: Bootstrap SQLx migration tables for organizations, accounts, invites, memberships, and repository permission bindings
   status: pending
   summary: >-
-    Split the broad PostgreSQL schema bootstrap into the first smallest durable slice:
-    audit the existing PgCatalogStore skeleton and land the initial SQLx migration plus
-    repository catalog tables needed to replace the seeded in-memory catalog path later,
-    while explicitly deferring organizations, sessions, ask threads, and review-agent
-    state to later task05 follow-up slices.
+    Extend the durable metadata schema with the next smallest auth/admin slice by
+    adding only the organization, local-account, invite, membership, and repo-permission
+    binding tables needed to begin replacing file-backed organization state later,
+    while still deferring sessions, ask threads, and review-agent persistence.
 history:
+  - id: task05a
+    status: done
+    summary: >-
+      Added the first SQLx-backed catalog migration slice under `crates/api/migrations/`,
+      enabled `sqlx` migration support in the API crate, exposed the catalog migrator for
+      focused verification, and locked the scope to `connections` plus `repositories`
+      while explicitly deferring organizations, sessions, ask threads, and review-agent
+      tables to later task05 follow-up slices.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_tables_only -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff cleanly lands only the first catalog SQLx migration for `connections` and `repositories`, keeps later task05 tables deferred, and matches the intended task05a scope
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the SQLx migration bootstrap diff and judged the migration ordering plus enum-aligned checks consistent with the existing models
+    commit: 7a4cbe20463e00ea33c7e1ba1c5616bae5f7f980
+    next_task: task05b
   - id: task04b2b
     status: done
     summary: >-
