@@ -5,51 +5,52 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 69b59d7c0bc370a63b894e9ca406b94600d2db33
+  head: 88281df353082a1b54f3d14b45ea70562c37d3fa
 last_completed_task:
-  id: task03f
-  title: Extend the parity gap report with the ops domain
+  id: task04a
+  title: Create the canonical fixtures policy document and source inventory
   status: done
   summary: >-
-    Extended `docs/reports/2026-04-18-parity-gap-report.md` with the ops domain
-    only, grounding conservative Partial/Missing parity judgments in the live
-    runtime/config/deployment/worker/operator evidence and closing task03 domain
-    coverage without broadening into implementation work.
+    Added `specs/fixtures-policy.md` as the canonical clean-room fixture policy and
+    source inventory, grounding the current repo-owned fixture families in live
+    catalog/search/browse/commit/auth/worker/provider/frontend evidence while
+    explicitly deferring centralization and dedicated corpus extraction to later
+    task04 slices.
   tests:
-    - python3 ops parity gap report marker validation: passed
+    - python3 fixture policy structure and repo path references: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged task03f slice stays docs-only, limits scope to the ops domain plus the expected task03 coverage-closing note, and uses conservative parity judgments grounded in live repo evidence
-    code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the ops gap report additions factually grounded, scope-disciplined, and suitable as the canonical final task03 domain slice
-  commit: 69b59d7c0bc370a63b894e9ca406b94600d2db33
-  next_task: task04a
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only slice cleanly lands task04a as the canonical fixture policy plus source inventory, stays aligned with the roadmap/state scope, and avoids overclaiming fixture centralization
+    code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues and judged the cited fixture families grounded in the live repo sources
+  commit: 88281df353082a1b54f3d14b45ea70562c37d3fa
+  next_task: task04b
 current_task:
-  id: task04a
+  id: task04b
   parent_task: task04
-  title: Create the canonical fixtures policy document and source inventory
+  title: Define the canonical repository/git/search corpus layout and shared builders
   status: pending
   summary: >-
-    Split broad roadmap task04 into the first smallest slice: create the
-    canonical fixture-policy document that inventories the required fixture
-    families and clean-room source constraints before filling domain-specific
-    fixture generation and reuse rules in later task04 slices.
+    Build the next smallest task04 slice by defining or extracting the shared
+    repository/git/search fixture corpus layout and builders that later parity
+    search, browse, and commit slices should reuse.
 history:
-  - id: task03f
+  - id: task04a
     status: done
     summary: >-
-      Extended `docs/reports/2026-04-18-parity-gap-report.md` with the ops domain
-      only, grounding conservative Partial/Missing parity judgments in the live
-      runtime/config/deployment/worker/operator evidence and closing task03 domain
-      coverage without broadening into implementation work.
+      Added `specs/fixtures-policy.md` as the canonical clean-room fixture policy and
+      source inventory, grounding the current repo-owned fixture families in live
+      catalog/search/browse/commit/auth/worker/provider/frontend evidence while
+      explicitly deferring centralization and dedicated corpus extraction to later
+      task04 slices.
     tests:
-      - python3 ops parity gap report marker validation: passed
+      - python3 fixture policy structure and repo path references: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the staged task03f slice stays docs-only, limits scope to the ops domain plus the expected task03 coverage-closing note, and uses conservative parity judgments grounded in live repo evidence
-      code: approved by the same independent post-implementation review; reviewer found no blocking issues and judged the ops gap report additions factually grounded, scope-disciplined, and suitable as the canonical final task03 domain slice
-    commit: 69b59d7c0bc370a63b894e9ca406b94600d2db33
-    next_task: task04a
-  - id: task03e
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only slice cleanly lands task04a as the canonical fixture policy plus source inventory, stays aligned with the roadmap/state scope, and avoids overclaiming fixture centralization
+      code: approved by the same independent post-implementation review; reviewer found no blocking factual or clean-room issues and judged the cited fixture families grounded in the live repo sources
+    commit: 88281df353082a1b54f3d14b45ea70562c37d3fa
+    next_task: task04b
+  - id: task03f
     status: done
     summary: >-
       Extended `docs/reports/2026-04-18-parity-gap-report.md` with the auth/admin
