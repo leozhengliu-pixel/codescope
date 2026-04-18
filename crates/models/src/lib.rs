@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 pub enum ConnectionKind {
     GitHub,
     GitLab,
+    Gitea,
+    Gerrit,
+    Bitbucket,
+    #[serde(rename = "azure_devops")]
+    AzureDevOps,
+    GenericGit,
     Local,
 }
 
@@ -461,6 +467,43 @@ pub fn seed_repositories() -> Vec<Repository> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn connection_kind_deserializes_remaining_parity_provider_strings() {
+        for raw_kind in [
+            "gitea",
+            "gerrit",
+            "bitbucket",
+            "azure_devops",
+            "generic_git",
+        ] {
+            let parsed: ConnectionKind = serde_json::from_value(json!(raw_kind)).unwrap();
+
+            assert_eq!(serde_json::to_value(parsed).unwrap(), json!(raw_kind));
+        }
+    }
+
+    #[test]
+    fn connection_kind_serializes_remaining_parity_provider_variants_with_snake_case_names() {
+        let variants = [
+            ConnectionKind::Gitea,
+            ConnectionKind::Gerrit,
+            ConnectionKind::Bitbucket,
+            ConnectionKind::AzureDevOps,
+            ConnectionKind::GenericGit,
+        ];
+        let expected = [
+            "gitea",
+            "gerrit",
+            "bitbucket",
+            "azure_devops",
+            "generic_git",
+        ];
+
+        for (variant, expected_name) in variants.into_iter().zip(expected) {
+            assert_eq!(serde_json::to_value(variant).unwrap(), json!(expected_name));
+        }
+    }
 
     #[test]
     fn ask_thread_summary_counts_messages_and_preserves_scope_metadata() {
