@@ -2,7 +2,7 @@
 
 _This document is the canonical repo-local parity gap report for `sourcebot-rewrite`._
 
-This report tracks parity gaps against the 2026-04-18 full-parity roadmap. Task `03` is too broad for a single slice, so the completed slices now cover **task03a** (**backend/API**) and **task03b** (**worker**). Later slices should extend this same document with additional domains instead of creating competing gap reports.
+This report tracks parity gaps against the 2026-04-18 full-parity roadmap. Task `03` is too broad for a single slice, so the completed slices now cover **task03a** (**backend/API**), **task03b** (**worker**), **task03c** (**integrations**), and **task03d** (**frontend**). Later slices should extend this same document with additional domains instead of creating competing gap reports.
 
 ## Status legend
 
@@ -74,10 +74,28 @@ Grounding for this slice comes from the integrations acceptance spec in `specs/a
 - The gap is especially clear for identity and provider breadth: the current codebase has local auth plus OAuth-client admin records, but no OIDC/SSO login path, and no concrete implementation evidence for Gitea, Gerrit, Bitbucket, or Azure DevOps.
 - Because roadmap Phase 7 and Phase 8 still reserve the real provider, identity, and webhook-hardening work for later tasks, this slice keeps all current integrations capability areas at **Partial** or **Missing** rather than over-claiming parity from shared models alone.
 
+## Frontend domain
+
+Grounding for this slice comes from the live frontend implementation in `web/src/App.tsx`, the focused UI tests in `web/src/App.test.tsx`, the browse/ask/auth acceptance specs in `specs/acceptance/browse.md`, `specs/acceptance/ask.md`, and `specs/acceptance/auth.md`, the frontend surface inventory plus journey map in `specs/acceptance/index.md` and `specs/acceptance/journeys.md`, the feature rows in `specs/FEATURE_PARITY.md`, and the later frontend/auth/admin follow-up work scheduled in `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`.
+
+| Capability area | Current rewrite evidence | Status | Highest-value next gap(s) |
+| --- | --- | --- | --- |
+| Repository home/list page and top-level navigation shell | `web/src/App.tsx` uses a minimal hash router with only `#/` and `#/repos/:repoId`; `RepoListPage` renders repository cards, sync-state badges, and an inline search form backed by `/api/v1/repos` and `/api/v1/search`; `web/src/App.test.tsx` covers the repository list success path. | Partial | Add a real app shell with richer routing/navigation, authenticated/session-aware states, and frontend acceptance evidence for multi-page parity instead of a single-file hash-router shell. |
+| Repository detail metadata shell | `RepoDetailPage` renders repo name/id, default branch, sync state, connection name, and connection kind before mounting the browse and commit panels; tests cover loading the detail view and preserving it when browse requests fail. | Partial | Add branch/revision switching, richer repo metadata/status surfaces, and dedicated frontend parity coverage for detail-page states and empty/error UX promised by the browse/repository roadmap phases. |
+| Browse/source and code-navigation panels | `BrowsePanel` loads tree/blob data, supports nested directory traversal, opens files, accepts an optional revision from navigation results, and renders definitions/references with stale-response suppression; `web/src/App.test.tsx` covers browse success/errors, definitions, references, unsupported capability notices, and empty-result fallbacks. | Partial | Add syntax-highlighted rendering, deeper revision/branch controls, richer code-navigation UX, and explicit frontend acceptance coverage for the browse/code-nav interactions that today remain mostly API-shaped. |
+| Commit list/detail/diff UX | `CommitsPanel` renders the latest 20 commits, loads commit detail and diff payloads on selection, shows rename/addition/deletion metadata, and falls back when patch text is absent; `web/src/App.test.tsx` covers commit loading, selection, diff rendering, and no-patch fallback behavior. | Partial | Add pagination/history navigation, stronger diff/large-change handling, and route-level/frontend acceptance evidence so commit parity is not limited to one in-panel inspector. |
+| Ask/chat frontend | `specs/acceptance/index.md` still records "Ask/chat frontend" as `_No dedicated page/component yet_`, and `web/src/App.tsx` has no ask/chat route, thread list, citation renderer, or repo-scope controls despite the existing `/api/v1/ask/completions` backend route. | Missing | Implement the ask/chat UI surface from roadmap Phase 5, including thread/history/citation/scope controls, then add focused frontend acceptance coverage tied to `specs/acceptance/ask.md`. |
+
+### Evidence notes
+
+- The frontend is now more than a placeholder: one React file plus focused Vitest coverage already proves a working repo list, inline search entry, repo detail shell, file browsing, source viewing, code navigation, and commit inspection flow.
+- Even so, the shipped frontend remains **single-shell and API-shaped**. Routing is limited to `#/` and `#/repos/:repoId`, the current UI is assembled in one `App.tsx`, and there is still no dedicated ask/chat route or multi-page application shell.
+- The acceptance inventory and journey map explicitly position richer route/page coverage as follow-up work rather than shipped parity, so the current shell should be read as a narrow but real frontend slice rather than a full UI rewrite.
+- Because the roadmap still reserves richer browse UX, ask/chat UI, and broader route/page coverage for later tasks, this slice keeps the current frontend capability areas at **Partial** or **Missing** instead of treating panel-level evidence as full product parity.
+
 ## Remaining domains
 
 Later slices should extend this document with:
 
-- Frontend
 - Auth/admin
 - Ops
