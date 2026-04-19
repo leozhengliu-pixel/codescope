@@ -5,56 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cc1a7079cb686348376aa0e5979d3b84fddeb08d
+  head: 06cb14216f8bbf61b13c801c31b93856a486b572
 last_completed_task:
-  id: task20a
-  title: Publish a generic/local Git parity acceptance spec and gap baseline
+  id: task20b
+  title: Implement the first real local-path repository import baseline
   status: done
   summary: >-
-    Closed the first task20 slice by adding `specs/acceptance/generic-local-git.md`
-    as the dedicated acceptance home for the currently evidenced generic/local
-    Git baseline, then reconciling the integrations umbrella spec, parity matrix,
-    and parity-gap report so they truthfully record the live authenticated
-    connection CRUD/settings-shell/repo-detail/read-only sync-history evidence
-    without over-claiming real repository enumeration, import, or indexing parity.
+    Closed the first runtime task20 slice by adding authenticated local-path
+    repository import on the current in-memory catalog path: the API now accepts
+    one `local` connection plus a requested path under its configured root,
+    validates a real on-disk Git working tree, imports it into the catalog, and
+    surfaces the imported repository through the normal list/detail APIs with the
+    associated connection metadata while explicitly deferring generic-host
+    discovery, recursive local enumeration, settings-driven import UX, and
+    durable Postgres catalog parity.
   tests:
-    - python3 generic/local Git docs reference validation script: passed
-    - git diff --check: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task20a by creating the dedicated generic/local Git acceptance home, updating the integrations umbrella/index/parity docs to match the live authenticated connection-management baseline, and keeping all generic/local claims conservative rather than implying real ingestion or enumeration parity
-    code: approved by one independent post-implementation review; reviewer found no blocking truthfulness or internal-consistency defects in the final five-file docs set, with only a non-blocking note that broader connection-management and sync-status matrix rows can be audited later as follow-up slices
-  commit: cc1a7079cb686348376aa0e5979d3b84fddeb08d
-  next_task: task20b
+    code: approved by one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20b as one authenticated local-path import baseline with fail-closed authz/path validation, truthful docs that keep broader generic-host and durable-catalog parity deferred, and no blocking security or logic defects
+  commit: 06cb14216f8bbf61b13c801c31b93856a486b572
+  next_task: task20c
 current_task:
-  id: task20b
+  id: task20c
   parent_task: task20
-  title: Implement the first real local-path repository import baseline
+  title: Add settings-driven local repository import UX over the authenticated local import API baseline
   status: pending
   summary: >-
-    The acceptance/gap baseline for generic/local Git is now explicit, so the
-    next smallest deliverable is the first truthful runtime slice: prove one
-    configured local-path connection can drive a real repository discovery/import
-    path end-to-end without claiming broader generic-host or multi-provider parity.
+    The first API/runtime local-path import baseline is now landed on the
+    in-memory catalog path, so the next smallest unblocked task20 slice is to
+    let authenticated admins trigger that existing import flow from the settings
+    connections surface without claiming recursive discovery, generic-host
+    enumeration, or durable Postgres-backed catalog parity.
 history:
-  - id: task20a
+  - id: task20b
     status: done
     summary: >-
-      Closed the first task20 slice by adding `specs/acceptance/generic-local-git.md`
-      as the dedicated acceptance home for the currently evidenced generic/local
-      Git baseline, then reconciling the integrations umbrella spec, parity matrix,
-      and parity-gap report so they truthfully record the live authenticated
-      connection CRUD/settings-shell/repo-detail/read-only sync-history evidence
-      without over-claiming real repository enumeration, import, or indexing parity.
+      Closed the first runtime task20 slice by adding authenticated local-path
+      repository import on the current in-memory catalog path: the API now accepts
+      one `local` connection plus a requested path under its configured root,
+      validates a real on-disk Git working tree, imports it into the catalog, and
+      surfaces the imported repository through the normal list/detail APIs with the
+      associated connection metadata while explicitly deferring generic-host
+      discovery, recursive local enumeration, settings-driven import UX, and
+      durable Postgres catalog parity.
     tests:
-      - python3 generic/local Git docs reference validation script: passed
-      - git diff --check: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import_ -- --nocapture: passed
       - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task20a by creating the dedicated generic/local Git acceptance home, updating the integrations umbrella/index/parity docs to match the live authenticated connection-management baseline, and keeping all generic/local claims conservative rather than implying real ingestion or enumeration parity
-      code: approved by one independent post-implementation review; reviewer found no blocking truthfulness or internal-consistency defects in the final five-file docs set, with only a non-blocking note that broader connection-management and sync-status matrix rows can be audited later as follow-up slices
-    commit: cc1a7079cb686348376aa0e5979d3b84fddeb08d
-    next_task: task20b
+      code: approved by one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20b as one authenticated local-path import baseline with fail-closed authz/path validation, truthful docs that keep broader generic-host and durable-catalog parity deferred, and no blocking security or logic defects
+    commit: 06cb14216f8bbf61b13c801c31b93856a486b572
+    next_task: task20c
   - id: task19a
     status: done
     summary: >-
