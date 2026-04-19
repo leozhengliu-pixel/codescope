@@ -5,42 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5243d79eb23edec2f2f56812379563e068ed0f3c
+  head: 34854053da9ae14e46c46754dc214ee794c0384b
 last_completed_task:
-  id: task20q2e
-  title: Add a latest sync-status summary line to each settings connection card
+  id: task20q2f
+  title: Render the latest settings sync summary with the shared status badge
   status: done
   summary: >-
-    Closed the fifth split task20q2 settings-shell follow-up slice by adding one
+    Closed the sixth split task20q2 settings-shell follow-up slice by adding one
     focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    latest-sync summary rendering, and the matching
+    shared status-badge reuse for the latest-sync summary, and the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now shows one compact latest sync-status line per
-    connection card using the newest already-loaded sync job without changing
-    backend APIs, retries, sync-job semantics, or broader admin/settings
-    navigation.
+    `#/settings/connections` now renders each connection's newest sync summary
+    with the same shared badge presentation already used elsewhere, without
+    changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
-    - npm test -- --run: passed (42/42)
+    - npm test -- -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+    - npm test: passed (42/42)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2e diff stays limited to one compact latest-sync summary slice on `#/settings/connections`, reuses the existing per-connection sync-history data, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future presentation polish for the summary line
-  commit: 5243d79eb23edec2f2f56812379563e068ed0f3c
-  next_task: task20q2f
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2f diff stays limited to one `#/settings/connections` latest-sync presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking suggestion to add future badge coverage for other sync-job statuses
+  commit: 34854053da9ae14e46c46754dc214ee794c0384b
+  next_task: task20q2g
 current_task:
-  id: task20q2f
+  id: task20q2g
   parent_task: task20q2
-  title: Render the latest settings sync summary with the shared status badge
+  title: Render per-row settings sync-history statuses with the shared status badge
   status: pending
   summary: >-
-    The compact latest-sync summary is now present on each settings connection
-    card, so the next smallest unblocked settings-shell parity follow-up is to
-    reuse the existing shared status-badge presentation in that latest-sync
-    summary without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
+    The latest-sync summary now reuses the shared badge presentation, so the
+    next smallest unblocked settings-shell parity follow-up is to render each
+    read-only sync-history row status on `#/settings/connections` with that same
+    shared status-badge presentation, without changing backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
 history:
+  - id: task20q2f
+    status: done
+    summary: >-
+      Closed the sixth split task20q2 settings-shell follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      shared status-badge reuse for the latest-sync summary, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now renders each connection's newest sync summary
+      with the same shared badge presentation already used elsewhere, without
+      changing backend APIs, sync-job semantics, retries, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+      - npm test: passed (42/42)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2f diff stays limited to one `#/settings/connections` latest-sync presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking suggestion to add future badge coverage for other sync-job statuses
+    commit: 34854053da9ae14e46c46754dc214ee794c0384b
+    next_task: task20q2g
   - id: task20q2e
     status: done
     summary: >-
