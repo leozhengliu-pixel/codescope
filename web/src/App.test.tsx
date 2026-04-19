@@ -1107,6 +1107,58 @@ describe('App', () => {
     expect(within(githubCard!).queryByLabelText('Repository path')).not.toBeInTheDocument();
   });
 
+  it('clears stale local import failure details after the repository path changes', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({}, false, 422);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/missing-repo' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Failed to import repository: Request failed: 422')).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+
+    expect(within(localCard!).queryByText('Failed to import repository: Request failed: 422')).not.toBeInTheDocument();
+  });
+
   it('resets a local connection import form to the updated repo root after editing that connection', async () => {
     window.location.hash = '#/settings/connections';
 

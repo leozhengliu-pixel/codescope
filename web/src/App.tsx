@@ -1430,12 +1430,15 @@ function SettingsConnectionsPage() {
       const currentState = currentStates[connection.id] ?? initialLocalImportState(connection);
       const nextPath = path;
 
+      const pathChanged = nextPath !== currentState.path;
+
       return {
         ...currentStates,
         [connection.id]: {
           ...currentState,
           path: nextPath,
-          result: nextPath === currentState.path ? currentState.result : null,
+          error: pathChanged ? null : currentState.error,
+          result: pathChanged ? null : currentState.result,
         },
       };
     });
