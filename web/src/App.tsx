@@ -1173,6 +1173,21 @@ function initialLocalImportState(connection: AuthConnection): LocalImportState {
   };
 }
 
+function connectionDiscoveryStatus(connection: AuthConnection): string[] | null {
+  if (connection.kind === 'generic_git') {
+    return ['Repository discovery is not available yet for generic Git connections.'];
+  }
+
+  if (connection.kind === 'local') {
+    return [
+      'Import one repository path at a time from this local root.',
+      'Recursive local enumeration is not available yet.',
+    ];
+  }
+
+  return null;
+}
+
 function buildConnectionUpdateRequest(connection: AuthConnection, draft: EditConnectionDraft): CreateAuthConnectionRequest {
   const kind = connection.kind as AuthConnectionKind;
 
@@ -1578,6 +1593,7 @@ function SettingsConnectionsPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           {connections.map((connection) => {
             const configSummary = connectionConfigSummary(connection);
+            const discoveryStatus = connectionDiscoveryStatus(connection);
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
@@ -1682,6 +1698,17 @@ function SettingsConnectionsPage() {
                     </div>
                     {updateError ? <div>Failed to update connection: {updateError}</div> : null}
                   </form>
+                ) : null}
+
+                {discoveryStatus ? (
+                  <section style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #d8dee4', display: 'grid', gap: 8 }}>
+                    <div style={{ fontWeight: 600 }}>Discovery status</div>
+                    {discoveryStatus.map((message) => (
+                      <div key={message} style={{ color: '#57606a' }}>
+                        {message}
+                      </div>
+                    ))}
+                  </section>
                 ) : null}
 
                 {connection.kind === 'local' && localImportState ? (

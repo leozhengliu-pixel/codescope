@@ -683,6 +683,77 @@ describe('App', () => {
     expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
   });
 
+  it('shows truthful generic/local discovery status on the settings route without implying full enumeration parity', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Generic Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          },
+          {
+            id: 'conn-3',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const genericCard = screen.getByText('Generic Mirror').closest('article');
+    const localCard = screen.getByText('Local Mirror').closest('article');
+
+    expect(githubCard).toBeInTheDocument();
+    expect(genericCard).toBeInTheDocument();
+    expect(localCard).toBeInTheDocument();
+
+    expect(within(genericCard!).getByText('Discovery status')).toBeInTheDocument();
+    expect(
+      within(genericCard!).getByText('Repository discovery is not available yet for generic Git connections.')
+    ).toBeInTheDocument();
+    expect(within(localCard!).getByText('Discovery status')).toBeInTheDocument();
+    expect(
+      within(localCard!).getByText('Import one repository path at a time from this local root.')
+    ).toBeInTheDocument();
+    expect(
+      within(localCard!).getByText('Recursive local enumeration is not available yet.')
+    ).toBeInTheDocument();
+    expect(within(githubCard!).queryByText('Discovery status')).not.toBeInTheDocument();
+  });
+
   it('shows a local-only repository import form on the settings route and renders imported repository details on success', async () => {
     window.location.hash = '#/settings/connections';
 
