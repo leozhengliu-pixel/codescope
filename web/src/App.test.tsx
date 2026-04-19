@@ -1280,6 +1280,101 @@ describe('App', () => {
     expect(within(oldestSucceededRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps multiple succeeded and failed terminal-state sync-history error details truthful and newest-first on the same authenticated connection card', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'Newest mirror fetch failed',
+          },
+          {
+            id: 'job-succeeded-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-middle',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-failed-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-oldest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:03:00Z',
+            finished_at: '2026-04-18T11:07:00Z',
+            error: 'Oldest mirror fetch failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-failed-newest',
+      '#/repos/repo-succeeded-middle',
+      '#/repos/repo-failed-oldest',
+    ]);
+
+    const newestFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-failed-newest' }).closest('div');
+    expect(newestFailedRow).toBeInTheDocument();
+    expect(within(newestFailedRow!).getByText('Error: Newest mirror fetch failed')).toBeInTheDocument();
+    expect(within(newestFailedRow!).queryByText('Error: Oldest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(newestFailedRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+
+    const middleSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-succeeded-middle' }).closest('div');
+    expect(middleSucceededRow).toBeInTheDocument();
+    expect(within(middleSucceededRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(middleSucceededRow!).queryByText('Error: Newest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(middleSucceededRow!).queryByText('Error: Oldest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(middleSucceededRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(middleSucceededRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
+
+    const oldestFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-failed-oldest' }).closest('div');
+    expect(oldestFailedRow).toBeInTheDocument();
+    expect(within(oldestFailedRow!).getByText('Error: Oldest mirror fetch failed')).toBeInTheDocument();
+    expect(within(oldestFailedRow!).queryByText('Error: Newest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(oldestFailedRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
