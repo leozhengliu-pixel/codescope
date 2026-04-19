@@ -5,43 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ac057793ec91104d0f1eaf4ed0d6d1eeb7dc5cea
+  head: 3ba939bbab330b4d26cc0a5e493beb1d70e12896
 last_completed_task:
-  id: task20q1
-  title: Expose truthful generic/local discovery status on the settings route
+  id: task20q2a
+  title: Add a local-only reset affordance for the settings import path
   status: done
   summary: >-
-    Closed the first split task20q discovery slice by adding one focused
-    `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
-    settings-shell disclosure that shows truthful discovery status messaging for
-    `generic_git` and `local` connections on `#/settings/connections`,
-    explicitly preserving the existing single-path local import contract while
-    clarifying that generic-host discovery and recursive local enumeration are
-    not available yet, without expanding into backend discovery APIs, durable
-    catalog parity, broader admin navigation, or more CRUD work.
+    Split task20q2 into a first smallest discovery-follow-up slice by adding one
+    focused `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
+    local-only settings affordance that shows `Reset to local root` after the
+    repository path diverges from the configured `local.repo_path`, restoring the
+    import form to that configured root and clearing stale import success state
+    through the existing path-change behavior without expanding into backend
+    discovery APIs, generic-host behavior, recursive local enumeration, durable
+    catalog parity, or broader admin navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "shows truthful generic/local discovery status on the settings route without implying full enumeration parity": passed
-    - npx vitest run src/App.test.tsx: passed (40/40)
+    - npm test -- --run -t "restores the local import path to the configured connection root": passed
+    - npm test -- --run: passed (41/41)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q1 diff stays limited to one truthful settings-route discovery-status slice for `generic_git` and `local` connections, preserving the deferred generic-host discovery and recursive local enumeration gaps without expanding into backend APIs, durable catalog parity, broader admin navigation, or more CRUD work
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the centralized discovery-status helper plus focused regression minimal and correct, with only a non-blocking note about the adjacent local-card sections remaining slightly visually repetitive
-  commit: ac057793ec91104d0f1eaf4ed0d6d1eeb7dc5cea
-  next_task: task20q2
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2a diff stays limited to a local-only `#/settings/connections` reset affordance that restores the import path to the configured root and clears stale import state without changing backend APIs, generic_git behavior, recursive enumeration claims, durable catalog parity, or broader admin navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the divergence-gated reset button plus focused regression minimal and correct
+  commit: 3ba939bbab330b4d26cc0a5e493beb1d70e12896
+  next_task: task20q2b
 current_task:
-  id: task20q2
-  parent_task: task20q
-  title: Add one scoped generic/local discovery follow-up affordance after the truthful status slice
+  id: task20q2b
+  parent_task: task20q2
+  title: Add a generic-git host quick-open affordance on the settings route
   status: pending
   summary: >-
-    The first post-CRUD discovery slice now truthfully exposes the current
-    generic/local discovery limits on `#/settings/connections`, so the next
-    smallest unblocked task20 follow-up is to add one scoped user-facing
-    discovery or enumeration affordance on that same surface without claiming
-    real generic-host discovery, recursive local import, durable catalog parity,
-    or broader admin navigation.
+    The first split task20q2 slice now gives `local` connections one manual
+    reset-to-root affordance on `#/settings/connections`, so the next smallest
+    unblocked follow-up is to add one equally scoped `generic_git` host
+    quick-open/manual-discovery affordance on that same surface without claiming
+    real generic-host repository enumeration, recursive local import, durable
+    catalog parity, or broader admin/settings navigation.
 history:
+  - id: task20q2a
+    status: done
+    summary: >-
+      Split task20q2 into a first smallest discovery-follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
+      local-only settings affordance that shows `Reset to local root` after the
+      repository path diverges from the configured `local.repo_path`, restoring the
+      import form to that configured root and clearing stale import success state
+      through the existing path-change behavior without expanding into backend
+      discovery APIs, generic-host behavior, recursive local enumeration, durable
+      catalog parity, or broader admin navigation.
+    tests:
+      - npm test -- --run -t "restores the local import path to the configured connection root": passed
+      - npm test -- --run: passed (41/41)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2a diff stays limited to a local-only `#/settings/connections` reset affordance that restores the import path to the configured root and clears stale import state without changing backend APIs, generic_git behavior, recursive enumeration claims, durable catalog parity, or broader admin navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the divergence-gated reset button plus focused regression minimal and correct
+    commit: 3ba939bbab330b4d26cc0a5e493beb1d70e12896
+    next_task: task20q2b
   - id: task20q1
     status: done
     summary: >-
