@@ -738,10 +738,12 @@ describe('App', () => {
 
     expect(repositoryIds).toEqual(['Repository id: repo-newer', 'Repository id: repo-older']);
     expect(queuedTimestamps).toEqual(['Queued at: 2026-04-18T12:00:00Z', 'Queued at: 2026-04-18T10:00:00Z']);
+    expect(within(githubCard!).getByText('Latest sync: succeeded · repo-newer · 2026-04-18T12:00:00Z')).toBeInTheDocument();
     expect(within(githubCard!).getByText('Error: Older failure')).toBeInTheDocument();
 
     const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
     expect(gitlabCard).toBeInTheDocument();
+    expect(within(gitlabCard!).getByText('Latest sync: succeeded · repo-other-connection · 2026-04-18T11:30:00Z')).toBeInTheDocument();
     expect(within(gitlabCard!).getByText('Repository id: repo-other-connection')).toBeInTheDocument();
   });
 

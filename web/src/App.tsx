@@ -1616,6 +1616,7 @@ function SettingsConnectionsPage() {
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
+            const latestConnectionSyncJob = connectionSyncJobs[0] ?? null;
             const localImportState = connection.kind === 'local' ? localImportStates[connection.id] ?? initialLocalImportState(connection) : null;
             const localImportRootPath = connection.kind === 'local' ? localConnectionRepoPath(connection) : '';
             const showLocalImportReset = connection.kind === 'local' && localImportState !== null && localImportState.path !== localImportRootPath;
@@ -1814,6 +1815,11 @@ function SettingsConnectionsPage() {
                   ) : null}
                   {!syncJobsError && syncJobsLoading ? (
                     <div style={{ color: '#57606a', fontSize: 14 }}>Loading repository sync history…</div>
+                  ) : null}
+                  {!syncJobsError && !syncJobsLoading && latestConnectionSyncJob ? (
+                    <div style={{ color: '#57606a', fontSize: 14 }}>
+                      Latest sync: {latestConnectionSyncJob.status} · {latestConnectionSyncJob.repository_id} · {latestConnectionSyncJob.queued_at}
+                    </div>
                   ) : null}
                   {!syncJobsError && !syncJobsLoading && connectionSyncJobs.length === 0 ? (
                     <div style={{ color: '#57606a', fontSize: 14 }}>No repository sync jobs found for this connection.</div>
