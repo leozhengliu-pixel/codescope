@@ -846,6 +846,92 @@ describe('App', () => {
     expect(within(queuedSyncRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
   });
 
+  it('keeps multiple queued and running sync-history rows newest-first by queued_at on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-running-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-newest',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-queued-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-queued-oldest',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-running-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-middle',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    const syncHistoryLinks = within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ });
+    expect(syncHistoryLinks.map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-running-newest',
+      '#/repos/repo-running-middle',
+      '#/repos/repo-queued-oldest',
+    ]);
+    expect(within(githubCard!).getAllByText(/Queued at:/).map((node) => node.textContent)).toEqual([
+      'Queued at: 2026-04-18T13:00:00Z',
+      'Queued at: 2026-04-18T12:00:00Z',
+      'Queued at: 2026-04-18T11:00:00Z',
+    ]);
+
+    const latestSyncSummary = within(githubCard!).getByText(/Latest sync:/).closest('div');
+    expect(latestSyncSummary).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('running')).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('repo-running-newest · 2026-04-18T13:00:00Z')).toBeInTheDocument();
+  });
+
   it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
     window.location.hash = '#/settings/connections';
 
