@@ -5,41 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 06cb14216f8bbf61b13c801c31b93856a486b572
+  head: a2f807d718ff3ce9bf5055b6814cb1493323572c
 last_completed_task:
-  id: task20b
-  title: Implement the first real local-path repository import baseline
+  id: task20c
+  title: Add settings-driven local repository import UX over the authenticated local import API baseline
   status: done
   summary: >-
-    Closed the first runtime task20 slice by adding authenticated local-path
-    repository import on the current in-memory catalog path: the API now accepts
-    one `local` connection plus a requested path under its configured root,
-    validates a real on-disk Git working tree, imports it into the catalog, and
-    surfaces the imported repository through the normal list/detail APIs with the
-    associated connection metadata while explicitly deferring generic-host
-    discovery, recursive local enumeration, settings-driven import UX, and
-    durable Postgres catalog parity.
+    Closed the next task20 slice by extending `#/settings/connections` with a
+    local-only per-connection import form that posts one explicit repository
+    path to the existing authenticated `/api/v1/auth/repositories/import/local`
+    API, renders per-card imported repository success/failure state, and keeps
+    local connection edit/delete flows fail-closed while an import is in flight,
+    while still deferring generic-host discovery, recursive local enumeration,
+    richer operator controls, and durable Postgres catalog parity.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - npx vitest run src/App.test.tsx -t "shows a local-only repository import form on the settings route and renders imported repository details on success": passed
+    - npx vitest run src/App.test.tsx -t "shows a scoped repository import failure on the affected local connection card only": passed
+    - npx vitest run src/App.test.tsx -t "resets a local connection import form to the updated repo root after editing that connection": passed
+    - npm test -- --run: passed (30/30)
+    - npm run build: passed
     - git diff --check: passed
   review:
-    code: approved by one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20b as one authenticated local-path import baseline with fail-closed authz/path validation, truthful docs that keep broader generic-host and durable-catalog parity deferred, and no blocking security or logic defects
-  commit: 06cb14216f8bbf61b13c801c31b93856a486b572
-  next_task: task20c
+    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20c by adding a minimal settings-driven local repository import form for existing `local` connections, keeping the scope local-only, and truthfully deferring broader generic-host discovery and durable catalog parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend/docs diff for the settings-page local import UX
+  commit: a2f807d718ff3ce9bf5055b6814cb1493323572c
+  next_task: task20d
 current_task:
-  id: task20c
+  id: task20d
   parent_task: task20
-  title: Add settings-driven local repository import UX over the authenticated local import API baseline
+  title: Add repo-detail quick navigation for settings-driven local imports
   status: pending
   summary: >-
-    The first API/runtime local-path import baseline is now landed on the
-    in-memory catalog path, so the next smallest unblocked task20 slice is to
-    let authenticated admins trigger that existing import flow from the settings
-    connections surface without claiming recursive discovery, generic-host
-    enumeration, or durable Postgres-backed catalog parity.
+    The local-only settings import form is now landed, so the next smallest
+    unblocked task20 slice is to let admins open the newly imported repository
+    directly from the same settings connection card without expanding into
+    generic-host discovery, recursive local enumeration, or durable catalog
+    parity.
 history:
+  - id: task20c
+    status: done
+    summary: >-
+      Closed the next task20 slice by extending `#/settings/connections` with a
+      local-only per-connection import form that posts one explicit repository
+      path to the existing authenticated `/api/v1/auth/repositories/import/local`
+      API, renders per-card imported repository success/failure state, and keeps
+      local connection edit/delete flows fail-closed while an import is in flight,
+      while still deferring generic-host discovery, recursive local enumeration,
+      richer operator controls, and durable Postgres catalog parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t "shows a local-only repository import form on the settings route and renders imported repository details on success": passed
+      - npx vitest run src/App.test.tsx -t "shows a scoped repository import failure on the affected local connection card only": passed
+      - npx vitest run src/App.test.tsx -t "resets a local connection import form to the updated repo root after editing that connection": passed
+      - npm test -- --run: passed (30/30)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20c by adding a minimal settings-driven local repository import form for existing `local` connections, keeping the scope local-only, and truthfully deferring broader generic-host discovery and durable catalog parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend/docs diff for the settings-page local import UX
+    commit: a2f807d718ff3ce9bf5055b6814cb1493323572c
+    next_task: task20d
   - id: task20b
     status: done
     summary: >-
