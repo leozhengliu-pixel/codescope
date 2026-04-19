@@ -5,47 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7a70884842d2381ffb409b8c89a8778648483711
+  head: 9f6b4cb6719ae1f4388bb9adacf6936c90b7bd69
 last_completed_task:
-  id: task17c
-  title: Persist one explicit stub-completed repository sync outcome after the claim boundary
+  id: task17d
+  title: Persist one explicit stub-failed repository sync outcome after the claim boundary
   status: done
   summary: >-
-    Closed the next task17 worker slice by teaching the one-shot worker to drive
-    a claimed repository sync job through the explicit
-    `execute_claimed_repository_sync_job_stub(...)` boundary into one minimal
-    terminal `Succeeded` outcome, while preserving atomic claim-and-complete
-    persistence in the file-backed organization store and still deferring real
-    fetch/mirror I/O, richer failure handling, status APIs, and frontend
-    sync-history rendering.
+    Closed the next task17 worker slice by allowing the one-shot worker to drive
+    a claimed repository sync job through the explicit repository-sync stub
+    boundary into one minimal terminal `Failed` outcome, wiring that outcome
+    through config into the real worker binary path, and persisting the failed
+    job plus a minimal explicit error string while still deferring real
+    fetch/mirror I/O, retries, status APIs, and frontend sync-history
+    rendering.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_records_a_succeeded_terminal_outcome -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_stub_completed_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_surfaces_atomic_claim_and_complete_failures_without_mutating_state -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_claims_oldest_queued_repository_sync_job_and_persists_stub_completed_status_when_no_review_agent_run_is_available -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_claims_oldest_queued_repository_sync_job_and_persists_running_status -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_preserves_running_repository_sync_job_when_stale_state_is_written -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config stub_repository_sync_job_execution_outcome -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_records_a_failed_terminal_outcome_when_requested -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_stub_failed_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_persists_stub_failed_repository_sync_status_when_explicitly_configured -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core -p sourcebot-config: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17c by routing the live worker path through the explicit repository-sync stub boundary before persistence, recording one minimal terminal stub-completed outcome, and avoiding real fetch/mirror I/O, status API, frontend, or broader worker scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the atomic file-store claim-and-complete path plus focused worker/smoke coverage minimal and correct for this slice, with only a non-blocking note that the trait-level default helper remains non-atomic for stores that do not override it
-  commit: 7a70884842d2381ffb409b8c89a8778648483711
-  next_task: task17d
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17d by adding one explicit stub-failed terminal repository-sync outcome after claim, wiring it through the real worker binary path, and avoiding real fetch/mirror I/O, retries, status APIs, frontend, or broader sync scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the repository-sync stub outcome plumbing across config, worker logic, and binary smoke coverage minimal and correct for this slice, with only non-blocking notes about optional extra succeeded/invalid env smoke coverage
+  commit: 9f6b4cb6719ae1f4388bb9adacf6936c90b7bd69
+  next_task: task18a
 current_task:
-  id: task17d
-  parent_task: task17
-  title: Persist one explicit stub-failed repository sync outcome after the claim boundary
+  id: task18a
+  parent_task: task18
+  title: Expose a read-only repository sync status API over persisted sync-job state
   status: pending
   summary: >-
-    Continue task17 with the next smallest truthful worker slice by allowing the
-    one-shot worker to drive a claimed repository sync job through the explicit
-    stub boundary into one minimal terminal failed outcome, while still
-    deferring real fetch/mirror I/O, richer retry/error handling, status APIs,
-    and frontend sync-history rendering.
+    Split broad task18 into the first smallest external parity slice by exposing
+    an authenticated read-only repository sync status API backed by persisted
+    `OrganizationState.repository_sync_jobs`, proving operator-visible sync state
+    can be read without adding mutations, index-status synthesis, or frontend
+    sync-history rendering yet.
 history:
+  - id: task17d
+    status: done
+    summary: >-
+      Closed the next task17 worker slice by allowing the one-shot worker to
+      drive a claimed repository sync job through the explicit repository-sync
+      stub boundary into one minimal terminal `Failed` outcome, wiring that
+      outcome through config into the real worker binary path, and persisting
+      the failed job plus a minimal explicit error string while still deferring
+      real fetch/mirror I/O, retries, status APIs, and frontend sync-history
+      rendering.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config stub_repository_sync_job_execution_outcome -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_records_a_failed_terminal_outcome_when_requested -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_stub_failed_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_persists_stub_failed_repository_sync_status_when_explicitly_configured -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core -p sourcebot-config: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17d by adding one explicit stub-failed terminal repository-sync outcome after claim, wiring it through the real worker binary path, and avoiding real fetch/mirror I/O, retries, status APIs, frontend, or broader sync scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the repository-sync stub outcome plumbing across config, worker logic, and binary smoke coverage minimal and correct for this slice, with only non-blocking notes about optional extra succeeded/invalid env smoke coverage
+    commit: 9f6b4cb6719ae1f4388bb9adacf6936c90b7bd69
+    next_task: task18a
   - id: task17c
     status: done
     summary: >-
