@@ -5,42 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 34854053da9ae14e46c46754dc214ee794c0384b
+  head: 2031a1a8b776d63bb7032e7bca0fc9e1c95b3938
 last_completed_task:
-  id: task20q2f
-  title: Render the latest settings sync summary with the shared status badge
+  id: task20q2g
+  title: Render per-row settings sync-history statuses with the shared status badge
   status: done
   summary: >-
-    Closed the sixth split task20q2 settings-shell follow-up slice by adding one
-    focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    shared status-badge reuse for the latest-sync summary, and the matching
+    Closed the seventh split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+    per-row status-badge reuse, and the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now renders each connection's newest sync summary
-    with the same shared badge presentation already used elsewhere, without
-    changing backend APIs, sync-job semantics, retries, or broader
-    admin/settings navigation.
+    `#/settings/connections` now renders each read-only sync-history row status
+    with the same shared badge presentation already used by repository cards and
+    the latest-sync summary, without changing backend APIs, sync-job semantics,
+    retries, or broader admin/settings navigation.
   tests:
-    - npm test -- -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
-    - npm test: passed (42/42)
+    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+    - npm test -- --run: passed (42/42)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2f diff stays limited to one `#/settings/connections` latest-sync presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking suggestion to add future badge coverage for other sync-job statuses
-  commit: 34854053da9ae14e46c46754dc214ee794c0384b
-  next_task: task20q2g
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2g diff stays limited to one `#/settings/connections` per-row sync-history status presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future queued/running badge coverage and possible label-copy consistency
+  commit: 2031a1a8b776d63bb7032e7bca0fc9e1c95b3938
+  next_task: task20q2h
 current_task:
-  id: task20q2g
+  id: task20q2h
   parent_task: task20q2
-  title: Render per-row settings sync-history statuses with the shared status badge
+  title: Add focused queued/running badge coverage for settings sync-history rows
   status: pending
   summary: >-
-    The latest-sync summary now reuses the shared badge presentation, so the
-    next smallest unblocked settings-shell parity follow-up is to render each
-    read-only sync-history row status on `#/settings/connections` with that same
-    shared status-badge presentation, without changing backend APIs, sync-job
-    semantics, retries, or broader admin/settings navigation.
+    The settings shell now reuses shared badges for latest-sync summaries and
+    per-row sync-history statuses, so the next smallest unblocked follow-up is
+    to add focused regression coverage that proves queued and running
+    sync-history rows on `#/settings/connections` also render through that same
+    shared status-badge path, without changing backend APIs, sync-job semantics,
+    retries, or broader admin/settings navigation.
 history:
+  - id: task20q2g
+    status: done
+    summary: >-
+      Closed the seventh split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      per-row status-badge reuse, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now renders each read-only sync-history row status
+      with the same shared badge presentation already used by repository cards and
+      the latest-sync summary, without changing backend APIs, sync-job semantics,
+      retries, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+      - npm test -- --run: passed (42/42)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2g diff stays limited to one `#/settings/connections` per-row sync-history status presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future queued/running badge coverage and possible label-copy consistency
+    commit: 2031a1a8b776d63bb7032e7bca0fc9e1c95b3938
+    next_task: task20q2h
   - id: task20q2f
     status: done
     summary: >-
