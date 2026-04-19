@@ -45,7 +45,15 @@ pub async fn run_review_agent_tick(
 pub async fn run_repository_sync_claim_tick(
     store: &dyn OrganizationStore,
 ) -> Result<Option<RepositorySyncJob>> {
-    claim_next_repository_sync_job_from_store(store).await
+    let Some(claimed_job) = claim_next_repository_sync_job_from_store(store).await? else {
+        return Ok(None);
+    };
+
+    Ok(Some(execute_claimed_repository_sync_job_stub(&claimed_job)))
+}
+
+pub fn execute_claimed_repository_sync_job_stub(job: &RepositorySyncJob) -> RepositorySyncJob {
+    job.clone()
 }
 
 pub fn execute_claimed_review_agent_run_stub(
@@ -113,10 +121,10 @@ fn current_timestamp() -> String {
 mod tests {
     use super::{
         claim_next_repository_sync_job_from_store_at, claim_next_review_agent_run,
-        claim_next_review_agent_run_from_store, execute_claimed_review_agent_run_stub,
-        persist_stub_review_agent_run_execution_outcome, run_repository_sync_claim_tick,
-        run_review_agent_tick, run_worker_tick, StubReviewAgentRunExecutionOutcome,
-        WorkerTickOutcome,
+        claim_next_review_agent_run_from_store, execute_claimed_repository_sync_job_stub,
+        execute_claimed_review_agent_run_stub, persist_stub_review_agent_run_execution_outcome,
+        run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
+        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
     };
     use anyhow::Result;
     use async_trait::async_trait;
@@ -552,6 +560,19 @@ mod tests {
             RepositorySyncJobStatus::Queued
         );
         assert_eq!(persisted.repository_sync_jobs[0].started_at, None);
+    }
+
+    #[test]
+    fn execute_claimed_repository_sync_job_stub_preserves_the_claimed_running_job() {
+        let claimed_job = repository_sync_job(
+            "sync_job_claimed",
+            RepositorySyncJobStatus::Running,
+            "2026-04-26T10:01:00Z",
+        );
+
+        let stubbed_job = execute_claimed_repository_sync_job_stub(&claimed_job);
+
+        assert_eq!(stubbed_job, claimed_job);
     }
 
     #[tokio::test]
