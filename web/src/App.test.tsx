@@ -1375,6 +1375,127 @@ describe('App', () => {
     expect(within(oldestFailedRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps multiple succeeded and failed terminal-state sync-history error details scoped and truthful across authenticated connection cards on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'GitHub newest mirror fetch failed',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-succeeded-newest',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:30:00Z',
+            started_at: '2026-04-18T12:31:00Z',
+            finished_at: '2026-04-18T12:35:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-older',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-succeeded-older',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:01:00Z',
+            finished_at: '2026-04-18T11:04:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-older',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-older',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T10:00:00Z',
+            started_at: '2026-04-18T10:01:00Z',
+            finished_at: '2026-04-18T10:03:00Z',
+            error: 'GitLab oldest import failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-conn-1-failed-newest',
+      '#/repos/repo-conn-1-succeeded-older',
+    ]);
+    const githubFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-failed-newest' }).closest('div');
+    expect(githubFailedRow).toBeInTheDocument();
+    expect(within(githubFailedRow!).getByText('Error: GitHub newest mirror fetch failed')).toBeInTheDocument();
+    expect(within(githubFailedRow!).queryByText('Error: GitLab oldest import failed')).not.toBeInTheDocument();
+
+    const githubSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-succeeded-older' }).closest('div');
+    expect(githubSucceededRow).toBeInTheDocument();
+    expect(within(githubSucceededRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(githubSucceededRow!).queryByText('Error: GitHub newest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(githubSucceededRow!).queryByText('Error: GitLab oldest import failed')).not.toBeInTheDocument();
+
+    expect(within(gitlabCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-conn-2-succeeded-newest',
+      '#/repos/repo-conn-2-failed-older',
+    ]);
+    const gitlabSucceededRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-succeeded-newest' }).closest('div');
+    expect(gitlabSucceededRow).toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByText('Error: GitHub newest mirror fetch failed')).not.toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByText('Error: GitLab oldest import failed')).not.toBeInTheDocument();
+
+    const gitlabFailedRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-failed-older' }).closest('div');
+    expect(gitlabFailedRow).toBeInTheDocument();
+    expect(within(gitlabFailedRow!).getByText('Error: GitLab oldest import failed')).toBeInTheDocument();
+    expect(within(gitlabFailedRow!).queryByText('Error: GitHub newest mirror fetch failed')).not.toBeInTheDocument();
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
