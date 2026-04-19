@@ -5,46 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ca791caf59164eae4964ff58b6ae99e60545a957
+  head: 81adae4984f3a024784da1e0d4cb2f614950f3db
 last_completed_task:
-  id: task20q2aa
-  title: Add focused same-card identical terminal-error-string isolation coverage for settings sync-history rows
+  id: task20q2ab
+  title: Add focused latest-sync summary truthfulness coverage for same-card identical terminal-error-string sync-history rows
   status: done
   summary: >-
-    Closed the twenty-seventh split task20q2 settings-shell follow-up slice by
+    Closed the twenty-eighth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression, the minimal
-    `web/src/App.tsx` sync-history row accessibility label, and the matching
+    `web/src/App.tsx` latest-sync summary accessibility label, and the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving multiple failed
-    terminal-state rows on the same authenticated connection card keep identical
-    error strings isolated to the correct row while preserving newest-first
-    ordering, without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving the per-card
+    latest-sync summary still reflects the newest failed row truthfully when
+    multiple failed terminal-state sync-history rows on the same authenticated
+    connection card share the same error string, without changing backend APIs,
+    sync-job semantics, retries, or broader admin/settings navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "same authenticated connection card": passed (5/5)
-    - npx vitest run src/App.test.tsx -t "isolated within multiple failed rows": passed
-    - npx vitest run src/App.test.tsx: passed (61/61)
+    - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when multiple failed rows on the same authenticated connection card share the same terminal error string": passed (1/1)
+    - npx vitest run src/App.test.tsx: passed (62/62)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2aa diff stays limited to one `#/settings/connections` same-card identical terminal-error-string isolation coverage slice plus matching acceptance-doc grounding, and that the minimal `web/src/App.tsx` row accessibility hook stays within scope without expanding into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff
-  commit: ca791caf59164eae4964ff58b6ae99e60545a957
-  next_task: task20q2ab
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ab diff stays limited to one `#/settings/connections` same-card identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, and that the minimal `web/src/App.tsx` latest-sync summary accessibility hook stays within scope without expanding into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future accessibility hook could use a stable identifier instead of the display name
+  commit: 81adae4984f3a024784da1e0d4cb2f614950f3db
+  next_task: task20q2ac
 current_task:
-  id: task20q2ab
+  id: task20q2ac
   parent_task: task20q2
-  title: Add focused latest-sync summary truthfulness coverage for same-card identical terminal-error-string sync-history rows
+  title: Add focused latest-sync summary truthfulness coverage for sibling identical terminal-error-string sync-history rows
   status: pending
   summary: >-
     The settings shell now has explicit same-card identical terminal-state
-    error-string row-isolation coverage, so the next smallest unblocked
-    follow-up is to add one focused regression proving the latest-sync summary
-    still reflects the newest failed row truthfully when multiple failed rows on
-    the same authenticated connection card share identical terminal-state error
-    strings, without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
+    error-string latest-sync summary coverage, so the next smallest unblocked
+    follow-up is to add one focused regression proving sibling authenticated
+    connection cards keep each latest-sync summary truthful to the newest failed
+    row on its own card even when multiple cards expose identical terminal-state
+    error strings, without changing backend APIs, sync-job semantics, retries,
+    or broader admin/settings navigation.
 history:
+  - id: task20q2ab
+    status: done
+    summary: >-
+      Closed the twenty-eighth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression, the minimal
+      `web/src/App.tsx` latest-sync summary accessibility label, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving the per-card
+      latest-sync summary still reflects the newest failed row truthfully when
+      multiple failed terminal-state sync-history rows on the same authenticated
+      connection card share the same error string, without changing backend APIs,
+      sync-job semantics, retries, or broader admin/settings navigation.
+    tests:
+      - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when multiple failed rows on the same authenticated connection card share the same terminal error string": passed (1/1)
+      - npx vitest run src/App.test.tsx: passed (62/62)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ab diff stays limited to one `#/settings/connections` same-card identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, and that the minimal `web/src/App.tsx` latest-sync summary accessibility hook stays within scope without expanding into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future accessibility hook could use a stable identifier instead of the display name
+    commit: 81adae4984f3a024784da1e0d4cb2f614950f3db
+    next_task: task20q2ac
   - id: task20q2aa
     status: done
     summary: >-
