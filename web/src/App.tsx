@@ -1842,6 +1842,7 @@ function SettingsConnectionsPage() {
                       {connectionSyncJobs.map((syncJob) => (
                         <div
                           key={syncJob.id}
+                          aria-label={`Repository sync history row for ${syncJob.repository_id}`}
                           style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
                         >
                           <div>Repository id: {syncJob.repository_id}</div>

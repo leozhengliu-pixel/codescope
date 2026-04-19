@@ -2025,6 +2025,95 @@ describe('App', () => {
     expect(within(gitlabCard!).getAllByText('Error: Mirror fetch failed')).toHaveLength(1);
   });
 
+  it('keeps identical terminal-state sync-history error strings isolated within multiple failed rows on the same authenticated connection card', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-failed-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-middle',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-succeeded-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-oldest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:01:00Z',
+            finished_at: '2026-04-18T11:04:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-failed-newest',
+      '#/repos/repo-failed-middle',
+      '#/repos/repo-succeeded-oldest',
+    ]);
+
+    const newestFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-newest');
+    const middleFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-middle');
+    const succeededRow = within(githubCard!).getByLabelText('Repository sync history row for repo-succeeded-oldest');
+
+    expect(within(newestFailedRow).getByLabelText('Error details for repo-failed-newest')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(middleFailedRow).getByLabelText('Error details for repo-failed-middle')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(succeededRow).queryByText('Error: Mirror fetch failed')).not.toBeInTheDocument();
+
+    expect(within(newestFailedRow).queryByLabelText('Error details for repo-failed-middle')).not.toBeInTheDocument();
+    expect(within(middleFailedRow).queryByLabelText('Error details for repo-failed-newest')).not.toBeInTheDocument();
+    expect(within(newestFailedRow).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(githubCard!).getAllByText('Error: Mirror fetch failed')).toHaveLength(2);
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
