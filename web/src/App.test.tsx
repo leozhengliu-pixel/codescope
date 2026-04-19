@@ -881,6 +881,101 @@ describe('App', () => {
     expect(within(gitlabCard!).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
   });
 
+  it('renders terminal-state sync-history rows with the shared status badge presentation across authenticated connection cards on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-failed',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:03:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-succeeded',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-succeeded',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:30:00Z',
+            started_at: '2026-04-18T12:31:00Z',
+            finished_at: '2026-04-18T12:33:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubLatestSyncSummary = within(githubCard!).getByText(/Latest sync:/).closest('div');
+    expect(githubLatestSyncSummary).toBeInTheDocument();
+    expect(within(githubLatestSyncSummary!).getByText('failed')).toBeInTheDocument();
+    expect(within(githubLatestSyncSummary!).getByText('repo-conn-1-failed · 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(githubLatestSyncSummary!).queryByText('Latest sync: failed')).not.toBeInTheDocument();
+
+    const githubTerminalSyncRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-failed' }).closest('div');
+    expect(githubTerminalSyncRow).toBeInTheDocument();
+    const githubStatusRow = within(githubTerminalSyncRow!).getByText('Status').closest('div');
+    expect(githubStatusRow).toBeInTheDocument();
+    expect(within(githubStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(githubTerminalSyncRow!).queryByText('Status: failed')).not.toBeInTheDocument();
+
+    const gitlabLatestSyncSummary = within(gitlabCard!).getByText(/Latest sync:/).closest('div');
+    expect(gitlabLatestSyncSummary).toBeInTheDocument();
+    expect(within(gitlabLatestSyncSummary!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(gitlabLatestSyncSummary!).getByText('repo-conn-2-succeeded · 2026-04-18T12:30:00Z')).toBeInTheDocument();
+    expect(within(gitlabLatestSyncSummary!).queryByText('Latest sync: succeeded')).not.toBeInTheDocument();
+
+    const gitlabTerminalSyncRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-succeeded' }).closest('div');
+    expect(gitlabTerminalSyncRow).toBeInTheDocument();
+    const gitlabStatusRow = within(gitlabTerminalSyncRow!).getByText('Status').closest('div');
+    expect(gitlabStatusRow).toBeInTheDocument();
+    expect(within(gitlabStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(gitlabTerminalSyncRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
