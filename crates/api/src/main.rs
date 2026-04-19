@@ -32,7 +32,7 @@ use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig, ConnectionKind,
     LocalSession, OAuthClient, OrganizationRole, OrganizationState, RepositoryDetail,
-    RepositorySummary, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
+    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
     ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
@@ -174,6 +174,10 @@ fn build_router(
         .route(
             "/api/v1/auth/search-contexts",
             get(list_authenticated_search_contexts),
+        )
+        .route(
+            "/api/v1/auth/repository-sync-jobs",
+            get(list_authenticated_repository_sync_jobs),
         )
         .route(
             "/api/v1/auth/audit-events",
@@ -357,6 +361,19 @@ struct SearchContextListItemResponse {
     created_at: String,
     updated_at: String,
     repo_scope: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct RepositorySyncJobListItemResponse {
+    id: String,
+    organization_id: String,
+    repository_id: String,
+    connection_id: String,
+    status: sourcebot_models::RepositorySyncJobStatus,
+    queued_at: String,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1152,6 +1169,38 @@ async fn list_authenticated_audit_events(
     ))
 }
 
+async fn list_authenticated_repository_sync_jobs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RepositorySyncJobListItemResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let visible_repository_bindings =
+        visible_repository_bindings_for_user(&organization_state, &session.user_id);
+    let mut jobs: Vec<_> = organization_state
+        .repository_sync_jobs
+        .into_iter()
+        .filter(|job| {
+            visible_organization_ids.contains(&job.organization_id)
+                && visible_repository_bindings
+                    .contains(&(job.organization_id.clone(), job.repository_id.clone()))
+        })
+        .collect();
+    jobs.sort_by(|left, right| right.queued_at.cmp(&left.queued_at));
+
+    Ok(Json(
+        jobs.into_iter()
+            .map(repository_sync_job_list_item_response)
+            .collect(),
+    ))
+}
+
 async fn list_authenticated_analytics(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1855,6 +1904,22 @@ fn search_context_list_item_response(
     }
 }
 
+fn repository_sync_job_list_item_response(
+    job: RepositorySyncJob,
+) -> RepositorySyncJobListItemResponse {
+    RepositorySyncJobListItemResponse {
+        id: job.id,
+        organization_id: job.organization_id,
+        repository_id: job.repository_id,
+        connection_id: job.connection_id,
+        status: job.status,
+        queued_at: job.queued_at,
+        started_at: job.started_at,
+        finished_at: job.finished_at,
+        error: job.error,
+    }
+}
+
 fn audit_event_list_item_response(audit_event: AuditEvent) -> AuditEventListItemResponse {
     AuditEventListItemResponse {
         id: audit_event.id,
@@ -1942,6 +2007,25 @@ fn visible_organization_ids_for_user(
         .iter()
         .filter(|membership| membership.user_id == user_id)
         .map(|membership| membership.organization_id.clone())
+        .collect()
+}
+
+fn visible_repository_bindings_for_user(
+    organization_state: &OrganizationState,
+    user_id: &str,
+) -> HashSet<(String, String)> {
+    let visible_organization_ids = visible_organization_ids_for_user(organization_state, user_id);
+
+    organization_state
+        .repo_permissions
+        .iter()
+        .filter(|binding| visible_organization_ids.contains(&binding.organization_id))
+        .map(|binding| {
+            (
+                binding.organization_id.clone(),
+                binding.repository_id.clone(),
+            )
+        })
         .collect()
 }
 
@@ -3152,6 +3236,19 @@ mod tests {
         created_at: String,
         updated_at: String,
         repo_scope: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositorySyncJobListItemResponseBody {
+        id: String,
+        organization_id: String,
+        repository_id: String,
+        connection_id: String,
+        status: String,
+        queued_at: String,
+        started_at: Option<String>,
+        finished_at: Option<String>,
+        error: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -5538,6 +5635,270 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/search-contexts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_list_only_jobs_visible_to_current_user_newest_first() {
+        let organization_state_path = unique_test_path("auth-repository-sync-jobs-orgs");
+        let local_session_state_path = unique_test_path("auth-repository-sync-jobs-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    synced_at: "2026-04-21T00:06:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_hidden".into(),
+                    repository_id: "repo_hidden".into(),
+                    synced_at: "2026-04-21T00:06:30Z".into(),
+                },
+            ],
+            repository_sync_jobs: vec![
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible_older".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    connection_id: "conn_visible".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Queued,
+                    queued_at: "2026-04-21T00:08:00Z".into(),
+                    started_at: None,
+                    finished_at: None,
+                    error: None,
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible_newer".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    connection_id: "conn_visible".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Failed,
+                    queued_at: "2026-04-21T00:10:00Z".into(),
+                    started_at: Some("2026-04-21T00:10:05Z".into()),
+                    finished_at: Some("2026-04-21T00:10:10Z".into()),
+                    error: Some("explicit stub failure".into()),
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_hidden_org".into(),
+                    organization_id: "org_hidden".into(),
+                    repository_id: "repo_hidden".into(),
+                    connection_id: "conn_hidden".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-21T00:11:00Z".into(),
+                    started_at: Some("2026-04-21T00:11:05Z".into()),
+                    finished_at: Some("2026-04-21T00:11:10Z".into()),
+                    error: None,
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_hidden_repo_scope".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_hidden_stale".into(),
+                    connection_id: "conn_hidden_stale".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Running,
+                    queued_at: "2026-04-21T00:12:00Z".into(),
+                    started_at: Some("2026-04-21T00:12:05Z".into()),
+                    finished_at: None,
+                    error: None,
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/repository-sync-jobs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<RepositorySyncJobListItemResponseBody> = read_json(response).await;
+        assert_eq!(payload.len(), 2);
+        assert_eq!(payload[0].id, "sync_visible_newer");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].repository_id, "repo_visible");
+        assert_eq!(payload[0].connection_id, "conn_visible");
+        assert_eq!(payload[0].status, "failed");
+        assert_eq!(payload[0].queued_at, "2026-04-21T00:10:00Z");
+        assert_eq!(
+            payload[0].started_at.as_deref(),
+            Some("2026-04-21T00:10:05Z")
+        );
+        assert_eq!(
+            payload[0].finished_at.as_deref(),
+            Some("2026-04-21T00:10:10Z")
+        );
+        assert_eq!(payload[0].error.as_deref(), Some("explicit stub failure"));
+        assert_eq!(payload[1].id, "sync_visible_older");
+        assert_eq!(payload[1].status, "queued");
+        assert_eq!(payload[1].queued_at, "2026-04-21T00:08:00Z");
+        assert!(payload[1].started_at.is_none());
+        assert!(payload[1].finished_at.is_none());
+        assert!(payload[1].error.is_none());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_do_not_leak_cross_org_duplicate_repository_ids() {
+        let organization_state_path =
+            unique_test_path("auth-repository-sync-jobs-cross-org-duplicate-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-cross-org-duplicate-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let shared_repository_id = "repo_shared";
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T01:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                created_at: "2026-04-21T00:55:00Z".into(),
+            }],
+            repo_permissions: vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: shared_repository_id.into(),
+                    synced_at: "2026-04-21T01:05:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_hidden".into(),
+                    repository_id: shared_repository_id.into(),
+                    synced_at: "2026-04-21T01:05:30Z".into(),
+                },
+            ],
+            repository_sync_jobs: vec![
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: shared_repository_id.into(),
+                    connection_id: "conn_visible".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-21T01:10:00Z".into(),
+                    started_at: Some("2026-04-21T01:10:05Z".into()),
+                    finished_at: Some("2026-04-21T01:10:10Z".into()),
+                    error: None,
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_hidden_cross_org".into(),
+                    organization_id: "org_hidden".into(),
+                    repository_id: shared_repository_id.into(),
+                    connection_id: "conn_hidden".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-21T01:11:00Z".into(),
+                    started_at: Some("2026-04-21T01:11:05Z".into()),
+                    finished_at: Some("2026-04-21T01:11:10Z".into()),
+                    error: None,
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/repository-sync-jobs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<RepositorySyncJobListItemResponseBody> = read_json(response).await;
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].id, "sync_visible");
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].repository_id, shared_repository_id);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_require_an_authenticated_local_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/repository-sync-jobs")
                     .body(Body::empty())
                     .unwrap(),
             )
