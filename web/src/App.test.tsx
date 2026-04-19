@@ -1963,17 +1963,33 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Create connection' })).not.toBeDisabled();
   });
 
-  it('shows authenticated connection creation failures on the settings route', async () => {
+  it('shows scoped generic git connection creation failures on the settings route while keeping the host-style base_url contract', async () => {
     window.location.hash = '#/settings/connections';
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
 
       if (url === '/api/v1/auth/connections' && !init) {
         return jsonResponse([]);
       }
 
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
       if (url === '/api/v1/auth/connections' && init?.method === 'POST') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: 'Scoped generic failure',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          })
+        );
+
         return jsonResponse({}, false, 403);
       }
 
@@ -1983,13 +1999,29 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'Denied connection' } });
-    fireEvent.change(screen.getByLabelText('Connection kind'), { target: { value: 'local' } });
-    fireEvent.change(screen.getByLabelText('Repo path'), { target: { value: '/srv/git/denied' } });
+    fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'Scoped generic failure' } });
+    fireEvent.change(screen.getByLabelText('Connection kind'), { target: { value: 'generic_git' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://git.internal.example.com' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create connection' }));
 
     expect(await screen.findByText('Failed to create connection: Request failed: 403')).toBeInTheDocument();
-    expect(screen.queryByText('Denied connection')).not.toBeInTheDocument();
+    expect(screen.queryByText('Scoped generic failure')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Scoped generic failure',
+          kind: 'generic_git',
+          config: {
+            provider: 'generic_git',
+            base_url: 'https://git.internal.example.com',
+          },
+        }),
+      });
+    });
   });
 
   it('hides authenticated connection management controls when the settings inventory cannot be loaded', async () => {
