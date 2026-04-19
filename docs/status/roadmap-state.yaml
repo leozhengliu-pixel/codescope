@@ -5,44 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3b948ca70dde6de1039ec5d40668f1e0f0cc267c
+  head: f272e9d7c2553b0ea4524455096daadca64a3461
 last_completed_task:
-  id: task20q2j
-  title: Add focused per-connection queued/running isolation coverage for settings sync-history rows
+  id: task20q2k
+  title: Add focused empty-state coexistence coverage for settings sync-history rows
   status: done
   summary: >-
-    Closed the tenth split task20q2 settings-shell follow-up slice by adding one
-    focused `web/src/App.test.tsx` regression plus the matching
+    Closed the eleventh split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving queued and running
-    sync-history rows stay scoped to their owning connection cards even when
-    multiple authenticated connections expose in-progress jobs, without changing
-    backend APIs, sync-job semantics, retries, or broader admin/settings
-    navigation.
+    `#/settings/connections` now has explicit coverage proving a connection with
+    no sync jobs keeps its read-only empty-state message even while a sibling
+    authenticated connection shows queued/running sync-history rows, without
+    changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps queued and running sync-history rows scoped to their owning connection cards on the settings route": passed
-    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route|keeps multiple queued and running sync-history rows newest-first by queued_at on the settings route|keeps queued and running sync-history rows scoped to their owning connection cards on the settings route": passed (5/5)
-    - npm test -- --run: passed (45/45)
+    - npm test -- --run src/App.test.tsx -t "keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route|keeps multiple queued and running sync-history rows newest-first by queued_at on the settings route|keeps queued and running sync-history rows scoped to their owning connection cards on the settings route|keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route": passed (6/6)
+    - npm test -- --run: passed (46/46)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2j diff stays limited to one `#/settings/connections` per-connection queued/running isolation-coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2k diff stays limited to one `#/settings/connections` empty-state coexistence coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 3b948ca70dde6de1039ec5d40668f1e0f0cc267c
-  next_task: task20q2k
+  commit: f272e9d7c2553b0ea4524455096daadca64a3461
+  next_task: task20q2l
 current_task:
-  id: task20q2k
+  id: task20q2l
   parent_task: task20q2
-  title: Add focused empty-state coexistence coverage for settings sync-history rows
+  title: Add focused loading-state coverage for settings sync-history sections across authenticated connection cards
   status: pending
   summary: >-
-    The settings shell now has explicit coverage for queued/running isolation
-    across multiple connection cards, so the next smallest unblocked follow-up is
-    to add one focused regression proving a connection with no sync jobs still
-    keeps its read-only empty-state message while another authenticated
-    connection shows queued/running history, without changing backend APIs,
-    sync-job semantics, retries, or broader admin/settings navigation.
+    The settings shell now has explicit coverage for empty-state coexistence
+    alongside sibling queued/running sync-history rows, so the next smallest
+    unblocked follow-up is to add one focused regression proving the read-only
+    sync-history loading state stays visible and truthful across authenticated
+    connection cards before `/api/v1/auth/repository-sync-jobs` resolves,
+    without changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
 history:
+  - id: task20q2k
+    status: done
+    summary: >-
+      Closed the eleventh split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving a connection with
+      no sync jobs keeps its read-only empty-state message even while a sibling
+      authenticated connection shows queued/running sync-history rows, without
+      changing backend APIs, sync-job semantics, retries, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route|keeps multiple queued and running sync-history rows newest-first by queued_at on the settings route|keeps queued and running sync-history rows scoped to their owning connection cards on the settings route|keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route": passed (6/6)
+      - npm test -- --run: passed (46/46)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2k diff stays limited to one `#/settings/connections` empty-state coexistence coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: f272e9d7c2553b0ea4524455096daadca64a3461
+    next_task: task20q2l
   - id: task20q2j
     status: done
     summary: >-
