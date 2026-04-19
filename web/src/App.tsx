@@ -1700,9 +1700,15 @@ function SettingsConnectionsPage() {
                       </div>
                     </form>
                     {localImportState.result ? (
-                      <div style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}>
+                      <div style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa', display: 'grid', gap: 8 }}>
                         <div>Imported repository: {localImportState.result.repository.name}</div>
                         <div>Repository id: {localImportState.result.repository.id}</div>
+                        <a
+                          href={`#/repos/${encodeURIComponent(localImportState.result.repository.id)}`}
+                          style={{ color: '#0969da', fontWeight: 600 }}
+                        >
+                          Open repository detail
+                        </a>
                       </div>
                     ) : null}
                   </section>

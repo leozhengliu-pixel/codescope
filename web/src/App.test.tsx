@@ -666,6 +666,10 @@ describe('App', () => {
     expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
     expect(within(localCard!).getByText('Kind: local')).toBeInTheDocument();
     expect(within(localCard!).queryByText(/Failed to import repository:/i)).not.toBeInTheDocument();
+    expect(within(localCard!).getByRole('link', { name: 'Open repository detail' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-77'
+    );
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
