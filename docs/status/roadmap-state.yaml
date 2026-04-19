@@ -5,45 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1600987c26f31837fa88955be27220ad1fec0967
+  head: b6ea074e86979d024dac554732f19d73cd987593
 last_completed_task:
-  id: task20q2l
-  title: Add focused loading-state coverage for settings sync-history sections across authenticated connection cards
+  id: task20q2m
+  title: Add focused failure-state coexistence coverage for settings sync-history sections across authenticated connection cards
   status: done
   summary: >-
-    Closed the twelfth split task20q2 settings-shell follow-up slice by adding
-    one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the thirteenth split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving each
-    authenticated connection card keeps the read-only sync-history loading state
-    visible and truthful before `/api/v1/auth/repository-sync-jobs` resolves,
-    without changing backend APIs, sync-job semantics, retries, or broader
-    admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving sync-history load
+    failures stay visible and truthful on each authenticated connection card
+    without collapsing sibling cards or implying new backend APIs,
+    sync-job semantics, retries, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps the sync-history loading state visible and truthful on each authenticated connection card before sync jobs resolve": passed
-    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route|keeps multiple queued and running sync-history rows newest-first by queued_at on the settings route|keeps queued and running sync-history rows scoped to their owning connection cards on the settings route|keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route|keeps the sync-history loading state visible and truthful on each authenticated connection card before sync jobs resolve": passed (7/7)
+    - npm test -- --run App.test.tsx -t "keeps the sync-history failure state visible and truthful on each authenticated connection card without collapsing sibling cards": passed
+    - npm test -- --run App.test.tsx -t "sync-history": passed (6/6)
     - npm test -- --run: passed (47/47)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2l diff stays limited to one `#/settings/connections` loading-state coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2m diff stays limited to one `#/settings/connections` failure-state coexistence coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 1600987c26f31837fa88955be27220ad1fec0967
-  next_task: task20q2m
+  commit: b6ea074e86979d024dac554732f19d73cd987593
+  next_task: task20q2n
 current_task:
-  id: task20q2m
+  id: task20q2n
   parent_task: task20q2
-  title: Add focused failure-state coexistence coverage for settings sync-history sections across authenticated connection cards
+  title: Add focused terminal-state coexistence coverage for settings sync-history sections across authenticated connection cards
   status: pending
   summary: >-
     The settings shell now has explicit coverage for per-card sync-history
-    loading, empty, and queued/running states across authenticated connection
-    cards, so the next smallest unblocked follow-up is to add one focused
-    regression proving a sync-history load failure stays visible and truthful
-    without collapsing sibling authenticated connection cards or implying new
+    loading, failure, empty, and queued/running states across authenticated
+    connection cards, so the next smallest unblocked follow-up is to add one
+    focused regression proving terminal sync-history rows stay scoped and
+    truthful across sibling authenticated connection cards without implying new
     backend APIs, sync-job semantics, retries, or broader admin/settings
     navigation.
 history:
+  - id: task20q2m
+    status: done
+    summary: >-
+      Closed the thirteenth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sync-history load
+      failures stay visible and truthful on each authenticated connection card
+      without collapsing sibling cards or implying new backend APIs,
+      sync-job semantics, retries, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run App.test.tsx -t "keeps the sync-history failure state visible and truthful on each authenticated connection card without collapsing sibling cards": passed
+      - npm test -- --run App.test.tsx -t "sync-history": passed (6/6)
+      - npm test -- --run: passed (47/47)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2m diff stays limited to one `#/settings/connections` failure-state coexistence coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: b6ea074e86979d024dac554732f19d73cd987593
+    next_task: task20q2n
   - id: task20q2l
     status: done
     summary: >-
