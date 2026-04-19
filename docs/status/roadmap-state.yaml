@@ -5,46 +5,68 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 97878be5961e014f72cc923183fd2073ebb1d76f
+  head: 8407c12e6636b18e61c5754d688c1a58f2a6de98
 last_completed_task:
-  id: task20q2u
-  title: Add focused multi-row terminal-state error-detail coverage for settings sync-history rows
+  id: task20q2v
+  title: Add focused sibling terminal-state error-detail coverage for settings sync-history rows
   status: done
   summary: >-
-    Closed the twenty-first split task20q2 settings-shell follow-up slice by
+    Closed the twenty-second split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving multiple
-    succeeded/failed terminal-state rows on the same authenticated connection
-    keep per-row error details truthful and scoped while staying newest-first by
-    `queued_at`, without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
-  tests:
-    - npm test -- --run src/App.test.tsx -t "keeps multiple succeeded and failed terminal-state sync-history error details truthful and newest-first on the same authenticated connection card": passed
-    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (15/15)
-    - npm test: passed (55/55)
-    - npm run build: passed
-    - git diff --check: passed
-  review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2u diff stays limited to one `#/settings/connections` same-card multi-row terminal-state error-detail coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 97878be5961e014f72cc923183fd2073ebb1d76f
-  next_task: task20q2v
-current_task:
-  id: task20q2v
-  parent_task: task20q2
-  title: Add focused sibling terminal-state error-detail coverage for settings sync-history rows
-  status: pending
-  summary: >-
-    The settings shell now has explicit same-card multi-row terminal-state
-    shared-badge, timestamp, and error-detail coverage, so the next smallest
-    unblocked follow-up is to add one focused regression proving succeeded/failed
-    terminal-state rows on sibling authenticated connection cards keep per-row
+    `#/settings/connections` now has explicit coverage proving sibling
+    authenticated connection cards keep succeeded/failed terminal-state per-row
     error details truthful and scoped without leaking across cards, while staying
     within the existing newest-first-by-`queued_at` settings sync-history
     contract and without changing backend APIs, sync-job semantics, retries, or
     broader admin/settings navigation.
+  tests:
+    - npm test -- --run src/App.test.tsx -t "keeps multiple succeeded and failed terminal-state sync-history error details scoped and truthful across authenticated connection cards on the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (16/16)
+    - npm test: passed (56/56)
+    - npm run build: passed
+    - git diff --check: passed
+  review:
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2v diff stays limited to one `#/settings/connections` sibling terminal-state error-detail coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future slice could also cover identical error strings across sibling cards
+  commit: 8407c12e6636b18e61c5754d688c1a58f2a6de98
+  next_task: task20q2w
+current_task:
+  id: task20q2w
+  parent_task: task20q2
+  title: Add focused sibling terminal-state newest-first ordering coverage for settings sync-history rows
+  status: pending
+  summary: >-
+    The settings shell now has explicit sibling terminal-state error-detail
+    scoping coverage, so the next smallest unblocked follow-up is to add one
+    focused regression proving sibling authenticated connection cards each keep
+    multiple succeeded/failed terminal-state sync-history rows newest-first by
+    `queued_at` within their own card, without changing backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
 history:
+  - id: task20q2v
+    status: done
+    summary: >-
+      Closed the twenty-second split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep succeeded/failed terminal-state per-row
+      error details truthful and scoped without leaking across cards, while
+      staying within the existing newest-first-by-`queued_at` settings
+      sync-history contract and without changing backend APIs, sync-job
+      semantics, retries, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps multiple succeeded and failed terminal-state sync-history error details scoped and truthful across authenticated connection cards on the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (16/16)
+      - npm test: passed (56/56)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2v diff stays limited to one `#/settings/connections` sibling terminal-state error-detail coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future slice could also cover identical error strings across sibling cards
+    commit: 8407c12e6636b18e61c5754d688c1a58f2a6de98
+    next_task: task20q2w
   - id: task20q2u
     status: done
     summary: >-
