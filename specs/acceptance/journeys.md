@@ -28,12 +28,12 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 | Admin | Inspect audit and analytics surfaces | `/api/v1/auth/audit-events`; `/api/v1/auth/analytics` | `specs/acceptance/index.md` only | Create `specs/acceptance/admin-observability.md` before implementing richer audit/analytics/admin settings behavior |
 | Admin | Manage OAuth clients | `/api/v1/auth/oauth-clients` | `specs/acceptance/index.md` only | Create `specs/acceptance/oauth-clients.md` before broader OAuth client/token implementation proceeds |
 | Admin | Inspect review webhooks, delivery attempts, and review-agent runs from authenticated endpoints | `/api/v1/auth/review-webhooks`; `/api/v1/auth/review-webhooks/{webhook_id}`; `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts`; `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts/{attempt_id}`; `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs`; `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs/{run_id}`; `/api/v1/auth/review-webhook-delivery-attempts`; `/api/v1/auth/review-webhook-delivery-attempts/{attempt_id}`; `/api/v1/auth/review-agent-runs`; `/api/v1/auth/review-agent-runs/{run_id}` | `specs/acceptance/index.md` only | Create `specs/acceptance/review-automation.md` before implementation broadens across webhook admin UX, run history, retries, and operator diagnostics |
-| Admin | Use future auth/admin/settings navigation shells | No dedicated route shells in `web/src/App.tsx` yet | `specs/acceptance/index.md` and `specs/acceptance/auth.md` | Create `specs/acceptance/settings-navigation.md` before broader settings/admin frontend implementation proceeds |
+| Admin | Use auth/admin/settings navigation shells | `web/src/App.tsx` already includes the limited `#/settings/connections` → `SettingsConnectionsPage` route, but broader onboarding/login/admin route families are still absent | `specs/acceptance/index.md` and `specs/acceptance/auth.md` | Create `specs/acceptance/settings-navigation.md` before broader settings/admin frontend implementation proceeds |
 | Operator | Confirm service liveness and frontend bootstrap config | `/healthz`; `/api/v1/config` | `specs/acceptance/index.md` only | Create `specs/acceptance/operator-runtime.md` before adding broader deployment/runtime behavior to implementation |
 | Operator | Run the one-shot worker tick against organization state path wiring | `crates/worker/src/main.rs` `main`; `AppConfig::from_env()`; `build_organization_store(config.organization_state_path.clone())`; `run_worker_tick(...)` | `specs/acceptance/index.md` only | Create `specs/acceptance/worker-runtime.md` before broad worker orchestration work proceeds |
 | Operator | Observe worker no-work and configured stub terminal outcomes | `StubReviewAgentRunExecutionOutcome`; worker logs for terminal status and `no queued review-agent run available`; `crates/worker/src/lib.rs` stub execution helpers | `specs/acceptance/index.md` only | Covered by the same required `specs/acceptance/worker-runtime.md` follow-up |
 | Operator | Accept public review-webhook events into the automation pipeline | `/api/v1/review-webhooks/{webhook_id}/events` plus the authenticated inspection endpoints above | `specs/acceptance/index.md` only | Covered by the same required `specs/acceptance/review-automation.md` follow-up |
-| Operator | Track repo sync/index readiness exposed to users and admins | Repo `sync_state` surfaced through `/api/v1/repos`, `/api/v1/repos/{repo_id}`, and the repo pages/panels in `web/src/App.tsx` | `specs/acceptance/browse.md` today | Create `specs/acceptance/repository-operations.md` before sync/index job history, failure recovery, and operator controls expand |
+| Operator | Track repo sync/index readiness exposed to users and admins | Repo `sync_state` surfaced through `/api/v1/repos`, `/api/v1/repos/{repo_id}`, the repo pages/panels in `web/src/App.tsx`, and authenticated sync-job history at `/api/v1/auth/repository-sync-jobs` | `specs/acceptance/repository-operations.md` | None for the dedicated acceptance home itself; later parity work should extend this spec for persisted index status, failure recovery, and operator controls |
 
 ## Journey details
 
@@ -54,9 +54,9 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 1. **Runtime liveness/config** currently has only the index as an acceptance home even though `/healthz` and `/api/v1/config` are concrete operator-visible surfaces.
 2. **Worker runtime** is currently represented by a one-shot entrypoint plus stubbed terminal outcomes and explicit no-work logging. That is enough evidence to justify a dedicated worker-runtime acceptance doc, but not enough to claim retries, scheduling loops, or full automation orchestration.
 3. **Review webhook intake and run inspection** spans both operator and admin concerns; the current authenticated/public route set should be moved into a dedicated review-automation acceptance doc before broader implementation.
-4. **Repository operations** currently leak through browse-facing surfaces via `sync_state`; a dedicated repository-operations acceptance doc should exist before sync/index parity work expands into jobs, retries, and recovery.
+4. **Repository operations** now has a dedicated acceptance home in `specs/acceptance/repository-operations.md`; later sync/index parity work should extend that doc instead of overloading `browse.md`.
 
-## Minimum missing acceptance-spec set exposed by task01a2
+## Minimum missing acceptance-spec set exposed by the current journey audit
 These are the smallest dedicated follow-up docs this journey map shows as prerequisites for broader parity implementation in the indexed gaps:
 
 1. `specs/acceptance/admin-observability.md`
@@ -65,7 +65,6 @@ These are the smallest dedicated follow-up docs this journey map shows as prereq
 4. `specs/acceptance/settings-navigation.md`
 5. `specs/acceptance/operator-runtime.md`
 6. `specs/acceptance/worker-runtime.md`
-7. `specs/acceptance/repository-operations.md`
 
 ## Immediate usage rule for later slices
 - Extend an existing domain spec when this document says an acceptance home already exists.

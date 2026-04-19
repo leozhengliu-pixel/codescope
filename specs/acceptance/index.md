@@ -28,6 +28,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Ask and chat | `specs/acceptance/ask.md` | Present | Covers ask behavior at a high level; later parity tasks still need thread lifecycle and citation/UI parity details. |
 | Auth and permissions | `specs/acceptance/auth.md` | Present | Covers local auth + permission boundaries; later parity tasks must expand onboarding/orgs/invites/API keys/OAuth details. |
 | Integrations | `specs/acceptance/integrations.md` | Present | Covers provider-facing behavior broadly; later parity tasks must split/expand per host/provider and webhook/operator flows. |
+| Repository operations | `specs/acceptance/repository-operations.md` | Present in task18c | Locks the current sync-state and authenticated sync-job visibility contract while recording the remaining persisted-catalog, index-status, recovery, and admin-surface parity gaps. |
 | Journey map and missing-spec prerequisites | `specs/acceptance/journeys.md` | Present in this slice | Maps indexed surfaces into user/admin/operator journeys and names the missing dedicated acceptance specs that must be created before broader implementation proceeds. |
 | Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
 | Worker execution parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box worker/operator acceptance spec in a later Task 1 slice. |
@@ -46,7 +47,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Audit and analytics | `/api/v1/auth/audit-events`, `/api/v1/auth/analytics` | Admin/operator visibility parity | `specs/acceptance/index.md` until dedicated operator/admin specs exist |
 | Review webhooks and review-agent run visibility | `/api/v1/auth/review-webhooks`, `/api/v1/auth/review-webhooks/{webhook_id}`, `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts`, `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts/{attempt_id}`, `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs`, `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs/{run_id}`, `/api/v1/auth/review-webhook-delivery-attempts`, `/api/v1/auth/review-webhook-delivery-attempts/{attempt_id}`, `/api/v1/auth/review-agent-runs`, `/api/v1/auth/review-agent-runs/{run_id}`, `/api/v1/review-webhooks/{webhook_id}/events` | Review-agent and webhook automation parity across authenticated views plus public webhook intake | `specs/acceptance/index.md` until dedicated review-webhook / worker / operator specs exist |
 | OAuth clients | `/api/v1/auth/oauth-clients` | OAuth client/token management parity | `specs/acceptance/index.md` until dedicated OAuth/admin specs exist |
-| Repository catalog and detail | `/api/v1/repos`, `/api/v1/repos/{repo_id}` | Repo list/repo detail parity | `specs/acceptance/browse.md` |
+| Repository catalog and detail | `/api/v1/repos`, `/api/v1/repos/{repo_id}` | Repo list/repo detail parity | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
 | Tree and blob retrieval | `/api/v1/repos/{repo_id}/tree`, `/api/v1/repos/{repo_id}/blob` | File explorer and source view parity | `specs/acceptance/browse.md` |
 | Definitions and references | `/api/v1/repos/{repo_id}/definitions`, `/api/v1/repos/{repo_id}/references` | Code-navigation parity | `specs/acceptance/code-nav.md` |
 | Commit history/detail/diff | `/api/v1/repos/{repo_id}/commits`, `/api/v1/repos/{repo_id}/commits/{commit_id}`, `/api/v1/repos/{repo_id}/commits/{commit_id}/diff` | Commit browsing and diff parity | `specs/acceptance/browse.md` until commit-specific expansion lands |
@@ -57,12 +58,12 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 | Surface family | Rewrite evidence | Parity intent | Current acceptance home |
 | --- | --- | --- | --- |
-| Repository home/list page | `web/src/App.tsx` → `RepoListPage`, route `#/` | Repo inventory, sync-state visibility, search entry, and top-level navigation parity | `specs/acceptance/browse.md` plus future frontend parity slices |
-| Repository detail page shell | `web/src/App.tsx` → `RepoDetailPage`, route `#/repos/:repoId` | Repo-scoped metadata, browse/source, code-navigation, and commit-view parity shell | `specs/acceptance/browse.md` |
+| Repository home/list page | `web/src/App.tsx` → `RepoListPage`, route `#/` | Repo inventory, sync-state visibility, search entry, and top-level navigation parity | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
+| Repository detail page shell | `web/src/App.tsx` → `RepoDetailPage`, route `#/repos/:repoId` | Repo-scoped metadata, browse/source, code-navigation, commit-view, and sync-state parity shell | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
 | Commit panel | `web/src/App.tsx` → `CommitsPanel` | Commit list/detail/diff UX parity | `specs/acceptance/browse.md` until commit/front-end expansion lands |
 | Browse/source panel | `web/src/App.tsx` → `BrowsePanel` | Tree browsing, file rendering, symbol-click navigation parity | `specs/acceptance/browse.md` and `specs/acceptance/code-nav.md` |
 | Ask/chat frontend | _No dedicated page/component yet_ | Ask/chat thread history, citations, repo-scope controls, and chat UX parity | `specs/acceptance/ask.md` |
-| Auth/admin/settings frontend | _No dedicated route shells yet_ | Onboarding, login, org/admin/settings discoverability parity | `specs/acceptance/auth.md` until dedicated UI specs land |
+| Auth/admin/settings frontend | `web/src/App.tsx` currently includes `#/settings/connections` → `SettingsConnectionsPage`, but no broader auth/onboarding/admin route family yet | Onboarding, login, org/admin/settings discoverability parity | `specs/acceptance/auth.md` today; later dedicated settings/admin specs still needed |
 
 ### 3. Worker and background-execution surface families
 
@@ -79,7 +80,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | --- | --- | --- | --- |
 | First-run bootstrap workflow | `/api/v1/auth/bootstrap` in `crates/api/src/main.rs` | Operator can initialize a fresh instance safely and deterministically | `specs/acceptance/auth.md` |
 | Local-dev organization-state path wiring | `crates/worker/src/main.rs` loads `AppConfig::from_env()` and builds the organization store from `config.organization_state_path` | Dev/runtime state-path behavior, startup tolerance, and migration-safe operator expectations | `specs/acceptance/index.md` until dedicated operator spec exists |
-| Repo sync/index visibility | Repo `sync_state` exposed through API/UI surfaces in `crates/api/src/main.rs` and `web/src/App.tsx` | Operator/user parity for sync readiness and failure visibility | `specs/acceptance/browse.md` now; later dedicated sync/operator slices |
+| Repo sync/index visibility | Repo `sync_state` exposed through API/UI surfaces in `crates/api/src/main.rs` and `web/src/App.tsx`, plus authenticated sync-job history in `/api/v1/auth/repository-sync-jobs` | Operator/user parity for sync readiness, failure visibility, and read-only sync-job history | `specs/acceptance/repository-operations.md` |
 | Review webhook operational visibility | Authenticated review-webhook, delivery-attempt, and review-agent-run endpoints in `crates/api/src/main.rs` | Operator/admin inspection of automation state and failures | `specs/acceptance/index.md` until dedicated operator/review-webhook specs exist |
 | Durable metadata / migrations / backup-restore | _Not implemented yet_ | Practical Sourcebot replacement requires production-grade persistence, migrations, backup, and restore parity | Future operator acceptance spec |
 
@@ -87,7 +88,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 1. The acceptance corpus has broad domain specs, but no dedicated worker/operator black-box specs yet.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
 3. `specs/FEATURE_PARITY.md` remains a checklist without per-row evidence placeholders; Task 2 should expand it after this index and journey map exist.
-4. Review-agent, OAuth, analytics, audit, settings/admin navigation, worker runtime, and repository-operations flows still need finer-grained dedicated acceptance specs before broader implementation proceeds.
+4. Review-agent, OAuth, analytics, audit, settings/admin navigation, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds.
 
 ## Related follow-up document
 - `specs/acceptance/journeys.md` maps the indexed surfaces above into explicit user/admin/operator journeys and identifies the minimum dedicated missing acceptance-spec documents exposed by the current rewrite evidence.
