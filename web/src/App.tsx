@@ -1561,7 +1561,6 @@ function SettingsConnectionsPage() {
               {isCreating ? 'Creating…' : 'Create connection'}
             </button>
             {createError ? <div>Failed to create connection: {createError}</div> : null}
-            {updateError ? <div>Failed to update connection: {updateError}</div> : null}
             {deleteError ? <div>Failed to delete connection: {deleteError}</div> : null}
           </div>
         </form>
@@ -1672,6 +1671,7 @@ function SettingsConnectionsPage() {
                         Cancel
                       </button>
                     </div>
+                    {updateError ? <div>Failed to update connection: {updateError}</div> : null}
                   </form>
                 ) : null}
 

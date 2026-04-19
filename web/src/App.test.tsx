@@ -1828,6 +1828,87 @@ describe('App', () => {
     expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
   });
 
+  it('shows scoped generic git connection edit failures on the settings route while keeping the host-style base_url contract', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'Generic Git Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'PUT') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: ' Scoped generic failure ',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          })
+        );
+
+        return jsonResponse({}, false, 403);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    const connectionCard = screen.getByText('Generic Git Mirror').closest('article');
+    expect(connectionCard).not.toBeNull();
+    expect(screen.getByText('Base URL: https://git.example.com')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Generic Git Mirror' }));
+    fireEvent.change(screen.getByLabelText('Edit connection name'), { target: { value: ' Scoped generic failure ' } });
+    fireEvent.change(screen.getByLabelText('Edit base URL'), {
+      target: { value: 'https://git.internal.example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await within(connectionCard as HTMLElement).findByText('Failed to update connection: Request failed: 403')).toBeInTheDocument();
+    expect(screen.getByText('Generic Git Mirror')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://git.example.com')).toBeInTheDocument();
+    expect(screen.queryByText('Scoped generic failure')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Edit connection name')).toHaveValue(' Scoped generic failure ');
+    expect(screen.getByLabelText('Edit base URL')).toHaveValue('https://git.internal.example.com');
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections/conn-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ' Scoped generic failure ',
+          kind: 'generic_git',
+          config: {
+            provider: 'generic_git',
+            base_url: 'https://git.internal.example.com',
+          },
+        }),
+      });
+    });
+  });
+
   it('disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection', async () => {
     window.location.hash = '#/settings/connections';
 
