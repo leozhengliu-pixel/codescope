@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
+  head: d38a8539ae2f3bd63421c07a5d4acfcb8a5dd925
 last_completed_task:
   id: task18a
   title: Expose a read-only repository sync status API over persisted sync-job state
@@ -30,17 +30,38 @@ last_completed_task:
   commit: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
   next_task: task18b
 current_task:
-  id: task18b
+  id: task18c
   parent_task: task18
-  title: Expose a read-only repository indexing status API over persisted repository state
+  title: Publish a repository-operations acceptance spec for sync/index visibility parity
   status: pending
   summary: >-
-    Continue the split task18 status-parity work with the next smallest external
-    slice by exposing an authenticated read-only indexing-status API over the
-    rewrite's persisted repository state, proving operator-visible index health
-    can be read without adding sync mutations, scheduling, or frontend rendering
-    yet.
+    Task18b cannot truthfully close until the blocked Postgres catalog query
+    prerequisite (task07b) is actually implemented and verifiable, so the next
+    smallest unblocked slice is to publish a dedicated repository-operations
+    acceptance spec that locks the current sync/index visibility contract and
+    records the remaining operator-visible parity gaps for later API/UI work.
 history:
+  - id: task18b
+    status: blocked
+    summary: >-
+      Attempted to close the authenticated read-only repository indexing-status
+      API slice, but independent review confirmed the new route still depended on
+      `catalog.list_repositories()` while the persisted `DATABASE_URL` path remains
+      blocked because `PgCatalogStore::list_repositories()` is still unimplemented.
+      In this cron environment task07b is still externally blocked by the lack of
+      a reachable local Postgres runtime, so task18b cannot yet deliver truthful
+      persisted-catalog parity.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api authenticated_repository_index_statuses_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+      - independent spec review: failed because `PgCatalogStore::list_repositories()` remains unimplemented on the persisted catalog path
+    review:
+      spec: failed one independent post-implementation review; reviewer confirmed the route shape was minimal but rejected closure because the live persisted catalog backend still errors for `list_repositories()`, so this slice would only work on the seeded in-memory path rather than over truthful persisted repository state
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the diff itself and agreed the auth gate plus visible-repository intersection failed closed for the current in-memory path, but that was insufficient to satisfy the persisted-state task contract
+    next_task: task18c
   - id: task18a
     status: done
     summary: >-
