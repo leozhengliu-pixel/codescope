@@ -1457,6 +1457,7 @@ dependencies = [
  "sourcebot-config",
  "sourcebot-core",
  "sourcebot-models",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",

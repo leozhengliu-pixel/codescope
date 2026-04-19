@@ -3826,6 +3826,24 @@ mod tests {
             Ok(())
         }
 
+        async fn claim_next_repository_sync_job(
+            &self,
+            started_at: &str,
+        ) -> anyhow::Result<Option<sourcebot_models::RepositorySyncJob>> {
+            if self.fail_reads {
+                return Err(anyhow::anyhow!("organization-state read failed"));
+            }
+
+            if self.fail_writes {
+                return Err(anyhow::anyhow!("organization-state write failed"));
+            }
+
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::claim_next_repository_sync_job(
+                &mut state, started_at,
+            ))
+        }
+
         async fn claim_next_review_agent_run(
             &self,
         ) -> anyhow::Result<Option<sourcebot_models::ReviewAgentRun>> {
@@ -3903,6 +3921,16 @@ mod tests {
             let mut state = self.state.lock().unwrap();
             sourcebot_core::store_repository_sync_job(&mut state, job);
             Ok(())
+        }
+
+        async fn claim_next_repository_sync_job(
+            &self,
+            started_at: &str,
+        ) -> anyhow::Result<Option<sourcebot_models::RepositorySyncJob>> {
+            let mut state = self.state.lock().unwrap();
+            Ok(sourcebot_core::claim_next_repository_sync_job(
+                &mut state, started_at,
+            ))
         }
 
         async fn claim_next_review_agent_run(

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
     AskThread, AskThreadSummary, Connection, OrganizationState, Repository, RepositoryDetail,
-    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus,
+    RepositorySummary, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
+    ReviewAgentRunStatus,
 };
 use std::{
     collections::HashSet,
@@ -47,6 +48,10 @@ pub trait OrganizationStore: Send + Sync {
         &self,
         job: sourcebot_models::RepositorySyncJob,
     ) -> Result<()>;
+    async fn claim_next_repository_sync_job(
+        &self,
+        started_at: &str,
+    ) -> Result<Option<RepositorySyncJob>>;
     async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>>;
     async fn complete_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
     async fn fail_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
@@ -62,6 +67,31 @@ pub fn store_repository_sync_job(state: &mut OrganizationState, job: RepositoryS
     } else {
         state.repository_sync_jobs.push(job);
     }
+}
+
+pub fn claim_next_repository_sync_job(
+    state: &mut OrganizationState,
+    started_at: &str,
+) -> Option<RepositorySyncJob> {
+    let next_job_index = state
+        .repository_sync_jobs
+        .iter()
+        .enumerate()
+        .filter(|(_, job)| job.status == RepositorySyncJobStatus::Queued)
+        .min_by(|(left_index, left_job), (right_index, right_job)| {
+            left_job
+                .queued_at
+                .cmp(&right_job.queued_at)
+                .then_with(|| left_index.cmp(right_index))
+        })
+        .map(|(index, _)| index)?;
+
+    let job = state.repository_sync_jobs.get_mut(next_job_index)?;
+    job.status = RepositorySyncJobStatus::Running;
+    job.started_at = Some(started_at.to_owned());
+    job.finished_at = None;
+    job.error = None;
+    Some(job.clone())
 }
 
 pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {
