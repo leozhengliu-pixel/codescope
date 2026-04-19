@@ -5,44 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 771bc408326d3e672e688f579f9e139f3ed45ec9
+  head: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
 last_completed_task:
-  id: task20q2p
-  title: Add focused terminal-state timestamp coverage for settings sync-history sections across authenticated connection cards
+  id: task20q2q
+  title: Add focused in-progress timestamp scoping coverage for settings sync-history sections across authenticated connection cards
   status: done
   summary: >-
-    Closed the sixteenth split task20q2 settings-shell follow-up slice by
+    Closed the seventeenth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep terminal sync-history row
-    queued/started/finished timestamp details truthful and scoped on succeeded
-    and failed terminal states without implying new backend APIs, sync-job
-    semantics, retries, or broader admin/settings navigation.
+    authenticated connection cards keep queued/running sync-history row
+    queued/started/finished-or-fallback timestamp details truthful and scoped
+    across cards without implying new backend APIs, sync-job semantics,
+    retries, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route": passed
-    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (10/10)
-    - npm test -- --run: passed (50/50)
+    - npm test -- --run src/App.test.tsx -t "keeps in-progress sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (11/11)
+    - npm test -- --run: passed (51/51)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2p diff stays limited to one `#/settings/connections` terminal-state timestamp-coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff, and noted only non-blocking future opportunities around extra null/multi-row timestamp edge cases
-  commit: 771bc408326d3e672e688f579f9e139f3ed45ec9
-  next_task: task20q2q
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2q diff stays limited to one `#/settings/connections` in-progress timestamp-scoping coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+  commit: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
+  next_task: task20q2r
 current_task:
-  id: task20q2q
+  id: task20q2r
   parent_task: task20q2
-  title: Add focused in-progress timestamp scoping coverage for settings sync-history sections across authenticated connection cards
+  title: Add focused multi-row in-progress timestamp detail coverage for settings sync-history rows
   status: pending
   summary: >-
-    The settings shell now has explicit terminal-state timestamp coverage on
-    sibling authenticated connection cards, so the next smallest unblocked
-    follow-up is to add one focused regression proving queued/running
-    sync-history rows keep their queued/started/finished-or-fallback timestamp
-    details truthful and scoped across cards without implying new backend APIs,
-    sync-job semantics, retries, or broader admin/settings navigation.
+    The settings shell now has explicit sibling-card scoping coverage for
+    queued/running timestamp details, so the next smallest unblocked follow-up
+    is to add one focused regression proving multiple queued/running rows on the
+    same authenticated connection keep their per-row queued/started/finished-or-
+    fallback timestamp details truthful while staying newest-first by `queued_at`,
+    without changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
 history:
+  - id: task20q2q
+    status: done
+    summary: >-
+      Closed the seventeenth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep queued/running sync-history row
+      queued/started/finished-or-fallback timestamp details truthful and scoped
+      across cards without implying new backend APIs, sync-job semantics,
+      retries, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps in-progress sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (11/11)
+      - npm test -- --run: passed (51/51)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2q diff stays limited to one `#/settings/connections` in-progress timestamp-scoping coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
+    next_task: task20q2r
   - id: task20q2p
     status: done
     summary: >-
