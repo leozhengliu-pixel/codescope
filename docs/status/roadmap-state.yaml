@@ -5,42 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3aec21a54d992e7b601893b68934adae5627b7e7
+  head: 62f70869a30732867e6343cff5ed53e7b7335c01
 last_completed_task:
-  id: task20l
-  title: Lock generic Git connection creation to the host-style `base_url` contract
+  id: task20m
+  title: Lock generic Git connection creation failure handling to the host-style `base_url` contract
   status: done
   summary: >-
-    Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
-    regression that proves the existing settings-driven `generic_git` creation
-    flow on `#/settings/connections` preserves the host-style creation payload
-    contract (`kind: generic_git`, `config.provider: generic_git`,
-    `config.base_url`) and renders the created connection card without expanding
-    into generic-host discovery, recursive local enumeration, broader
-    operator/admin controls, or durable catalog-backed parity.
+    Closed the next task20 slice by narrowing `web/src/App.test.tsx` failure-path
+    coverage so the settings-driven `generic_git` creation flow on
+    `#/settings/connections` now proves the host-style creation payload contract
+    (`kind: generic_git`, `config.provider: generic_git`, `config.base_url`)
+    is preserved even when the create request fails, while still surfacing the
+    scoped failure without expanding into generic-host discovery, recursive local
+    enumeration, broader operator/admin controls, or durable catalog-backed parity.
   tests:
-    - npm test -- --run -t "renders the authenticated connections inventory and creates a new generic git connection from the settings route using the host-style base_url contract": passed
+    - npm test -- --run -t "shows scoped generic git connection creation failures on the settings route while keeping the host-style base_url contract": passed
     - npm test -- --run: passed (36/36)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20l diff lands exactly one focused `web/src/App.test.tsx` regression proving the settings-driven `generic_git` creation flow preserves the host-style `base_url` contract without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking logic or security defects in the final `web/src/App.test.tsx` regression diff and only noted a non-blocking future opportunity to reduce fetch-call-order coupling in the test scaffolding
-  commit: 3aec21a54d992e7b601893b68934adae5627b7e7
-  next_task: task20m
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20m diff stays limited to one focused `web/src/App.test.tsx` regression that proves the settings-driven `generic_git` creation failure path preserves the host-style `base_url` contract and surfaces the scoped failure without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+    code: approved by one independent post-implementation review; reviewer found no blocking logic or security defects in the final test-only diff and only noted a non-blocking future opportunity to reduce fetch-call-order coupling if the settings route adds more initial fetches later
+  commit: 62f70869a30732867e6343cff5ed53e7b7335c01
+  next_task: task20n
 current_task:
-  id: task20m
+  id: task20n
   parent_task: task20
-  title: Lock generic Git connection creation failure handling to the host-style `base_url` contract
+  title: Lock generic Git connection edit failure handling to the host-style `base_url` contract
   status: pending
   summary: >-
     The next smallest unblocked task20 slice is to add focused regression
-    coverage proving the settings-driven `generic_git` creation failure path on
+    coverage proving the settings-driven `generic_git` edit failure path on
     `#/settings/connections` keeps the host-style `base_url` contract and
-    surfaces the scoped failure without expanding into generic-host discovery,
-    recursive local enumeration, broader operator/admin controls, or durable
-    catalog-backed parity.
+    surfaces the scoped update failure without expanding into generic-host
+    discovery, recursive local enumeration, broader operator/admin controls, or
+    durable catalog-backed parity.
 history:
+  - id: task20m
+    status: done
+    summary: >-
+      Closed the next task20 slice by narrowing `web/src/App.test.tsx` failure-path
+      coverage so the settings-driven `generic_git` creation flow on
+      `#/settings/connections` now proves the host-style creation payload contract
+      (`kind: generic_git`, `config.provider: generic_git`, `config.base_url`)
+      is preserved even when the create request fails, while still surfacing the
+      scoped failure without expanding into generic-host discovery, recursive local
+      enumeration, broader operator/admin controls, or durable catalog-backed parity.
+    tests:
+      - npm test -- --run -t "shows scoped generic git connection creation failures on the settings route while keeping the host-style base_url contract": passed
+      - npm test -- --run: passed (36/36)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20m diff stays limited to one focused `web/src/App.test.tsx` regression that proves the settings-driven `generic_git` creation failure path preserves the host-style `base_url` contract and surfaces the scoped failure without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+      code: approved by one independent post-implementation review; reviewer found no blocking logic or security defects in the final test-only diff and only noted a non-blocking future opportunity to reduce fetch-call-order coupling if the settings route adds more initial fetches later
+    commit: 62f70869a30732867e6343cff5ed53e7b7335c01
+    next_task: task20n
   - id: task20l
     status: done
     summary: >-
