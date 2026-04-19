@@ -1063,6 +1063,124 @@ describe('App', () => {
     expect(within(gitlabTerminalSyncRow!).queryByText('Finished at: 2026-04-18T13:03:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps multiple succeeded and failed terminal-state sync-history timestamp details truthful and newest-first on the same authenticated connection card', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-succeeded-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-newest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: null,
+          },
+          {
+            id: 'job-failed-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-middle',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror permissions denied',
+          },
+          {
+            id: 'job-succeeded-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-oldest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:03:00Z',
+            finished_at: '2026-04-18T11:07:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-succeeded-newest',
+      '#/repos/repo-failed-middle',
+      '#/repos/repo-succeeded-oldest',
+    ]);
+    expect(within(githubCard!).getAllByText(/Queued at:/).map((node) => node.textContent)).toEqual([
+      'Queued at: 2026-04-18T13:00:00Z',
+      'Queued at: 2026-04-18T12:00:00Z',
+      'Queued at: 2026-04-18T11:00:00Z',
+    ]);
+
+    const latestSyncSummary = within(githubCard!).getByText(/Latest sync:/).closest('div');
+    expect(latestSyncSummary).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('repo-succeeded-newest · 2026-04-18T13:00:00Z')).toBeInTheDocument();
+
+    const newestSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-succeeded-newest' }).closest('div');
+    expect(newestSucceededRow).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Finished at: 2026-04-18T13:05:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+
+    const middleFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-failed-middle' }).closest('div');
+    expect(middleFailedRow).toBeInTheDocument();
+    expect(within(middleFailedRow!).getByText('Queued at: 2026-04-18T12:00:00Z')).toBeInTheDocument();
+    expect(within(middleFailedRow!).getByText('Started at: 2026-04-18T12:02:00Z')).toBeInTheDocument();
+    expect(within(middleFailedRow!).getByText('Finished at: 2026-04-18T12:06:00Z')).toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Finished at: 2026-04-18T13:05:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Started at: 2026-04-18T11:03:00Z')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Finished at: 2026-04-18T11:07:00Z')).not.toBeInTheDocument();
+
+    const oldestSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-succeeded-oldest' }).closest('div');
+    expect(oldestSucceededRow).toBeInTheDocument();
+    expect(within(oldestSucceededRow!).getByText('Queued at: 2026-04-18T11:00:00Z')).toBeInTheDocument();
+    expect(within(oldestSucceededRow!).getByText('Started at: 2026-04-18T11:03:00Z')).toBeInTheDocument();
+    expect(within(oldestSucceededRow!).getByText('Finished at: 2026-04-18T11:07:00Z')).toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Finished at: 2026-04-18T13:05:00Z')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
