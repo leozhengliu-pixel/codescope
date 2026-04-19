@@ -927,6 +927,76 @@ describe('App', () => {
     expect(within(localCard!).queryByRole('link', { name: 'Open repository detail' })).not.toBeInTheDocument();
   });
 
+  it('restores the local import path to the configured connection root', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+    expect(within(localCard!).queryByRole('button', { name: 'Reset to local root' })).not.toBeInTheDocument();
+
+    const pathInput = within(localCard!).getByLabelText('Repository path') as HTMLInputElement;
+    fireEvent.change(pathInput, {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+
+    const resetButton = within(localCard!).getByRole('button', { name: 'Reset to local root' });
+    fireEvent.click(resetButton);
+
+    expect(pathInput.value).toBe('/srv/git/mirror');
+    expect(within(localCard!).queryByText('Imported repository: project-alpha')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByText('Repository id: repo-77')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByRole('link', { name: 'Open repository detail' })).not.toBeInTheDocument();
+    expect(within(localCard!).queryByRole('button', { name: 'Reset to local root' })).not.toBeInTheDocument();
+  });
+
   it('disables local connection edit and delete controls while a repository import is in flight', async () => {
     window.location.hash = '#/settings/connections';
 

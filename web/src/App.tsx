@@ -1598,6 +1598,8 @@ function SettingsConnectionsPage() {
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
             const localImportState = connection.kind === 'local' ? localImportStates[connection.id] ?? initialLocalImportState(connection) : null;
+            const localImportRootPath = connection.kind === 'local' ? localConnectionRepoPath(connection) : '';
+            const showLocalImportReset = connection.kind === 'local' && localImportState !== null && localImportState.path !== localImportRootPath;
             const importControlsDisabled = localImportState?.importing ?? false;
             const importFormDisabled = importControlsDisabled || isUpdating || deletingConnectionId === connection.id;
             const editFormDisabled = isUpdating || importControlsDisabled;
@@ -1739,6 +1741,18 @@ function SettingsConnectionsPage() {
                         >
                           {localImportState.importing ? 'Importing…' : 'Import repository'}
                         </button>
+                        {showLocalImportReset ? (
+                          <button
+                            type="button"
+                            style={secondaryButtonStyle}
+                            disabled={importFormDisabled}
+                            onClick={() => {
+                              handleLocalImportPathChange(connection, localImportRootPath);
+                            }}
+                          >
+                            Reset to local root
+                          </button>
+                        ) : null}
                         {localImportState.error ? (
                           <div style={{ color: '#cf222e' }}>Failed to import repository: {localImportState.error}</div>
                         ) : null}
