@@ -1359,6 +1359,129 @@ describe('App', () => {
     ]);
   });
 
+  it('keeps in-progress sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-running',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-running',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-1-queued',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-queued',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-2-queued',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-queued',
+            connection_id: 'conn-2',
+            status: 'queued',
+            queued_at: '2026-04-18T11:30:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-2-running',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-running',
+            connection_id: 'conn-2',
+            status: 'running',
+            queued_at: '2026-04-18T10:30:00Z',
+            started_at: '2026-04-18T10:31:00Z',
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubRunningRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-running' }).closest('div');
+    expect(githubRunningRow).toBeInTheDocument();
+    expect(within(githubRunningRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(githubRunningRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
+    expect(within(githubRunningRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(githubRunningRow!).queryByText('Queued at: 2026-04-18T11:30:00Z')).not.toBeInTheDocument();
+    expect(within(githubRunningRow!).queryByText('Started at: 2026-04-18T10:31:00Z')).not.toBeInTheDocument();
+
+    const githubQueuedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-queued' }).closest('div');
+    expect(githubQueuedRow).toBeInTheDocument();
+    expect(within(githubQueuedRow!).getByText('Queued at: 2026-04-18T12:00:00Z')).toBeInTheDocument();
+    expect(within(githubQueuedRow!).getByText('Started at: Not started')).toBeInTheDocument();
+    expect(within(githubQueuedRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(githubQueuedRow!).queryByText('Queued at: 2026-04-18T10:30:00Z')).not.toBeInTheDocument();
+    expect(within(githubQueuedRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+
+    const gitlabQueuedRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-queued' }).closest('div');
+    expect(gitlabQueuedRow).toBeInTheDocument();
+    expect(within(gitlabQueuedRow!).getByText('Queued at: 2026-04-18T11:30:00Z')).toBeInTheDocument();
+    expect(within(gitlabQueuedRow!).getByText('Started at: Not started')).toBeInTheDocument();
+    expect(within(gitlabQueuedRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(gitlabQueuedRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabQueuedRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+
+    const gitlabRunningRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-running' }).closest('div');
+    expect(gitlabRunningRow).toBeInTheDocument();
+    expect(within(gitlabRunningRow!).getByText('Queued at: 2026-04-18T10:30:00Z')).toBeInTheDocument();
+    expect(within(gitlabRunningRow!).getByText('Started at: 2026-04-18T10:31:00Z')).toBeInTheDocument();
+    expect(within(gitlabRunningRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(gitlabRunningRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabRunningRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+  });
+
   it('keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
