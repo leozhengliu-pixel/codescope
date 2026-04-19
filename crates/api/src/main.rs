@@ -3484,6 +3484,7 @@ mod tests {
                 repository_id: "repo_sourcebot_rewrite".into(),
                 synced_at: "2026-04-21T00:06:00Z".into(),
             }],
+            repository_sync_jobs: vec![],
         };
         let mismatched_state = OrganizationState {
             organizations: vec![Organization {
@@ -3526,6 +3527,7 @@ mod tests {
                 repository_id: "repo_other".into(),
                 synced_at: "2026-04-21T00:07:00Z".into(),
             }],
+            repository_sync_jobs: vec![],
         };
         fs::write(
             &configured_organization_state_path,

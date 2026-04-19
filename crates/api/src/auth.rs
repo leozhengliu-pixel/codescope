@@ -437,8 +437,9 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, Connection, ConnectionConfig,
         ConnectionKind, LocalAccount, OAuthClient, Organization, OrganizationInvite,
-        OrganizationMembership, OrganizationRole, RepositoryPermissionBinding, ReviewAgentRun,
-        ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
+        OrganizationMembership, OrganizationRole, RepositoryPermissionBinding, RepositorySyncJob,
+        RepositorySyncJobStatus, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
+        ReviewWebhookDeliveryAttempt, SearchContext,
     };
     use std::{
         fs,
@@ -898,6 +899,17 @@ mod tests {
                 organization_id: "org_acme".into(),
                 repository_id: "repo_sourcebot_rewrite".into(),
                 synced_at: "2026-04-18T09:30:00Z".into(),
+            }],
+            repository_sync_jobs: vec![RepositorySyncJob {
+                id: "sync_job_1".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                connection_id: "conn_github".into(),
+                status: RepositorySyncJobStatus::Failed,
+                queued_at: "2026-04-26T10:00:00Z".into(),
+                started_at: Some("2026-04-26T10:01:00Z".into()),
+                finished_at: Some("2026-04-26T10:02:00Z".into()),
+                error: Some("remote rejected fetch".into()),
             }],
         };
 

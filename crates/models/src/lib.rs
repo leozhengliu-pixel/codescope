@@ -385,6 +385,38 @@ impl Default for ReviewAgentRunStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepositorySyncJobStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl Default for RepositorySyncJobStatus {
+    fn default() -> Self {
+        Self::Queued
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositorySyncJob {
+    pub id: String,
+    pub organization_id: String,
+    pub repository_id: String,
+    pub connection_id: String,
+    #[serde(default)]
+    pub status: RepositorySyncJobStatus,
+    pub queued_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReviewAgentRun {
     pub id: String,
     pub organization_id: String,
@@ -428,6 +460,8 @@ pub struct OrganizationState {
     pub analytics_records: Vec<AnalyticsRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repository_sync_jobs: Vec<RepositorySyncJob>,
 }
 
 fn audit_actor_is_empty(actor: &AuditActor) -> bool {
@@ -809,6 +843,65 @@ mod tests {
         assert!(error
             .to_string()
             .contains("connection kind `github` does not match config provider `gitlab`"));
+    }
+
+    #[test]
+    fn organization_state_serializes_populated_repository_sync_jobs() {
+        let state = OrganizationState {
+            repository_sync_jobs: vec![RepositorySyncJob {
+                id: "sync_job_1".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                connection_id: "conn_github".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-26T10:00:00Z".into(),
+                started_at: Some("2026-04-26T10:01:00Z".into()),
+                finished_at: Some("2026-04-26T10:02:00Z".into()),
+                error: None,
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "repository_sync_jobs": [{
+                    "id": "sync_job_1",
+                    "organization_id": "org_acme",
+                    "repository_id": "repo_sourcebot_rewrite",
+                    "connection_id": "conn_github",
+                    "status": "succeeded",
+                    "queued_at": "2026-04-26T10:00:00Z",
+                    "started_at": "2026-04-26T10:01:00Z",
+                    "finished_at": "2026-04-26T10:02:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_deserializes_without_repository_sync_jobs_for_backward_compatibility() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "organizations": [{
+                "id": "org_acme",
+                "slug": "acme",
+                "name": "Acme"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            state,
+            OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                }],
+                repository_sync_jobs: vec![],
+                ..OrganizationState::default()
+            }
+        );
     }
 
     #[test]
@@ -1599,6 +1692,7 @@ mod tests {
             audit_events: Vec::new(),
             analytics_records: Vec::new(),
             repo_permissions: Vec::new(),
+            repository_sync_jobs: Vec::new(),
         };
 
         assert_eq!(
