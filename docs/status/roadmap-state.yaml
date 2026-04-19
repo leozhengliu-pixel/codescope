@@ -5,45 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9f6b4cb6719ae1f4388bb9adacf6936c90b7bd69
+  head: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
 last_completed_task:
-  id: task17d
-  title: Persist one explicit stub-failed repository sync outcome after the claim boundary
+  id: task18a
+  title: Expose a read-only repository sync status API over persisted sync-job state
   status: done
   summary: >-
-    Closed the next task17 worker slice by allowing the one-shot worker to drive
-    a claimed repository sync job through the explicit repository-sync stub
-    boundary into one minimal terminal `Failed` outcome, wiring that outcome
-    through config into the real worker binary path, and persisting the failed
-    job plus a minimal explicit error string while still deferring real
-    fetch/mirror I/O, retries, status APIs, and frontend sync-history
-    rendering.
+    Closed the first task18 slice by adding an authenticated read-only
+    `GET /api/v1/auth/repository-sync-jobs` endpoint backed by persisted
+    `OrganizationState.repository_sync_jobs`, filtering fail-closed to the
+    caller's currently visible `(organization_id, repository_id)` bindings,
+    excluding stale hidden repo rows, and returning newest-first operator-visible
+    sync-job status fields without adding mutations, index-status synthesis, or
+    frontend sync-history work.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-config stub_repository_sync_job_execution_outcome -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_records_a_failed_terminal_outcome_when_requested -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_stub_failed_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_persists_stub_failed_repository_sync_status_when_explicitly_configured -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core -p sourcebot-config: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17d by adding one explicit stub-failed terminal repository-sync outcome after claim, wiring it through the real worker binary path, and avoiding real fetch/mirror I/O, retries, status APIs, frontend, or broader sync scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the repository-sync stub outcome plumbing across config, worker logic, and binary smoke coverage minimal and correct for this slice, with only non-blocking notes about optional extra succeeded/invalid env smoke coverage
-  commit: 9f6b4cb6719ae1f4388bb9adacf6936c90b7bd69
-  next_task: task18a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task18a by adding only the authenticated read-only repository sync-jobs status endpoint over persisted sync-job state, preserving fail-closed visibility for stale and cross-org duplicate repo ids, and avoiding mutations, index-status synthesis, frontend work, or broader task18 scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the route, visibility filtering, ordering, and focused regression coverage minimal and correct for this slice
+  commit: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
+  next_task: task18b
 current_task:
-  id: task18a
+  id: task18b
   parent_task: task18
-  title: Expose a read-only repository sync status API over persisted sync-job state
+  title: Expose a read-only repository indexing status API over persisted repository state
   status: pending
   summary: >-
-    Split broad task18 into the first smallest external parity slice by exposing
-    an authenticated read-only repository sync status API backed by persisted
-    `OrganizationState.repository_sync_jobs`, proving operator-visible sync state
-    can be read without adding mutations, index-status synthesis, or frontend
-    sync-history rendering yet.
+    Continue the split task18 status-parity work with the next smallest external
+    slice by exposing an authenticated read-only indexing-status API over the
+    rewrite's persisted repository state, proving operator-visible index health
+    can be read without adding sync mutations, scheduling, or frontend rendering
+    yet.
 history:
+  - id: task18a
+    status: done
+    summary: >-
+      Closed the first task18 slice by adding an authenticated read-only
+      `GET /api/v1/auth/repository-sync-jobs` endpoint backed by persisted
+      `OrganizationState.repository_sync_jobs`, filtering fail-closed to the
+      caller's currently visible `(organization_id, repository_id)` bindings,
+      excluding stale hidden repo rows, and returning newest-first operator-visible
+      sync-job status fields without adding mutations, index-status synthesis, or
+      frontend sync-history work.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task18a by adding only the authenticated read-only repository sync-jobs status endpoint over persisted sync-job state, preserving fail-closed visibility for stale and cross-org duplicate repo ids, and avoiding mutations, index-status synthesis, frontend work, or broader task18 scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the route, visibility filtering, ordering, and focused regression coverage minimal and correct for this slice
+    commit: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
+    next_task: task18b
   - id: task17d
     status: done
     summary: >-
