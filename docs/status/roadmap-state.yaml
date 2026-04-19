@@ -5,41 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f8a2da33fa12e78dde05e3e6f93094af6953fcdc
+  head: 1fe6d439d0118a035734eacf3ce0713d330317a6
 last_completed_task:
-  id: task18c
-  title: Publish a repository-operations acceptance spec for sync/index visibility parity
+  id: task19a
+  title: Show repository sync-job history in the existing settings connections UI
   status: done
   summary: >-
-    Closed the unblocked task18 acceptance-contract slice by adding a dedicated
-    `specs/acceptance/repository-operations.md` home for repository sync/index
-    visibility parity, grounding it in the live API/UI surfaces and current
-    catalog-store limitation, and updating the acceptance index/journey docs so
-    repository operations now point at that spec without overstating persisted
-    catalog, index-status, or settings/admin navigation parity.
+    Closed the first task19 UI slice by extending `#/settings/connections` to
+    fetch the authenticated `/api/v1/auth/repository-sync-jobs` endpoint and
+    render read-only per-connection repository sync-job history with status,
+    queued/started/finished timestamps, and failure text, while preserving the
+    existing connection CRUD inventory and isolating sync-history load failures
+    from the rest of the settings surface. Remaining repo-surface last-run and
+    persisted index-status parity stays deferred behind the catalog-backed
+    task18b/task07b blockers.
   tests:
-    - python3 docs reference validation script for repository-operations acceptance docs: passed
+    - npx vitest run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
+    - npx vitest run src/App.test.tsx -t "keeps the authenticated connections inventory visible when repository sync-job history fails to load": passed
+    - npm test -- --run: passed (23/23)
+    - npm run build: passed
     - git diff --check: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task18c by creating the dedicated repository-operations acceptance home, updating only the linked acceptance index/journey references, preserving the real `#/settings/connections` shell evidence, and explicitly recording the remaining persisted-catalog and index-status blockers instead of over-claiming parity
-    code: approved by one independent post-implementation review; reviewer found no blocking logic or truthfulness defects in the final docs diff and judged the new acceptance spec plus related references minimal and correct for this slice
-  commit: f8a2da33fa12e78dde05e3e6f93094af6953fcdc
-  next_task: task19a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task19a by using only the existing `#/settings/connections` route plus `/api/v1/auth/repository-sync-jobs` to show read-only sync history in settings while preserving connection CRUD behavior and avoiding repo-card/status-api/settings-navigation scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff and judged the read-only per-connection sync-history rendering plus scoped failure handling minimal and correct for this slice, with only a non-blocking suggestion about keeping per-connection ordering explicit if the API ordering contract ever changes
+  commit: 1fe6d439d0118a035734eacf3ce0713d330317a6
+  next_task: task20a
 current_task:
-  id: task19a
-  parent_task: task19
-  title: Show repository sync-job history in the existing settings connections UI
+  id: task20a
+  parent_task: task20
+  title: Publish a generic/local Git parity acceptance spec and gap baseline
   status: pending
   summary: >-
-    Task19 is too broad to close in one run, so split it by visible UI surface.
-    The first smallest unblocked slice is to use the existing
-    `#/settings/connections` route plus the authenticated
-    `/api/v1/auth/repository-sync-jobs` endpoint to show read-only repository
-    sync-job history in settings, while still deferring blocked persisted
-    index-status parity, last-run synthesis on catalog-backed repo cards, and
-    broader settings/admin navigation work.
+    Remaining task19 repo-surface last-run and persisted index-status work is
+    still blocked by the catalog-backed task18b/task07b prerequisites, so the
+    next unblocked parity slice is to split broad task20 at the acceptance
+    contract boundary. The first smallest deliverable is a dedicated
+    generic/local Git parity acceptance spec that grounds the live connection
+    model, current settings/API/frontend evidence, and explicit gaps before
+    deeper host/runtime implementation slices.
 history:
+  - id: task19a
+    status: done
+    summary: >-
+      Closed the first task19 UI slice by extending `#/settings/connections` to
+      fetch the authenticated `/api/v1/auth/repository-sync-jobs` endpoint and
+      render read-only per-connection repository sync-job history with status,
+      queued/started/finished timestamps, and failure text, while preserving the
+      existing connection CRUD inventory and isolating sync-history load failures
+      from the rest of the settings surface. Remaining repo-surface last-run and
+      persisted index-status parity stays deferred behind the catalog-backed
+      task18b/task07b blockers.
+    tests:
+      - npx vitest run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
+      - npx vitest run src/App.test.tsx -t "keeps the authenticated connections inventory visible when repository sync-job history fails to load": passed
+      - npm test -- --run: passed (23/23)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task19a by using only the existing `#/settings/connections` route plus `/api/v1/auth/repository-sync-jobs` to show read-only sync history in settings while preserving connection CRUD behavior and avoiding repo-card/status-api/settings-navigation scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff and judged the read-only per-connection sync-history rendering plus scoped failure handling minimal and correct for this slice, with only a non-blocking suggestion about keeping per-connection ordering explicit if the API ordering contract ever changes
+    commit: 1fe6d439d0118a035734eacf3ce0713d330317a6
+    next_task: task20a
   - id: task18c
     status: done
     summary: >-
