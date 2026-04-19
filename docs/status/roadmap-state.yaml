@@ -5,50 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: df6b853fdb735cf57de640b2c8f916b95110a533
+  head: 006949f0cfc40bd86c540ff4e3efb90910fde695
 last_completed_task:
-  id: task17a
-  title: Add one worker tick that claims the oldest queued repository sync job and persists the Running status
+  id: task17b
+  title: Add an explicit repository sync execution stub boundary after the claim path
   status: done
   summary: >-
-    Closed the first task17 worker-baseline slice by teaching the one-shot worker
-    path to claim exactly one oldest queued `RepositorySyncJob` from the durable
-    organization store once review-agent work is exhausted, persist its
-    transition to `Running` with a `started_at` timestamp, and harden the
-    file-backed whole-document store against stale writes that would otherwise
-    regress or drop repository sync job progress, while still deferring real
-    fetch/mirror execution, sync-job terminal success/failure handling, status
-    APIs, and frontend sync-history rendering.
+    Closed the next task17 worker slice by routing claimed repository sync jobs
+    through a named `execute_claimed_repository_sync_job_stub(...)` boundary in
+    the actual one-shot worker path, proving the placeholder currently preserves
+    the already-persisted `Running` job contract while explicitly deferring real
+    fetch/mirror execution, terminal sync outcomes, status APIs, and frontend
+    sync-history rendering.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_claims_oldest_queued_repository_sync_job_and_persists_running_status -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_preserves_running_repository_sync_job_when_stale_state_is_written -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_preserves_new_repository_sync_job_when_stale_state_is_written -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_preserves_the_claimed_running_job -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::claim_next_repository_sync_job_from_store_persists_the_oldest_running_job -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_running_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker worker_binary_claims_oldest_queued_repository_sync_job_and_persists_running_status_when_no_review_agent_run_is_available -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-core -p sourcebot-api -p sourcebot-worker: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17a by adding only the one-shot worker fallback that claims the oldest queued repository sync job after review-agent work is exhausted, persists `Running`, keeps review-agent priority intact, and avoids real sync execution, terminal sync outcomes, status API, or frontend scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the one-job claim path plus stale-write preservation tests minimal and correct for this slice, with only a non-blocking note that future explicit deletion semantics may need to revisit the repository-sync-job merge behavior
-  commit: df6b853fdb735cf57de640b2c8f916b95110a533
-  next_task: task17b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17b by adding only the explicit post-claim repository-sync execution stub boundary in the real worker path, keeping the placeholder no-op behavior and avoiding real fetch/mirror, terminal sync outcome, status API, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the new named repository-sync stub plus focused preservation coverage minimal and correct for this slice, with only a non-blocking note that real execution/persistence behavior beyond claim-and-return remains deferred
+  commit: 006949f0cfc40bd86c540ff4e3efb90910fde695
+  next_task: task17c
 current_task:
-  id: task17b
+  id: task17c
   parent_task: task17
-  title: Add an explicit repository sync execution stub boundary after the claim path
+  title: Persist one explicit stub-completed repository sync outcome after the claim boundary
   status: pending
   summary: >-
-    Continue task17 with the next smallest truthful worker-parity slice by
-    introducing a named repository-sync execution stub after the claim path so
-    later real fetch/mirror logic has an explicit extension boundary, while
-    still deferring real network/disk mirror execution, sync-job terminal
-    success/failure persistence, status APIs, and frontend sync-history
-    rendering.
+    Continue task17 with the next smallest truthful worker slice by teaching
+    the one-shot worker to drive claimed repository sync jobs through the
+    explicit stub boundary into one minimal terminal stub-completion outcome,
+    while still deferring real fetch/mirror I/O, failure handling, status APIs,
+    and frontend sync-history rendering.
 history:
+  - id: task17b
+    status: done
+    summary: >-
+      Closed the next task17 worker slice by routing claimed repository sync
+      jobs through a named `execute_claimed_repository_sync_job_stub(...)`
+      boundary in the actual one-shot worker path, proving the placeholder
+      currently preserves the already-persisted `Running` job contract while
+      explicitly deferring real fetch/mirror execution, terminal sync outcomes,
+      status APIs, and frontend sync-history rendering.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::execute_claimed_repository_sync_job_stub_preserves_the_claimed_running_job -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::claim_next_repository_sync_job_from_store_persists_the_oldest_running_job -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker tests::run_repository_sync_claim_tick_records_a_running_repository_sync_job_in_the_file_store -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-worker -p sourcebot-api -p sourcebot-core: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task17b by adding only the explicit post-claim repository-sync execution stub boundary in the real worker path, keeping the placeholder no-op behavior and avoiding real fetch/mirror, terminal sync outcome, status API, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the new named repository-sync stub plus focused preservation coverage minimal and correct for this slice, with only a non-blocking note that real execution/persistence behavior beyond claim-and-return remains deferred
+    commit: 006949f0cfc40bd86c540ff4e3efb90910fde695
+    next_task: task17c
   - id: task17a
     status: done
     summary: >-
