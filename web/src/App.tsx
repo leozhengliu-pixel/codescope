@@ -1704,7 +1704,10 @@ function SettingsConnectionsPage() {
                         <div>Imported repository: {localImportState.result.repository.name}</div>
                         <div>Repository id: {localImportState.result.repository.id}</div>
                         <div>Default branch: {localImportState.result.repository.default_branch}</div>
-                        <div>Sync state: {localImportState.result.repository.sync_state}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span>Sync state</span>
+                          <StatusBadge state={localImportState.result.repository.sync_state} />
+                        </div>
                         <a
                           href={`#/repos/${encodeURIComponent(localImportState.result.repository.id)}`}
                           style={{ color: '#0969da', fontWeight: 600 }}
