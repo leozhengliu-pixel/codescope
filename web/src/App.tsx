@@ -1228,6 +1228,7 @@ function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
   return syncJobs.reduce<Map<string, RepositorySyncJob[]>>((jobsByConnectionId, syncJob) => {
     const existingJobs = jobsByConnectionId.get(syncJob.connection_id) ?? [];
     existingJobs.push(syncJob);
+    existingJobs.sort((left, right) => Date.parse(right.queued_at) - Date.parse(left.queued_at));
     jobsByConnectionId.set(syncJob.connection_id, existingJobs);
     return jobsByConnectionId;
   }, new Map<string, RepositorySyncJob[]>());

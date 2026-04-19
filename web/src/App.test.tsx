@@ -657,6 +657,94 @@ describe('App', () => {
     });
   });
 
+  it('renders each connection\'s repository sync history newest-first when sync jobs arrive out of order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-older',
+            organization_id: 'org-1',
+            repository_id: 'repo-older',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T10:00:00Z',
+            started_at: '2026-04-18T10:01:00Z',
+            finished_at: '2026-04-18T10:03:00Z',
+            error: 'Older failure',
+          },
+          {
+            id: 'job-other-connection',
+            organization_id: 'org-1',
+            repository_id: 'repo-other-connection',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:30:00Z',
+            started_at: '2026-04-18T11:31:00Z',
+            finished_at: '2026-04-18T11:33:00Z',
+            error: null,
+          },
+          {
+            id: 'job-newer',
+            organization_id: 'org-1',
+            repository_id: 'repo-newer',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: '2026-04-18T12:02:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    const repositoryIds = within(githubCard!).getAllByText(/Repository id:/).map((node) => node.textContent);
+    const queuedTimestamps = within(githubCard!).getAllByText(/Queued at:/).map((node) => node.textContent);
+
+    expect(repositoryIds).toEqual(['Repository id: repo-newer', 'Repository id: repo-older']);
+    expect(queuedTimestamps).toEqual(['Queued at: 2026-04-18T12:00:00Z', 'Queued at: 2026-04-18T10:00:00Z']);
+    expect(within(githubCard!).getByText('Error: Older failure')).toBeInTheDocument();
+
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(gitlabCard).toBeInTheDocument();
+    expect(within(gitlabCard!).getByText('Repository id: repo-other-connection')).toBeInTheDocument();
+  });
+
   it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
     window.location.hash = '#/settings/connections';
 
