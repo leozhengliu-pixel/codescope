@@ -664,6 +664,8 @@ describe('App', () => {
 
     expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
     expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Default branch: main')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Sync state: ready')).toBeInTheDocument();
     expect(within(localCard!).getByText('Kind: local')).toBeInTheDocument();
     expect(within(localCard!).queryByText(/Failed to import repository:/i)).not.toBeInTheDocument();
     expect(within(localCard!).getByRole('link', { name: 'Open repository detail' })).toHaveAttribute(
