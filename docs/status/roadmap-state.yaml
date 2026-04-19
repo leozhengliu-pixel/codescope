@@ -5,16 +5,16 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f96f0d75ad07656ccb9e8e47230033cba70c040c
+  head: 9b1a5fe66b5c60b4b89fafb659d2df43f707d502
 last_completed_task:
-  id: task20e
-  title: Show imported repository branch and sync-state summary on the local import success card
+  id: task20f
+  title: Render the imported repository sync state with the shared status badge on the local import success card
   status: done
   summary: >-
-    Closed the next task20 slice by extending the existing local-import success
-    card on `#/settings/connections` so a successful local import now shows the
-    imported repository's default branch and current sync state alongside the
-    existing name/id/detail-link summary, while still deferring generic-host
+    Closed the next task20 slice by keeping the existing settings-driven local
+    import success card on `#/settings/connections` but replacing the plain sync
+    state text with the shared `StatusBadge` treatment already used on
+    repository list/detail surfaces, while still deferring generic-host
     discovery, recursive local enumeration, broader operator controls, and
     durable catalog-backed parity.
   tests:
@@ -23,23 +23,43 @@ last_completed_task:
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20e by reusing the existing local import success card on `#/settings/connections` to show the imported repository default branch and sync state without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the local-import branch/sync-state summary slice
-  commit: f96f0d75ad07656ccb9e8e47230033cba70c040c
-  next_task: task20f
+    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20f by reusing the existing shared `StatusBadge` on the local import success card without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the local-import sync-state badge slice
+  commit: 9b1a5fe66b5c60b4b89fafb659d2df43f707d502
+  next_task: task20g
 current_task:
-  id: task20f
+  id: task20g
   parent_task: task20
-  title: Render the imported repository sync state with the shared status badge on the local import success card
+  title: Clear stale imported repository success details when the local import path changes
   status: pending
   summary: >-
     The next smallest unblocked task20 slice is to keep the existing
-    settings-driven local import success card but render the imported
-    repository's sync state with the same shared status-badge treatment already
-    used on repository list/detail surfaces, without expanding into generic-host
-    discovery, recursive local enumeration, broader operator controls, or
+    settings-driven local import flow but clear any previously rendered imported
+    repository success summary as soon as the user edits that local connection's
+    repository path, so the settings UI does not keep showing stale success
+    details for a different pending path while still deferring generic-host
+    discovery, recursive local enumeration, broader operator controls, and
     durable catalog-backed parity.
 history:
+  - id: task20f
+    status: done
+    summary: >-
+      Closed the next task20 slice by keeping the existing settings-driven local
+      import success card on `#/settings/connections` but replacing the plain
+      sync state text with the shared `StatusBadge` treatment already used on
+      repository list/detail surfaces, while still deferring generic-host
+      discovery, recursive local enumeration, broader operator controls, and
+      durable catalog-backed parity.
+    tests:
+      - npm test -- --run -t "shows a local-only repository import form on the settings route and renders imported repository details on success": passed
+      - npm test -- --run: passed (30/30)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20f by reusing the existing shared `StatusBadge` on the local import success card without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the local-import sync-state badge slice
+    commit: 9b1a5fe66b5c60b4b89fafb659d2df43f707d502
+    next_task: task20g
   - id: task20e
     status: done
     summary: >-
