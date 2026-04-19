@@ -5,67 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
+  head: cbeaef8a752fc0e1c43a1ae6e80b945f9d286a78
 last_completed_task:
-  id: task20q2q
-  title: Add focused in-progress timestamp scoping coverage for settings sync-history sections across authenticated connection cards
+  id: task20q2r
+  title: Add focused multi-row in-progress timestamp detail coverage for settings sync-history rows
   status: done
   summary: >-
-    Closed the seventeenth split task20q2 settings-shell follow-up slice by
+    Closed the eighteenth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep queued/running sync-history row
-    queued/started/finished-or-fallback timestamp details truthful and scoped
-    across cards without implying new backend APIs, sync-job semantics,
-    retries, or broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving multiple
+    queued/running rows on the same authenticated connection keep their per-row
+    queued/started/finished-or-fallback timestamp details truthful while staying
+    newest-first by `queued_at`, without implying new backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps in-progress sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route": passed
-    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (11/11)
-    - npm test -- --run: passed (51/51)
+    - npm test -- --run src/App.test.tsx -t "keeps multiple queued and running sync-history timestamp details truthful and newest-first on the same authenticated connection card": passed
+    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (12/12)
+    - npm test -- --run: passed (52/52)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2q diff stays limited to one `#/settings/connections` in-progress timestamp-scoping coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2r diff stays limited to one `#/settings/connections` same-card multi-row in-progress timestamp-coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
-  next_task: task20q2r
+  commit: cbeaef8a752fc0e1c43a1ae6e80b945f9d286a78
+  next_task: task20q2s
 current_task:
-  id: task20q2r
+  id: task20q2s
   parent_task: task20q2
-  title: Add focused multi-row in-progress timestamp detail coverage for settings sync-history rows
+  title: Add focused multi-row terminal-state timestamp detail coverage for settings sync-history rows
   status: pending
   summary: >-
-    The settings shell now has explicit sibling-card scoping coverage for
-    queued/running timestamp details, so the next smallest unblocked follow-up
-    is to add one focused regression proving multiple queued/running rows on the
-    same authenticated connection keep their per-row queued/started/finished-or-
-    fallback timestamp details truthful while staying newest-first by `queued_at`,
-    without changing backend APIs, sync-job semantics, retries, or broader
-    admin/settings navigation.
+    The settings shell now has explicit same-card multi-row coverage for queued
+    and running sync-history timestamps, so the next smallest unblocked follow-up
+    is to add one focused regression proving multiple succeeded/failed terminal
+    rows on the same authenticated connection keep their per-row
+    queued/started/finished timestamp details truthful while staying newest-first
+    by `queued_at`, without changing backend APIs, sync-job semantics, retries,
+    or broader admin/settings navigation.
 history:
-  - id: task20q2q
+  - id: task20q2r
     status: done
     summary: >-
-      Closed the seventeenth split task20q2 settings-shell follow-up slice by
+      Closed the eighteenth split task20q2 settings-shell follow-up slice by
       adding one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
-      `#/settings/connections` now has explicit coverage proving sibling
-      authenticated connection cards keep queued/running sync-history row
-      queued/started/finished-or-fallback timestamp details truthful and scoped
-      across cards without implying new backend APIs, sync-job semantics,
-      retries, or broader admin/settings navigation.
+      `#/settings/connections` now has explicit coverage proving multiple
+      queued/running rows on the same authenticated connection keep their per-row
+      queued/started/finished-or-fallback timestamp details truthful while staying
+      newest-first by `queued_at`, without implying new backend APIs, sync-job
+      semantics, retries, or broader admin/settings navigation.
     tests:
-      - npm test -- --run src/App.test.tsx -t "keeps in-progress sync-history timestamp details scoped and truthful across authenticated connection cards on the settings route": passed
-      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (11/11)
-      - npm test -- --run: passed (51/51)
+      - npm test -- --run src/App.test.tsx -t "keeps multiple queued and running sync-history timestamp details truthful and newest-first on the same authenticated connection card": passed
+      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (12/12)
+      - npm test -- --run: passed (52/52)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2q diff stays limited to one `#/settings/connections` in-progress timestamp-scoping coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2r diff stays limited to one `#/settings/connections` same-card multi-row in-progress timestamp-coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-    commit: 6c11119fb00707fd7e5a603e939ff4ed6fa2ced1
-    next_task: task20q2r
+    commit: cbeaef8a752fc0e1c43a1ae6e80b945f9d286a78
+    next_task: task20q2s
   - id: task20q2p
     status: done
     summary: >-
