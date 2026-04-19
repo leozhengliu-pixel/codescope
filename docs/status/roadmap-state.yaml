@@ -5,44 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b6ea074e86979d024dac554732f19d73cd987593
+  head: 40229669204dcf3146dac6c7521f28c269331459
 last_completed_task:
-  id: task20q2m
-  title: Add focused failure-state coexistence coverage for settings sync-history sections across authenticated connection cards
+  id: task20q2n
+  title: Add focused terminal-state coexistence coverage for settings sync-history sections across authenticated connection cards
   status: done
   summary: >-
-    Closed the thirteenth split task20q2 settings-shell follow-up slice by
+    Closed the fourteenth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sync-history load
-    failures stay visible and truthful on each authenticated connection card
-    without collapsing sibling cards or implying new backend APIs,
-    sync-job semantics, retries, or broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving succeeded/failed
+    terminal sync-history rows, latest summaries, error text, and repo-detail
+    links stay scoped and truthful on sibling authenticated connection cards
+    without implying new backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
   tests:
-    - npm test -- --run App.test.tsx -t "keeps the sync-history failure state visible and truthful on each authenticated connection card without collapsing sibling cards": passed
-    - npm test -- --run App.test.tsx -t "sync-history": passed (6/6)
-    - npm test -- --run: passed (47/47)
+    - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history rows scoped to their sibling authenticated connection cards on the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (8/8)
+    - npm test -- --run: passed (48/48)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2m diff stays limited to one `#/settings/connections` failure-state coexistence coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2n diff stays limited to one `#/settings/connections` terminal-state coexistence coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: b6ea074e86979d024dac554732f19d73cd987593
-  next_task: task20q2n
+  commit: 40229669204dcf3146dac6c7521f28c269331459
+  next_task: task20q2o
 current_task:
-  id: task20q2n
+  id: task20q2o
   parent_task: task20q2
-  title: Add focused terminal-state coexistence coverage for settings sync-history sections across authenticated connection cards
+  title: Add focused terminal-state badge coverage for settings sync-history sections across authenticated connection cards
   status: pending
   summary: >-
-    The settings shell now has explicit coverage for per-card sync-history
-    loading, failure, empty, and queued/running states across authenticated
-    connection cards, so the next smallest unblocked follow-up is to add one
-    focused regression proving terminal sync-history rows stay scoped and
-    truthful across sibling authenticated connection cards without implying new
+    The settings shell now has explicit coexistence coverage for sibling
+    authenticated connection cards showing succeeded/failed sync-history states,
+    so the next smallest unblocked follow-up is to add one focused regression
+    proving terminal sync-history rows and latest summaries reuse the shared
+    status-badge presentation truthfully across cards without implying new
     backend APIs, sync-job semantics, retries, or broader admin/settings
     navigation.
 history:
+  - id: task20q2n
+    status: done
+    summary: >-
+      Closed the fourteenth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving succeeded/failed
+      terminal sync-history rows, latest summaries, error text, and repo-detail
+      links stay scoped and truthful on sibling authenticated connection cards
+      without implying new backend APIs, sync-job semantics, retries, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history rows scoped to their sibling authenticated connection cards on the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (8/8)
+      - npm test -- --run: passed (48/48)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2n diff stays limited to one `#/settings/connections` terminal-state coexistence coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 40229669204dcf3146dac6c7521f28c269331459
+    next_task: task20q2o
   - id: task20q2m
     status: done
     summary: >-
