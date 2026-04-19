@@ -1845,7 +1845,10 @@ function SettingsConnectionsPage() {
                           style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
                         >
                           <div>Repository id: {syncJob.repository_id}</div>
-                          <div>Status: {syncJob.status}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span>Status</span>
+                            <RepositorySyncJobStatusBadge status={syncJob.status} />
+                          </div>
                           <div>Queued at: {syncJob.queued_at}</div>
                           <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
                           <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>

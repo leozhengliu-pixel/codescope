@@ -636,7 +636,12 @@ describe('App', () => {
     expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
     expect(await screen.findAllByText('Repository sync history')).toHaveLength(2);
     expect(screen.getByText('Repository id: repo-123')).toBeInTheDocument();
-    expect(screen.getByText('Status: succeeded')).toBeInTheDocument();
+    const succeededSyncRow = screen.getByRole('link', { name: 'Open repository detail for repo-123' }).closest('div');
+    expect(succeededSyncRow).toBeInTheDocument();
+    const succeededStatusRow = within(succeededSyncRow!).getByText('Status').closest('div');
+    expect(succeededStatusRow).toBeInTheDocument();
+    expect(within(succeededStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(succeededSyncRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
     expect(screen.getByText('Queued at: 2026-04-18T10:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('Started at: 2026-04-18T10:01:00Z')).toBeInTheDocument();
     expect(screen.getByText('Finished at: 2026-04-18T10:02:00Z')).toBeInTheDocument();
@@ -644,7 +649,12 @@ describe('App', () => {
       'href',
       '#/repos/repo-123'
     );
-    expect(screen.getByText('Status: failed')).toBeInTheDocument();
+    const failedSyncRow = screen.getByRole('link', { name: 'Open repository detail for repo-456' }).closest('div');
+    expect(failedSyncRow).toBeInTheDocument();
+    const failedStatusRow = within(failedSyncRow!).getByText('Status').closest('div');
+    expect(failedStatusRow).toBeInTheDocument();
+    expect(within(failedStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(failedSyncRow!).queryByText('Status: failed')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open repository detail for repo-456' })).toHaveAttribute(
       'href',
       '#/repos/repo-456'
