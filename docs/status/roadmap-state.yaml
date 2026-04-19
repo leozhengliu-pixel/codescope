@@ -5,42 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 723ebada7d100502d18ee1c4cda9606098594e3b
+  head: 4630f27a962c9fa69283c4f91834fb8e931dfd33
 last_completed_task:
-  id: task20q2b
-  title: Add a generic-git host quick-open affordance on the settings route
+  id: task20q2c
+  title: Add repo-detail quick-open links for per-connection sync-history rows on the settings route
   status: done
   summary: >-
-    Closed the second split task20q2 discovery-follow-up slice by adding one
+    Closed the third split task20q2 discovery-follow-up slice by adding one
     focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    generic-git host quick-open/manual-discovery affordance on
-    `#/settings/connections`, and the matching acceptance-doc grounding so valid
-    `generic_git.config.base_url` values now render one safe host link for manual
-    discovery while the settings shell still states that repository discovery is
-    not available yet for generic Git connections and fails closed for unsafe
-    schemes such as `javascript:`.
+    quick-open affordance on per-connection repository sync-history rows in
+    `#/settings/connections`, and the matching acceptance-doc grounding so known
+    sync-history entries can open the existing `#/repos/:repoId` detail route
+    directly without changing backend APIs, sync-job semantics, retries, or
+    broader admin/settings navigation.
   tests:
-    - npm test -- --run -t "shows a generic git quick-open affordance on the settings route while keeping discovery status truthful": passed
+    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
     - npm test -- --run: passed (41/41)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2b diff stays limited to one generic-git host quick-open/manual-discovery affordance on `#/settings/connections`, keeps the deferred discovery copy truthful, and does not expand into backend APIs, recursive local import, durable catalog parity, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the allowlisted `http`/`https` URL validation that prevents unsafe `javascript:` quick-open links
-  commit: 723ebada7d100502d18ee1c4cda9606098594e3b
-  next_task: task20q2c
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2c diff stays limited to one per-row sync-history quick-open link on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, sync semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the narrow use of the existing `repository_id` to open the repo detail route
+  commit: 4630f27a962c9fa69283c4f91834fb8e931dfd33
+  next_task: task20q2d
 current_task:
-  id: task20q2c
+  id: task20q2d
   parent_task: task20q2
-  title: Add repo-detail quick-open links for per-connection sync-history rows on the settings route
+  title: Keep per-connection sync-history rows newest-first on the settings route
   status: pending
   summary: >-
-    The local reset and generic-git host quick-open follow-ups are now closed, so
-    the next smallest unblocked settings-shell parity slice is to let known
-    per-connection repository sync-history rows open the existing `#/repos/:repoId`
-    detail route directly from `#/settings/connections` without changing backend
-    APIs, sync-job semantics, retries, or broader admin/settings navigation.
+    The per-row repo-detail quick-open slice is now closed, so the next smallest
+    unblocked settings-shell parity follow-up is to make the per-connection
+    repository sync-history section render newest-first explicitly on
+    `#/settings/connections` without changing backend APIs, retries, sync-job
+    semantics, or broader admin/settings navigation.
 history:
+  - id: task20q2c
+    status: done
+    summary: >-
+      Closed the third split task20q2 discovery-follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      quick-open affordance on per-connection repository sync-history rows in
+      `#/settings/connections`, and the matching acceptance-doc grounding so known
+      sync-history entries can open the existing `#/repos/:repoId` detail route
+      directly without changing backend APIs, sync-job semantics, retries, or
+      broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
+      - npm test -- --run: passed (41/41)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2c diff stays limited to one per-row sync-history quick-open link on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, sync semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the narrow use of the existing `repository_id` to open the repo detail route
+    commit: 4630f27a962c9fa69283c4f91834fb8e931dfd33
+    next_task: task20q2d
   - id: task20q2b
     status: done
     summary: >-
