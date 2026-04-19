@@ -246,6 +246,19 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+function sharedStatusBadgeStyle(color: string): CSSProperties {
+  return {
+    display: 'inline-block',
+    padding: '2px 10px',
+    borderRadius: 999,
+    background: `${color}18`,
+    color,
+    fontSize: 12,
+    fontWeight: 600,
+    textTransform: 'uppercase',
+  };
+}
+
 function StatusBadge({ state }: { state: SyncState }) {
   const colors: Record<SyncState, string> = {
     pending: '#9a6700',
@@ -253,22 +266,18 @@ function StatusBadge({ state }: { state: SyncState }) {
     error: '#cf222e',
   };
 
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 10px',
-        borderRadius: 999,
-        background: `${colors[state]}18`,
-        color: colors[state],
-        fontSize: 12,
-        fontWeight: 600,
-        textTransform: 'uppercase',
-      }}
-    >
-      {state}
-    </span>
-  );
+  return <span style={sharedStatusBadgeStyle(colors[state])}>{state}</span>;
+}
+
+function RepositorySyncJobStatusBadge({ status }: { status: RepositorySyncJobStatus }) {
+  const colors: Record<RepositorySyncJobStatus, string> = {
+    queued: '#9a6700',
+    running: '#0969da',
+    succeeded: '#1a7f37',
+    failed: '#cf222e',
+  };
+
+  return <span style={sharedStatusBadgeStyle(colors[status])}>{status}</span>;
 }
 
 function RepoListPage() {
@@ -1817,8 +1826,12 @@ function SettingsConnectionsPage() {
                     <div style={{ color: '#57606a', fontSize: 14 }}>Loading repository sync history…</div>
                   ) : null}
                   {!syncJobsError && !syncJobsLoading && latestConnectionSyncJob ? (
-                    <div style={{ color: '#57606a', fontSize: 14 }}>
-                      Latest sync: {latestConnectionSyncJob.status} · {latestConnectionSyncJob.repository_id} · {latestConnectionSyncJob.queued_at}
+                    <div style={{ color: '#57606a', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span>Latest sync:</span>
+                      <RepositorySyncJobStatusBadge status={latestConnectionSyncJob.status} />
+                      <span>
+                        {latestConnectionSyncJob.repository_id} · {latestConnectionSyncJob.queued_at}
+                      </span>
                     </div>
                   ) : null}
                   {!syncJobsError && !syncJobsLoading && connectionSyncJobs.length === 0 ? (
