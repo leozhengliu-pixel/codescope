@@ -27,7 +27,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Code navigation | `specs/acceptance/code-nav.md` | Present | Covers definitions/references behavior; later parity tasks will extend multi-language and UI parity details. |
 | Ask and chat | `specs/acceptance/ask.md` | Present | Covers ask behavior at a high level; later parity tasks still need thread lifecycle and citation/UI parity details. |
 | Auth and permissions | `specs/acceptance/auth.md` | Present | Covers local auth + permission boundaries; later parity tasks must expand onboarding/orgs/invites/API keys/OAuth details. |
-| Integrations | `specs/acceptance/integrations.md` | Present | Covers provider-facing behavior broadly; later parity tasks must split/expand per host/provider and webhook/operator flows. |
+| Integrations | `specs/acceptance/integrations.md` + `specs/acceptance/generic-local-git.md` | Expanded in task20a | Broad integrations coverage now has a dedicated generic/local Git acceptance home; later parity tasks must continue splitting provider-specific and webhook/operator flows. |
 | Repository operations | `specs/acceptance/repository-operations.md` | Present in task18c | Locks the current sync-state and authenticated sync-job visibility contract while recording the remaining persisted-catalog, index-status, recovery, and admin-surface parity gaps. |
 | Journey map and missing-spec prerequisites | `specs/acceptance/journeys.md` | Present in this slice | Maps indexed surfaces into user/admin/operator journeys and names the missing dedicated acceptance specs that must be created before broader implementation proceeds. |
 | Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
@@ -87,7 +87,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 ## Immediate follow-up gaps exposed by this index
 1. The acceptance corpus has broad domain specs, but no dedicated worker/operator black-box specs yet.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
-3. `specs/FEATURE_PARITY.md` remains a checklist without per-row evidence placeholders; Task 2 should expand it after this index and journey map exist.
+3. `specs/FEATURE_PARITY.md` now has the evidence column needed for later parity auditing, but most rows are still only placeholders; later slices should keep replacing `_TBD_` rows with grounded evidence instead of treating the matrix as complete.
 4. Review-agent, OAuth, analytics, audit, settings/admin navigation, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds.
 
 ## Related follow-up document

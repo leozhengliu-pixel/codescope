@@ -29,7 +29,7 @@ placeholder columns for later parity-audit updates.
 | Integrations | Gerrit | Needs audit | _TBD_ |
 | Integrations | Bitbucket | Needs audit | _TBD_ |
 | Integrations | Azure DevOps | Needs audit | _TBD_ |
-| Integrations | Generic Git host / local Git | Needs audit | _TBD_ |
+| Integrations | Generic Git host / local Git | Partial | `specs/acceptance/generic-local-git.md` now grounds the current baseline: shared `generic_git`/`local` connection kinds and configs, authenticated `/api/v1/auth/connections` CRUD, repo-detail connection metadata, and the limited `#/settings/connections` shell with local `repo_path` handling and read-only sync-history visibility. Real host enumeration/import/index parity remains open. |
 | Integrations | OIDC / SSO providers | Needs audit | _TBD_ |
 | Integrations | MCP server | Needs audit | _TBD_ |
 | Integrations | Public REST API | Needs audit | _TBD_ |
