@@ -5,41 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c640dd9640f3ded59751db46bd7722f635b2d9e3
+  head: ac057793ec91104d0f1eaf4ed0d6d1eeb7dc5cea
 last_completed_task:
-  id: task20p
-  title: Lock generic Git connection delete success handling to the settings route
+  id: task20q1
+  title: Expose truthful generic/local discovery status on the settings route
   status: done
   summary: >-
-    Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
-    regression proving the settings-driven `generic_git` delete success path on
-    `#/settings/connections` removes only the deleted host-style connection card
-    while keeping the remaining authenticated connection inventory visible,
-    without expanding into generic-host discovery, recursive local enumeration,
-    broader operator/admin controls, or durable catalog-backed parity.
+    Closed the first split task20q discovery slice by adding one focused
+    `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
+    settings-shell disclosure that shows truthful discovery status messaging for
+    `generic_git` and `local` connections on `#/settings/connections`,
+    explicitly preserving the existing single-path local import contract while
+    clarifying that generic-host discovery and recursive local enumeration are
+    not available yet, without expanding into backend discovery APIs, durable
+    catalog parity, broader admin navigation, or more CRUD work.
   tests:
-    - npm test -- --run -t "removes only the deleted generic git connection from the settings route while keeping the remaining host-style inventory visible": passed
-    - npm test -- --run: passed (39/39)
+    - npx vitest run src/App.test.tsx -t "shows truthful generic/local discovery status on the settings route without implying full enumeration parity": passed
+    - npx vitest run src/App.test.tsx: passed (40/40)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20p diff stays limited to one focused generic-git delete-success regression on `#/settings/connections` and proves only the deleted host-style card disappears while the remaining authenticated inventory stays visible, without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff and judged the focused generic-git delete-success regression minimal and correct, with only non-blocking notes about future assertion resilience
-  commit: c640dd9640f3ded59751db46bd7722f635b2d9e3
-  next_task: task20q
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q1 diff stays limited to one truthful settings-route discovery-status slice for `generic_git` and `local` connections, preserving the deferred generic-host discovery and recursive local enumeration gaps without expanding into backend APIs, durable catalog parity, broader admin navigation, or more CRUD work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the centralized discovery-status helper plus focused regression minimal and correct, with only a non-blocking note about the adjacent local-card sections remaining slightly visually repetitive
+  commit: ac057793ec91104d0f1eaf4ed0d6d1eeb7dc5cea
+  next_task: task20q2
 current_task:
-  id: task20q
-  parent_task: task20
-  title: Split the first post-CRUD generic/local Git discovery slice
+  id: task20q2
+  parent_task: task20q
+  title: Add one scoped generic/local discovery follow-up affordance after the truthful status slice
   status: pending
   summary: >-
-    Generic-git settings-route CRUD success/failure coverage is now closed, so
-    the next smallest unblocked task20 slice is to ground the first remaining
-    generic/local Git discovery or enumeration gap (rather than adding more CRUD
-    coverage), starting from the still-deferred generic-host discovery / local
-    mirror enumeration surface documented in the acceptance spec and parity
-    report.
+    The first post-CRUD discovery slice now truthfully exposes the current
+    generic/local discovery limits on `#/settings/connections`, so the next
+    smallest unblocked task20 follow-up is to add one scoped user-facing
+    discovery or enumeration affordance on that same surface without claiming
+    real generic-host discovery, recursive local import, durable catalog parity,
+    or broader admin navigation.
 history:
+  - id: task20q1
+    status: done
+    summary: >-
+      Closed the first split task20q discovery slice by adding one focused
+      `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
+      settings-shell disclosure that shows truthful discovery status messaging for
+      `generic_git` and `local` connections on `#/settings/connections`,
+      explicitly preserving the existing single-path local import contract while
+      clarifying that generic-host discovery and recursive local enumeration are
+      not available yet, without expanding into backend discovery APIs, durable
+      catalog parity, broader admin navigation, or more CRUD work.
+    tests:
+      - npx vitest run src/App.test.tsx -t "shows truthful generic/local discovery status on the settings route without implying full enumeration parity": passed
+      - npx vitest run src/App.test.tsx: passed (40/40)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q1 diff stays limited to one truthful settings-route discovery-status slice for `generic_git` and `local` connections, preserving the deferred generic-host discovery and recursive local enumeration gaps without expanding into backend APIs, durable catalog parity, broader admin navigation, or more CRUD work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the centralized discovery-status helper plus focused regression minimal and correct, with only a non-blocking note about the adjacent local-card sections remaining slightly visually repetitive
+    commit: ac057793ec91104d0f1eaf4ed0d6d1eeb7dc5cea
+    next_task: task20q2
   - id: task20p
     status: done
     summary: >-
