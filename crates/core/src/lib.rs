@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
     AskThread, AskThreadSummary, Connection, OrganizationState, Repository, RepositoryDetail,
-    RepositorySummary, ReviewAgentRun, ReviewAgentRunStatus,
+    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus,
 };
 use std::{
     collections::HashSet,
@@ -43,9 +43,25 @@ pub trait OrganizationStore: Send + Sync {
         &self,
         state: sourcebot_models::OrganizationState,
     ) -> Result<()>;
+    async fn store_repository_sync_job(
+        &self,
+        job: sourcebot_models::RepositorySyncJob,
+    ) -> Result<()>;
     async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>>;
     async fn complete_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
     async fn fail_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
+}
+
+pub fn store_repository_sync_job(state: &mut OrganizationState, job: RepositorySyncJob) {
+    if let Some(existing_job) = state
+        .repository_sync_jobs
+        .iter_mut()
+        .find(|existing_job| existing_job.id == job.id)
+    {
+        *existing_job = job;
+    } else {
+        state.repository_sync_jobs.push(job);
+    }
 }
 
 pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {

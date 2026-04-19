@@ -1,12 +1,13 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::{
-    claim_next_review_agent_run, complete_review_agent_run, fail_review_agent_run, BootstrapStore,
-    LocalSessionStore, OrganizationStore,
+    claim_next_review_agent_run, complete_review_agent_run, fail_review_agent_run,
+    store_repository_sync_job as upsert_repository_sync_job, BootstrapStore, LocalSessionStore,
+    OrganizationStore,
 };
 use sourcebot_models::{
     BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
-    ReviewAgentRunStatus,
+    RepositorySyncJob, ReviewAgentRunStatus,
 };
 use std::{
     fs::{self, File, OpenOptions},
@@ -366,6 +367,15 @@ impl OrganizationStore for FileOrganizationStore {
         let persisted_state = self.read_persisted_state()?;
         let mut state = state;
         preserve_terminal_review_agent_runs(&persisted_state, &mut state);
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, true)?;
+        Ok(())
+    }
+
+    async fn store_repository_sync_job(&self, job: RepositorySyncJob) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        upsert_repository_sync_job(&mut state, job);
         let payload = serde_json::to_vec_pretty(&state)?;
         write_json_file(&self.state_path, &payload, true)?;
         Ok(())
@@ -919,6 +929,111 @@ mod tests {
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(persisted, state);
         assert_eq!(store.organization_state().await.unwrap(), state);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    fn repository_sync_job(
+        id: &str,
+        status: RepositorySyncJobStatus,
+        queued_at: &str,
+    ) -> RepositorySyncJob {
+        RepositorySyncJob {
+            id: id.into(),
+            organization_id: "org_acme".into(),
+            repository_id: format!("repo_{id}"),
+            connection_id: "conn_github".into(),
+            status,
+            queued_at: queued_at.into(),
+            started_at: None,
+            finished_at: None,
+            error: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_stores_new_repository_sync_job_durably() {
+        let path = unique_test_path("organization-store-new-repository-sync-job");
+        let store = FileOrganizationStore::new(&path);
+        let job = repository_sync_job(
+            "sync_job_1",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:00Z",
+        );
+
+        store.store_repository_sync_job(job.clone()).await.unwrap();
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted.repository_sync_jobs, vec![job.clone()]);
+        assert_eq!(store.organization_state().await.unwrap(), persisted);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_updates_repository_sync_job_in_place_by_id() {
+        let path = unique_test_path("organization-store-update-repository-sync-job");
+        let store = FileOrganizationStore::new(&path);
+        let original = repository_sync_job(
+            "sync_job_1",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:00Z",
+        );
+        let updated = RepositorySyncJob {
+            status: RepositorySyncJobStatus::Succeeded,
+            started_at: Some("2026-04-26T10:01:00Z".into()),
+            finished_at: Some("2026-04-26T10:02:00Z".into()),
+            ..original.clone()
+        };
+
+        store.store_repository_sync_job(original).await.unwrap();
+        store
+            .store_repository_sync_job(updated.clone())
+            .await
+            .unwrap();
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs, vec![updated]);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_preserves_unrelated_repository_sync_jobs_when_upserting() {
+        let path = unique_test_path("organization-store-preserve-unrelated-repository-sync-jobs");
+        let store = FileOrganizationStore::new(&path);
+        let retained = repository_sync_job(
+            "sync_job_keep",
+            RepositorySyncJobStatus::Failed,
+            "2026-04-26T10:00:00Z",
+        );
+        let original = repository_sync_job(
+            "sync_job_update",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:01:00Z",
+        );
+        let updated = RepositorySyncJob {
+            status: RepositorySyncJobStatus::Running,
+            started_at: Some("2026-04-26T10:02:00Z".into()),
+            ..original.clone()
+        };
+
+        store
+            .store_organization_state(OrganizationState {
+                repository_sync_jobs: vec![retained.clone(), original],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        store
+            .store_repository_sync_job(updated.clone())
+            .await
+            .unwrap();
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs, vec![retained, updated]);
 
         fs::remove_file(path).unwrap();
     }

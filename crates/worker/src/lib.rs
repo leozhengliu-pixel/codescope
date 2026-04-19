@@ -106,6 +106,15 @@ mod tests {
             Ok(())
         }
 
+        async fn store_repository_sync_job(
+            &self,
+            job: sourcebot_models::RepositorySyncJob,
+        ) -> Result<()> {
+            let mut state = self.state.lock().unwrap();
+            sourcebot_core::store_repository_sync_job(&mut state, job);
+            Ok(())
+        }
+
         async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>> {
             let mut state = self.state.lock().unwrap();
             Ok(claim_next_review_agent_run(&mut state))
