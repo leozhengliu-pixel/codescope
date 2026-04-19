@@ -5,41 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4630f27a962c9fa69283c4f91834fb8e931dfd33
+  head: e7333f311cfa202d09f19cae1cb4d253d0b4b8be
 last_completed_task:
-  id: task20q2c
-  title: Add repo-detail quick-open links for per-connection sync-history rows on the settings route
+  id: task20q2d
+  title: Keep per-connection sync-history rows newest-first on the settings route
   status: done
   summary: >-
-    Closed the third split task20q2 discovery-follow-up slice by adding one
+    Closed the fourth split task20q2 discovery-follow-up slice by adding one
     focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    quick-open affordance on per-connection repository sync-history rows in
-    `#/settings/connections`, and the matching acceptance-doc grounding so known
-    sync-history entries can open the existing `#/repos/:repoId` detail route
-    directly without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
+    per-connection sync-history ordering change, and the matching
+    `specs/acceptance/generic-local-git.md` grounding so
+    `#/settings/connections` now renders each connection's read-only repository
+    sync-history rows newest-first by `queued_at` even when the authenticated
+    sync-job payload arrives out of order, without changing backend APIs,
+    retries, sync-job semantics, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
-    - npm test -- --run: passed (41/41)
+    - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+    - npm test -- --run: passed (42/42)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2c diff stays limited to one per-row sync-history quick-open link on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, sync semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the narrow use of the existing `repository_id` to open the repo detail route
-  commit: 4630f27a962c9fa69283c4f91834fb8e931dfd33
-  next_task: task20q2d
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2d diff stays limited to one per-connection sync-history ordering slice on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about possible future one-pass sorting and defensive handling for invalid timestamps
+  commit: e7333f311cfa202d09f19cae1cb4d253d0b4b8be
+  next_task: task20q2e
 current_task:
-  id: task20q2d
+  id: task20q2e
   parent_task: task20q2
-  title: Keep per-connection sync-history rows newest-first on the settings route
+  title: Add a latest sync-status summary line to each settings connection card
   status: pending
   summary: >-
-    The per-row repo-detail quick-open slice is now closed, so the next smallest
-    unblocked settings-shell parity follow-up is to make the per-connection
-    repository sync-history section render newest-first explicitly on
-    `#/settings/connections` without changing backend APIs, retries, sync-job
-    semantics, or broader admin/settings navigation.
+    The explicit newest-first ordering slice is now closed, so the next smallest
+    unblocked settings-shell parity follow-up is to reuse the already-loaded
+    per-connection sync-history data to show one compact latest sync-status
+    summary on each `#/settings/connections` card without changing backend APIs,
+    retries, sync-job semantics, or broader admin/settings navigation.
 history:
+  - id: task20q2d
+    status: done
+    summary: >-
+      Closed the fourth split task20q2 discovery-follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      per-connection sync-history ordering change, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now renders each connection's read-only repository
+      sync-history rows newest-first by `queued_at` even when the authenticated
+      sync-job payload arrives out of order, without changing backend APIs,
+      retries, sync-job semantics, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+      - npm test -- --run: passed (42/42)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2d diff stays limited to one per-connection sync-history ordering slice on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about possible future one-pass sorting and defensive handling for invalid timestamps
+    commit: e7333f311cfa202d09f19cae1cb4d253d0b4b8be
+    next_task: task20q2e
   - id: task20q2c
     status: done
     summary: >-
