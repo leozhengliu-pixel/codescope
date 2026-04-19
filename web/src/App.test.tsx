@@ -1147,6 +1147,66 @@ describe('App', () => {
     ]);
   });
 
+  it('keeps the sync-history loading state visible and truthful on each authenticated connection card before sync jobs resolve', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const deferredSyncJobs = deferredResponse();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return await deferredSyncJobs.promise;
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getByText('Loading repository sync history…')).toBeInTheDocument();
+    expect(within(githubCard!).queryByText('No repository sync jobs found for this connection.')).not.toBeInTheDocument();
+    expect(within(githubCard!).queryByText(/Latest sync:/)).not.toBeInTheDocument();
+    expect(within(githubCard!).queryByRole('link', { name: /Open repository detail for repo-/ })).not.toBeInTheDocument();
+
+    expect(within(gitlabCard!).getByText('Loading repository sync history…')).toBeInTheDocument();
+    expect(within(gitlabCard!).queryByText('No repository sync jobs found for this connection.')).not.toBeInTheDocument();
+    expect(within(gitlabCard!).queryByText(/Latest sync:/)).not.toBeInTheDocument();
+    expect(within(gitlabCard!).queryByRole('link', { name: /Open repository detail for repo-/ })).not.toBeInTheDocument();
+
+    deferredSyncJobs.resolve(jsonResponse([]));
+    expect(await screen.findAllByText('No repository sync jobs found for this connection.')).toHaveLength(2);
+  });
+
   it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
     window.location.hash = '#/settings/connections';
 
