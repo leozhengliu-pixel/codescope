@@ -5,45 +5,68 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5b574dedc5d2e29a9678b3b7166f40baee5a9d6f
+  head: aceba8014e23f19af1786aa01b40db62bb1fefca
 last_completed_task:
-  id: task16a
-  title: Add shared sync job domain models and backward-compatible durable organization-state persistence contract
+  id: task16b1
+  title: Add the first durable organization-store repository sync job upsert path
   status: done
   summary: >-
-    Closed the first repository sync parity slice by adding reusable
-    `RepositorySyncJob` / `RepositorySyncJobStatus` shared models, extending
-    `OrganizationState` with a backward-compatible `repository_sync_jobs`
-    collection, proving older persisted state still deserializes when the field
-    is absent, and round-tripping a non-empty sync job through the file-backed
-    organization-state store while still deferring worker mutation paths,
-    status APIs, and frontend sync-history surfaces.
+    Split broad task16b into the smallest truthful store-layer closure slice by
+    extending `OrganizationStore` with a dedicated `store_repository_sync_job`
+    mutation, durably upserting one `RepositorySyncJob` by id inside the
+    file-backed organization-state store, and updating affected test/dummy store
+    implementations while still deferring worker claiming/execution, status APIs,
+    and frontend sync-history surfaces.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_populated_repository_sync_jobs -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_deserializes_without_repository_sync_jobs_for_backward_compatibility -- --exact --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_stores_new_repository_sync_job_durably -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_updates_repository_sync_job_in_place_by_id -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_preserves_unrelated_repository_sync_jobs_when_upserting -- --exact --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
     - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-core -p sourcebot-api -p sourcebot-worker: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task16a by adding only the shared repository sync job models, the backward-compatible `OrganizationState.repository_sync_jobs` persistence contract, serde/default coverage, and one non-empty file-backed round-trip proof while keeping worker orchestration, status APIs, and frontend sync-history work deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the new durable organization-state sync-job contract backward-compatible and minimal for this slice, with only non-blocking suggestions about future failed-job contract coverage and documenting later mutation semantics
-  commit: 5b574dedc5d2e29a9678b3b7166f40baee5a9d6f
-  next_task: task16b
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly the intended task16b1 slice by adding only one durable store-layer `RepositorySyncJob` create/update path plus the necessary mock/test-store trait updates, with no worker loop, status API, or frontend scope creep
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the id-based durable upsert behavior plus focused persistence tests minimal and correct for this slice, with only a non-blocking suggestion about adding a future sourcebot-core unit test for the helper itself
+  commit: aceba8014e23f19af1786aa01b40db62bb1fefca
+  next_task: task17a
 current_task:
-  id: task16b
-  parent_task: task16
-  title: Add the first durable organization-store mutation path for creating and updating repository sync jobs
+  id: task17a
+  parent_task: task17
+  title: Add one worker tick that claims the oldest queued repository sync job and persists the Running status
   status: pending
   summary: >-
-    Continue task16 with the smallest behavioral follow-up slice by adding one
-    truthful store-level mutation path that can create or update a repository
-    sync job inside durable organization-state persistence, with focused tests,
-    while still deferring worker execution loops, status APIs, and frontend
-    sync-history rendering.
+    Start task17 with the smallest truthful worker-parity slice by teaching the
+    worker path to claim exactly one oldest queued repository sync job from the
+    durable organization store and persist its transition to `Running`, while
+    still deferring real fetch/mirror execution, terminal success/failure
+    handling, status APIs, and frontend sync-history rendering.
 history:
+  - id: task16b1
+    status: done
+    summary: >-
+      Split broad task16b into the smallest truthful store-layer closure slice by
+      extending `OrganizationStore` with a dedicated
+      `store_repository_sync_job` mutation, durably upserting one
+      `RepositorySyncJob` by id inside the file-backed organization-state store,
+      and updating affected test/dummy store implementations while still
+      deferring worker claiming/execution, status APIs, and frontend sync-history
+      surfaces.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_stores_new_repository_sync_job_durably -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_updates_repository_sync_job_in_place_by_id -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_preserves_unrelated_repository_sync_jobs_when_upserting -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-worker -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-core -p sourcebot-api -p sourcebot-worker: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly the intended task16b1 slice by adding only one durable store-layer `RepositorySyncJob` create/update path plus the necessary mock/test-store trait updates, with no worker loop, status API, or frontend scope creep
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the id-based durable upsert behavior plus focused persistence tests minimal and correct for this slice, with only a non-blocking suggestion about adding a future sourcebot-core unit test for the helper itself
+    commit: aceba8014e23f19af1786aa01b40db62bb1fefca
+    next_task: task17a
   - id: task16a
     status: done
     summary: >-
