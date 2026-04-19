@@ -1130,7 +1130,9 @@ function SettingsConnectionsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [deletingConnectionId, setDeletingConnectionId] = useState<string | null>(null);
   const [connectionName, setConnectionName] = useState('');
   const [connectionKind, setConnectionKind] = useState<AuthConnectionKind>('github');
   const [baseUrl, setBaseUrl] = useState('');
@@ -1164,10 +1166,12 @@ function SettingsConnectionsPage() {
   }, []);
 
   const createDisabled = loading || isCreating;
+  const deleteDisabled = deletingConnectionId !== null;
 
   const handleCreateConnection = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setCreateError(null);
+    setDeleteError(null);
     setIsCreating(true);
 
     const request: CreateAuthConnectionRequest = {
@@ -1203,10 +1207,33 @@ function SettingsConnectionsPage() {
     }
   };
 
+  const handleDeleteConnection = async (connectionId: string) => {
+    setDeleteError(null);
+    setDeletingConnectionId(connectionId);
+
+    try {
+      const response = await fetch(`/api/v1/auth/connections/${connectionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      setConnections((currentConnections) =>
+        currentConnections.filter((connection) => connection.id !== connectionId)
+      );
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setDeletingConnectionId(null);
+    }
+  };
+
   return (
     <Panel
       title="Authenticated connections"
-      subtitle="Create new authenticated connections from the existing authenticated API while edit, delete, and richer sync controls remain out of scope."
+      subtitle="Create and remove authenticated connections from the existing authenticated API while edit forms and richer sync controls remain out of scope."
     >
       {!loading && !error ? (
         <form onSubmit={handleCreateConnection} style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
@@ -1265,6 +1292,7 @@ function SettingsConnectionsPage() {
               {isCreating ? 'Creating…' : 'Create connection'}
             </button>
             {createError ? <div>Failed to create connection: {createError}</div> : null}
+            {deleteError ? <div>Failed to delete connection: {deleteError}</div> : null}
           </div>
         </form>
       ) : null}
@@ -1279,11 +1307,23 @@ function SettingsConnectionsPage() {
 
             return (
               <article key={connection.id} style={detailCardStyle}>
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <div style={{ fontSize: 18, fontWeight: 700 }}>{connection.name}</div>
-                  <div style={{ color: '#57606a' }}>Kind: {connection.kind}</div>
-                  <div style={{ color: '#57606a' }}>Connection id: {connection.id}</div>
-                  {configSummary ? <div style={{ color: '#57606a' }}>{configSummary}</div> : null}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{connection.name}</div>
+                    <div style={{ color: '#57606a' }}>Kind: {connection.kind}</div>
+                    <div style={{ color: '#57606a' }}>Connection id: {connection.id}</div>
+                    {configSummary ? <div style={{ color: '#57606a' }}>{configSummary}</div> : null}
+                  </div>
+                  <button
+                    type="button"
+                    style={secondaryButtonStyle}
+                    disabled={deleteDisabled}
+                    onClick={() => {
+                      void handleDeleteConnection(connection.id);
+                    }}
+                  >
+                    {deletingConnectionId === connection.id ? 'Deleting…' : `Delete ${connection.name}`}
+                  </button>
                 </div>
               </article>
             );

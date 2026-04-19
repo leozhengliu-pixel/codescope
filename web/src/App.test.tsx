@@ -468,6 +468,71 @@ describe('App', () => {
     });
   });
 
+  it('disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveDelete: ((value: Response) => void) | null = null;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-2' && init?.method === 'DELETE') {
+        return await new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByText('Local Mirror')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Local Mirror' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections/conn-2', {
+        method: 'DELETE',
+      });
+    });
+    expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete GitHub Cloud' })).toBeDisabled();
+
+    resolveDelete?.(jsonResponse({}, true, 204));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Local Mirror')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete GitHub Cloud' })).not.toBeDisabled();
+  });
+
   it('renders all supported authenticated connection kind options on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
