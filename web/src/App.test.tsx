@@ -1633,6 +1633,102 @@ describe('App', () => {
     expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
   });
 
+  it('edits an authenticated generic git connection from the settings route using the host-style base_url contract', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'Generic Git Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.example.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'PUT') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: ' Generic Git Host ',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          })
+        );
+
+        return jsonResponse({
+          id: 'conn-1',
+          name: 'Generic Git Host',
+          kind: 'generic_git',
+          config: {
+            provider: 'generic_git',
+            base_url: 'https://git.internal.example.com',
+          },
+        });
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(screen.getByText('Generic Git Mirror')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://git.example.com')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Generic Git Mirror' }));
+    fireEvent.change(screen.getByLabelText('Edit connection name'), { target: { value: ' Generic Git Host ' } });
+    fireEvent.change(screen.getByLabelText('Edit base URL'), {
+      target: { value: 'https://git.internal.example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('Generic Git Host')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://git.internal.example.com')).toBeInTheDocument();
+    expect(screen.getByText('Kind: generic_git')).toBeInTheDocument();
+    expect(screen.getByText('Connection id: conn-1')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections/conn-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ' Generic Git Host ',
+          kind: 'generic_git',
+          config: {
+            provider: 'generic_git',
+            base_url: 'https://git.internal.example.com',
+          },
+        }),
+      });
+    });
+    expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
+  });
+
   it('disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection', async () => {
     window.location.hash = '#/settings/connections';
 
