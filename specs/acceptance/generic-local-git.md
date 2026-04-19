@@ -17,7 +17,7 @@ This document creates the dedicated black-box acceptance home for generic Git ho
   - `specs/FEATURE_PARITY.md`
   - `docs/reports/2026-04-18-parity-gap-report.md`
   - `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`
-- When the rewrite exposes only connection records, settings-shell CRUD, and a single authenticated local-path import baseline, this spec records that truthfully and still defers broader local mirror enumeration, sync execution, settings-driven import UX, and durable catalog parity to later slices.
+- When the rewrite exposes connection records, settings-shell CRUD, one minimal settings-driven local import form for existing `local` connections, and a single authenticated local-path import baseline, this spec records that truthfully while still deferring broader local mirror enumeration, sync execution, and durable catalog parity to later slices.
 
 ## Scope
 - Authenticated connection CRUD for generic Git host and local-path records
@@ -31,10 +31,10 @@ This document creates the dedicated black-box acceptance home for generic Git ho
 - `crates/api/src/main.rs` now also exposes authenticated `POST /api/v1/auth/repositories/import/local`, validates that the requested path stays under the configured local connection root, returns the imported repository detail on the supported in-memory catalog path, and fails closed with `501 Not Implemented` when the active catalog backend does not support local import yet.
 - `crates/api/src/storage.rs` teaches the current in-memory catalog path to validate a real on-disk Git working tree, derive its default branch with `git symbolic-ref --short HEAD`, and surface the imported repository through the normal list/detail catalog APIs.
 - `crates/core/src/lib.rs` assembles repository detail responses that include the associated `connection` metadata.
-- `web/src/App.tsx` already includes the limited `#/settings/connections` settings shell, fetches `/api/v1/auth/connections`, and creates/updates local connections using `config.repo_path` while non-local connections use `config.base_url`.
+- `web/src/App.tsx` already includes the limited `#/settings/connections` settings shell, fetches `/api/v1/auth/connections`, creates/updates local connections using `config.repo_path` while non-local connections use `config.base_url`, and exposes a minimal per-local-connection import form that posts one explicit path to `/api/v1/auth/repositories/import/local`.
 - `web/src/App.tsx` fetches authenticated `/api/v1/auth/repository-sync-jobs` alongside the settings connection inventory and renders read-only sync history per connection.
-- `web/src/App.tsx` repository detail rendering already shows `Connection` and `Connection kind` for known repositories, while the settings connections shell formats local configs as `Repo path: ...`.
-- `web/src/App.test.tsx` covers supported connection kinds including `generic_git` and `local`, plus local create/delete handling and the broader settings-shell connection management flows.
+- `web/src/App.tsx` repository detail rendering already shows `Connection` and `Connection kind` for known repositories, while the settings connections shell formats local configs as `Repo path: ...` and can show per-card imported repository success/failure state for local imports.
+- `web/src/App.test.tsx` covers supported connection kinds including `generic_git` and `local`, the broader settings-shell connection management flows, and focused local import UX states including success, per-card failure, in-flight disabling, and reset-after-edit behavior.
 
 ## Inputs
 - Authenticated local-session context for connection management and sync-history visibility
@@ -51,7 +51,7 @@ This document creates the dedicated black-box acceptance home for generic Git ho
 4. An authenticated admin/settings user can import one real local Git working tree whose canonical path stays under a configured `local.repo_path`, and the API returns repository detail wired to that local connection.
 5. After that import, the repository appears through the normal repository list/detail surfaces with the associated connection metadata, including connection name and kind.
 6. The settings connections shell can show read-only repository sync history alongside the connection inventory without implying that full local/generic ingestion parity is already complete.
-7. The rewrite must not claim generic/local Git parity solely because the models, settings shell, and one local import baseline exist; broader host enumeration, sync execution, settings-driven import UX, and durable catalog-backed visibility still have to be proven.
+7. The rewrite must not claim generic/local Git parity solely because the models, settings shell, one minimal settings-driven local import UX, and one local import baseline exist; broader host enumeration, sync execution, and durable catalog-backed visibility still have to be proven.
 
 ## Permission behavior
 - Generic/local connection CRUD requires an authenticated local session and follows the same auth/admin settings boundary as the existing `/api/v1/auth/connections` surface.
@@ -68,6 +68,7 @@ This document creates the dedicated black-box acceptance home for generic Git ho
 
 ## Black-box examples
 - Opening `#/settings/connections` shows existing `generic_git` and `local` connection records in the authenticated settings inventory.
+- For an existing `local` connection, `#/settings/connections` exposes a minimal per-connection import form for one explicit repository path, posts `{"connection_id":"conn_local_acme","path":"/srv/git/local/project"}` to `/api/v1/auth/repositories/import/local`, renders the imported repository name/id on that same card after success, and shows scoped import failures on that same card without adding generic-host discovery or broader sync controls.
 - Creating a local mirror connection sends a nested request with `kind: "local"` and `config: { "provider": "local", "repo_path": "/srv/git/mirror" }` rather than a host-style `base_url` payload.
 - Editing a generic Git host connection preserves the host-style `base_url` contract.
 - Opening `#/repos/:repoId` shows repository detail with connection name/kind metadata for an already known repository.
@@ -79,7 +80,7 @@ This spec intentionally records the remaining gaps instead of over-claiming pari
 
 1. **Generic-host and recursive local enumeration parity are still missing.** The current rewrite evidence now covers one authenticated local-path import baseline, but not generic-host discovery or recursive import of many repositories from a connection root.
 2. **Durable catalog parity is still blocked.** Repository list/detail parity on the persisted catalog path remains constrained by the unimplemented Postgres catalog repository queries recorded elsewhere in the roadmap state and repository-operations acceptance spec.
-3. **Per-connection sync/index parity is still shallow.** The settings shell shows read-only sync history, but not full operator controls, settings-driven import UX, retries, import progress, repo-discovery flows, or durable per-connection indexing status parity.
+3. **Per-connection sync/index parity is still shallow.** The settings shell now includes a minimal local-only explicit-path import form plus read-only sync history, but not full operator controls, retries, import progress, generic-host discovery, recursive local enumeration, or durable per-connection indexing status parity.
 4. **Broader provider/runtime parity is still deferred.** GitLab, GitHub, and later multi-host provider work still need real auth/configuration, enumeration, sync execution, webhook/runtime behavior, and provider-specific acceptance follow-ups.
 5. **Settings/admin navigation parity is still incomplete.** The rewrite has a limited `#/settings/connections` shell, but not the broader auth/admin/settings route family that would make generic/local connection management first-class product navigation.
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -582,6 +582,582 @@ describe('App', () => {
     expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
     expect(screen.getByText('Failed to load repository sync history: Request failed: 503')).toBeInTheDocument();
     expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
+  });
+
+  it('shows a local-only repository import form on the settings route and renders imported repository details on success', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            connection_id: 'conn-2',
+            path: '/srv/git/mirror/project-alpha',
+          })
+        );
+
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const localCard = screen.getByText('Local Mirror').closest('article');
+
+    expect(githubCard).toBeInTheDocument();
+    expect(localCard).toBeInTheDocument();
+    expect(within(githubCard!).queryByLabelText('Repository path')).not.toBeInTheDocument();
+    expect(within(localCard!).getByLabelText('Repository path')).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Kind: local')).toBeInTheDocument();
+    expect(within(localCard!).queryByText(/Failed to import repository:/i)).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/repositories/import/local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: 'conn-2',
+          path: '/srv/git/mirror/project-alpha',
+        }),
+      });
+    });
+  });
+
+  it('disables local connection edit and delete controls while a repository import is in flight', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveImport: ((value: Response) => void) | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return await new Promise<Response>((resolve) => {
+          resolveImport = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    await waitFor(() => {
+      expect(within(localCard!).getByRole('button', { name: 'Importing…' })).toBeDisabled();
+    });
+    expect(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' })).toBeDisabled();
+    expect(within(localCard!).getByRole('button', { name: 'Delete Local Mirror' })).toBeDisabled();
+    expect(within(githubCard!).getByRole('button', { name: 'Edit GitHub Cloud' })).not.toBeDisabled();
+    expect(within(githubCard!).getByRole('button', { name: 'Delete GitHub Cloud' })).not.toBeDisabled();
+
+    resolveImport?.(
+      jsonResponse({
+        repository: {
+          id: 'repo-77',
+          name: 'project-alpha',
+          default_branch: 'main',
+          connection_id: 'conn-2',
+          sync_state: 'ready',
+        },
+        connection: {
+          id: 'conn-2',
+          name: 'Local Mirror',
+          kind: 'local',
+        },
+      })
+    );
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' })).not.toBeDisabled();
+    expect(within(localCard!).getByRole('button', { name: 'Delete Local Mirror' })).not.toBeDisabled();
+  });
+
+  it('disables an open local connection edit form while a repository import is in flight', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveImport: ((value: Response) => void) | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return await new Promise<Response>((resolve) => {
+          resolveImport = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' }));
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    await waitFor(() => {
+      expect(within(localCard!).getByRole('button', { name: 'Importing…' })).toBeDisabled();
+    });
+    expect(screen.getByLabelText('Edit connection name')).toBeDisabled();
+    expect(screen.getByLabelText('Edit repo path')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    resolveImport?.(
+      jsonResponse({
+        repository: {
+          id: 'repo-77',
+          name: 'project-alpha',
+          default_branch: 'main',
+          connection_id: 'conn-2',
+          sync_state: 'ready',
+        },
+        connection: {
+          id: 'conn-2',
+          name: 'Local Mirror',
+          kind: 'local',
+        },
+      })
+    );
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edit connection name')).not.toBeDisabled();
+    expect(screen.getByLabelText('Edit repo path')).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save changes' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).not.toBeDisabled();
+  });
+
+  it('disables a local connection import form while that connection update is in flight', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveUpdate: ((value: Response) => void) | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-2' && init?.method === 'PUT') {
+        return await new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' }));
+    fireEvent.change(screen.getByLabelText('Edit repo path'), {
+      target: { value: '/srv/git/updated-root' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    });
+    expect(within(localCard!).getByLabelText('Repository path')).toBeDisabled();
+    expect(within(localCard!).getByRole('button', { name: 'Import repository' })).toBeDisabled();
+
+    resolveUpdate?.(
+      jsonResponse({
+        id: 'conn-2',
+        name: 'Local Mirror',
+        kind: 'local',
+        config: {
+          provider: 'local',
+          repo_path: '/srv/git/updated-root',
+        },
+      })
+    );
+
+    await waitFor(() => {
+      expect(within(localCard!).getByLabelText('Repository path')).toHaveValue('/srv/git/updated-root');
+    });
+    expect(within(localCard!).getByRole('button', { name: 'Import repository' })).not.toBeDisabled();
+  });
+
+  it('disables a local connection import form while that connection deletion is in flight', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let resolveDelete: ((value: Response) => void) | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-2' && init?.method === 'DELETE') {
+        return await new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Delete Local Mirror' }));
+
+    await waitFor(() => {
+      expect(within(localCard!).getByRole('button', { name: 'Deleting…' })).toBeDisabled();
+    });
+    expect(within(localCard!).getByLabelText('Repository path')).toBeDisabled();
+    expect(within(localCard!).getByRole('button', { name: 'Import repository' })).toBeDisabled();
+
+    resolveDelete?.(jsonResponse({}, true, 204));
+    await waitFor(() => {
+      expect(screen.queryByText('Local Mirror')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows a scoped repository import failure on the affected local connection card only', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({}, false, 422);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const localCard = screen.getByText('Local Mirror').closest('article');
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/missing-repo' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Failed to import repository: Request failed: 422')).toBeInTheDocument();
+    expect(within(localCard!).queryByText(/Imported repository:/i)).not.toBeInTheDocument();
+    expect(within(githubCard!).queryByText(/Failed to import repository:/i)).not.toBeInTheDocument();
+    expect(within(githubCard!).queryByLabelText('Repository path')).not.toBeInTheDocument();
+  });
+
+  it('resets a local connection import form to the updated repo root after editing that connection', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        expect(init.body).toBe(
+          JSON.stringify({
+            connection_id: 'conn-1',
+            path: '/srv/git/mirror/project-alpha',
+          })
+        );
+
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-1',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-1',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'PUT') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/updated-root',
+            },
+          })
+        );
+
+        return jsonResponse({
+          id: 'conn-1',
+          name: 'Local Mirror',
+          kind: 'local',
+          config: {
+            provider: 'local',
+            repo_path: '/srv/git/updated-root',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
+
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' }));
+    fireEvent.change(screen.getByLabelText('Edit repo path'), {
+      target: { value: '/srv/git/updated-root' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/repositories/import/local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: 'conn-1',
+          path: '/srv/git/mirror/project-alpha',
+        }),
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/connections/conn-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Local Mirror',
+          kind: 'local',
+          config: {
+            provider: 'local',
+            repo_path: '/srv/git/updated-root',
+          },
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(localCard!).getByLabelText('Repository path')).toHaveValue('/srv/git/updated-root');
+    });
+    expect(within(localCard!).queryByText(/Imported repository:/i)).not.toBeInTheDocument();
+    expect(within(localCard!).queryByText(/Failed to import repository:/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
   });
 
   it('edits an authenticated github connection from the settings route using the update api', async () => {

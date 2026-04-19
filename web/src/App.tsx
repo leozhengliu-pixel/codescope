@@ -208,6 +208,13 @@ type EditConnectionDraft = {
   configValue: string;
 };
 
+type LocalImportState = {
+  path: string;
+  importing: boolean;
+  error: string | null;
+  result: RepoDetail | null;
+};
+
 const authConnectionKindOptions: AuthConnectionKind[] = [
   'github',
   'gitlab',
@@ -1149,6 +1156,23 @@ function connectionEditFieldLabel(connection: AuthConnection): 'Edit base URL' |
   return connection.kind === 'local' ? 'Edit repo path' : 'Edit base URL';
 }
 
+function localConnectionRepoPath(connection: AuthConnection) {
+  if (connection.kind === 'local' && connection.config && 'repo_path' in connection.config) {
+    return connection.config.repo_path;
+  }
+
+  return '';
+}
+
+function initialLocalImportState(connection: AuthConnection): LocalImportState {
+  return {
+    path: localConnectionRepoPath(connection),
+    importing: false,
+    error: null,
+    result: null,
+  };
+}
+
 function buildConnectionUpdateRequest(connection: AuthConnection, draft: EditConnectionDraft): CreateAuthConnectionRequest {
   const kind = connection.kind as AuthConnectionKind;
 
@@ -1191,6 +1215,7 @@ function SettingsConnectionsPage() {
   const [deletingConnectionId, setDeletingConnectionId] = useState<string | null>(null);
   const [editingConnection, setEditingConnection] = useState<EditConnectionDraft | null>(null);
   const [updatingConnectionId, setUpdatingConnectionId] = useState<string | null>(null);
+  const [localImportStates, setLocalImportStates] = useState<Record<string, LocalImportState>>({});
   const [connectionName, setConnectionName] = useState('');
   const [connectionKind, setConnectionKind] = useState<AuthConnectionKind>('github');
   const [baseUrl, setBaseUrl] = useState('');
@@ -1203,6 +1228,22 @@ function SettingsConnectionsPage() {
       .then((data) => {
         if (!cancelled) {
           setConnections(data);
+          setLocalImportStates((currentStates) => {
+            const nextStates: Record<string, LocalImportState> = {};
+
+            for (const connection of data) {
+              if (connection.kind !== 'local') {
+                continue;
+              }
+
+              const existingState = currentStates[connection.id];
+              nextStates[connection.id] = existingState
+                ? { ...existingState, path: existingState.path || localConnectionRepoPath(connection) }
+                : initialLocalImportState(connection);
+            }
+
+            return nextStates;
+          });
           setError(null);
         }
       })
@@ -1277,6 +1318,12 @@ function SettingsConnectionsPage() {
       });
 
       setConnections((currentConnections) => [...currentConnections, createdConnection]);
+      if (createdConnection.kind === 'local') {
+        setLocalImportStates((currentStates) => ({
+          ...currentStates,
+          [createdConnection.id]: initialLocalImportState(createdConnection),
+        }));
+      }
       setConnectionName('');
       setBaseUrl('');
       setRepoPath('');
@@ -1304,6 +1351,15 @@ function SettingsConnectionsPage() {
       setConnections((currentConnections) =>
         currentConnections.filter((connection) => connection.id !== connectionId)
       );
+      setLocalImportStates((currentStates) => {
+        if (!(connectionId in currentStates)) {
+          return currentStates;
+        }
+
+        const nextStates = { ...currentStates };
+        delete nextStates[connectionId];
+        return nextStates;
+      });
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -1351,11 +1407,86 @@ function SettingsConnectionsPage() {
           currentConnection.id === updatedConnection.id ? updatedConnection : currentConnection
         )
       );
+      if (updatedConnection.kind === 'local') {
+        setLocalImportStates((currentStates) => ({
+          ...currentStates,
+          [updatedConnection.id]: initialLocalImportState(updatedConnection),
+        }));
+      }
       setEditingConnection(null);
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setUpdatingConnectionId(null);
+    }
+  };
+
+  const handleLocalImportPathChange = (connection: AuthConnection, path: string) => {
+    if (connection.kind !== 'local') {
+      return;
+    }
+
+    setLocalImportStates((currentStates) => ({
+      ...currentStates,
+      [connection.id]: {
+        ...(currentStates[connection.id] ?? initialLocalImportState(connection)),
+        path,
+      },
+    }));
+  };
+
+  const handleImportLocalRepository = async (event: FormEvent<HTMLFormElement>, connection: AuthConnection) => {
+    event.preventDefault();
+
+    if (connection.kind !== 'local') {
+      return;
+    }
+
+    const importState = localImportStates[connection.id] ?? initialLocalImportState(connection);
+    const path = importState.path.trim();
+
+    setLocalImportStates((currentStates) => ({
+      ...currentStates,
+      [connection.id]: {
+        ...(currentStates[connection.id] ?? initialLocalImportState(connection)),
+        path,
+        importing: true,
+        error: null,
+        result: null,
+      },
+    }));
+
+    try {
+      const importedRepository = await fetchJson<RepoDetail>('/api/v1/auth/repositories/import/local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: connection.id,
+          path,
+        }),
+      });
+
+      setLocalImportStates((currentStates) => ({
+        ...currentStates,
+        [connection.id]: {
+          ...(currentStates[connection.id] ?? initialLocalImportState(connection)),
+          path,
+          importing: false,
+          error: null,
+          result: importedRepository,
+        },
+      }));
+    } catch (err) {
+      setLocalImportStates((currentStates) => ({
+        ...currentStates,
+        [connection.id]: {
+          ...(currentStates[connection.id] ?? initialLocalImportState(connection)),
+          path,
+          importing: false,
+          error: err instanceof Error ? err.message : 'Unknown error',
+          result: null,
+        },
+      }));
     }
   };
 
@@ -1437,6 +1568,10 @@ function SettingsConnectionsPage() {
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
+            const localImportState = connection.kind === 'local' ? localImportStates[connection.id] ?? initialLocalImportState(connection) : null;
+            const importControlsDisabled = localImportState?.importing ?? false;
+            const importFormDisabled = importControlsDisabled || isUpdating || deletingConnectionId === connection.id;
+            const editFormDisabled = isUpdating || importControlsDisabled;
 
             return (
               <article key={connection.id} style={detailCardStyle}>
@@ -1451,7 +1586,7 @@ function SettingsConnectionsPage() {
                     <button
                       type="button"
                       style={secondaryButtonStyle}
-                      disabled={editControlsDisabled}
+                      disabled={editControlsDisabled || importControlsDisabled}
                       onClick={() => {
                         startEditingConnection(connection);
                       }}
@@ -1461,7 +1596,7 @@ function SettingsConnectionsPage() {
                     <button
                       type="button"
                       style={secondaryButtonStyle}
-                      disabled={deleteDisabled || updatingConnectionId !== null}
+                      disabled={deleteDisabled || updatingConnectionId !== null || importControlsDisabled}
                       onClick={() => {
                         void handleDeleteConnection(connection.id);
                       }}
@@ -1491,7 +1626,7 @@ function SettingsConnectionsPage() {
                             )
                           }
                           style={inputStyle}
-                          disabled={isUpdating}
+                          disabled={editFormDisabled}
                         />
                       </label>
 
@@ -1507,19 +1642,19 @@ function SettingsConnectionsPage() {
                             )
                           }
                           style={inputStyle}
-                          disabled={isUpdating}
+                          disabled={editFormDisabled}
                         />
                       </label>
                     </div>
 
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button type="submit" style={primaryButtonStyle} disabled={isUpdating}>
+                      <button type="submit" style={primaryButtonStyle} disabled={editFormDisabled}>
                         {isUpdating ? 'Saving…' : 'Save changes'}
                       </button>
                       <button
                         type="button"
                         style={secondaryButtonStyle}
-                        disabled={isUpdating}
+                        disabled={editFormDisabled}
                         onClick={() => {
                           setEditingConnection(null);
                           setUpdateError(null);
@@ -1529,6 +1664,48 @@ function SettingsConnectionsPage() {
                       </button>
                     </div>
                   </form>
+                ) : null}
+
+                {connection.kind === 'local' && localImportState ? (
+                  <section style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #d8dee4', display: 'grid', gap: 12 }}>
+                    <div style={{ fontWeight: 600 }}>Import repository</div>
+                    <form
+                      onSubmit={(event) => {
+                        void handleImportLocalRepository(event, connection);
+                      }}
+                      style={{ display: 'grid', gap: 12 }}
+                    >
+                      <label style={fieldLabelStyle}>
+                        <span>Repository path</span>
+                        <input
+                          value={localImportState.path}
+                          onChange={(event) => {
+                            handleLocalImportPathChange(connection, event.target.value);
+                          }}
+                          style={inputStyle}
+                          disabled={importFormDisabled}
+                        />
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <button
+                          type="submit"
+                          style={primaryButtonStyle}
+                          disabled={importFormDisabled || localImportState.path.trim().length === 0}
+                        >
+                          {localImportState.importing ? 'Importing…' : 'Import repository'}
+                        </button>
+                        {localImportState.error ? (
+                          <div style={{ color: '#cf222e' }}>Failed to import repository: {localImportState.error}</div>
+                        ) : null}
+                      </div>
+                    </form>
+                    {localImportState.result ? (
+                      <div style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}>
+                        <div>Imported repository: {localImportState.result.repository.name}</div>
+                        <div>Repository id: {localImportState.result.repository.id}</div>
+                      </div>
+                    ) : null}
+                  </section>
                 ) : null}
 
                 <section style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #d8dee4', display: 'grid', gap: 12 }}>
