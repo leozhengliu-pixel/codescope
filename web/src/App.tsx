@@ -1859,7 +1859,7 @@ function SettingsConnectionsPage() {
                           >
                             Open repository detail
                           </a>
-                          {syncJob.error ? <div>Error: {syncJob.error}</div> : null}
+                          {syncJob.error ? <div aria-label={`Error details for ${syncJob.repository_id}`}>Error: {syncJob.error}</div> : null}
                         </div>
                       ))}
                     </div>
