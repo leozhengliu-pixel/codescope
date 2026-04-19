@@ -5,43 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3af761717612b87eed0eaa33ed97a1de97d27e42
+  head: c640dd9640f3ded59751db46bd7722f635b2d9e3
 last_completed_task:
-  id: task20o
-  title: Lock generic Git connection delete failure handling to the settings route
+  id: task20p
+  title: Lock generic Git connection delete success handling to the settings route
   status: done
   summary: >-
     Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
-    regression for the settings-driven `generic_git` delete flow on
-    `#/settings/connections` and the minimal `web/src/App.tsx` scoping change
-    needed to keep the existing host-style connection inventory visible while a
-    failed delete shows its `Request failed: 403` feedback on the affected
-    connection card only, without expanding into generic-host discovery,
-    recursive local enumeration, broader operator/admin controls, or durable
-    catalog-backed parity.
-  tests:
-    - npm test -- --run -t "shows scoped generic git connection delete failures on the settings route while keeping the host-style inventory visible": passed
-    - npm test -- --run: passed (38/38)
-    - npm run build: passed
-    - git diff --check: passed
-  review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20o diff adds exactly one focused generic-git delete-failure regression plus the minimal UI change needed to keep the host-style inventory visible and scope the failure to the affected connection card without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the scoped delete-error placement plus focused regression minimal and correct
-  commit: 3af761717612b87eed0eaa33ed97a1de97d27e42
-  next_task: task20p
-current_task:
-  id: task20p
-  parent_task: task20
-  title: Lock generic Git connection delete success handling to the settings route
-  status: pending
-  summary: >-
-    The next smallest unblocked task20 slice is to add focused regression
-    coverage proving the settings-driven `generic_git` delete success path on
+    regression proving the settings-driven `generic_git` delete success path on
     `#/settings/connections` removes only the deleted host-style connection card
     while keeping the remaining authenticated connection inventory visible,
     without expanding into generic-host discovery, recursive local enumeration,
     broader operator/admin controls, or durable catalog-backed parity.
+  tests:
+    - npm test -- --run -t "removes only the deleted generic git connection from the settings route while keeping the remaining host-style inventory visible": passed
+    - npm test -- --run: passed (39/39)
+    - npm run build: passed
+    - git diff --check: passed
+  review:
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20p diff stays limited to one focused generic-git delete-success regression on `#/settings/connections` and proves only the deleted host-style card disappears while the remaining authenticated inventory stays visible, without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff and judged the focused generic-git delete-success regression minimal and correct, with only non-blocking notes about future assertion resilience
+  commit: c640dd9640f3ded59751db46bd7722f635b2d9e3
+  next_task: task20q
+current_task:
+  id: task20q
+  parent_task: task20
+  title: Split the first post-CRUD generic/local Git discovery slice
+  status: pending
+  summary: >-
+    Generic-git settings-route CRUD success/failure coverage is now closed, so
+    the next smallest unblocked task20 slice is to ground the first remaining
+    generic/local Git discovery or enumeration gap (rather than adding more CRUD
+    coverage), starting from the still-deferred generic-host discovery / local
+    mirror enumeration surface documented in the acceptance spec and parity
+    report.
 history:
+  - id: task20p
+    status: done
+    summary: >-
+      Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
+      regression proving the settings-driven `generic_git` delete success path on
+      `#/settings/connections` removes only the deleted host-style connection card
+      while keeping the remaining authenticated connection inventory visible,
+      without expanding into generic-host discovery, recursive local enumeration,
+      broader operator/admin controls, or durable catalog-backed parity.
+    tests:
+      - npm test -- --run -t "removes only the deleted generic git connection from the settings route while keeping the remaining host-style inventory visible": passed
+      - npm test -- --run: passed (39/39)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20p diff stays limited to one focused generic-git delete-success regression on `#/settings/connections` and proves only the deleted host-style card disappears while the remaining authenticated inventory stays visible, without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff and judged the focused generic-git delete-success regression minimal and correct, with only non-blocking notes about future assertion resilience
+    commit: c640dd9640f3ded59751db46bd7722f635b2d9e3
+    next_task: task20q
   - id: task20o
     status: done
     summary: >-
