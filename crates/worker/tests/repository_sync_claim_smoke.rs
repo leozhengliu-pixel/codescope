@@ -88,3 +88,52 @@ async fn worker_binary_claims_oldest_queued_repository_sync_job_and_persists_stu
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_persists_stub_failed_repository_sync_status_when_explicitly_configured() {
+    let path = unique_test_path("explicit-failed-repository-sync-outcome-smoke");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            repository_sync_jobs: vec![repository_sync_job(
+                "sync_job_oldest",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .env(
+            "SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME",
+            "failed",
+        )
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should accept explicit failed repository sync stub outcomes"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted.repository_sync_jobs.len(), 1);
+    assert_eq!(persisted.repository_sync_jobs[0].id, "sync_job_oldest");
+    assert_eq!(
+        persisted.repository_sync_jobs[0].status,
+        RepositorySyncJobStatus::Failed
+    );
+    assert!(persisted.repository_sync_jobs[0].started_at.is_some());
+    assert!(persisted.repository_sync_jobs[0].finished_at.is_some());
+    assert_eq!(
+        persisted.repository_sync_jobs[0].error.as_deref(),
+        Some("repository sync stub execution configured to fail")
+    );
+
+    fs::remove_file(path).unwrap();
+}

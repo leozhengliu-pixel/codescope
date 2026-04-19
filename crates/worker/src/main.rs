@@ -1,6 +1,12 @@
 use sourcebot_api::auth::build_organization_store;
-use sourcebot_config::{AppConfig, StubReviewAgentRunExecutionOutcomeConfig};
-use sourcebot_worker::{run_worker_tick, StubReviewAgentRunExecutionOutcome, WorkerTickOutcome};
+use sourcebot_config::{
+    AppConfig, StubRepositorySyncJobExecutionOutcomeConfig,
+    StubReviewAgentRunExecutionOutcomeConfig,
+};
+use sourcebot_worker::{
+    run_worker_tick, StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
+    WorkerTickOutcome,
+};
 use tracing::info;
 
 #[tokio::main]
@@ -12,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env();
     let store = build_organization_store(config.organization_state_path.clone());
-    let stub_outcome = match config.stub_review_agent_run_execution_outcome()? {
+    let review_agent_stub_outcome = match config.stub_review_agent_run_execution_outcome()? {
         StubReviewAgentRunExecutionOutcomeConfig::Completed => {
             StubReviewAgentRunExecutionOutcome::Completed
         }
@@ -20,7 +26,20 @@ async fn main() -> anyhow::Result<()> {
             StubReviewAgentRunExecutionOutcome::Failed
         }
     };
-    let outcome = run_worker_tick(store.as_ref(), stub_outcome).await?;
+    let repository_sync_stub_outcome = match config.stub_repository_sync_job_execution_outcome()? {
+        StubRepositorySyncJobExecutionOutcomeConfig::Succeeded => {
+            StubRepositorySyncJobExecutionOutcome::Succeeded
+        }
+        StubRepositorySyncJobExecutionOutcomeConfig::Failed => {
+            StubRepositorySyncJobExecutionOutcome::Failed
+        }
+    };
+    let outcome = run_worker_tick(
+        store.as_ref(),
+        review_agent_stub_outcome,
+        repository_sync_stub_outcome,
+    )
+    .await?;
 
     match outcome {
         Some(WorkerTickOutcome::ReviewAgentRun(run)) => info!(
@@ -31,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         Some(WorkerTickOutcome::RepositorySyncJob(job)) => info!(
             repository_sync_job_id = %job.id,
             status = ?job.status,
-            "recorded repository sync job stub-completed status after one worker tick"
+            "recorded repository sync job stub terminal status after one worker tick"
         ),
         None => info!("no queued review-agent run or repository sync job available"),
     }

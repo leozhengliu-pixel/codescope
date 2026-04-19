@@ -9,6 +9,13 @@ pub enum StubReviewAgentRunExecutionOutcomeConfig {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StubRepositorySyncJobExecutionOutcomeConfig {
+    Succeeded,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub service_name: String,
@@ -81,6 +88,28 @@ impl AppConfig {
             }
             Err(env::VarError::NotUnicode(_)) => Err(anyhow!(
                 "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME must be valid unicode"
+            )),
+        }
+    }
+
+    pub fn stub_repository_sync_job_execution_outcome(
+        &self,
+    ) -> Result<StubRepositorySyncJobExecutionOutcomeConfig> {
+        match env::var("SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME") {
+            Ok(value) if value.eq_ignore_ascii_case("succeeded") => {
+                Ok(StubRepositorySyncJobExecutionOutcomeConfig::Succeeded)
+            }
+            Ok(value) if value.eq_ignore_ascii_case("failed") => {
+                Ok(StubRepositorySyncJobExecutionOutcomeConfig::Failed)
+            }
+            Ok(value) => Err(anyhow!(
+                "unsupported SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME value: {value}"
+            )),
+            Err(env::VarError::NotPresent) => {
+                Ok(StubRepositorySyncJobExecutionOutcomeConfig::Succeeded)
+            }
+            Err(env::VarError::NotUnicode(_)) => Err(anyhow!(
+                "SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME must be valid unicode"
             )),
         }
     }
@@ -228,5 +257,61 @@ mod tests {
         assert!(error.to_string().contains("bogus"));
 
         env::remove_var("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME");
+    }
+
+    #[test]
+    fn stub_repository_sync_job_execution_outcome_defaults_to_succeeded() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::remove_var("SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME");
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config
+                .stub_repository_sync_job_execution_outcome()
+                .expect("missing env var should default to succeeded"),
+            StubRepositorySyncJobExecutionOutcomeConfig::Succeeded
+        );
+    }
+
+    #[test]
+    fn stub_repository_sync_job_execution_outcome_reads_failed_from_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var(
+            "SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME",
+            "failed",
+        );
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config
+                .stub_repository_sync_job_execution_outcome()
+                .expect("failed should be accepted"),
+            StubRepositorySyncJobExecutionOutcomeConfig::Failed
+        );
+
+        env::remove_var("SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME");
+    }
+
+    #[test]
+    fn stub_repository_sync_job_execution_outcome_rejects_invalid_env_values() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::set_var(
+            "SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME",
+            "bogus",
+        );
+
+        let config = AppConfig::from_env();
+        let error = config
+            .stub_repository_sync_job_execution_outcome()
+            .expect_err("invalid outcomes should fail closed");
+
+        assert!(error
+            .to_string()
+            .contains("SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME"));
+        assert!(error.to_string().contains("bogus"));
+
+        env::remove_var("SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME");
     }
 }

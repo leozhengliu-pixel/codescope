@@ -3,6 +3,9 @@ use sourcebot_core::{complete_repository_sync_job, OrganizationStore};
 use sourcebot_models::{RepositorySyncJob, ReviewAgentRun};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+const REPOSITORY_SYNC_STUB_FAILURE_ERROR: &str =
+    "repository sync stub execution configured to fail";
+
 pub use sourcebot_core::claim_next_review_agent_run;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,17 +20,26 @@ pub enum StubReviewAgentRunExecutionOutcome {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StubRepositorySyncJobExecutionOutcome {
+    Succeeded,
+    Failed,
+}
+
 pub async fn run_worker_tick(
     store: &dyn OrganizationStore,
-    stub_outcome: StubReviewAgentRunExecutionOutcome,
+    review_agent_stub_outcome: StubReviewAgentRunExecutionOutcome,
+    repository_sync_stub_outcome: StubRepositorySyncJobExecutionOutcome,
 ) -> Result<Option<WorkerTickOutcome>> {
-    if let Some(run) = run_review_agent_tick(store, stub_outcome).await? {
+    if let Some(run) = run_review_agent_tick(store, review_agent_stub_outcome).await? {
         return Ok(Some(WorkerTickOutcome::ReviewAgentRun(run)));
     }
 
-    Ok(run_repository_sync_claim_tick(store)
-        .await?
-        .map(WorkerTickOutcome::RepositorySyncJob))
+    Ok(
+        run_repository_sync_claim_tick(store, repository_sync_stub_outcome)
+            .await?
+            .map(WorkerTickOutcome::RepositorySyncJob),
+    )
 }
 
 pub async fn run_review_agent_tick(
@@ -44,30 +56,66 @@ pub async fn run_review_agent_tick(
 
 pub async fn run_repository_sync_claim_tick(
     store: &dyn OrganizationStore,
+    stub_outcome: StubRepositorySyncJobExecutionOutcome,
 ) -> Result<Option<RepositorySyncJob>> {
     let started_at = current_timestamp();
+    let execute = match stub_outcome {
+        StubRepositorySyncJobExecutionOutcome::Succeeded => {
+            execute_claimed_repository_sync_job_succeeded_stub
+        }
+        StubRepositorySyncJobExecutionOutcome::Failed => {
+            execute_claimed_repository_sync_job_failed_stub
+        }
+    };
+
     store
-        .claim_and_complete_next_repository_sync_job(
-            &started_at,
-            execute_claimed_repository_sync_job_stub,
-        )
+        .claim_and_complete_next_repository_sync_job(&started_at, execute)
         .await
 }
 
 pub fn execute_claimed_repository_sync_job_stub(job: RepositorySyncJob) -> RepositorySyncJob {
-    execute_claimed_repository_sync_job_stub_at(job, &current_timestamp())
+    execute_claimed_repository_sync_job_stub_at(
+        job,
+        StubRepositorySyncJobExecutionOutcome::Succeeded,
+        &current_timestamp(),
+    )
+}
+
+pub fn execute_claimed_repository_sync_job_succeeded_stub(
+    job: RepositorySyncJob,
+) -> RepositorySyncJob {
+    execute_claimed_repository_sync_job_stub(job)
+}
+
+pub fn execute_claimed_repository_sync_job_failed_stub(
+    job: RepositorySyncJob,
+) -> RepositorySyncJob {
+    execute_claimed_repository_sync_job_stub_at(
+        job,
+        StubRepositorySyncJobExecutionOutcome::Failed,
+        &current_timestamp(),
+    )
 }
 
 pub fn execute_claimed_repository_sync_job_stub_at(
     job: RepositorySyncJob,
+    stub_outcome: StubRepositorySyncJobExecutionOutcome,
     finished_at: &str,
 ) -> RepositorySyncJob {
-    complete_repository_sync_job(
-        &job,
-        sourcebot_models::RepositorySyncJobStatus::Succeeded,
-        finished_at,
-        None,
-    )
+    match stub_outcome {
+        StubRepositorySyncJobExecutionOutcome::Succeeded => complete_repository_sync_job(
+            &job,
+            sourcebot_models::RepositorySyncJobStatus::Succeeded,
+            finished_at,
+            None,
+        ),
+        StubRepositorySyncJobExecutionOutcome::Failed => complete_repository_sync_job(
+            &job,
+            sourcebot_models::RepositorySyncJobStatus::Failed,
+            finished_at,
+            Some(REPOSITORY_SYNC_STUB_FAILURE_ERROR.to_string()),
+        ),
+    }
 }
 
 pub fn execute_claimed_review_agent_run_stub(
@@ -138,8 +186,10 @@ mod tests {
         claim_next_review_agent_run_from_store, execute_claimed_repository_sync_job_stub_at,
         execute_claimed_review_agent_run_stub, persist_stub_review_agent_run_execution_outcome,
         run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
-        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
+        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
+        WorkerTickOutcome,
     };
+    use crate::REPOSITORY_SYNC_STUB_FAILURE_ERROR;
     use anyhow::Result;
     use async_trait::async_trait;
     use sourcebot_api::auth::FileOrganizationStore;
@@ -629,9 +679,13 @@ mod tests {
             ..OrganizationState::default()
         });
 
-        let outcome = run_worker_tick(&store, StubReviewAgentRunExecutionOutcome::Completed)
-            .await
-            .unwrap();
+        let outcome = run_worker_tick(
+            &store,
+            StubReviewAgentRunExecutionOutcome::Completed,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             outcome,
@@ -665,6 +719,7 @@ mod tests {
 
         let stubbed_job = execute_claimed_repository_sync_job_stub_at(
             claimed_job.clone(),
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
             "2026-04-26T10:04:00Z",
         );
 
@@ -679,6 +734,37 @@ mod tests {
             Some("2026-04-26T10:04:00Z")
         );
         assert_eq!(stubbed_job.error, None);
+    }
+
+    #[test]
+    fn execute_claimed_repository_sync_job_stub_records_a_failed_terminal_outcome_when_requested() {
+        let mut claimed_job = repository_sync_job(
+            "sync_job_claimed",
+            RepositorySyncJobStatus::Running,
+            "2026-04-26T10:01:00Z",
+        );
+        claimed_job.started_at = Some("2026-04-26T10:03:00Z".into());
+
+        let stubbed_job = execute_claimed_repository_sync_job_stub_at(
+            claimed_job.clone(),
+            StubRepositorySyncJobExecutionOutcome::Failed,
+            "2026-04-26T10:04:00Z",
+        );
+
+        assert_eq!(stubbed_job.id, claimed_job.id);
+        assert_eq!(stubbed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            stubbed_job.started_at.as_deref(),
+            Some("2026-04-26T10:03:00Z")
+        );
+        assert_eq!(
+            stubbed_job.finished_at.as_deref(),
+            Some("2026-04-26T10:04:00Z")
+        );
+        assert_eq!(
+            stubbed_job.error.as_deref(),
+            Some("repository sync stub execution configured to fail")
+        );
     }
 
     #[tokio::test]
@@ -744,10 +830,13 @@ mod tests {
             .await
             .unwrap();
 
-        let completed_job = run_repository_sync_claim_tick(&store)
-            .await
-            .unwrap()
-            .expect("queued repository sync job to be completed");
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued repository sync job to be completed");
 
         assert_eq!(completed_job.id, "sync_job_oldest");
         assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
@@ -774,6 +863,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_repository_sync_claim_tick_records_a_stub_failed_repository_sync_job_in_the_file_store(
+    ) {
+        let path = unique_test_path("worker-tick-file-store-repository-sync-job-failed");
+        let store = FileOrganizationStore::new(&path);
+        store
+            .store_organization_state(OrganizationState {
+                repository_sync_jobs: vec![
+                    repository_sync_job(
+                        "sync_job_newer",
+                        RepositorySyncJobStatus::Queued,
+                        "2026-04-26T10:02:00Z",
+                    ),
+                    repository_sync_job(
+                        "sync_job_oldest",
+                        RepositorySyncJobStatus::Queued,
+                        "2026-04-26T10:01:00Z",
+                    ),
+                ],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let failed_job =
+            run_repository_sync_claim_tick(&store, StubRepositorySyncJobExecutionOutcome::Failed)
+                .await
+                .unwrap()
+                .expect("queued repository sync job to be failed");
+
+        assert_eq!(failed_job.id, "sync_job_oldest");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        let started_at = failed_job
+            .started_at
+            .as_deref()
+            .expect("started_at to be set");
+        assert!(OffsetDateTime::parse(started_at, &Rfc3339).is_ok());
+        let finished_at = failed_job
+            .finished_at
+            .as_deref()
+            .expect("finished_at to be set");
+        assert!(OffsetDateTime::parse(finished_at, &Rfc3339).is_ok());
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some(REPOSITORY_SYNC_STUB_FAILURE_ERROR)
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.repository_sync_jobs[0].status,
+            RepositorySyncJobStatus::Queued
+        );
+        assert_eq!(persisted.repository_sync_jobs[1], failed_job);
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn run_repository_sync_claim_tick_surfaces_atomic_claim_and_complete_failures_without_mutating_state(
     ) {
         let store = FailingStoreOrganizationWriteStore::new(OrganizationState {
@@ -792,9 +938,12 @@ mod tests {
             ..OrganizationState::default()
         });
 
-        let error = run_repository_sync_claim_tick(&store)
-            .await
-            .expect_err("synthetic claim-and-complete should fail");
+        let error = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .expect_err("synthetic claim-and-complete should fail");
 
         assert!(error
             .to_string()
