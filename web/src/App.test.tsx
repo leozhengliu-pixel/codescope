@@ -1063,6 +1063,105 @@ describe('App', () => {
     expect(within(gitlabTerminalSyncRow!).queryByText('Finished at: 2026-04-18T13:03:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps multiple succeeded and failed terminal-state sync-history rows on the same authenticated connection card using the shared status badge presentation truthfully and newest-first by queued_at', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-succeeded-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-newest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: null,
+          },
+          {
+            id: 'job-failed-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-middle',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror permissions denied',
+          },
+          {
+            id: 'job-succeeded-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-oldest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:03:00Z',
+            finished_at: '2026-04-18T11:07:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-succeeded-newest',
+      '#/repos/repo-failed-middle',
+      '#/repos/repo-succeeded-oldest',
+    ]);
+
+    const newestSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-succeeded-newest' }).closest('div');
+    expect(newestSucceededRow).toBeInTheDocument();
+    const newestSucceededStatusRow = within(newestSucceededRow!).getByText('Status').closest('div');
+    expect(newestSucceededStatusRow).toBeInTheDocument();
+    expect(within(newestSucceededStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('failed')).not.toBeInTheDocument();
+
+    const middleFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-failed-middle' }).closest('div');
+    expect(middleFailedRow).toBeInTheDocument();
+    const middleFailedStatusRow = within(middleFailedRow!).getByText('Status').closest('div');
+    expect(middleFailedStatusRow).toBeInTheDocument();
+    expect(within(middleFailedStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('Status: failed')).not.toBeInTheDocument();
+    expect(within(middleFailedRow!).queryByText('succeeded')).not.toBeInTheDocument();
+
+    const oldestSucceededRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-succeeded-oldest' }).closest('div');
+    expect(oldestSucceededRow).toBeInTheDocument();
+    const oldestSucceededStatusRow = within(oldestSucceededRow!).getByText('Status').closest('div');
+    expect(oldestSucceededStatusRow).toBeInTheDocument();
+    expect(within(oldestSucceededStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+    expect(within(oldestSucceededRow!).queryByText('failed')).not.toBeInTheDocument();
+  });
+
   it('keeps multiple succeeded and failed terminal-state sync-history timestamp details truthful and newest-first on the same authenticated connection card', async () => {
     window.location.hash = '#/settings/connections';
 
