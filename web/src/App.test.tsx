@@ -1207,7 +1207,7 @@ describe('App', () => {
     expect(await screen.findAllByText('No repository sync jobs found for this connection.')).toHaveLength(2);
   });
 
-  it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
+  it('keeps the sync-history failure state visible and truthful on each authenticated connection card without collapsing sibling cards', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -1224,6 +1224,15 @@ describe('App', () => {
               base_url: 'https://github.com',
             },
           },
+          {
+            id: 'conn-2',
+            name: 'Generic Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          },
         ]);
       }
 
@@ -1237,8 +1246,27 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
-    expect(screen.getByText('Failed to load repository sync history: Request failed: 503')).toBeInTheDocument();
-    expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
+
+    const expectedError = 'Failed to load repository sync history: Request failed: 503';
+    expect(await screen.findAllByText(expectedError)).toHaveLength(2);
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const genericCard = screen.getByText('Generic Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(genericCard).toBeInTheDocument();
+
+    for (const card of [githubCard, genericCard]) {
+      expect(card).not.toBeNull();
+      expect(within(card!).getByText(expectedError)).toBeInTheDocument();
+      expect(within(card!).queryByText('Loading repository sync history…')).not.toBeInTheDocument();
+      expect(within(card!).queryByText('No repository sync jobs found for this connection.')).not.toBeInTheDocument();
+      expect(within(card!).queryByText(/Latest sync:/)).not.toBeInTheDocument();
+      expect(within(card!).queryByRole('link', { name: /Open repository detail for repo-/ })).not.toBeInTheDocument();
+    }
+
+    expect(within(githubCard!).getByText('Base URL: https://github.com')).toBeInTheDocument();
+    expect(within(genericCard!).getByText('Base URL: https://git.internal.example.com')).toBeInTheDocument();
+    expect(within(genericCard!).getByText('Repository discovery is not available yet for generic Git connections.')).toBeInTheDocument();
   });
 
   it('shows a generic git quick-open affordance on the settings route while keeping discovery status truthful', async () => {
