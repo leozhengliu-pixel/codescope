@@ -432,6 +432,10 @@ describe('App', () => {
         );
       }
 
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
@@ -453,7 +457,8 @@ describe('App', () => {
     expect(screen.getByText('Base URL: https://github.example.com')).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
-      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections', {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -466,6 +471,117 @@ describe('App', () => {
         }),
       });
     });
+  });
+
+  it('shows read-only repository sync-job history on each authenticated connection card from the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-1',
+            organization_id: 'org-1',
+            repository_id: 'repo-123',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T10:00:00Z',
+            started_at: '2026-04-18T10:01:00Z',
+            finished_at: '2026-04-18T10:02:00Z',
+            error: null,
+          },
+          {
+            id: 'job-2',
+            organization_id: 'org-1',
+            repository_id: 'repo-456',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:01:00Z',
+            finished_at: '2026-04-18T11:03:00Z',
+            error: 'Repository permissions denied',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(await screen.findAllByText('Repository sync history')).toHaveLength(2);
+    expect(screen.getByText('Repository id: repo-123')).toBeInTheDocument();
+    expect(screen.getByText('Status: succeeded')).toBeInTheDocument();
+    expect(screen.getByText('Queued at: 2026-04-18T10:00:00Z')).toBeInTheDocument();
+    expect(screen.getByText('Started at: 2026-04-18T10:01:00Z')).toBeInTheDocument();
+    expect(screen.getByText('Finished at: 2026-04-18T10:02:00Z')).toBeInTheDocument();
+    expect(screen.getByText('Status: failed')).toBeInTheDocument();
+    expect(screen.getByText('Error: Repository permissions denied')).toBeInTheDocument();
+    expect(screen.getByText('No repository sync jobs found for this connection.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+    });
+  });
+
+  it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse({}, false, 503);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByText('Failed to load repository sync history: Request failed: 503')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
   });
 
   it('edits an authenticated github connection from the settings route using the update api', async () => {
@@ -521,6 +637,10 @@ describe('App', () => {
         });
       }
 
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
@@ -543,7 +663,8 @@ describe('App', () => {
     expect(screen.getByText('Connection id: conn-1')).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
-      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections/conn-1', {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections/conn-1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -595,6 +716,10 @@ describe('App', () => {
         });
       }
 
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
@@ -608,7 +733,8 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
-      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections/conn-2', {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections/conn-2', {
         method: 'DELETE',
       });
     });

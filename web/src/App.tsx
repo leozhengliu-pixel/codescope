@@ -182,6 +182,20 @@ type AuthConnection = {
   config?: AuthConnectionConfig;
 };
 
+type RepositorySyncJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+type RepositorySyncJob = {
+  id: string;
+  organization_id: string;
+  repository_id: string;
+  connection_id: string;
+  status: RepositorySyncJobStatus;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+};
+
 type CreateAuthConnectionRequest = {
   name: string;
   kind: AuthConnectionKind;
@@ -1154,8 +1168,20 @@ function buildConnectionUpdateRequest(connection: AuthConnection, draft: EditCon
   };
 }
 
+function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
+  return syncJobs.reduce<Map<string, RepositorySyncJob[]>>((jobsByConnectionId, syncJob) => {
+    const existingJobs = jobsByConnectionId.get(syncJob.connection_id) ?? [];
+    existingJobs.push(syncJob);
+    jobsByConnectionId.set(syncJob.connection_id, existingJobs);
+    return jobsByConnectionId;
+  }, new Map<string, RepositorySyncJob[]>());
+}
+
 function SettingsConnectionsPage() {
   const [connections, setConnections] = useState<AuthConnection[]>([]);
+  const [syncJobs, setSyncJobs] = useState<RepositorySyncJob[]>([]);
+  const [syncJobsError, setSyncJobsError] = useState<string | null>(null);
+  const [syncJobsLoading, setSyncJobsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -1192,6 +1218,25 @@ function SettingsConnectionsPage() {
         }
       });
 
+    fetchJson<RepositorySyncJob[]>('/api/v1/auth/repository-sync-jobs')
+      .then((data) => {
+        if (!cancelled) {
+          setSyncJobs(data);
+          setSyncJobsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setSyncJobs([]);
+          setSyncJobsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSyncJobsLoading(false);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -1200,6 +1245,7 @@ function SettingsConnectionsPage() {
   const createDisabled = loading || isCreating;
   const deleteDisabled = deletingConnectionId !== null;
   const editControlsDisabled = updatingConnectionId !== null || deletingConnectionId !== null;
+  const syncJobsByConnectionId = useMemo(() => repositorySyncJobsByConnectionId(syncJobs), [syncJobs]);
 
   const handleCreateConnection = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1390,6 +1436,7 @@ function SettingsConnectionsPage() {
             const configSummary = connectionConfigSummary(connection);
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
+            const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
 
             return (
               <article key={connection.id} style={detailCardStyle}>
@@ -1483,6 +1530,36 @@ function SettingsConnectionsPage() {
                     </div>
                   </form>
                 ) : null}
+
+                <section style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #d8dee4', display: 'grid', gap: 12 }}>
+                  <div style={{ fontWeight: 600 }}>Repository sync history</div>
+                  {syncJobsError ? (
+                    <div style={{ color: '#cf222e' }}>Failed to load repository sync history: {syncJobsError}</div>
+                  ) : null}
+                  {!syncJobsError && syncJobsLoading ? (
+                    <div style={{ color: '#57606a', fontSize: 14 }}>Loading repository sync history…</div>
+                  ) : null}
+                  {!syncJobsError && !syncJobsLoading && connectionSyncJobs.length === 0 ? (
+                    <div style={{ color: '#57606a', fontSize: 14 }}>No repository sync jobs found for this connection.</div>
+                  ) : null}
+                  {!syncJobsError && connectionSyncJobs.length > 0 ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {connectionSyncJobs.map((syncJob) => (
+                        <div
+                          key={syncJob.id}
+                          style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
+                        >
+                          <div>Repository id: {syncJob.repository_id}</div>
+                          <div>Status: {syncJob.status}</div>
+                          <div>Queued at: {syncJob.queued_at}</div>
+                          <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
+                          <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>
+                          {syncJob.error ? <div>Error: {syncJob.error}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
               </article>
             );
           })}
