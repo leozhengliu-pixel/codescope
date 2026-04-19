@@ -5,42 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d38a8539ae2f3bd63421c07a5d4acfcb8a5dd925
+  head: f8a2da33fa12e78dde05e3e6f93094af6953fcdc
 last_completed_task:
-  id: task18a
-  title: Expose a read-only repository sync status API over persisted sync-job state
+  id: task18c
+  title: Publish a repository-operations acceptance spec for sync/index visibility parity
   status: done
   summary: >-
-    Closed the first task18 slice by adding an authenticated read-only
-    `GET /api/v1/auth/repository-sync-jobs` endpoint backed by persisted
-    `OrganizationState.repository_sync_jobs`, filtering fail-closed to the
-    caller's currently visible `(organization_id, repository_id)` bindings,
-    excluding stale hidden repo rows, and returning newest-first operator-visible
-    sync-job status fields without adding mutations, index-status synthesis, or
-    frontend sync-history work.
+    Closed the unblocked task18 acceptance-contract slice by adding a dedicated
+    `specs/acceptance/repository-operations.md` home for repository sync/index
+    visibility parity, grounding it in the live API/UI surfaces and current
+    catalog-store limitation, and updating the acceptance index/journey docs so
+    repository operations now point at that spec without overstating persisted
+    catalog, index-status, or settings/admin navigation parity.
   tests:
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed
-    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
-    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+    - python3 docs reference validation script for repository-operations acceptance docs: passed
     - git diff --check: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task18a by adding only the authenticated read-only repository sync-jobs status endpoint over persisted sync-job state, preserving fail-closed visibility for stale and cross-org duplicate repo ids, and avoiding mutations, index-status synthesis, frontend work, or broader task18 scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the route, visibility filtering, ordering, and focused regression coverage minimal and correct for this slice
-  commit: 512592252b6d18b2f10cbe65cc0fd0c2fb756f1b
-  next_task: task18b
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task18c by creating the dedicated repository-operations acceptance home, updating only the linked acceptance index/journey references, preserving the real `#/settings/connections` shell evidence, and explicitly recording the remaining persisted-catalog and index-status blockers instead of over-claiming parity
+    code: approved by one independent post-implementation review; reviewer found no blocking logic or truthfulness defects in the final docs diff and judged the new acceptance spec plus related references minimal and correct for this slice
+  commit: f8a2da33fa12e78dde05e3e6f93094af6953fcdc
+  next_task: task19a
 current_task:
-  id: task18c
-  parent_task: task18
-  title: Publish a repository-operations acceptance spec for sync/index visibility parity
+  id: task19a
+  parent_task: task19
+  title: Show repository sync-job history in the existing settings connections UI
   status: pending
   summary: >-
-    Task18b cannot truthfully close until the blocked Postgres catalog query
-    prerequisite (task07b) is actually implemented and verifiable, so the next
-    smallest unblocked slice is to publish a dedicated repository-operations
-    acceptance spec that locks the current sync/index visibility contract and
-    records the remaining operator-visible parity gaps for later API/UI work.
+    Task19 is too broad to close in one run, so split it by visible UI surface.
+    The first smallest unblocked slice is to use the existing
+    `#/settings/connections` route plus the authenticated
+    `/api/v1/auth/repository-sync-jobs` endpoint to show read-only repository
+    sync-job history in settings, while still deferring blocked persisted
+    index-status parity, last-run synthesis on catalog-backed repo cards, and
+    broader settings/admin navigation work.
 history:
+  - id: task18c
+    status: done
+    summary: >-
+      Closed the unblocked task18 acceptance-contract slice by adding a dedicated
+      `specs/acceptance/repository-operations.md` home for repository sync/index
+      visibility parity, grounding it in the live API/UI surfaces and current
+      catalog-store limitation, and updating the acceptance index/journey docs so
+      repository operations now point at that spec without overstating persisted
+      catalog, index-status, or settings/admin navigation parity.
+    tests:
+      - python3 docs reference validation script for repository-operations acceptance docs: passed
+      - git diff --check: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task18c by creating the dedicated repository-operations acceptance home, updating only the linked acceptance index/journey references, preserving the real `#/settings/connections` shell evidence, and explicitly recording the remaining persisted-catalog and index-status blockers instead of over-claiming parity
+      code: approved by one independent post-implementation review; reviewer found no blocking logic or truthfulness defects in the final docs diff and judged the new acceptance spec plus related references minimal and correct for this slice
+    commit: f8a2da33fa12e78dde05e3e6f93094af6953fcdc
+    next_task: task19a
   - id: task18b
     status: blocked
     summary: >-
