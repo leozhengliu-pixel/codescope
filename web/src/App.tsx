@@ -188,6 +188,12 @@ type CreateAuthConnectionRequest = {
   config?: AuthConnectionConfig;
 };
 
+type EditConnectionDraft = {
+  connectionId: string;
+  name: string;
+  configValue: string;
+};
+
 const authConnectionKindOptions: AuthConnectionKind[] = [
   'github',
   'gitlab',
@@ -1113,7 +1119,7 @@ function BrowsePanel({ repoId }: { repoId: string }) {
   );
 }
 
-function connectionConfigSummary(connection: AuthConnection) {
+function connectionConfigSummary(connection: AuthConnection): string | null {
   if (!connection.config) {
     return null;
   }
@@ -1125,14 +1131,40 @@ function connectionConfigSummary(connection: AuthConnection) {
   return `Repo path: ${connection.config.repo_path}`;
 }
 
+function connectionEditFieldLabel(connection: AuthConnection): 'Edit base URL' | 'Edit repo path' {
+  return connection.kind === 'local' ? 'Edit repo path' : 'Edit base URL';
+}
+
+function buildConnectionUpdateRequest(connection: AuthConnection, draft: EditConnectionDraft): CreateAuthConnectionRequest {
+  const kind = connection.kind as AuthConnectionKind;
+
+  return {
+    name: draft.name,
+    kind,
+    config:
+      kind === 'local'
+        ? {
+            provider: 'local',
+            repo_path: draft.configValue,
+          }
+        : {
+            provider: kind,
+            base_url: draft.configValue,
+          },
+  };
+}
+
 function SettingsConnectionsPage() {
   const [connections, setConnections] = useState<AuthConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingConnectionId, setDeletingConnectionId] = useState<string | null>(null);
+  const [editingConnection, setEditingConnection] = useState<EditConnectionDraft | null>(null);
+  const [updatingConnectionId, setUpdatingConnectionId] = useState<string | null>(null);
   const [connectionName, setConnectionName] = useState('');
   const [connectionKind, setConnectionKind] = useState<AuthConnectionKind>('github');
   const [baseUrl, setBaseUrl] = useState('');
@@ -1167,11 +1199,13 @@ function SettingsConnectionsPage() {
 
   const createDisabled = loading || isCreating;
   const deleteDisabled = deletingConnectionId !== null;
+  const editControlsDisabled = updatingConnectionId !== null || deletingConnectionId !== null;
 
   const handleCreateConnection = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setCreateError(null);
     setDeleteError(null);
+    setUpdateError(null);
     setIsCreating(true);
 
     const request: CreateAuthConnectionRequest = {
@@ -1209,6 +1243,7 @@ function SettingsConnectionsPage() {
 
   const handleDeleteConnection = async (connectionId: string) => {
     setDeleteError(null);
+    setUpdateError(null);
     setDeletingConnectionId(connectionId);
 
     try {
@@ -1230,10 +1265,58 @@ function SettingsConnectionsPage() {
     }
   };
 
+  const startEditingConnection = (connection: AuthConnection) => {
+    setCreateError(null);
+    setDeleteError(null);
+    setUpdateError(null);
+    setEditingConnection({
+      connectionId: connection.id,
+      name: connection.name,
+      configValue:
+        connection.config && 'repo_path' in connection.config
+          ? connection.config.repo_path
+          : connection.config && 'base_url' in connection.config
+            ? connection.config.base_url
+            : '',
+    });
+  };
+
+  const handleUpdateConnection = async (event: FormEvent<HTMLFormElement>, connection: AuthConnection) => {
+    event.preventDefault();
+
+    if (!editingConnection || editingConnection.connectionId !== connection.id) {
+      return;
+    }
+
+    setCreateError(null);
+    setDeleteError(null);
+    setUpdateError(null);
+    setUpdatingConnectionId(connection.id);
+
+    try {
+      const updatedConnection = await fetchJson<AuthConnection>(`/api/v1/auth/connections/${connection.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildConnectionUpdateRequest(connection, editingConnection)),
+      });
+
+      setConnections((currentConnections) =>
+        currentConnections.map((currentConnection) =>
+          currentConnection.id === updatedConnection.id ? updatedConnection : currentConnection
+        )
+      );
+      setEditingConnection(null);
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setUpdatingConnectionId(null);
+    }
+  };
+
   return (
     <Panel
       title="Authenticated connections"
-      subtitle="Create and remove authenticated connections from the existing authenticated API while edit forms and richer sync controls remain out of scope."
+      subtitle="Create, edit, and remove authenticated connections from the existing authenticated API while richer sync controls remain out of scope."
     >
       {!loading && !error ? (
         <form onSubmit={handleCreateConnection} style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
@@ -1292,6 +1375,7 @@ function SettingsConnectionsPage() {
               {isCreating ? 'Creating…' : 'Create connection'}
             </button>
             {createError ? <div>Failed to create connection: {createError}</div> : null}
+            {updateError ? <div>Failed to update connection: {updateError}</div> : null}
             {deleteError ? <div>Failed to delete connection: {deleteError}</div> : null}
           </div>
         </form>
@@ -1304,6 +1388,8 @@ function SettingsConnectionsPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           {connections.map((connection) => {
             const configSummary = connectionConfigSummary(connection);
+            const isEditing = editingConnection?.connectionId === connection.id;
+            const isUpdating = updatingConnectionId === connection.id;
 
             return (
               <article key={connection.id} style={detailCardStyle}>
@@ -1314,17 +1400,89 @@ function SettingsConnectionsPage() {
                     <div style={{ color: '#57606a' }}>Connection id: {connection.id}</div>
                     {configSummary ? <div style={{ color: '#57606a' }}>{configSummary}</div> : null}
                   </div>
-                  <button
-                    type="button"
-                    style={secondaryButtonStyle}
-                    disabled={deleteDisabled}
-                    onClick={() => {
-                      void handleDeleteConnection(connection.id);
-                    }}
-                  >
-                    {deletingConnectionId === connection.id ? 'Deleting…' : `Delete ${connection.name}`}
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      disabled={editControlsDisabled}
+                      onClick={() => {
+                        startEditingConnection(connection);
+                      }}
+                    >
+                      {isEditing ? `Editing ${connection.name}` : `Edit ${connection.name}`}
+                    </button>
+                    <button
+                      type="button"
+                      style={secondaryButtonStyle}
+                      disabled={deleteDisabled || updatingConnectionId !== null}
+                      onClick={() => {
+                        void handleDeleteConnection(connection.id);
+                      }}
+                    >
+                      {deletingConnectionId === connection.id ? 'Deleting…' : `Delete ${connection.name}`}
+                    </button>
+                  </div>
                 </div>
+
+                {isEditing && editingConnection ? (
+                  <form
+                    onSubmit={(event) => {
+                      void handleUpdateConnection(event, connection);
+                    }}
+                    style={{ display: 'grid', gap: 12, marginTop: 16 }}
+                  >
+                    <div style={detailGridStyle}>
+                      <label style={fieldLabelStyle}>
+                        <span>Edit connection name</span>
+                        <input
+                          value={editingConnection.name}
+                          onChange={(event) =>
+                            setEditingConnection((currentDraft) =>
+                              currentDraft && currentDraft.connectionId === connection.id
+                                ? { ...currentDraft, name: event.target.value }
+                                : currentDraft
+                            )
+                          }
+                          style={inputStyle}
+                          disabled={isUpdating}
+                        />
+                      </label>
+
+                      <label style={fieldLabelStyle}>
+                        <span>{connectionEditFieldLabel(connection)}</span>
+                        <input
+                          value={editingConnection.configValue}
+                          onChange={(event) =>
+                            setEditingConnection((currentDraft) =>
+                              currentDraft && currentDraft.connectionId === connection.id
+                                ? { ...currentDraft, configValue: event.target.value }
+                                : currentDraft
+                            )
+                          }
+                          style={inputStyle}
+                          disabled={isUpdating}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="submit" style={primaryButtonStyle} disabled={isUpdating}>
+                        {isUpdating ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <button
+                        type="button"
+                        style={secondaryButtonStyle}
+                        disabled={isUpdating}
+                        onClick={() => {
+                          setEditingConnection(null);
+                          setUpdateError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
               </article>
             );
           })}

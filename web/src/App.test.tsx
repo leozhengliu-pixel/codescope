@@ -468,6 +468,97 @@ describe('App', () => {
     });
   });
 
+  it('edits an authenticated github connection from the settings route using the update api', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'PUT') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: ' GitHub Enterprise ',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.enterprise.example.com',
+            },
+          })
+        );
+
+        return jsonResponse({
+          id: 'conn-1',
+          name: 'GitHub Enterprise',
+          kind: 'github',
+          config: {
+            provider: 'github',
+            base_url: 'https://github.enterprise.example.com',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit GitHub Cloud' }));
+    fireEvent.change(screen.getByLabelText('Edit connection name'), { target: { value: ' GitHub Enterprise ' } });
+    fireEvent.change(screen.getByLabelText('Edit base URL'), {
+      target: { value: 'https://github.enterprise.example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('GitHub Enterprise')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.enterprise.example.com')).toBeInTheDocument();
+    expect(screen.getByText('Kind: github')).toBeInTheDocument();
+    expect(screen.getByText('Connection id: conn-1')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/connections/conn-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ' GitHub Enterprise ',
+          kind: 'github',
+          config: {
+            provider: 'github',
+            base_url: 'https://github.enterprise.example.com',
+          },
+        }),
+      });
+    });
+    expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
+  });
+
   it('disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection', async () => {
     window.location.hash = '#/settings/connections';
 
