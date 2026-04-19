@@ -5,43 +5,61 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: dced786191ad30609075817f45b39a476e5be756
+  head: cc2d07327632779758f4abaa0ad2c8947c6c2d79
 last_completed_task:
-  id: task15b
-  title: Add authenticated connection creation form backed by POST /api/v1/auth/connections
+  id: task15c
+  title: Add authenticated connection deletion controls on the settings screen backed by DELETE /api/v1/auth/connections/:id
   status: done
   summary: >-
     Closed the next connection settings UI slice by extending
-    `#/settings/connections` with an authenticated creation form backed by
-    `POST /api/v1/auth/connections`, exposing all currently supported provider
-    kinds, appending newly created connections to the rendered inventory, and
-    failing closed by withholding management controls until the initial
-    authenticated inventory loads successfully while still deferring delete/edit
-    controls and richer sync/status surfaces.
+    `#/settings/connections` with authenticated per-connection deletion controls
+    backed by `DELETE /api/v1/auth/connections/:id`, removing deleted
+    connections from the rendered inventory, disabling all delete controls while
+    a deletion is in flight, and preserving the existing fail-closed management
+    gating while still deferring edit forms and richer sync/status surfaces.
   tests:
-    - npx vitest run src/App.test.tsx -t "renders all supported authenticated connection kind options on the settings route": passed
-    - npx vitest run src/App.test.tsx -t "shows authenticated connection management controls only after the initial settings inventory finishes loading": passed
-    - npx vitest run src/App.test.tsx -t "hides authenticated connection management controls when the settings inventory cannot be loaded": passed
-    - npx vitest run src/App.test.tsx -t "authenticated connection": passed (6 tests)
-    - npm test: passed (19/19)
+    - npx vitest run src/App.test.tsx -t "disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection": passed
+    - npx vitest run src/App.test.tsx -t "authenticated connection": passed (7 tests)
+    - npm test -- --run: passed (20/20)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15b by adding only the authenticated settings-screen creation form backed by `POST /api/v1/auth/connections`, keeping edit/delete/richer sync controls deferred, and failing closed for non-eligible users when the authenticated inventory cannot be loaded
-    code: approved by one independent post-implementation review; reviewer found no blocking logic or security issues in the `web/src/App.tsx` and `web/src/App.test.tsx` diff and suggested only optional client-side empty-field validation as future polish
-  commit: dced786191ad30609075817f45b39a476e5be756
-  next_task: task15c
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15c by adding only the authenticated settings-screen deletion slice backed by `DELETE /api/v1/auth/connections/:id`, keeping edit forms and richer sync/status controls deferred, and preserving fail-closed management gating until the initial authenticated inventory loads successfully
+    code: approved by one independent post-implementation review after one in-flight-state fix; reviewer found no blocking logic or security issues in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and suggested only optional future polish around path-encoding and a delete-failure UI regression test
+  commit: cc2d07327632779758f4abaa0ad2c8947c6c2d79
+  next_task: task15d
 current_task:
-  id: task15c
+  id: task15d
   parent_task: task15
-  title: Add authenticated connection deletion controls on the settings screen backed by DELETE /api/v1/auth/connections/:id
+  title: Add authenticated connection edit controls on the settings screen backed by PUT /api/v1/auth/connections/:id
   status: pending
   summary: >-
-    Continue Task 15 with the next smallest management slice by letting eligible
-    users remove an existing connection from `#/settings/connections` via the
-    existing authenticated delete API, while still deferring edit forms and
-    richer sync/status controls.
+    Continue Task 15 with the next smallest management slice by letting
+    eligible users edit an existing connection from `#/settings/connections`
+    via the existing authenticated update API, while still deferring richer
+    sync/status controls.
 history:
+  - id: task15c
+    status: done
+    summary: >-
+      Closed the next connection settings UI slice by extending
+      `#/settings/connections` with authenticated per-connection deletion controls
+      backed by `DELETE /api/v1/auth/connections/:id`, removing deleted
+      connections from the rendered inventory, disabling all delete controls
+      while a deletion is in flight, and preserving the existing fail-closed
+      management gating while still deferring edit forms and richer sync/status
+      surfaces.
+    tests:
+      - npx vitest run src/App.test.tsx -t "disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection": passed
+      - npx vitest run src/App.test.tsx -t "authenticated connection": passed (7 tests)
+      - npm test -- --run: passed (20/20)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15c by adding only the authenticated settings-screen deletion slice backed by `DELETE /api/v1/auth/connections/:id`, keeping edit forms and richer sync/status controls deferred, and preserving fail-closed management gating until the initial authenticated inventory loads successfully
+      code: approved by one independent post-implementation review after one in-flight-state fix; reviewer found no blocking logic or security issues in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and suggested only optional future polish around path-encoding and a delete-failure UI regression test
+    commit: cc2d07327632779758f4abaa0ad2c8947c6c2d79
+    next_task: task15d
   - id: task15b
     status: done
     summary: >-
@@ -50,8 +68,8 @@ history:
       `POST /api/v1/auth/connections`, exposing all currently supported provider
       kinds, appending newly created connections to the rendered inventory, and
       failing closed by withholding management controls until the initial
-      authenticated inventory loads successfully while still deferring
-      delete/edit controls and richer sync/status surfaces.
+      authenticated inventory loads successfully while still deferring delete/edit
+      controls and richer sync/status surfaces.
     tests:
       - npx vitest run src/App.test.tsx -t "renders all supported authenticated connection kind options on the settings route": passed
       - npx vitest run src/App.test.tsx -t "shows authenticated connection management controls only after the initial settings inventory finishes loading": passed
