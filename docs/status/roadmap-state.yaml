@@ -5,44 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2031a1a8b776d63bb7032e7bca0fc9e1c95b3938
+  head: cf2868ebd585fc62328e3e9374e9791aceb78f9c
 last_completed_task:
-  id: task20q2g
-  title: Render per-row settings sync-history statuses with the shared status badge
+  id: task20q2h
+  title: Add focused queued/running badge coverage for settings sync-history rows
   status: done
   summary: >-
-    Closed the seventh split task20q2 settings-shell follow-up slice by adding
-    one focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    per-row status-badge reuse, and the matching
+    Closed the eighth split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now renders each read-only sync-history row status
-    with the same shared badge presentation already used by repository cards and
-    the latest-sync summary, without changing backend APIs, sync-job semantics,
-    retries, or broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving queued and running
+    sync-history rows, along with the latest-sync summary driven by the newest
+    running job, reuse the shared status-badge presentation without changing
+    backend APIs, sync-job semantics, retries, or broader admin/settings
+    navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
-    - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
-    - npm test -- --run: passed (42/42)
+    - npm test -- --run src/App.test.tsx -t "renders queued and running sync-history rows with the shared status badge presentation on the settings route": passed
+    - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route": passed (3/3)
+    - npm test -- --run: passed (43/43)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2g diff stays limited to one `#/settings/connections` per-row sync-history status presentation slice, reuses the shared status-badge presentation, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future queued/running badge coverage and possible label-copy consistency
-  commit: 2031a1a8b776d63bb7032e7bca0fc9e1c95b3938
-  next_task: task20q2h
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2h diff stays limited to one `#/settings/connections` queued/running sync-history badge-coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future slice could also assert queued/running ordering more directly
+  commit: cf2868ebd585fc62328e3e9374e9791aceb78f9c
+  next_task: task20q2i
 current_task:
-  id: task20q2h
+  id: task20q2i
   parent_task: task20q2
-  title: Add focused queued/running badge coverage for settings sync-history rows
+  title: Add focused queued/running ordering coverage for settings sync-history rows
   status: pending
   summary: >-
-    The settings shell now reuses shared badges for latest-sync summaries and
-    per-row sync-history statuses, so the next smallest unblocked follow-up is
-    to add focused regression coverage that proves queued and running
-    sync-history rows on `#/settings/connections` also render through that same
-    shared status-badge path, without changing backend APIs, sync-job semantics,
-    retries, or broader admin/settings navigation.
+    The settings shell now has explicit queued/running badge coverage for
+    `#/settings/connections`, so the next smallest unblocked follow-up is to add
+    one focused regression proving queued/running sync-history rows still stay
+    newest-first by `queued_at` when multiple in-progress jobs share a
+    connection, without changing backend APIs, sync-job semantics, retries, or
+    broader admin/settings navigation.
 history:
+  - id: task20q2h
+    status: done
+    summary: >-
+      Closed the eighth split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving queued and running
+      sync-history rows, along with the latest-sync summary driven by the newest
+      running job, reuse the shared status-badge presentation without changing
+      backend APIs, sync-job semantics, retries, or broader admin/settings
+      navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "renders queued and running sync-history rows with the shared status badge presentation on the settings route": passed
+      - npm test -- --run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route|renders each connection's repository sync history newest-first when sync jobs arrive out of order|renders queued and running sync-history rows with the shared status badge presentation on the settings route": passed (3/3)
+      - npm test -- --run: passed (43/43)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2h diff stays limited to one `#/settings/connections` queued/running sync-history badge-coverage slice, keeps the acceptance wording truthful, and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future slice could also assert queued/running ordering more directly
+    commit: cf2868ebd585fc62328e3e9374e9791aceb78f9c
+    next_task: task20q2i
   - id: task20q2g
     status: done
     summary: >-
