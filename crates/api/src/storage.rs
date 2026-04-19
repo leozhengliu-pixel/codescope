@@ -1,29 +1,59 @@
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use sourcebot_core::{build_repository_detail, CatalogStore};
+use sourcebot_core::{build_repository_detail, CatalogStore, ImportRepositoryResult};
 use sourcebot_models::{
     seed_connections, seed_repositories, Connection, Repository, RepositoryDetail,
-    RepositorySummary,
+    RepositorySummary, SyncState,
 };
 use sqlx::migrate::Migrator;
-use std::sync::Arc;
+use std::{
+    path::Path,
+    process::Command,
+    sync::{Arc, RwLock},
+};
 use tracing::warn;
 
 static CATALOG_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub type DynCatalogStore = Arc<dyn CatalogStore>;
 
+#[derive(Debug, Clone)]
+struct CatalogImportEntry {
+    repository: Repository,
+    connection: Connection,
+    canonical_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CatalogState {
+    entries: Vec<CatalogImportEntry>,
+}
+
 #[derive(Clone)]
 pub struct InMemoryCatalogStore {
-    repositories: Vec<Repository>,
-    connections: Vec<Connection>,
+    state: Arc<RwLock<CatalogState>>,
 }
 
 impl InMemoryCatalogStore {
     pub fn new(repositories: Vec<Repository>, connections: Vec<Connection>) -> Self {
+        let entries = repositories
+            .into_iter()
+            .map(|repository| {
+                let connection = connections
+                    .iter()
+                    .find(|connection| connection.id == repository.connection_id)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("missing connection {}", repository.connection_id));
+                CatalogImportEntry {
+                    repository,
+                    connection,
+                    canonical_path: None,
+                }
+            })
+            .collect();
+
         Self {
-            repositories,
-            connections,
+            state: Arc::new(RwLock::new(CatalogState { entries })),
         }
     }
 
@@ -32,14 +62,172 @@ impl InMemoryCatalogStore {
     }
 }
 
+fn git_output(path: &Path, args: &[&str]) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .output()
+        .with_context(|| format!("failed to execute git {}", args.join(" ")))?;
+
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
+fn canonical_local_git_repository_path(repo_path: &str) -> Result<std::path::PathBuf> {
+    let canonical_path = std::fs::canonicalize(repo_path)
+        .with_context(|| format!("local repository path does not exist: {repo_path}"))?;
+
+    if !canonical_path.is_dir() {
+        anyhow::bail!("local repository path must be a directory: {repo_path}");
+    }
+
+    let is_git_repo = git_output(&canonical_path, &["rev-parse", "--is-inside-work-tree"])?;
+    if is_git_repo != "true" {
+        anyhow::bail!("local repository path must be a git repository: {repo_path}");
+    }
+
+    let repository_root = std::path::PathBuf::from(git_output(
+        &canonical_path,
+        &["rev-parse", "--show-toplevel"],
+    )?);
+    let canonical_repository_root = std::fs::canonicalize(&repository_root)
+        .with_context(|| format!("failed to resolve repository root for {repo_path}"))?;
+    if canonical_repository_root != canonical_path {
+        anyhow::bail!("local repository path must point at the repository root: {repo_path}");
+    }
+
+    Ok(canonical_path)
+}
+
+fn repository_name_from_path(path: &Path) -> Result<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("local repository path must end with a repository directory name"))
+}
+
+fn sanitize_repo_id_component(name: &str) -> String {
+    let sanitized = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    let trimmed = sanitized.trim_matches('_');
+    if trimmed.is_empty() {
+        "local".into()
+    } else {
+        trimmed.into()
+    }
+}
+
 #[async_trait]
 impl CatalogStore for InMemoryCatalogStore {
+    fn supports_local_repository_import(&self) -> bool {
+        true
+    }
+
     async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
-        Ok(self.repositories.iter().map(Repository::summary).collect())
+        Ok(self
+            .state
+            .read()
+            .expect("catalog state lock poisoned")
+            .entries
+            .iter()
+            .map(|entry| entry.repository.summary())
+            .collect())
     }
 
     async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
-        build_repository_detail(&self.repositories, &self.connections, repo_id)
+        let state = self.state.read().expect("catalog state lock poisoned");
+        let repositories = state
+            .entries
+            .iter()
+            .map(|entry| entry.repository.clone())
+            .collect::<Vec<_>>();
+        let connections = state
+            .entries
+            .iter()
+            .map(|entry| entry.connection.clone())
+            .collect::<Vec<_>>();
+        build_repository_detail(&repositories, &connections, repo_id)
+    }
+
+    async fn import_local_repository(
+        &self,
+        connection: Connection,
+        repo_path: &str,
+    ) -> Result<ImportRepositoryResult> {
+        let canonical_path = canonical_local_git_repository_path(repo_path)?;
+        let canonical_path_string = canonical_path.display().to_string();
+        let default_branch = git_output(&canonical_path, &["symbolic-ref", "--short", "HEAD"])?;
+        let repository_name = repository_name_from_path(&canonical_path)?;
+        let repo_id_base = format!(
+            "repo_local_{}",
+            sanitize_repo_id_component(&repository_name)
+        );
+
+        let mut state = self.state.write().expect("catalog state lock poisoned");
+        if let Some(existing_entry) = state.entries.iter().find(|entry| {
+            entry.connection.id == connection.id
+                && entry.canonical_path.as_deref() == Some(canonical_path_string.as_str())
+        }) {
+            return Ok(ImportRepositoryResult {
+                detail: RepositoryDetail {
+                    repository: existing_entry.repository.clone(),
+                    connection: existing_entry.connection.clone(),
+                },
+                created: false,
+            });
+        }
+
+        let mut repo_id = repo_id_base.clone();
+        let mut suffix = 2usize;
+        while state
+            .entries
+            .iter()
+            .any(|entry| entry.repository.id == repo_id)
+        {
+            repo_id = format!("{repo_id_base}_{suffix}");
+            suffix += 1;
+        }
+
+        let repository = Repository {
+            id: repo_id,
+            name: repository_name,
+            default_branch,
+            connection_id: connection.id.clone(),
+            sync_state: SyncState::Ready,
+        };
+        let detail = RepositoryDetail {
+            repository: repository.clone(),
+            connection: connection.clone(),
+        };
+        state.entries.push(CatalogImportEntry {
+            repository,
+            connection,
+            canonical_path: Some(canonical_path_string),
+        });
+
+        Ok(ImportRepositoryResult {
+            detail,
+            created: true,
+        })
     }
 }
 
@@ -89,6 +277,18 @@ impl CatalogStore for PgCatalogStore {
     async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
         anyhow::bail!(
             "postgres catalog store get_repository_detail is not implemented yet for repo {repo_id}"
+        )
+    }
+
+    async fn import_local_repository(
+        &self,
+        connection: Connection,
+        repo_path: &str,
+    ) -> Result<ImportRepositoryResult> {
+        anyhow::bail!(
+            "postgres catalog store import_local_repository is not implemented yet for connection {} and path {}",
+            connection.id,
+            repo_path
         )
     }
 }

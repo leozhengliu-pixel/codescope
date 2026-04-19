@@ -168,6 +168,10 @@ fn build_router(
             put(update_authenticated_connection).delete(delete_authenticated_connection),
         )
         .route(
+            "/api/v1/auth/repositories/import/local",
+            post(import_authenticated_local_repository),
+        )
+        .route(
             "/api/v1/auth/api-keys",
             get(list_authenticated_api_keys).post(create_authenticated_api_key),
         )
@@ -452,6 +456,12 @@ struct CreateConnectionRequest {
     kind: ConnectionKind,
     #[serde(default)]
     config: Option<ConnectionConfig>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct ImportLocalRepositoryRequest {
+    connection_id: String,
+    path: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1089,6 +1099,67 @@ async fn delete_authenticated_connection(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn import_authenticated_local_repository(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ImportLocalRepositoryRequest>,
+) -> Result<(StatusCode, Json<RepositoryDetail>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let can_manage_connections = visible_organization_ids.iter().any(|organization_id| {
+        user_is_organization_admin(&organization_state, &session.user_id, organization_id)
+    });
+
+    if !can_manage_connections {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let connection = organization_state
+        .connections
+        .iter()
+        .find(|connection| connection.id == payload.connection_id)
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let connection_root = match &connection.config {
+        Some(ConnectionConfig::Local { repo_path }) => std::fs::canonicalize(repo_path),
+        _ => return Err(StatusCode::BAD_REQUEST),
+    }
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    if !state.catalog.supports_local_repository_import() {
+        return Err(StatusCode::NOT_IMPLEMENTED);
+    }
+
+    let requested_path =
+        std::fs::canonicalize(payload.path.trim()).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    if !requested_path.starts_with(&connection_root) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let imported = state
+        .catalog
+        .import_local_repository(connection, &requested_path.display().to_string())
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    Ok((
+        if imported.created {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(imported.detail),
+    ))
 }
 
 async fn list_authenticated_api_keys(
@@ -3031,7 +3102,7 @@ mod tests {
     use crate::{
         ask::InMemoryAskThreadStore,
         commits::{CommitStore, LocalCommitStore},
-        storage::InMemoryCatalogStore,
+        storage::{InMemoryCatalogStore, PgCatalogStore},
     };
     use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
@@ -3051,6 +3122,7 @@ mod tests {
         collections::HashMap,
         fs,
         path::PathBuf,
+        process::Command,
         time::{SystemTime, UNIX_EPOCH},
     };
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -3434,12 +3506,12 @@ mod tests {
         std::env::temp_dir().join(format!("sourcebot-bootstrap-{name}-{nanos}.json"))
     }
 
-    fn test_app_with_config(config: AppConfig) -> Router {
+    fn test_app_with_catalog(config: AppConfig, catalog: DynCatalogStore) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
         build_router(
             config,
-            Arc::new(InMemoryCatalogStore::seeded()),
+            catalog,
             build_bootstrap_store(bootstrap_state_path),
             build_local_session_store(local_session_state_path),
             build_browse_store(),
@@ -3447,6 +3519,10 @@ mod tests {
             build_search_store(),
             build_ask_thread_store(),
         )
+    }
+
+    fn test_app_with_config(config: AppConfig) -> Router {
+        test_app_with_catalog(config, Arc::new(InMemoryCatalogStore::seeded()))
     }
 
     fn test_app_with_search_store(config: AppConfig, search: DynSearchStore) -> Router {
@@ -3776,6 +3852,84 @@ mod tests {
             .unwrap();
 
         format!("Bearer {session_id}:{session_secret}")
+    }
+
+    fn create_local_git_repository(path: &PathBuf) {
+        fs::create_dir_all(path).unwrap();
+        assert!(Command::new("git")
+            .args(["init", "-b", "main"])
+            .arg(path)
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args([
+                "-C",
+                &path.display().to_string(),
+                "config",
+                "user.email",
+                "tests@example.com"
+            ])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args([
+                "-C",
+                &path.display().to_string(),
+                "config",
+                "user.name",
+                "Sourcebot Tests"
+            ])
+            .status()
+            .unwrap()
+            .success());
+        fs::write(path.join("README.md"), "# imported repo\n").unwrap();
+        assert!(Command::new("git")
+            .args(["-C", &path.display().to_string(), "add", "README.md"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args(["-C", &path.display().to_string(), "commit", "-m", "initial"])
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    fn seeded_local_connection_state(
+        user_id: &str,
+        role: OrganizationRole,
+        import_root: &PathBuf,
+    ) -> OrganizationState {
+        OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            connections: vec![Connection {
+                id: "conn_local_acme".into(),
+                name: "Acme Local Mirrors".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: import_root.display().to_string(),
+                }),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role,
+                joined_at: "2026-04-24T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: format!("{user_id}@example.com"),
+                name: format!("{user_id} display"),
+                created_at: "2026-04-23T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        }
     }
 
     fn seeded_api_key(
@@ -6527,6 +6681,298 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_adds_one_local_git_repo_to_catalog_list_and_detail_surfaces(
+    ) {
+        let organization_state_path = unique_test_path("auth-local-import-orgs");
+        let local_session_state_path = unique_test_path("auth-local-import-sessions");
+        let import_root = unique_test_path("auth-local-import-root");
+        let repo_path = import_root.join("task20b-import-target");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&repo_path);
+        let state = seeded_local_connection_state(user_id, OrganizationRole::Admin, &import_root);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let import_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "connection_id": "conn_local_acme",
+                            "path": repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(import_response.status(), StatusCode::CREATED);
+        let imported_detail: RepositoryDetail = read_json(import_response).await;
+        assert_eq!(imported_detail.repository.name, "task20b-import-target");
+        assert_eq!(imported_detail.repository.default_branch, "main");
+        assert_eq!(imported_detail.repository.connection_id, "conn_local_acme");
+        assert_eq!(imported_detail.connection.id, "conn_local_acme");
+        assert_eq!(imported_detail.connection.kind, ConnectionKind::Local);
+
+        let list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let repositories: Vec<RepositorySummary> = read_json(list_response).await;
+        assert!(repositories.iter().any(|repository| {
+            repository.id == imported_detail.repository.id
+                && repository.name == "task20b-import-target"
+                && repository.default_branch == "main"
+        }));
+
+        let detail_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v1/repos/{}", imported_detail.repository.id))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(detail_response.status(), StatusCode::OK);
+        let listed_detail: RepositoryDetail = read_json(detail_response).await;
+        assert_eq!(listed_detail, imported_detail);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_rejects_subdirectories_inside_a_git_worktree() {
+        let organization_state_path = unique_test_path("auth-local-import-subdir-orgs");
+        let local_session_state_path = unique_test_path("auth-local-import-subdir-sessions");
+        let import_root = unique_test_path("auth-local-import-subdir-root");
+        let repo_path = import_root.join("task20b-import-target");
+        let repo_subdir = repo_path.join("nested");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&repo_path);
+        fs::create_dir_all(&repo_subdir).unwrap();
+        let state = seeded_local_connection_state(user_id, OrganizationRole::Admin, &import_root);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "connection_id": "conn_local_acme",
+                            "path": repo_subdir.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_rejects_paths_outside_the_configured_connection_root() {
+        let organization_state_path = unique_test_path("auth-local-import-outside-orgs");
+        let local_session_state_path = unique_test_path("auth-local-import-outside-sessions");
+        let import_root = unique_test_path("auth-local-import-outside-root");
+        let outside_repo_path = unique_test_path("auth-local-import-outside-target");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&outside_repo_path);
+        fs::create_dir_all(&import_root).unwrap();
+        let state = seeded_local_connection_state(user_id, OrganizationRole::Admin, &import_root);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "connection_id": "conn_local_acme",
+                            "path": outside_repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
+        fs::remove_dir_all(outside_repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_returns_not_implemented_for_catalogs_without_local_import_support(
+    ) {
+        let organization_state_path = unique_test_path("auth-local-import-unsupported-orgs");
+        let local_session_state_path = unique_test_path("auth-local-import-unsupported-sessions");
+        let import_root = unique_test_path("auth-local-import-unsupported-root");
+        let repo_path = import_root.join("task20b-import-target");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&repo_path);
+        let state = seeded_local_connection_state(user_id, OrganizationRole::Admin, &import_root);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_catalog(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(
+                PgCatalogStore::connect_lazy(
+                    "postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot",
+                )
+                .unwrap(),
+            ),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "connection_id": "conn_local_acme",
+                            "path": repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_rejects_viewer_membership() {
+        let organization_state_path = unique_test_path("auth-local-import-viewer-orgs");
+        let local_session_state_path = unique_test_path("auth-local-import-viewer-sessions");
+        let import_root = unique_test_path("auth-local-import-viewer-root");
+        let repo_path = import_root.join("task20b-import-target");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&repo_path);
+        let state = seeded_local_connection_state(user_id, OrganizationRole::Viewer, &import_root);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "connection_id": "conn_local_acme",
+                            "path": repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
     }
 
     #[tokio::test]

@@ -14,10 +14,24 @@ use std::{
 
 pub const PROJECT_NAME: &str = "sourcebot-rewrite";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportRepositoryResult {
+    pub detail: RepositoryDetail,
+    pub created: bool,
+}
+
 #[async_trait]
 pub trait CatalogStore: Send + Sync {
     async fn list_repositories(&self) -> Result<Vec<RepositorySummary>>;
     async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>>;
+    fn supports_local_repository_import(&self) -> bool {
+        false
+    }
+    async fn import_local_repository(
+        &self,
+        connection: Connection,
+        repo_path: &str,
+    ) -> Result<ImportRepositoryResult>;
 }
 
 #[async_trait]
@@ -994,6 +1008,14 @@ mod tests {
 
         async fn get_repository_detail(&self, _repo_id: &str) -> Result<Option<RepositoryDetail>> {
             Ok(None)
+        }
+
+        async fn import_local_repository(
+            &self,
+            _connection: Connection,
+            _repo_path: &str,
+        ) -> Result<ImportRepositoryResult> {
+            Err(anyhow!("static catalog store does not support imports"))
         }
     }
 
