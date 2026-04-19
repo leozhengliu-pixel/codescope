@@ -5,41 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6f6a58404e47f715a43c1349df824da48c2ae183
+  head: 5b574dedc5d2e29a9678b3b7166f40baee5a9d6f
 last_completed_task:
-  id: task15d
-  title: Add authenticated connection edit controls on the settings screen backed by PUT /api/v1/auth/connections/:id
+  id: task16a
+  title: Add shared sync job domain models and backward-compatible durable organization-state persistence contract
   status: done
   summary: >-
-    Closed the final connection settings UI CRUD slice by extending
-    `#/settings/connections` with authenticated per-connection edit controls
-    backed by `PUT /api/v1/auth/connections/:id`, allowing eligible users to
-    update an existing connection's name plus matching config field in place,
-    updating the rendered inventory after save, and preserving the existing
-    fail-closed management gating while still deferring richer sync/status
-    surfaces.
+    Closed the first repository sync parity slice by adding reusable
+    `RepositorySyncJob` / `RepositorySyncJobStatus` shared models, extending
+    `OrganizationState` with a backward-compatible `repository_sync_jobs`
+    collection, proving older persisted state still deserializes when the field
+    is absent, and round-tripping a non-empty sync job through the file-backed
+    organization-state store while still deferring worker mutation paths,
+    status APIs, and frontend sync-history surfaces.
   tests:
-    - npx vitest run src/App.test.tsx -t "edits an authenticated github connection from the settings route using the update api": passed
-    - npx vitest run src/App.test.tsx -t "authenticated connection": passed (7 tests)
-    - npm test -- --run: passed (21/21)
-    - npm run build: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_populated_repository_sync_jobs -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_deserializes_without_repository_sync_jobs_for_backward_compatibility -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests -- --nocapture: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task15d by adding only the authenticated settings-screen edit slice backed by `PUT /api/v1/auth/connections/:id`, covering existing-connection name/config editing while keeping richer sync/status controls deferred and preserving fail-closed management gating until the initial authenticated inventory loads successfully
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff, confirmed the PUT request shape matches the backend contract, and suggested only optional future hardening around edit/delete interaction-state coverage
-  commit: 6f6a58404e47f715a43c1349df824da48c2ae183
-  next_task: task16a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task16a by adding only the shared repository sync job models, the backward-compatible `OrganizationState.repository_sync_jobs` persistence contract, serde/default coverage, and one non-empty file-backed round-trip proof while keeping worker orchestration, status APIs, and frontend sync-history work deferred
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the new durable organization-state sync-job contract backward-compatible and minimal for this slice, with only non-blocking suggestions about future failed-job contract coverage and documenting later mutation semantics
+  commit: 5b574dedc5d2e29a9678b3b7166f40baee5a9d6f
+  next_task: task16b
 current_task:
-  id: task16a
+  id: task16b
   parent_task: task16
-  title: Add shared sync job domain models and backward-compatible durable organization-state persistence contract
+  title: Add the first durable organization-store mutation path for creating and updating repository sync jobs
   status: pending
   summary: >-
-    Split broad task16 into the smallest architecture-complete parity slice by
-    first adding reusable sync-job domain models plus backward-compatible
-    persisted aggregate fields/serde coverage before any worker orchestration,
-    status APIs, or frontend sync-history surfaces.
+    Continue task16 with the smallest behavioral follow-up slice by adding one
+    truthful store-level mutation path that can create or update a repository
+    sync job inside durable organization-state persistence, with focused tests,
+    while still deferring worker execution loops, status APIs, and frontend
+    sync-history rendering.
 history:
+  - id: task16a
+    status: done
+    summary: >-
+      Closed the first repository sync parity slice by adding reusable
+      `RepositorySyncJob` / `RepositorySyncJobStatus` shared models, extending
+      `OrganizationState` with a backward-compatible `repository_sync_jobs`
+      collection, proving older persisted state still deserializes when the field
+      is absent, and round-tripping a non-empty sync job through the file-backed
+      organization-state store while still deferring worker mutation paths,
+      status APIs, and frontend sync-history surfaces.
+    tests:
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_serializes_populated_repository_sync_jobs -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models tests::organization_state_deserializes_without_repository_sync_jobs_for_backward_compatibility -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-models --lib -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests::file_organization_store_persists_and_reads_organization_state -- --exact --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo test -p sourcebot-api --bin sourcebot-api auth::tests -- --nocapture: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+      - /opt/data/home/.cargo/bin/cargo check -p sourcebot-models -p sourcebot-api: passed (with pre-existing dead_code warnings for catalog migrator in non-test builds)
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task16a by adding only the shared repository sync job models, the backward-compatible `OrganizationState.repository_sync_jobs` persistence contract, serde/default coverage, and one non-empty file-backed round-trip proof while keeping worker orchestration, status APIs, and frontend sync-history work deferred
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic issues in the final diff and judged the new durable organization-state sync-job contract backward-compatible and minimal for this slice, with only non-blocking suggestions about future failed-job contract coverage and documenting later mutation semantics
+    commit: 5b574dedc5d2e29a9678b3b7166f40baee5a9d6f
+    next_task: task16b
   - id: task15d
     status: done
     summary: >-
