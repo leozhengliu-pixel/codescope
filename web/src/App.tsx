@@ -1826,7 +1826,10 @@ function SettingsConnectionsPage() {
                     <div style={{ color: '#57606a', fontSize: 14 }}>Loading repository sync history…</div>
                   ) : null}
                   {!syncJobsError && !syncJobsLoading && latestConnectionSyncJob ? (
-                    <div style={{ color: '#57606a', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div
+                      aria-label={`Latest sync summary for ${connection.name}`}
+                      style={{ color: '#57606a', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                    >
                       <span>Latest sync:</span>
                       <RepositorySyncJobStatusBadge status={latestConnectionSyncJob.status} />
                       <span>
