@@ -640,7 +640,15 @@ describe('App', () => {
     expect(screen.getByText('Queued at: 2026-04-18T10:00:00Z')).toBeInTheDocument();
     expect(screen.getByText('Started at: 2026-04-18T10:01:00Z')).toBeInTheDocument();
     expect(screen.getByText('Finished at: 2026-04-18T10:02:00Z')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open repository detail for repo-123' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-123'
+    );
     expect(screen.getByText('Status: failed')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open repository detail for repo-456' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-456'
+    );
     expect(screen.getByText('Error: Repository permissions denied')).toBeInTheDocument();
     expect(screen.getByText('No repository sync jobs found for this connection.')).toBeInTheDocument();
     await waitFor(() => {

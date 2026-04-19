@@ -1829,6 +1829,13 @@ function SettingsConnectionsPage() {
                           <div>Queued at: {syncJob.queued_at}</div>
                           <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
                           <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>
+                          <a
+                            href={`#/repos/${encodeURIComponent(syncJob.repository_id)}`}
+                            aria-label={`Open repository detail for ${syncJob.repository_id}`}
+                            style={{ color: '#0969da', fontWeight: 600 }}
+                          >
+                            Open repository detail
+                          </a>
                           {syncJob.error ? <div>Error: {syncJob.error}</div> : null}
                         </div>
                       ))}
