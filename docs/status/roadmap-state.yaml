@@ -5,45 +5,56 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1fe6d439d0118a035734eacf3ce0713d330317a6
+  head: cc1a7079cb686348376aa0e5979d3b84fddeb08d
 last_completed_task:
-  id: task19a
-  title: Show repository sync-job history in the existing settings connections UI
+  id: task20a
+  title: Publish a generic/local Git parity acceptance spec and gap baseline
   status: done
   summary: >-
-    Closed the first task19 UI slice by extending `#/settings/connections` to
-    fetch the authenticated `/api/v1/auth/repository-sync-jobs` endpoint and
-    render read-only per-connection repository sync-job history with status,
-    queued/started/finished timestamps, and failure text, while preserving the
-    existing connection CRUD inventory and isolating sync-history load failures
-    from the rest of the settings surface. Remaining repo-surface last-run and
-    persisted index-status parity stays deferred behind the catalog-backed
-    task18b/task07b blockers.
+    Closed the first task20 slice by adding `specs/acceptance/generic-local-git.md`
+    as the dedicated acceptance home for the currently evidenced generic/local
+    Git baseline, then reconciling the integrations umbrella spec, parity matrix,
+    and parity-gap report so they truthfully record the live authenticated
+    connection CRUD/settings-shell/repo-detail/read-only sync-history evidence
+    without over-claiming real repository enumeration, import, or indexing parity.
   tests:
-    - npx vitest run src/App.test.tsx -t "shows read-only repository sync-job history on each authenticated connection card from the settings route": passed
-    - npx vitest run src/App.test.tsx -t "keeps the authenticated connections inventory visible when repository sync-job history fails to load": passed
-    - npm test -- --run: passed (23/23)
-    - npm run build: passed
+    - python3 generic/local Git docs reference validation script: passed
     - git diff --check: passed
+    - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff lands exactly task19a by using only the existing `#/settings/connections` route plus `/api/v1/auth/repository-sync-jobs` to show read-only sync history in settings while preserving connection CRUD behavior and avoiding repo-card/status-api/settings-navigation scope creep
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff and judged the read-only per-connection sync-history rendering plus scoped failure handling minimal and correct for this slice, with only a non-blocking suggestion about keeping per-connection ordering explicit if the API ordering contract ever changes
-  commit: 1fe6d439d0118a035734eacf3ce0713d330317a6
-  next_task: task20a
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task20a by creating the dedicated generic/local Git acceptance home, updating the integrations umbrella/index/parity docs to match the live authenticated connection-management baseline, and keeping all generic/local claims conservative rather than implying real ingestion or enumeration parity
+    code: approved by one independent post-implementation review; reviewer found no blocking truthfulness or internal-consistency defects in the final five-file docs set, with only a non-blocking note that broader connection-management and sync-status matrix rows can be audited later as follow-up slices
+  commit: cc1a7079cb686348376aa0e5979d3b84fddeb08d
+  next_task: task20b
 current_task:
-  id: task20a
+  id: task20b
   parent_task: task20
-  title: Publish a generic/local Git parity acceptance spec and gap baseline
+  title: Implement the first real local-path repository import baseline
   status: pending
   summary: >-
-    Remaining task19 repo-surface last-run and persisted index-status work is
-    still blocked by the catalog-backed task18b/task07b prerequisites, so the
-    next unblocked parity slice is to split broad task20 at the acceptance
-    contract boundary. The first smallest deliverable is a dedicated
-    generic/local Git parity acceptance spec that grounds the live connection
-    model, current settings/API/frontend evidence, and explicit gaps before
-    deeper host/runtime implementation slices.
+    The acceptance/gap baseline for generic/local Git is now explicit, so the
+    next smallest deliverable is the first truthful runtime slice: prove one
+    configured local-path connection can drive a real repository discovery/import
+    path end-to-end without claiming broader generic-host or multi-provider parity.
 history:
+  - id: task20a
+    status: done
+    summary: >-
+      Closed the first task20 slice by adding `specs/acceptance/generic-local-git.md`
+      as the dedicated acceptance home for the currently evidenced generic/local
+      Git baseline, then reconciling the integrations umbrella spec, parity matrix,
+      and parity-gap report so they truthfully record the live authenticated
+      connection CRUD/settings-shell/repo-detail/read-only sync-history evidence
+      without over-claiming real repository enumeration, import, or indexing parity.
+    tests:
+      - python3 generic/local Git docs reference validation script: passed
+      - git diff --check: passed
+      - /opt/data/home/.cargo/bin/cargo fmt --all --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff lands exactly task20a by creating the dedicated generic/local Git acceptance home, updating the integrations umbrella/index/parity docs to match the live authenticated connection-management baseline, and keeping all generic/local claims conservative rather than implying real ingestion or enumeration parity
+      code: approved by one independent post-implementation review; reviewer found no blocking truthfulness or internal-consistency defects in the final five-file docs set, with only a non-blocking note that broader connection-management and sync-status matrix rows can be audited later as follow-up slices
+    commit: cc1a7079cb686348376aa0e5979d3b84fddeb08d
+    next_task: task20b
   - id: task19a
     status: done
     summary: >-
