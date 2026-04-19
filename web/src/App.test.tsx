@@ -1016,6 +1016,167 @@ describe('App', () => {
     ]);
   });
 
+  it('keeps sibling terminal-state sync-history rows using the shared status badge presentation truthful within each authenticated connection card when multiple rows are present', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-succeeded-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-succeeded-middle',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: '2026-04-18T12:05:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-oldest',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T10:00:00Z',
+            started_at: '2026-04-18T10:01:00Z',
+            finished_at: '2026-04-18T10:04:00Z',
+            error: 'GitLab import failed',
+          },
+          {
+            id: 'job-conn-1-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:03:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-succeeded-newest',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:30:00Z',
+            started_at: '2026-04-18T12:31:00Z',
+            finished_at: '2026-04-18T12:33:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-succeeded-oldest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:01:00Z',
+            finished_at: '2026-04-18T11:02:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-middle',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:30:00Z',
+            started_at: '2026-04-18T11:31:00Z',
+            finished_at: '2026-04-18T11:34:00Z',
+            error: 'GitLab permissions denied',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubFailedRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-failed-newest' }).closest('div');
+    expect(githubFailedRow).toBeInTheDocument();
+    const githubFailedStatusRow = within(githubFailedRow!).getByText('Status').closest('div');
+    expect(githubFailedStatusRow).toBeInTheDocument();
+    expect(within(githubFailedStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(githubFailedRow!).queryByText('Status: failed')).not.toBeInTheDocument();
+    expect(within(githubFailedRow!).queryByText('succeeded')).not.toBeInTheDocument();
+
+    const githubSucceededMiddleRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-succeeded-middle' }).closest('div');
+    expect(githubSucceededMiddleRow).toBeInTheDocument();
+    const githubSucceededMiddleStatusRow = within(githubSucceededMiddleRow!).getByText('Status').closest('div');
+    expect(githubSucceededMiddleStatusRow).toBeInTheDocument();
+    expect(within(githubSucceededMiddleStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(githubSucceededMiddleRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+    expect(within(githubSucceededMiddleRow!).queryByText('failed')).not.toBeInTheDocument();
+
+    const githubSucceededOldestRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-conn-1-succeeded-oldest' }).closest('div');
+    expect(githubSucceededOldestRow).toBeInTheDocument();
+    const githubSucceededOldestStatusRow = within(githubSucceededOldestRow!).getByText('Status').closest('div');
+    expect(githubSucceededOldestStatusRow).toBeInTheDocument();
+    expect(within(githubSucceededOldestStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(githubSucceededOldestRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+    expect(within(githubSucceededOldestRow!).queryByText('failed')).not.toBeInTheDocument();
+
+    const gitlabSucceededRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-succeeded-newest' }).closest('div');
+    expect(gitlabSucceededRow).toBeInTheDocument();
+    const gitlabSucceededStatusRow = within(gitlabSucceededRow!).getByText('Status').closest('div');
+    expect(gitlabSucceededStatusRow).toBeInTheDocument();
+    expect(within(gitlabSucceededStatusRow!).getByText('succeeded')).toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByText('Status: succeeded')).not.toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByText('failed')).not.toBeInTheDocument();
+
+    const gitlabFailedMiddleRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-failed-middle' }).closest('div');
+    expect(gitlabFailedMiddleRow).toBeInTheDocument();
+    const gitlabFailedMiddleStatusRow = within(gitlabFailedMiddleRow!).getByText('Status').closest('div');
+    expect(gitlabFailedMiddleStatusRow).toBeInTheDocument();
+    expect(within(gitlabFailedMiddleStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(gitlabFailedMiddleRow!).queryByText('Status: failed')).not.toBeInTheDocument();
+    expect(within(gitlabFailedMiddleRow!).queryByText('succeeded')).not.toBeInTheDocument();
+
+    const gitlabFailedOldestRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-conn-2-failed-oldest' }).closest('div');
+    expect(gitlabFailedOldestRow).toBeInTheDocument();
+    const gitlabFailedOldestStatusRow = within(gitlabFailedOldestRow!).getByText('Status').closest('div');
+    expect(gitlabFailedOldestStatusRow).toBeInTheDocument();
+    expect(within(gitlabFailedOldestStatusRow!).getByText('failed')).toBeInTheDocument();
+    expect(within(gitlabFailedOldestRow!).queryByText('Status: failed')).not.toBeInTheDocument();
+    expect(within(gitlabFailedOldestRow!).queryByText('succeeded')).not.toBeInTheDocument();
+  });
+
   it('renders terminal-state sync-history rows with the shared status badge presentation across authenticated connection cards on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
