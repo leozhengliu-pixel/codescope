@@ -473,6 +473,105 @@ describe('App', () => {
     });
   });
 
+  it('renders the authenticated connections inventory and creates a new generic git connection from the settings route using the host-style base_url contract', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/connections' && init?.method === 'POST') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: ' Generic Git Host ',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          })
+        );
+
+        return jsonResponse(
+          {
+            id: 'conn-3',
+            name: 'Generic Git Host',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.internal.example.com',
+            },
+          },
+          true,
+          201
+        );
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
+    expect(screen.getByText('Local Mirror')).toBeInTheDocument();
+    expect(screen.getByText('Repo path: /srv/git/mirror')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: ' Generic Git Host ' } });
+    fireEvent.change(screen.getByLabelText('Connection kind'), { target: { value: 'generic_git' } });
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://git.internal.example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create connection' }));
+
+    expect(await screen.findByText('Generic Git Host')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://git.internal.example.com')).toBeInTheDocument();
+    expect(screen.getByText('Kind: generic_git')).toBeInTheDocument();
+    expect(screen.getByText('Connection id: conn-3')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ' Generic Git Host ',
+          kind: 'generic_git',
+          config: {
+            provider: 'generic_git',
+            base_url: 'https://git.internal.example.com',
+          },
+        }),
+      });
+    });
+  });
+
   it('shows read-only repository sync-job history on each authenticated connection card from the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
