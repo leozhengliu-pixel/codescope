@@ -1288,6 +1288,140 @@ describe('App', () => {
     expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
   });
 
+  it('clears stale imported repository success details after editing a local connection', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        expect(init.body).toBe(
+          JSON.stringify({
+            connection_id: 'conn-1',
+            path: '/srv/git/mirror/project-alpha',
+          })
+        );
+
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-1',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-1',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'PUT') {
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(init.body).toBe(
+          JSON.stringify({
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/updated-root',
+            },
+          })
+        );
+
+        return jsonResponse({
+          id: 'conn-1',
+          name: 'Local Mirror',
+          kind: 'local',
+          config: {
+            provider: 'local',
+            repo_path: '/srv/git/updated-root',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
+    expect(within(localCard!).getByRole('link', { name: 'Open repository detail' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-77'
+    );
+
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Edit Local Mirror' }));
+    fireEvent.change(screen.getByLabelText('Edit repo path'), {
+      target: { value: '/srv/git/updated-root' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/repositories/import/local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          connection_id: 'conn-1',
+          path: '/srv/git/mirror/project-alpha',
+        }),
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/connections/conn-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Local Mirror',
+          kind: 'local',
+          config: {
+            provider: 'local',
+            repo_path: '/srv/git/updated-root',
+          },
+        }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(localCard!).getByLabelText('Repository path')).toHaveValue('/srv/git/updated-root');
+    });
+    expect(within(localCard!).queryByText('Imported repository: project-alpha')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByText('Repository id: repo-77')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByRole('link', { name: 'Open repository detail' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Edit connection name')).not.toBeInTheDocument();
+  });
+
   it('clears stale local import failure details after editing a local connection', async () => {
     window.location.hash = '#/settings/connections';
 
