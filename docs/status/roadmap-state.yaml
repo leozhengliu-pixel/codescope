@@ -5,67 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 911f22653f48165214c15bc6b459426b4d5d57ad
+  head: b1efad478da7f936c8560d7e44992a604f576c4e
 last_completed_task:
-  id: task20q2s
-  title: Add focused multi-row terminal-state timestamp detail coverage for settings sync-history rows
+  id: task20q2t
+  title: Add focused multi-row terminal-state shared-badge coverage for settings sync-history rows
   status: done
   summary: >-
-    Closed the nineteenth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the twentieth split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving multiple
     succeeded/failed terminal-state rows on the same authenticated connection
-    keep their per-row queued/started/finished timestamp details truthful while
-    staying newest-first by `queued_at`, without changing backend APIs, sync-job
+    keep the shared status-badge presentation truthful per row while staying
+    newest-first by `queued_at`, without changing backend APIs, sync-job
     semantics, retries, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps multiple succeeded and failed terminal-state sync-history timestamp details truthful and newest-first on the same authenticated connection card": passed
-    - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (13/13)
-    - npm test -- --run: passed (53/53)
+    - npm test -- -t "keeps multiple succeeded and failed terminal-state sync-history rows on the same authenticated connection card using the shared status badge presentation truthfully and newest-first by queued_at": passed
+    - npm test -- -t "sync-history|repository sync history": passed (14/14)
+    - npm test: passed (54/54)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2s diff stays limited to one `#/settings/connections` same-card multi-row terminal-state timestamp-coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2t diff stays limited to one `#/settings/connections` same-card multi-row terminal-state shared-badge coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 911f22653f48165214c15bc6b459426b4d5d57ad
-  next_task: task20q2t
+  commit: b1efad478da7f936c8560d7e44992a604f576c4e
+  next_task: task20q2u
 current_task:
-  id: task20q2t
+  id: task20q2u
   parent_task: task20q2
-  title: Add focused multi-row terminal-state shared-badge coverage for settings sync-history rows
+  title: Add focused multi-row terminal-state error-detail coverage for settings sync-history rows
   status: pending
   summary: >-
     The settings shell now has explicit same-card multi-row terminal-state
-    timestamp coverage, so the next smallest unblocked follow-up is to add one
-    focused regression proving multiple succeeded/failed terminal-state rows on
-    the same authenticated connection keep the shared status-badge presentation
-    truthful per row while staying newest-first by `queued_at`, without changing
-    backend APIs, sync-job semantics, retries, or broader admin/settings
-    navigation.
+    shared-badge and timestamp coverage, so the next smallest unblocked follow-up
+    is to add one focused regression proving multiple succeeded/failed
+    terminal-state rows on the same authenticated connection keep per-row error
+    details truthful and scoped while staying newest-first by `queued_at`,
+    without changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
 history:
-  - id: task20q2s
+  - id: task20q2t
     status: done
     summary: >-
-      Closed the nineteenth split task20q2 settings-shell follow-up slice by
-      adding one focused `web/src/App.test.tsx` regression plus the matching
+      Closed the twentieth split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
       `#/settings/connections` now has explicit coverage proving multiple
       succeeded/failed terminal-state rows on the same authenticated connection
-      keep their per-row queued/started/finished timestamp details truthful while
-      staying newest-first by `queued_at`, without changing backend APIs, sync-job
+      keep the shared status-badge presentation truthful per row while staying
+      newest-first by `queued_at`, without changing backend APIs, sync-job
       semantics, retries, or broader admin/settings navigation.
     tests:
-      - npm test -- --run src/App.test.tsx -t "keeps multiple succeeded and failed terminal-state sync-history timestamp details truthful and newest-first on the same authenticated connection card": passed
-      - npm test -- --run src/App.test.tsx -t "sync-history|repository sync history": passed (13/13)
-      - npm test -- --run: passed (53/53)
+      - npm test -- -t "keeps multiple succeeded and failed terminal-state sync-history rows on the same authenticated connection card using the shared status badge presentation truthfully and newest-first by queued_at": passed
+      - npm test -- -t "sync-history|repository sync history": passed (14/14)
+      - npm test: passed (54/54)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2s diff stays limited to one `#/settings/connections` same-card multi-row terminal-state timestamp-coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2t diff stays limited to one `#/settings/connections` same-card multi-row terminal-state shared-badge coverage slice plus matching acceptance-doc grounding and does not expand into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-    commit: 911f22653f48165214c15bc6b459426b4d5d57ad
-    next_task: task20q2t
+    commit: b1efad478da7f936c8560d7e44992a604f576c4e
+    next_task: task20q2u
   - id: task20q2r
     status: done
     summary: >-
