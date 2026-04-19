@@ -5,43 +5,59 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a2f807d718ff3ce9bf5055b6814cb1493323572c
+  head: 95e5f61b7d238a08a9fe40e625301d7b95a63dc7
 last_completed_task:
-  id: task20c
-  title: Add settings-driven local repository import UX over the authenticated local import API baseline
+  id: task20d
+  title: Add repo-detail quick navigation for settings-driven local imports
   status: done
   summary: >-
-    Closed the next task20 slice by extending `#/settings/connections` with a
-    local-only per-connection import form that posts one explicit repository
-    path to the existing authenticated `/api/v1/auth/repositories/import/local`
-    API, renders per-card imported repository success/failure state, and keeps
-    local connection edit/delete flows fail-closed while an import is in flight,
-    while still deferring generic-host discovery, recursive local enumeration,
-    richer operator controls, and durable Postgres catalog parity.
+    Closed the next task20 slice by extending the existing local-import success
+    state on `#/settings/connections` with one direct `#/repos/:repoId` quick
+    navigation link for the imported repository, keeping the scope limited to
+    settings-driven local imports while still deferring generic-host discovery,
+    recursive local enumeration, broader settings/admin navigation, and durable
+    catalog-backed parity.
   tests:
     - npx vitest run src/App.test.tsx -t "shows a local-only repository import form on the settings route and renders imported repository details on success": passed
-    - npx vitest run src/App.test.tsx -t "shows a scoped repository import failure on the affected local connection card only": passed
-    - npx vitest run src/App.test.tsx -t "resets a local connection import form to the updated repo root after editing that connection": passed
     - npm test -- --run: passed (30/30)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20c by adding a minimal settings-driven local repository import form for existing `local` connections, keeping the scope local-only, and truthfully deferring broader generic-host discovery and durable catalog parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend/docs diff for the settings-page local import UX
-  commit: a2f807d718ff3ce9bf5055b6814cb1493323572c
-  next_task: task20d
+    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20d by adding the smallest possible quick navigation from the settings-driven local import success state into `#/repos/:repoId` without expanding into generic-host discovery, recursive local enumeration, broader settings navigation, or durable catalog work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend/docs diff for the local-import repo-detail quick navigation slice
+  commit: 95e5f61b7d238a08a9fe40e625301d7b95a63dc7
+  next_task: task20e
 current_task:
-  id: task20d
+  id: task20e
   parent_task: task20
-  title: Add repo-detail quick navigation for settings-driven local imports
+  title: Show imported repository branch and sync-state summary on the local import success card
   status: pending
   summary: >-
-    The local-only settings import form is now landed, so the next smallest
-    unblocked task20 slice is to let admins open the newly imported repository
-    directly from the same settings connection card without expanding into
-    generic-host discovery, recursive local enumeration, or durable catalog
-    parity.
+    The next smallest unblocked task20 slice is to reuse the existing imported
+    repository response on `#/settings/connections` so a successful local import
+    also shows the imported repository's default branch and sync state on that
+    same card, without expanding into generic-host discovery, recursive local
+    enumeration, broader operator controls, or durable catalog-backed parity.
 history:
+  - id: task20d
+    status: done
+    summary: >-
+      Closed the next task20 slice by extending the existing local-import success
+      state on `#/settings/connections` with one direct `#/repos/:repoId` quick
+      navigation link for the imported repository, keeping the scope limited to
+      settings-driven local imports while still deferring generic-host discovery,
+      recursive local enumeration, broader settings/admin navigation, and durable
+      catalog-backed parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t "shows a local-only repository import form on the settings route and renders imported repository details on success": passed
+      - npm test -- --run: passed (30/30)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20d by adding the smallest possible quick navigation from the settings-driven local import success state into `#/repos/:repoId` without expanding into generic-host discovery, recursive local enumeration, broader settings navigation, or durable catalog work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend/docs diff for the local-import repo-detail quick navigation slice
+    commit: 95e5f61b7d238a08a9fe40e625301d7b95a63dc7
+    next_task: task20e
   - id: task20c
     status: done
     summary: >-
