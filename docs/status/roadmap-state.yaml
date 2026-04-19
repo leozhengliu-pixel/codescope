@@ -5,43 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3ba939bbab330b4d26cc0a5e493beb1d70e12896
+  head: 723ebada7d100502d18ee1c4cda9606098594e3b
 last_completed_task:
-  id: task20q2a
-  title: Add a local-only reset affordance for the settings import path
+  id: task20q2b
+  title: Add a generic-git host quick-open affordance on the settings route
   status: done
   summary: >-
-    Split task20q2 into a first smallest discovery-follow-up slice by adding one
-    focused `web/src/App.test.tsx` regression plus the minimal `web/src/App.tsx`
-    local-only settings affordance that shows `Reset to local root` after the
-    repository path diverges from the configured `local.repo_path`, restoring the
-    import form to that configured root and clearing stale import success state
-    through the existing path-change behavior without expanding into backend
-    discovery APIs, generic-host behavior, recursive local enumeration, durable
-    catalog parity, or broader admin navigation.
+    Closed the second split task20q2 discovery-follow-up slice by adding one
+    focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+    generic-git host quick-open/manual-discovery affordance on
+    `#/settings/connections`, and the matching acceptance-doc grounding so valid
+    `generic_git.config.base_url` values now render one safe host link for manual
+    discovery while the settings shell still states that repository discovery is
+    not available yet for generic Git connections and fails closed for unsafe
+    schemes such as `javascript:`.
   tests:
-    - npm test -- --run -t "restores the local import path to the configured connection root": passed
+    - npm test -- --run -t "shows a generic git quick-open affordance on the settings route while keeping discovery status truthful": passed
     - npm test -- --run: passed (41/41)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2a diff stays limited to a local-only `#/settings/connections` reset affordance that restores the import path to the configured root and clears stale import state without changing backend APIs, generic_git behavior, recursive enumeration claims, durable catalog parity, or broader admin navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the divergence-gated reset button plus focused regression minimal and correct
-  commit: 3ba939bbab330b4d26cc0a5e493beb1d70e12896
-  next_task: task20q2b
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2b diff stays limited to one generic-git host quick-open/manual-discovery affordance on `#/settings/connections`, keeps the deferred discovery copy truthful, and does not expand into backend APIs, recursive local import, durable catalog parity, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the allowlisted `http`/`https` URL validation that prevents unsafe `javascript:` quick-open links
+  commit: 723ebada7d100502d18ee1c4cda9606098594e3b
+  next_task: task20q2c
 current_task:
-  id: task20q2b
+  id: task20q2c
   parent_task: task20q2
-  title: Add a generic-git host quick-open affordance on the settings route
+  title: Add repo-detail quick-open links for per-connection sync-history rows on the settings route
   status: pending
   summary: >-
-    The first split task20q2 slice now gives `local` connections one manual
-    reset-to-root affordance on `#/settings/connections`, so the next smallest
-    unblocked follow-up is to add one equally scoped `generic_git` host
-    quick-open/manual-discovery affordance on that same surface without claiming
-    real generic-host repository enumeration, recursive local import, durable
-    catalog parity, or broader admin/settings navigation.
+    The local reset and generic-git host quick-open follow-ups are now closed, so
+    the next smallest unblocked settings-shell parity slice is to let known
+    per-connection repository sync-history rows open the existing `#/repos/:repoId`
+    detail route directly from `#/settings/connections` without changing backend
+    APIs, sync-job semantics, retries, or broader admin/settings navigation.
 history:
+  - id: task20q2b
+    status: done
+    summary: >-
+      Closed the second split task20q2 discovery-follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      generic-git host quick-open/manual-discovery affordance on
+      `#/settings/connections`, and the matching acceptance-doc grounding so valid
+      `generic_git.config.base_url` values now render one safe host link for manual
+      discovery while the settings shell still states that repository discovery is
+      not available yet for generic Git connections and fails closed for unsafe
+      schemes such as `javascript:`.
+    tests:
+      - npm test -- --run -t "shows a generic git quick-open affordance on the settings route while keeping discovery status truthful": passed
+      - npm test -- --run: passed (41/41)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2b diff stays limited to one generic-git host quick-open/manual-discovery affordance on `#/settings/connections`, keeps the deferred discovery copy truthful, and does not expand into backend APIs, recursive local import, durable catalog parity, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff and specifically approved the allowlisted `http`/`https` URL validation that prevents unsafe `javascript:` quick-open links
+    commit: 723ebada7d100502d18ee1c4cda9606098594e3b
+    next_task: task20q2c
   - id: task20q2a
     status: done
     summary: >-
@@ -51,7 +71,7 @@ history:
       repository path diverges from the configured `local.repo_path`, restoring the
       import form to that configured root and clearing stale import success state
       through the existing path-change behavior without expanding into backend
-      discovery APIs, generic-host behavior, recursive local enumeration, durable
+      discovery APIs, generic_git behavior, recursive enumeration, durable
       catalog parity, or broader admin navigation.
     tests:
       - npm test -- --run -t "restores the local import path to the configured connection root": passed
