@@ -5,43 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4e0c7a37b1053f738e1aafe1c34e6864e7f10e41
+  head: b4deeea2f85036c83d383d37a37fad7609ee413d
 last_completed_task:
-  id: task20g
-  title: Clear stale imported repository success details when the local import path changes
+  id: task20h
+  title: Clear stale local import failure details when the repository path changes
   status: done
   summary: >-
     Closed the next task20 slice by keeping the existing settings-driven local
     import flow on `#/settings/connections` but clearing any previously rendered
-    imported repository success card as soon as the local repository path changes,
-    so the UI no longer shows stale success details for a different pending path
-    while still deferring generic-host discovery, recursive local enumeration,
-    broader operator controls, and durable catalog-backed parity.
+    import failure message as soon as the local repository path changes, so the
+    settings UI no longer shows stale failure details for a different pending
+    path while still deferring generic-host discovery, recursive local
+    enumeration, broader operator controls, and durable catalog-backed parity.
   tests:
-    - npm test -- --run -t "clears stale imported repository details after the local import path changes": passed
-    - npm test -- --run -t "local.*repository import|clears stale imported repository details after the local import path changes": passed (4/4)
-    - npm test -- --run: passed (31/31)
+    - npm test -- --run -t "clears stale local import failure details after the repository path changes": passed
+    - npm test -- --run -t "local.*repository import|clears stale local import failure details after the repository path changes": passed (4/4)
+    - npm test -- --run: passed (32/32)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20g by clearing the stale imported-repository success summary when the local repository path changes on `#/settings/connections` without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the stale local-import success-detail clearing slice
-  commit: 4e0c7a37b1053f738e1aafe1c34e6864e7f10e41
-  next_task: task20h
+    spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20h by clearing the stale local-import failure message when the repository path changes on `#/settings/connections` without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the stale local-import failure-detail clearing slice
+  commit: b4deeea2f85036c83d383d37a37fad7609ee413d
+  next_task: task20i
 current_task:
-  id: task20h
+  id: task20i
   parent_task: task20
-  title: Clear stale local import failure details when the repository path changes
+  title: Clear stale local import failure details after editing a local connection
   status: pending
   summary: >-
     The next smallest unblocked task20 slice is to keep the existing
     settings-driven local import flow but clear any previously rendered import
-    failure message as soon as the user edits that local connection's repository
-    path, so the settings UI does not keep showing stale failure details for a
-    different pending path while still deferring generic-host discovery,
-    recursive local enumeration, broader operator controls, and durable
-    catalog-backed parity.
+    failure message when an edited local connection saves a new `repo_path`, so
+    the refreshed settings card does not keep showing stale failure details for
+    the old root while still deferring generic-host discovery, recursive local
+    enumeration, broader operator controls, and durable catalog-backed parity.
 history:
+  - id: task20h
+    status: done
+    summary: >-
+      Closed the next task20 slice by keeping the existing settings-driven local
+      import flow on `#/settings/connections` but clearing any previously rendered
+      import failure message as soon as the local repository path changes, so the
+      settings UI no longer shows stale failure details for a different pending
+      path while still deferring generic-host discovery, recursive local
+      enumeration, broader operator controls, and durable catalog-backed parity.
+    tests:
+      - npm test -- --run -t "clears stale local import failure details after the repository path changes": passed
+      - npm test -- --run -t "local.*repository import|clears stale local import failure details after the repository path changes": passed (4/4)
+      - npm test -- --run: passed (32/32)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live worktree in `/opt/data/projects/sourcebot-rewrite` lands exactly task20h by clearing the stale local-import failure message when the repository path changes on `#/settings/connections` without expanding into generic-host discovery, recursive local enumeration, broader operator controls, or durable catalog-backed parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final frontend diff for the stale local-import failure-detail clearing slice
+    commit: b4deeea2f85036c83d383d37a37fad7609ee413d
+    next_task: task20i
   - id: task20g
     status: done
     summary: >-
