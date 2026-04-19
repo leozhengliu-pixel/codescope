@@ -1909,6 +1909,72 @@ describe('App', () => {
     });
   });
 
+  it('shows scoped generic git connection delete failures on the settings route while keeping the host-style inventory visible', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'Generic Git Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'https://git.example.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/connections/conn-1' && init?.method === 'DELETE') {
+        return jsonResponse({}, false, 403);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    const genericConnectionCard = screen.getByText('Generic Git Mirror').closest('article');
+    expect(genericConnectionCard).not.toBeNull();
+    expect(screen.getByText('Base URL: https://git.example.com')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Generic Git Mirror' }));
+
+    expect(
+      await within(genericConnectionCard as HTMLElement).findByText('Failed to delete connection: Request failed: 403')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Generic Git Mirror')).toBeInTheDocument();
+    expect(screen.getByText('Base URL: https://git.example.com')).toBeInTheDocument();
+    expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deleting…' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/connections');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/connections/conn-1', {
+        method: 'DELETE',
+      });
+    });
+  });
+
   it('disables all authenticated connection delete controls while a deletion is in flight and removes the deleted connection', async () => {
     window.location.hash = '#/settings/connections';
 

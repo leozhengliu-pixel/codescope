@@ -1210,6 +1210,7 @@ function SettingsConnectionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteErrorConnectionId, setDeleteErrorConnectionId] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [deletingConnectionId, setDeletingConnectionId] = useState<string | null>(null);
@@ -1292,6 +1293,7 @@ function SettingsConnectionsPage() {
     event.preventDefault();
     setCreateError(null);
     setDeleteError(null);
+    setDeleteErrorConnectionId(null);
     setUpdateError(null);
     setIsCreating(true);
 
@@ -1336,6 +1338,7 @@ function SettingsConnectionsPage() {
 
   const handleDeleteConnection = async (connectionId: string) => {
     setDeleteError(null);
+    setDeleteErrorConnectionId(null);
     setUpdateError(null);
     setDeletingConnectionId(connectionId);
 
@@ -1362,6 +1365,7 @@ function SettingsConnectionsPage() {
       });
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Unknown error');
+      setDeleteErrorConnectionId(connectionId);
     } finally {
       setDeletingConnectionId(null);
     }
@@ -1370,6 +1374,7 @@ function SettingsConnectionsPage() {
   const startEditingConnection = (connection: AuthConnection) => {
     setCreateError(null);
     setDeleteError(null);
+    setDeleteErrorConnectionId(null);
     setUpdateError(null);
     setEditingConnection({
       connectionId: connection.id,
@@ -1392,6 +1397,7 @@ function SettingsConnectionsPage() {
 
     setCreateError(null);
     setDeleteError(null);
+    setDeleteErrorConnectionId(null);
     setUpdateError(null);
     setUpdatingConnectionId(connection.id);
 
@@ -1561,7 +1567,6 @@ function SettingsConnectionsPage() {
               {isCreating ? 'Creating…' : 'Create connection'}
             </button>
             {createError ? <div>Failed to create connection: {createError}</div> : null}
-            {deleteError ? <div>Failed to delete connection: {deleteError}</div> : null}
           </div>
         </form>
       ) : null}
@@ -1613,6 +1618,10 @@ function SettingsConnectionsPage() {
                     </button>
                   </div>
                 </div>
+
+                {deleteError && deleteErrorConnectionId === connection.id ? (
+                  <div style={{ marginTop: 16, color: '#cf222e' }}>Failed to delete connection: {deleteError}</div>
+                ) : null}
 
                 {isEditing && editingConnection ? (
                   <form
