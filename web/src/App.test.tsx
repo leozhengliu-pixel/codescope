@@ -683,7 +683,7 @@ describe('App', () => {
     expect(screen.getByText('Base URL: https://github.com')).toBeInTheDocument();
   });
 
-  it('shows truthful generic/local discovery status on the settings route without implying full enumeration parity', async () => {
+  it('shows a generic git quick-open affordance on the settings route while keeping discovery status truthful', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -711,6 +711,15 @@ describe('App', () => {
           },
           {
             id: 'conn-3',
+            name: 'Unsafe Generic Mirror',
+            kind: 'generic_git',
+            config: {
+              provider: 'generic_git',
+              base_url: 'javascript:alert(1)',
+            },
+          },
+          {
+            id: 'conn-4',
             name: 'Local Mirror',
             kind: 'local',
             config: {
@@ -734,16 +743,27 @@ describe('App', () => {
 
     const githubCard = screen.getByText('GitHub Cloud').closest('article');
     const genericCard = screen.getByText('Generic Mirror').closest('article');
+    const unsafeGenericCard = screen.getByText('Unsafe Generic Mirror').closest('article');
     const localCard = screen.getByText('Local Mirror').closest('article');
 
     expect(githubCard).toBeInTheDocument();
     expect(genericCard).toBeInTheDocument();
+    expect(unsafeGenericCard).toBeInTheDocument();
     expect(localCard).toBeInTheDocument();
 
     expect(within(genericCard!).getByText('Discovery status')).toBeInTheDocument();
     expect(
       within(genericCard!).getByText('Repository discovery is not available yet for generic Git connections.')
     ).toBeInTheDocument();
+    const genericQuickOpenLink = within(genericCard!).getByRole('link', { name: 'Open host for manual discovery' });
+    expect(genericQuickOpenLink).toHaveAttribute('href', 'https://git.internal.example.com/');
+    expect(genericQuickOpenLink).toHaveAttribute('target', '_blank');
+    expect(genericQuickOpenLink).toHaveAttribute('rel', 'noreferrer');
+    expect(within(unsafeGenericCard!).getByText('Discovery status')).toBeInTheDocument();
+    expect(
+      within(unsafeGenericCard!).getByText('Repository discovery is not available yet for generic Git connections.')
+    ).toBeInTheDocument();
+    expect(within(unsafeGenericCard!).queryByRole('link', { name: 'Open host for manual discovery' })).not.toBeInTheDocument();
     expect(within(localCard!).getByText('Discovery status')).toBeInTheDocument();
     expect(
       within(localCard!).getByText('Import one repository path at a time from this local root.')
@@ -751,6 +771,7 @@ describe('App', () => {
     expect(
       within(localCard!).getByText('Recursive local enumeration is not available yet.')
     ).toBeInTheDocument();
+    expect(within(localCard!).queryByRole('link', { name: 'Open host for manual discovery' })).not.toBeInTheDocument();
     expect(within(githubCard!).queryByText('Discovery status')).not.toBeInTheDocument();
   });
 

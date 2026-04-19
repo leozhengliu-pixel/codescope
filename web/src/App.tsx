@@ -1173,6 +1173,23 @@ function initialLocalImportState(connection: AuthConnection): LocalImportState {
   };
 }
 
+function genericGitConnectionBaseUrl(connection: AuthConnection) {
+  if (!(connection.kind === 'generic_git' && connection.config && 'base_url' in connection.config)) {
+    return '';
+  }
+
+  try {
+    const parsedUrl = new URL(connection.config.base_url);
+    if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+      return parsedUrl.toString();
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
 function connectionDiscoveryStatus(connection: AuthConnection): string[] | null {
   if (connection.kind === 'generic_git') {
     return ['Repository discovery is not available yet for generic Git connections.'];
@@ -1594,6 +1611,7 @@ function SettingsConnectionsPage() {
           {connections.map((connection) => {
             const configSummary = connectionConfigSummary(connection);
             const discoveryStatus = connectionDiscoveryStatus(connection);
+            const genericGitQuickOpenUrl = genericGitConnectionBaseUrl(connection);
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
@@ -1710,6 +1728,16 @@ function SettingsConnectionsPage() {
                         {message}
                       </div>
                     ))}
+                    {genericGitQuickOpenUrl ? (
+                      <a
+                        href={genericGitQuickOpenUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#0969da', fontWeight: 600 }}
+                      >
+                        Open host for manual discovery
+                      </a>
+                    ) : null}
                   </section>
                 ) : null}
 
