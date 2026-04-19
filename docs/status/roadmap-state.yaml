@@ -5,63 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 62f70869a30732867e6343cff5ed53e7b7335c01
+  head: 6364f807d94463e07ec90597230d3a9e096652ef
 last_completed_task:
-  id: task20m
-  title: Lock generic Git connection creation failure handling to the host-style `base_url` contract
+  id: task20n
+  title: Lock generic Git connection edit failure handling to the host-style `base_url` contract
   status: done
   summary: >-
-    Closed the next task20 slice by narrowing `web/src/App.test.tsx` failure-path
-    coverage so the settings-driven `generic_git` creation flow on
-    `#/settings/connections` now proves the host-style creation payload contract
+    Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
+    regression for the settings-driven `generic_git` edit flow on
+    `#/settings/connections` that proves the host-style update payload contract
     (`kind: generic_git`, `config.provider: generic_git`, `config.base_url`)
-    is preserved even when the create request fails, while still surfacing the
-    scoped failure without expanding into generic-host discovery, recursive local
-    enumeration, broader operator/admin controls, or durable catalog-backed parity.
+    is preserved even when the update request fails, while the failure is shown
+    on the edited connection card without expanding into generic-host discovery,
+    recursive local enumeration, broader operator/admin controls, or durable
+    catalog-backed parity.
   tests:
-    - npm test -- --run -t "shows scoped generic git connection creation failures on the settings route while keeping the host-style base_url contract": passed
-    - npm test -- --run: passed (36/36)
+    - npm test -- --run -t "shows scoped generic git connection edit failures on the settings route while keeping the host-style base_url contract": passed
+    - npm test -- --run: passed (37/37)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20m diff stays limited to one focused `web/src/App.test.tsx` regression that proves the settings-driven `generic_git` creation failure path preserves the host-style `base_url` contract and surfaces the scoped failure without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
-    code: approved by one independent post-implementation review; reviewer found no blocking logic or security defects in the final test-only diff and only noted a non-blocking future opportunity to reduce fetch-call-order coupling if the settings route adds more initial fetches later
-  commit: 62f70869a30732867e6343cff5ed53e7b7335c01
-  next_task: task20n
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20n diff stays limited to one focused generic-git edit-failure regression plus the minimal UI scoping change needed to keep the host-style `base_url` update contract and show the failure on the active edited connection card without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the scoped update-error placement plus focused regression minimal and correct
+  commit: 6364f807d94463e07ec90597230d3a9e096652ef
+  next_task: task20o
 current_task:
-  id: task20n
+  id: task20o
   parent_task: task20
-  title: Lock generic Git connection edit failure handling to the host-style `base_url` contract
+  title: Lock generic Git connection delete failure handling to the settings route
   status: pending
   summary: >-
     The next smallest unblocked task20 slice is to add focused regression
-    coverage proving the settings-driven `generic_git` edit failure path on
-    `#/settings/connections` keeps the host-style `base_url` contract and
-    surfaces the scoped update failure without expanding into generic-host
-    discovery, recursive local enumeration, broader operator/admin controls, or
-    durable catalog-backed parity.
+    coverage proving the settings-driven `generic_git` delete failure path on
+    `#/settings/connections` keeps the existing host-style connection inventory
+    visible and surfaces the scoped deletion failure without expanding into
+    generic-host discovery, recursive local enumeration, broader operator/admin
+    controls, or durable catalog-backed parity.
 history:
-  - id: task20m
+  - id: task20n
     status: done
     summary: >-
-      Closed the next task20 slice by narrowing `web/src/App.test.tsx` failure-path
-      coverage so the settings-driven `generic_git` creation flow on
-      `#/settings/connections` now proves the host-style creation payload contract
+      Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
+      regression for the settings-driven `generic_git` edit flow on
+      `#/settings/connections` that proves the host-style update payload contract
       (`kind: generic_git`, `config.provider: generic_git`, `config.base_url`)
-      is preserved even when the create request fails, while still surfacing the
-      scoped failure without expanding into generic-host discovery, recursive local
-      enumeration, broader operator/admin controls, or durable catalog-backed parity.
+      is preserved even when the update request fails, while the failure is shown
+      on the edited connection card without expanding into generic-host discovery,
+      recursive local enumeration, broader operator/admin controls, or durable
+      catalog-backed parity.
     tests:
-      - npm test -- --run -t "shows scoped generic git connection creation failures on the settings route while keeping the host-style base_url contract": passed
-      - npm test -- --run: passed (36/36)
+      - npm test -- --run -t "shows scoped generic git connection edit failures on the settings route while keeping the host-style base_url contract": passed
+      - npm test -- --run: passed (37/37)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live task20m diff stays limited to one focused `web/src/App.test.tsx` regression that proves the settings-driven `generic_git` creation failure path preserves the host-style `base_url` contract and surfaces the scoped failure without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
-      code: approved by one independent post-implementation review; reviewer found no blocking logic or security defects in the final test-only diff and only noted a non-blocking future opportunity to reduce fetch-call-order coupling if the settings route adds more initial fetches later
-    commit: 62f70869a30732867e6343cff5ed53e7b7335c01
-    next_task: task20n
-  - id: task20l
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20n diff stays limited to one focused generic-git edit-failure regression plus the minimal UI scoping change needed to keep the host-style `base_url` update contract and show the failure on the active edited connection card without expanding into generic-host discovery, recursive local enumeration, broader operator/admin controls, or durable catalog-backed parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx` and `web/src/App.test.tsx` diff and judged the scoped update-error placement plus focused regression minimal and correct
+    commit: 6364f807d94463e07ec90597230d3a9e096652ef
+    next_task: task20o
+  - id: task20m
     status: done
     summary: >-
       Closed the next task20 slice by adding one focused `web/src/App.test.tsx`
