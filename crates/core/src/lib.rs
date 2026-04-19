@@ -52,6 +52,20 @@ pub trait OrganizationStore: Send + Sync {
         &self,
         started_at: &str,
     ) -> Result<Option<RepositorySyncJob>>;
+    async fn claim_and_complete_next_repository_sync_job(
+        &self,
+        started_at: &str,
+        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+    ) -> Result<Option<RepositorySyncJob>> {
+        let Some(claimed_job) = self.claim_next_repository_sync_job(started_at).await? else {
+            return Ok(None);
+        };
+
+        let completed_job = execute(claimed_job);
+        self.store_repository_sync_job(completed_job.clone())
+            .await?;
+        Ok(Some(completed_job))
+    }
     async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>>;
     async fn complete_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
     async fn fail_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>>;
@@ -92,6 +106,19 @@ pub fn claim_next_repository_sync_job(
     job.finished_at = None;
     job.error = None;
     Some(job.clone())
+}
+
+pub fn complete_repository_sync_job(
+    job: &RepositorySyncJob,
+    status: RepositorySyncJobStatus,
+    finished_at: &str,
+    error: Option<String>,
+) -> RepositorySyncJob {
+    let mut job = job.clone();
+    job.status = status;
+    job.finished_at = Some(finished_at.to_owned());
+    job.error = error;
+    job
 }
 
 pub fn claim_next_review_agent_run(state: &mut OrganizationState) -> Option<ReviewAgentRun> {

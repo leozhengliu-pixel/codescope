@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         Some(WorkerTickOutcome::RepositorySyncJob(job)) => info!(
             repository_sync_job_id = %job.id,
             status = ?job.status,
-            "claimed repository sync job and persisted running status"
+            "recorded repository sync job stub-completed status after one worker tick"
         ),
         None => info!("no queued review-agent run or repository sync job available"),
     }

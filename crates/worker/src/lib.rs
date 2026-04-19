@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sourcebot_core::OrganizationStore;
+use sourcebot_core::{complete_repository_sync_job, OrganizationStore};
 use sourcebot_models::{RepositorySyncJob, ReviewAgentRun};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -45,15 +45,29 @@ pub async fn run_review_agent_tick(
 pub async fn run_repository_sync_claim_tick(
     store: &dyn OrganizationStore,
 ) -> Result<Option<RepositorySyncJob>> {
-    let Some(claimed_job) = claim_next_repository_sync_job_from_store(store).await? else {
-        return Ok(None);
-    };
-
-    Ok(Some(execute_claimed_repository_sync_job_stub(&claimed_job)))
+    let started_at = current_timestamp();
+    store
+        .claim_and_complete_next_repository_sync_job(
+            &started_at,
+            execute_claimed_repository_sync_job_stub,
+        )
+        .await
 }
 
-pub fn execute_claimed_repository_sync_job_stub(job: &RepositorySyncJob) -> RepositorySyncJob {
-    job.clone()
+pub fn execute_claimed_repository_sync_job_stub(job: RepositorySyncJob) -> RepositorySyncJob {
+    execute_claimed_repository_sync_job_stub_at(job, &current_timestamp())
+}
+
+pub fn execute_claimed_repository_sync_job_stub_at(
+    job: RepositorySyncJob,
+    finished_at: &str,
+) -> RepositorySyncJob {
+    complete_repository_sync_job(
+        &job,
+        sourcebot_models::RepositorySyncJobStatus::Succeeded,
+        finished_at,
+        None,
+    )
 }
 
 pub fn execute_claimed_review_agent_run_stub(
@@ -121,7 +135,7 @@ fn current_timestamp() -> String {
 mod tests {
     use super::{
         claim_next_repository_sync_job_from_store_at, claim_next_review_agent_run,
-        claim_next_review_agent_run_from_store, execute_claimed_repository_sync_job_stub,
+        claim_next_review_agent_run_from_store, execute_claimed_repository_sync_job_stub_at,
         execute_claimed_review_agent_run_stub, persist_stub_review_agent_run_execution_outcome,
         run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
         StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
@@ -146,7 +160,20 @@ mod tests {
         state: Mutex<OrganizationState>,
     }
 
+    #[derive(Debug)]
+    struct FailingStoreOrganizationWriteStore {
+        state: Mutex<OrganizationState>,
+    }
+
     impl InMemoryOrganizationStore {
+        fn new(state: OrganizationState) -> Self {
+            Self {
+                state: Mutex::new(state),
+            }
+        }
+    }
+
+    impl FailingStoreOrganizationWriteStore {
         fn new(state: OrganizationState) -> Self {
             Self {
                 state: Mutex::new(state),
@@ -181,6 +208,23 @@ mod tests {
             ))
         }
 
+        async fn claim_and_complete_next_repository_sync_job(
+            &self,
+            started_at: &str,
+            execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+        ) -> Result<Option<RepositorySyncJob>> {
+            let mut state = self.state.lock().unwrap();
+            let Some(claimed_job) =
+                sourcebot_core::claim_next_repository_sync_job(&mut state, started_at)
+            else {
+                return Ok(None);
+            };
+
+            let completed_job = execute(claimed_job);
+            sourcebot_core::store_repository_sync_job(&mut state, completed_job.clone());
+            Ok(Some(completed_job))
+        }
+
         async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>> {
             let mut state = self.state.lock().unwrap();
             Ok(claim_next_review_agent_run(&mut state))
@@ -196,6 +240,54 @@ mod tests {
         async fn fail_review_agent_run(&self, run_id: &str) -> Result<Option<ReviewAgentRun>> {
             let mut state = self.state.lock().unwrap();
             Ok(sourcebot_core::fail_review_agent_run(&mut state, run_id))
+        }
+    }
+
+    #[async_trait]
+    impl OrganizationStore for FailingStoreOrganizationWriteStore {
+        async fn organization_state(&self) -> Result<OrganizationState> {
+            Ok(self.state.lock().unwrap().clone())
+        }
+
+        async fn store_organization_state(&self, _state: OrganizationState) -> Result<()> {
+            Err(anyhow::anyhow!(
+                "synthetic store_organization_state failure"
+            ))
+        }
+
+        async fn store_repository_sync_job(&self, _job: RepositorySyncJob) -> Result<()> {
+            panic!("run_repository_sync_claim_tick_at should not use store_repository_sync_job")
+        }
+
+        async fn claim_next_repository_sync_job(
+            &self,
+            _started_at: &str,
+        ) -> Result<Option<RepositorySyncJob>> {
+            panic!(
+                "run_repository_sync_claim_tick should not use claim_next_repository_sync_job directly"
+            )
+        }
+
+        async fn claim_and_complete_next_repository_sync_job(
+            &self,
+            _started_at: &str,
+            _execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+        ) -> Result<Option<RepositorySyncJob>> {
+            Err(anyhow::anyhow!(
+                "synthetic claim_and_complete_next_repository_sync_job failure"
+            ))
+        }
+
+        async fn claim_next_review_agent_run(&self) -> Result<Option<ReviewAgentRun>> {
+            Ok(None)
+        }
+
+        async fn complete_review_agent_run(&self, _run_id: &str) -> Result<Option<ReviewAgentRun>> {
+            Ok(None)
+        }
+
+        async fn fail_review_agent_run(&self, _run_id: &str) -> Result<Option<ReviewAgentRun>> {
+            Ok(None)
         }
     }
 
@@ -563,16 +655,30 @@ mod tests {
     }
 
     #[test]
-    fn execute_claimed_repository_sync_job_stub_preserves_the_claimed_running_job() {
-        let claimed_job = repository_sync_job(
+    fn execute_claimed_repository_sync_job_stub_records_a_succeeded_terminal_outcome() {
+        let mut claimed_job = repository_sync_job(
             "sync_job_claimed",
             RepositorySyncJobStatus::Running,
             "2026-04-26T10:01:00Z",
         );
+        claimed_job.started_at = Some("2026-04-26T10:03:00Z".into());
 
-        let stubbed_job = execute_claimed_repository_sync_job_stub(&claimed_job);
+        let stubbed_job = execute_claimed_repository_sync_job_stub_at(
+            claimed_job.clone(),
+            "2026-04-26T10:04:00Z",
+        );
 
-        assert_eq!(stubbed_job, claimed_job);
+        assert_eq!(stubbed_job.id, claimed_job.id);
+        assert_eq!(stubbed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert_eq!(
+            stubbed_job.started_at.as_deref(),
+            Some("2026-04-26T10:03:00Z")
+        );
+        assert_eq!(
+            stubbed_job.finished_at.as_deref(),
+            Some("2026-04-26T10:04:00Z")
+        );
+        assert_eq!(stubbed_job.error, None);
     }
 
     #[tokio::test]
@@ -615,7 +721,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_repository_sync_claim_tick_records_a_running_repository_sync_job_in_the_file_store(
+    async fn run_repository_sync_claim_tick_records_a_stub_completed_repository_sync_job_in_the_file_store(
     ) {
         let path = unique_test_path("worker-tick-file-store-repository-sync-job");
         let store = FileOrganizationStore::new(&path);
@@ -638,28 +744,72 @@ mod tests {
             .await
             .unwrap();
 
-        let running_job = run_repository_sync_claim_tick(&store)
+        let completed_job = run_repository_sync_claim_tick(&store)
             .await
             .unwrap()
-            .expect("queued repository sync job to be claimed");
+            .expect("queued repository sync job to be completed");
 
-        assert_eq!(running_job.id, "sync_job_oldest");
-        assert_eq!(running_job.status, RepositorySyncJobStatus::Running);
-        let started_at = running_job
+        assert_eq!(completed_job.id, "sync_job_oldest");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        let started_at = completed_job
             .started_at
             .as_deref()
             .expect("started_at to be set");
         assert!(OffsetDateTime::parse(started_at, &Rfc3339).is_ok());
-        assert_eq!(running_job.finished_at, None);
-        assert_eq!(running_job.error, None);
+        let finished_at = completed_job
+            .finished_at
+            .as_deref()
+            .expect("finished_at to be set");
+        assert!(OffsetDateTime::parse(finished_at, &Rfc3339).is_ok());
+        assert_eq!(completed_job.error, None);
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(
             persisted.repository_sync_jobs[0].status,
             RepositorySyncJobStatus::Queued
         );
-        assert_eq!(persisted.repository_sync_jobs[1], running_job);
+        assert_eq!(persisted.repository_sync_jobs[1], completed_job);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_surfaces_atomic_claim_and_complete_failures_without_mutating_state(
+    ) {
+        let store = FailingStoreOrganizationWriteStore::new(OrganizationState {
+            repository_sync_jobs: vec![
+                repository_sync_job(
+                    "sync_job_newer",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:02:00Z",
+                ),
+                repository_sync_job(
+                    "sync_job_oldest",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:01:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+
+        let error = run_repository_sync_claim_tick(&store)
+            .await
+            .expect_err("synthetic claim-and-complete should fail");
+
+        assert!(error
+            .to_string()
+            .contains("synthetic claim_and_complete_next_repository_sync_job failure"));
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.repository_sync_jobs[0].status,
+            RepositorySyncJobStatus::Queued
+        );
+        assert_eq!(
+            persisted.repository_sync_jobs[1].status,
+            RepositorySyncJobStatus::Queued
+        );
+        assert_eq!(persisted.repository_sync_jobs[1].started_at, None);
+        assert_eq!(persisted.repository_sync_jobs[1].finished_at, None);
     }
 }

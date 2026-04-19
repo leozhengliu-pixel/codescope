@@ -431,6 +431,24 @@ impl OrganizationStore for FileOrganizationStore {
         Ok(claimed_job)
     }
 
+    async fn claim_and_complete_next_repository_sync_job(
+        &self,
+        started_at: &str,
+        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+    ) -> Result<Option<RepositorySyncJob>> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        let Some(claimed_job) = claim_next_repository_sync_job(&mut state, started_at) else {
+            return Ok(None);
+        };
+
+        let completed_job = execute(claimed_job);
+        upsert_repository_sync_job(&mut state, completed_job.clone());
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, true)?;
+        Ok(Some(completed_job))
+    }
+
     async fn claim_next_review_agent_run(
         &self,
     ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {

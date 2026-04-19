@@ -34,7 +34,7 @@ fn repository_sync_job(
 }
 
 #[tokio::test]
-async fn worker_binary_claims_oldest_queued_repository_sync_job_and_persists_running_status_when_no_review_agent_run_is_available(
+async fn worker_binary_claims_oldest_queued_repository_sync_job_and_persists_stub_completed_status_when_no_review_agent_run_is_available(
 ) {
     let path = unique_test_path("claim-oldest-repository-sync-job-smoke");
     let store = FileOrganizationStore::new(&path);
@@ -80,10 +80,10 @@ async fn worker_binary_claims_oldest_queued_repository_sync_job_and_persists_run
     assert_eq!(persisted.repository_sync_jobs[1].id, "sync_job_oldest");
     assert_eq!(
         persisted.repository_sync_jobs[1].status,
-        RepositorySyncJobStatus::Running
+        RepositorySyncJobStatus::Succeeded
     );
     assert!(persisted.repository_sync_jobs[1].started_at.is_some());
-    assert_eq!(persisted.repository_sync_jobs[1].finished_at, None);
+    assert!(persisted.repository_sync_jobs[1].finished_at.is_some());
     assert_eq!(persisted.repository_sync_jobs[1].error, None);
 
     fs::remove_file(path).unwrap();
