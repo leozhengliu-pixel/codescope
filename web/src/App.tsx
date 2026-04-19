@@ -1426,13 +1426,19 @@ function SettingsConnectionsPage() {
       return;
     }
 
-    setLocalImportStates((currentStates) => ({
-      ...currentStates,
-      [connection.id]: {
-        ...(currentStates[connection.id] ?? initialLocalImportState(connection)),
-        path,
-      },
-    }));
+    setLocalImportStates((currentStates) => {
+      const currentState = currentStates[connection.id] ?? initialLocalImportState(connection);
+      const nextPath = path;
+
+      return {
+        ...currentStates,
+        [connection.id]: {
+          ...currentState,
+          path: nextPath,
+          result: nextPath === currentState.path ? currentState.result : null,
+        },
+      };
+    });
   };
 
   const handleImportLocalRepository = async (event: FormEvent<HTMLFormElement>, connection: AuthConnection) => {

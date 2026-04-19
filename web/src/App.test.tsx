@@ -689,6 +689,74 @@ describe('App', () => {
     });
   });
 
+  it('clears stale imported repository details after the local import path changes', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Repository id: repo-77')).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-beta' },
+    });
+
+    expect(within(localCard!).queryByText('Imported repository: project-alpha')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByText('Repository id: repo-77')).not.toBeInTheDocument();
+    expect(within(localCard!).queryByRole('link', { name: 'Open repository detail' })).not.toBeInTheDocument();
+  });
+
   it('disables local connection edit and delete controls while a repository import is in flight', async () => {
     window.location.hash = '#/settings/connections';
 
