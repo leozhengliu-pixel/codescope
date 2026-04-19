@@ -881,6 +881,141 @@ describe('App', () => {
     expect(within(gitlabCard!).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
   });
 
+  it('keeps multiple succeeded and failed terminal-state sync-history rows newest-first by queued_at within each sibling authenticated connection card on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-succeeded-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-succeeded-middle',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: '2026-04-18T12:05:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-oldest',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T10:00:00Z',
+            started_at: '2026-04-18T10:01:00Z',
+            finished_at: '2026-04-18T10:04:00Z',
+            error: 'GitLab import failed',
+          },
+          {
+            id: 'job-conn-1-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:03:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-succeeded-newest',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:30:00Z',
+            started_at: '2026-04-18T12:31:00Z',
+            finished_at: '2026-04-18T12:33:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-oldest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-succeeded-oldest',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:01:00Z',
+            finished_at: '2026-04-18T11:02:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-middle',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-middle',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:30:00Z',
+            started_at: '2026-04-18T11:31:00Z',
+            finished_at: '2026-04-18T11:34:00Z',
+            error: 'GitLab permissions denied',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-conn-1-failed-newest',
+      '#/repos/repo-conn-1-succeeded-middle',
+      '#/repos/repo-conn-1-succeeded-oldest',
+    ]);
+    expect(within(githubCard!).getAllByText(/Queued at:/).map((node) => node.textContent)).toEqual([
+      'Queued at: 2026-04-18T13:00:00Z',
+      'Queued at: 2026-04-18T12:00:00Z',
+      'Queued at: 2026-04-18T11:00:00Z',
+    ]);
+
+    expect(within(gitlabCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-conn-2-succeeded-newest',
+      '#/repos/repo-conn-2-failed-middle',
+      '#/repos/repo-conn-2-failed-oldest',
+    ]);
+    expect(within(gitlabCard!).getAllByText(/Queued at:/).map((node) => node.textContent)).toEqual([
+      'Queued at: 2026-04-18T12:30:00Z',
+      'Queued at: 2026-04-18T11:30:00Z',
+      'Queued at: 2026-04-18T10:00:00Z',
+    ]);
+  });
+
   it('renders terminal-state sync-history rows with the shared status badge presentation across authenticated connection cards on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
