@@ -764,6 +764,88 @@ describe('App', () => {
     expect(within(gitlabCard!).getByText('Repository id: repo-other-connection')).toBeInTheDocument();
   });
 
+  it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-running',
+            organization_id: 'org-1',
+            repository_id: 'repo-running',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-queued',
+            organization_id: 'org-1',
+            repository_id: 'repo-queued',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    const latestSyncSummary = within(githubCard!).getByText(/Latest sync:/).closest('div');
+    expect(latestSyncSummary).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('running')).toBeInTheDocument();
+    expect(within(latestSyncSummary!).getByText('repo-running · 2026-04-18T12:00:00Z')).toBeInTheDocument();
+    expect(within(latestSyncSummary!).queryByText('Latest sync: running')).not.toBeInTheDocument();
+
+    const runningSyncRow = screen.getByRole('link', { name: 'Open repository detail for repo-running' }).closest('div');
+    expect(runningSyncRow).toBeInTheDocument();
+    const runningStatusRow = within(runningSyncRow!).getByText('Status').closest('div');
+    expect(runningStatusRow).toBeInTheDocument();
+    expect(within(runningStatusRow!).getByText('running')).toBeInTheDocument();
+    expect(within(runningSyncRow!).queryByText('Status: running')).not.toBeInTheDocument();
+    expect(within(runningSyncRow!).getByText('Started at: 2026-04-18T12:01:00Z')).toBeInTheDocument();
+    expect(within(runningSyncRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+
+    const queuedSyncRow = screen.getByRole('link', { name: 'Open repository detail for repo-queued' }).closest('div');
+    expect(queuedSyncRow).toBeInTheDocument();
+    const queuedStatusRow = within(queuedSyncRow!).getByText('Status').closest('div');
+    expect(queuedStatusRow).toBeInTheDocument();
+    expect(within(queuedStatusRow!).getByText('queued')).toBeInTheDocument();
+    expect(within(queuedSyncRow!).queryByText('Status: queued')).not.toBeInTheDocument();
+    expect(within(queuedSyncRow!).getByText('Started at: Not started')).toBeInTheDocument();
+    expect(within(queuedSyncRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+  });
+
   it('keeps the authenticated connections inventory visible when repository sync-job history fails to load', async () => {
     window.location.hash = '#/settings/connections';
 
