@@ -5,42 +5,63 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e7333f311cfa202d09f19cae1cb4d253d0b4b8be
+  head: 5243d79eb23edec2f2f56812379563e068ed0f3c
 last_completed_task:
-  id: task20q2d
-  title: Keep per-connection sync-history rows newest-first on the settings route
+  id: task20q2e
+  title: Add a latest sync-status summary line to each settings connection card
   status: done
   summary: >-
-    Closed the fourth split task20q2 discovery-follow-up slice by adding one
+    Closed the fifth split task20q2 settings-shell follow-up slice by adding one
     focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
-    per-connection sync-history ordering change, and the matching
+    latest-sync summary rendering, and the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now renders each connection's read-only repository
-    sync-history rows newest-first by `queued_at` even when the authenticated
-    sync-job payload arrives out of order, without changing backend APIs,
-    retries, sync-job semantics, or broader admin/settings navigation.
+    `#/settings/connections` now shows one compact latest sync-status line per
+    connection card using the newest already-loaded sync job without changing
+    backend APIs, retries, sync-job semantics, or broader admin/settings
+    navigation.
   tests:
     - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
     - npm test -- --run: passed (42/42)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2d diff stays limited to one per-connection sync-history ordering slice on `#/settings/connections`, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about possible future one-pass sorting and defensive handling for invalid timestamps
-  commit: e7333f311cfa202d09f19cae1cb4d253d0b4b8be
-  next_task: task20q2e
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2e diff stays limited to one compact latest-sync summary slice on `#/settings/connections`, reuses the existing per-connection sync-history data, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future presentation polish for the summary line
+  commit: 5243d79eb23edec2f2f56812379563e068ed0f3c
+  next_task: task20q2f
 current_task:
-  id: task20q2e
+  id: task20q2f
   parent_task: task20q2
-  title: Add a latest sync-status summary line to each settings connection card
+  title: Render the latest settings sync summary with the shared status badge
   status: pending
   summary: >-
-    The explicit newest-first ordering slice is now closed, so the next smallest
-    unblocked settings-shell parity follow-up is to reuse the already-loaded
-    per-connection sync-history data to show one compact latest sync-status
-    summary on each `#/settings/connections` card without changing backend APIs,
-    retries, sync-job semantics, or broader admin/settings navigation.
+    The compact latest-sync summary is now present on each settings connection
+    card, so the next smallest unblocked settings-shell parity follow-up is to
+    reuse the existing shared status-badge presentation in that latest-sync
+    summary without changing backend APIs, sync-job semantics, retries, or
+    broader admin/settings navigation.
 history:
+  - id: task20q2e
+    status: done
+    summary: >-
+      Closed the fifth split task20q2 settings-shell follow-up slice by adding one
+      focused `web/src/App.test.tsx` regression, the minimal `web/src/App.tsx`
+      latest-sync summary rendering, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now shows one compact latest sync-status line per
+      connection card using the newest already-loaded sync job without changing
+      backend APIs, retries, sync-job semantics, or broader admin/settings
+      navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first when sync jobs arrive out of order": passed
+      - npm test -- --run: passed (42/42)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2e diff stays limited to one compact latest-sync summary slice on `#/settings/connections`, reuses the existing per-connection sync-history data, keeps the acceptance wording truthful, and does not expand into backend APIs, retries, sync-job semantics, or broader admin/settings navigation
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only non-blocking notes about future presentation polish for the summary line
+    commit: 5243d79eb23edec2f2f56812379563e068ed0f3c
+    next_task: task20q2f
   - id: task20q2d
     status: done
     summary: >-
