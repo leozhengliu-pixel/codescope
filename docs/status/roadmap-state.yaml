@@ -5,42 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b23ebd2e1ccfea6949ea1cb70d5bbb667d6889b4
+  head: f96f0476502722a93947bde7fba5dbff91fcbfdd
 last_completed_task:
-  id: task20q2am47
-  title: Add same-card queued/running sync-history timestamp-detail acceptance grounding for the exact-timestamp newest-first shared-repository-id case
+  id: task20q2am48
+  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp reverse-order shared-repository-id case
   status: done
   summary: >-
-    Closed the eighty-sixth split task20q2 settings-shell follow-up slice by
+    Closed the eighty-seventh split task20q2 settings-shell follow-up slice by
     tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
     now explicitly states the already-landed `web/src/App.test.tsx` same-card
-    queued/running newest-first exact-timestamp shared-repository-id sync-history
-    timestamp-detail case alongside the reverse-order case without expanding
-    backend APIs, retry semantics, or broader admin/settings navigation.
+    mixed terminal-state latest-sync summary reverse-order exact-timestamp
+    shared-repository-id case without expanding backend APIs, retry semantics,
+    or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "queued-running sync-history timestamp details deterministic and truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
+    - python3 raw-content explicit same-card reverse-order latest-sync acceptance wording check: passed
+    - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 106 skipped)
     - npm test -- --run src/App.test.tsx: passed (107/107)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - python3 raw-content evidence check for same-card queued/running newest-first shared-repository-id sync-history timestamp-detail acceptance wording: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff is the smallest truthful closure for `task20q2am47`, grounding the already-landed same-card queued/running newest-first exact-timestamp shared-repository-id sync-history timestamp-detail coverage without backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am48`, grounding the already-landed same-card mixed terminal-state latest-sync summary reverse-order exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: b23ebd2e1ccfea6949ea1cb70d5bbb667d6889b4
-  next_task: task20q2am48
+  commit: f96f0476502722a93947bde7fba5dbff91fcbfdd
+  next_task: task20q2am49
 current_task:
-  id: task20q2am48
+  id: task20q2am49
   parent_task: task20q2
-  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp reverse-order shared-repository-id case
+  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
   status: pending
   summary: >-
-    With the same-card queued/running newest-first shared-repository-id
-    sync-history timestamp-detail acceptance slice now explicitly grounded, the
-    next smallest unblocked settings-shell follow-up is to split the still-
-    combined same-card mixed terminal-state latest-sync acceptance wording into
-    an explicit reverse-order shared-repository-id evidence slice before widening
-    into broader settings or sync-runtime behavior.
+    With the same-card mixed terminal-state latest-sync summary reverse-order
+    shared-repository-id acceptance slice now explicitly grounded, the next
+    smallest unblocked settings-shell follow-up is to split the remaining
+    same-card newest-first shared-repository-id exact-timestamp latest-sync
+    wording into its own evidence slice before widening into broader settings or
+    sync-runtime behavior.
 history:
+  - id: task20q2am48
+    status: done
+    summary: >-
+      Closed the eighty-seventh split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+      now explicitly states the already-landed `web/src/App.test.tsx` same-card
+      mixed terminal-state latest-sync summary reverse-order exact-timestamp
+      shared-repository-id case without expanding backend APIs, retry semantics,
+      or broader admin/settings navigation.
+    tests:
+      - python3 raw-content explicit same-card reverse-order latest-sync acceptance wording check: passed
+      - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am48`, grounding the already-landed same-card mixed terminal-state latest-sync summary reverse-order exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: f96f0476502722a93947bde7fba5dbff91fcbfdd
+    next_task: task20q2am49
   - id: task20q2am47
     status: done
     summary: >-
