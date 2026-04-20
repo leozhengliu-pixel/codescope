@@ -3239,6 +3239,83 @@ describe('App', () => {
     expect(latestSyncSummary).not.toHaveTextContent('repo-running-older · 2026-04-18T12:00:00Z');
   });
 
+  it('keeps the latest-sync summary truthful when the same authenticated connection card has queued and running rows sharing the same newest queued_at and activity timestamps and the API returns them in reverse order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-queued-newest-identical-activity-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-queued-newest-identical-activity-reverse-order',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-running-newest-identical-activity-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-newest-identical-activity-reverse-order',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-running-older-identical-activity-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-older-identical-activity-reverse-order',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:05:00Z',
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    const latestSyncSummary = within(githubCard!).getByLabelText('Latest sync summary for GitHub Cloud');
+    expect(latestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(latestSyncSummary).toHaveTextContent('running');
+    expect(latestSyncSummary).toHaveTextContent('repo-running-newest-identical-activity-reverse-order · 2026-04-18T13:00:00Z');
+    expect(latestSyncSummary).not.toHaveTextContent('queued');
+    expect(latestSyncSummary).not.toHaveTextContent('repo-queued-newest-identical-activity-reverse-order · 2026-04-18T13:00:00Z');
+    expect(latestSyncSummary).not.toHaveTextContent('repo-running-older-identical-activity-reverse-order · 2026-04-18T12:00:00Z');
+  });
+
   it('keeps the latest-sync summary truthful when the same authenticated connection card has queued and running rows sharing the same newest queued_at and activity timestamps', async () => {
     window.location.hash = '#/settings/connections';
 
