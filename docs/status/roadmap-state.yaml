@@ -5,42 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 35ca87d54bb8996f0691becdc45f50c4ed1fd0ca
+  head: 4293d1e9a0a6c1722bc0c280e27d52eb5e21db3d
 last_completed_task:
-  id: task20q2am60b
-  title: Tighten the generic/local parity-matrix row to mention the shipped generic-host quick-open and unsafe-URL fail-closed baseline
+  id: task20q2am61a
+  title: Audit the OIDC / SSO providers parity-matrix row against the current integrations acceptance evidence and gap report
   status: done
   summary: >-
-    Closed the one-hundred-fifth split task20q2 settings-shell follow-up slice
-    by tightening the `specs/FEATURE_PARITY.md` generic/local integration row so
-    it now explicitly mentions the already-landed generic-host quick-open
-    affordance and fail-closed rejection of unsafe `javascript:` URLs. The
-    parity matrix now matches `specs/acceptance/generic-local-git.md` for that
-    shipped baseline while `docs/reports/2026-04-18-parity-gap-report.md`
-    intentionally remains at the broader generic/local summary level.
+    Closed the one-hundred-sixth split task20q2 settings-shell follow-up slice by
+    grounding the next OIDC/SSO documentation drift in
+    `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`. The audit
+    confirmed `specs/acceptance/integrations.md` and
+    `docs/reports/2026-04-18-parity-gap-report.md` already agree that OIDC/SSO
+    provider login and external-account mapping remain missing, while
+    `specs/FEATURE_PARITY.md` still says `Needs audit | _TBD_ |`. The next
+    smallest truthful slice is to tighten only that parity-matrix row without
+    changing product behavior or broadening other integration rows.
   tests:
-    - python3 raw-content check confirmed HEAD lacked the quick-open/unsafe-URL wording, the worktree now includes it, `specs/acceptance/generic-local-git.md` already grounds it, and `docs/reports/2026-04-18-parity-gap-report.md` intentionally remains broader: passed
+    - python3 raw-content audit-note presence check confirmed the note records the OIDC/SSO parity-matrix drift, the missing implementation evidence, and queues `task20q2am61b`: passed
     - git diff --check: passed
-    - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
+    - python3 added-lines security scan for `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live docs-only diff exactly closes `task20q2am60b`, stays within the parity-matrix row scope, and preserves the broader gap-report summary without product-behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
-  commit: 35ca87d54bb8996f0691becdc45f50c4ed1fd0ca
-  next_task: task20q2am61a
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am61a`, stays within the OIDC/SSO parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md` diff
+  commit: 4293d1e9a0a6c1722bc0c280e27d52eb5e21db3d
+  next_task: task20q2am61b
 current_task:
-  id: task20q2am61a
+  id: task20q2am61b
   parent_task: task20q2am61
-  title: Audit the OIDC / SSO providers parity-matrix row against the current integrations acceptance evidence and gap report
+  title: Tighten the OIDC / SSO providers parity-matrix row to record the already-grounded missing status and evidence
   status: pending
   summary: >-
-    `specs/acceptance/integrations.md` already states that OIDC/SSO login is
-    still deferred to dedicated identity-provider slices, and
-    `docs/reports/2026-04-18-parity-gap-report.md` already records the live
-    rewrite as missing OIDC/SSO implementation evidence. The next smallest
-    truthful slice is to audit the matching `specs/FEATURE_PARITY.md` row, which
-    still says `Needs audit | _TBD_ |`, and decide the exact conservative
-    parity-matrix wording before making any row-level doc change.
+    `specs/acceptance/integrations.md` and
+    `docs/reports/2026-04-18-parity-gap-report.md` already keep OIDC/SSO parity
+    conservative: provider login, callback handling, and external-account
+    mapping remain missing. The next smallest truthful slice is to tighten only
+    `specs/FEATURE_PARITY.md` so the `OIDC / SSO providers` row reflects that
+    already-grounded missing status and cites the current evidence without
+    changing any product behavior or other integration rows.
 history:
+  - id: task20q2am61a
+    status: done
+    summary: >-
+      Closed the one-hundred-sixth split task20q2 settings-shell follow-up slice by
+      grounding the next OIDC/SSO documentation drift in
+      `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`. The audit
+      confirmed `specs/acceptance/integrations.md` and
+      `docs/reports/2026-04-18-parity-gap-report.md` already agree that OIDC/SSO
+      provider login and external-account mapping remain missing, while
+      `specs/FEATURE_PARITY.md` still says `Needs audit | _TBD_ |`. The next
+      smallest truthful slice is to tighten only that parity-matrix row without
+      changing product behavior or broadening other integration rows.
+    tests:
+      - python3 raw-content audit-note presence check confirmed the note records the OIDC/SSO parity-matrix drift, the missing implementation evidence, and queues `task20q2am61b`: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am61a`, stays within the OIDC/SSO parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md` diff
+    commit: 4293d1e9a0a6c1722bc0c280e27d52eb5e21db3d
+    next_task: task20q2am61b
   - id: task20q2am60b
     status: done
     summary: >-
