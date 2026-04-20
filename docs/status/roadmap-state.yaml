@@ -5,42 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e3e530661a02379a579f95c2a850afb4bfa284d6
+  head: 750f0bb4945d3d0314120a188cf26d9e1ac88093
 last_completed_task:
-  id: task20q2am37
-  title: Make sibling mixed terminal-state latest-sync summary evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
+  id: task20q2am38
+  title: Make sibling mixed terminal-state sync-history timestamp-detail evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
   status: done
   summary: >-
-    Closed the seventy-sixth split task20q2 settings-shell follow-up slice by
+    Closed the seventy-seventh split task20q2 settings-shell follow-up slice by
     keeping the existing exact-timestamp newest-first shared-repository-id
-    sibling mixed terminal-state latest-sync behavior and focused
-    `web/src/App.test.tsx` regression unchanged, and tightening
+    sibling mixed terminal-state sync-history timestamp-detail behavior and
+    focused `web/src/App.test.tsx` regression unchanged, and tightening
     `specs/acceptance/generic-local-git.md` so the shipped evidence now states
-    this newest-first shared-repository-id latest-sync summary case explicitly
-    alongside the already-grounded reverse-order case without expanding backend
-    APIs, retry semantics, or broader admin/settings navigation.
+    this newest-first shared-repository-id sync-history timestamp-detail case
+    explicitly alongside the already-grounded reverse-order case without
+    expanding backend APIs, retry semantics, or broader admin/settings
+    navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards latest-sync summaries truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
+    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
     - npm test -- --run src/App.test.tsx: passed (104/104)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff is the smallest truthful closure for task20q2am37 and stays limited to explicit latest-sync summary evidence/grounding for the exact-timestamp newest-first shared-repository-id sibling mixed terminal-state case, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the diff explicitly grounds the sibling mixed terminal-state sync-history timestamp-detail newest-first exact-timestamp shared-repository-id case and stays within the smallest docs/evidence-only closure for task20q2am38, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: e3e530661a02379a579f95c2a850afb4bfa284d6
-  next_task: task20q2am38
+  commit: 750f0bb4945d3d0314120a188cf26d9e1ac88093
+  next_task: task20q2am39
 current_task:
-  id: task20q2am38
+  id: task20q2am39
   parent_task: task20q2
-  title: Make sibling mixed terminal-state sync-history timestamp-detail evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
+  title: Make sibling mixed terminal-state sync-history error-detail evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
   status: pending
   summary: >-
-    With both sibling mixed terminal-state latest-sync shared-repository-id
-    exact-timestamp cases now grounded explicitly, the next smallest unblocked
-    settings-shell follow-up is to make the matching newest-first
-    shared-repository-id sync-history timestamp-detail evidence equally explicit
-    before widening into unrelated settings behavior.
+    With both sibling mixed terminal-state sync-history timestamp-detail
+    shared-repository-id exact-timestamp cases now grounded explicitly, the next
+    smallest unblocked settings-shell follow-up is to make the matching
+    newest-first shared-repository-id sync-history error-detail evidence equally
+    explicit before widening into unrelated settings behavior.
 history:
+  - id: task20q2am38
+    status: done
+    summary: >-
+      Closed the seventy-seventh split task20q2 settings-shell follow-up slice by
+      keeping the existing exact-timestamp newest-first shared-repository-id
+      sibling mixed terminal-state sync-history timestamp-detail behavior and
+      focused `web/src/App.test.tsx` regression unchanged, and tightening
+      `specs/acceptance/generic-local-git.md` so the shipped evidence now states
+      this newest-first shared-repository-id sync-history timestamp-detail case
+      explicitly alongside the already-grounded reverse-order case without
+      expanding backend APIs, retry semantics, or broader admin/settings
+      navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
+      - npm test -- --run src/App.test.tsx: passed (104/104)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff explicitly grounds the sibling mixed terminal-state sync-history timestamp-detail newest-first exact-timestamp shared-repository-id case and stays within the smallest docs/evidence-only closure for task20q2am38, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: 750f0bb4945d3d0314120a188cf26d9e1ac88093
+    next_task: task20q2am39
   - id: task20q2am37
     status: done
     summary: >-
