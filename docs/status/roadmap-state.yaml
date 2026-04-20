@@ -5,66 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7de007fda1d450f32531abe1e3771cb2486956db
+  head: 4ccd84fa38ce03fd8fb818367f20b98566e3e3b1
 last_completed_task:
-  id: task20q2am20
-  title: Add same-card mixed terminal-state sync-history error-detail coverage when newest tied rows already arrive newest-first and also reuse the same repository id
+  id: task20q2am21
+  title: Add sibling mixed terminal-state sync-history error-detail coverage when newest tied rows already arrive newest-first and also reuse the same repository id
   status: done
   summary: >-
-    Closed the fifty-ninth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the sixtieth split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving a single
-    authenticated connection card keeps its mixed failed-versus-succeeded
+    `#/settings/connections` now has explicit coverage proving sibling
+    authenticated connection cards keep mixed failed-versus-succeeded
     sync-history error-detail presentation scoped and truthful when the newest
     tied terminal-state rows already arrive newest-first and also reuse the same
     repository id, without changing backend APIs, retry semantics, or broader
     admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history error details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 90 skipped)
-    - npm test -- --run src/App.test.tsx: passed (91/91)
+    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share the same newest queued_at timestamp across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 91 skipped)
+    - npm test -- --run src/App.test.tsx: passed (92/92)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state sync-history error-detail newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state sync-history error-detail newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 7de007fda1d450f32531abe1e3771cb2486956db
-  next_task: task20q2am21
+  commit: 4ccd84fa38ce03fd8fb818367f20b98566e3e3b1
+  next_task: task20q2am22
 current_task:
-  id: task20q2am21
+  id: task20q2am22
   parent_task: task20q2
-  title: Add sibling mixed terminal-state sync-history error-detail coverage when newest tied rows already arrive newest-first and also reuse the same repository id
+  title: Add same-card mixed terminal-state latest-sync summary coverage when newest tied rows also share activity timestamps, already arrive newest-first, and also reuse the same repository id
   status: pending
   summary: >-
-    After locking same-card mixed terminal-state newest-first shared-repository-id
+    After locking sibling mixed terminal-state newest-first shared-repository-id
     error-detail coverage, the next smallest unblocked settings-shell follow-up
-    is to cover sibling authenticated connection cards' mixed terminal-state
-    error-detail presentation when the newest tied rows already arrive
-    newest-first and also reuse the same repository id, before expanding into
-    broader terminal-state or retry semantics.
+    is to cover a single authenticated connection card's mixed terminal-state
+    latest-sync summary when the newest tied rows also share activity timestamps,
+    already arrive newest-first, and also reuse the same repository id, before
+    expanding into sibling exact-activity ties or broader terminal-state/retry
+    semantics.
 history:
-  - id: task20q2am20
+  - id: task20q2am21
     status: done
     summary: >-
-      Closed the fifty-ninth split task20q2 settings-shell follow-up slice by
-      adding one focused `web/src/App.test.tsx` regression plus the matching
+      Closed the sixtieth split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
-      `#/settings/connections` now has explicit coverage proving a single
-      authenticated connection card keeps its mixed failed-versus-succeeded
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep mixed failed-versus-succeeded
       sync-history error-detail presentation scoped and truthful when the newest
       tied terminal-state rows already arrive newest-first and also reuse the same
       repository id, without changing backend APIs, retry semantics, or broader
       admin/settings navigation.
     tests:
-      - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history error details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 90 skipped)
-      - npm test -- --run src/App.test.tsx: passed (91/91)
+      - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share the same newest queued_at timestamp across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 91 skipped)
+      - npm test -- --run src/App.test.tsx: passed (92/92)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state sync-history error-detail newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state sync-history error-detail newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-    commit: 7de007fda1d450f32531abe1e3771cb2486956db
-    next_task: task20q2am21
+    commit: 4ccd84fa38ce03fd8fb818367f20b98566e3e3b1
+    next_task: task20q2am22
   - id: task20q2am19
     status: done
     summary: >-
