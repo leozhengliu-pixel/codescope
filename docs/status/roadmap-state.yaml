@@ -5,44 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4f980a6c68d4dce7d294b3ea5d7b58825406d519
+  head: d19ae074c1e16620f1c93693025a2c73cbdfa1f0
 last_completed_task:
-  id: task20q2am59b
-  title: Tighten the generic/local parity-gap-report row so it stops claiming the already-landed settings-driven import UX is missing
+  id: task20q2am60a
+  title: Audit the next smallest generic/local parity evidence drift and queue the parity-matrix quick-open follow-up slice
   status: done
   summary: >-
-    Closed the one-hundred-third split task20q2 settings-shell follow-up slice
-    by tightening the generic/local row in
-    `docs/reports/2026-04-18-parity-gap-report.md` so it no longer claims the
-    already-landed settings-driven import UX is missing. The report now aligns
-    with `specs/FEATURE_PARITY.md` and
-    `specs/acceptance/generic-local-git.md` by grounding the limited
-    settings-shell local import baseline plus read-only sync-history visibility
-    while keeping the real remaining gaps scoped to generic-host/GitLab
-    discovery, durable catalog-backed parity, and richer sync/index runtime
+    Closed the one-hundred-fourth split task20q2 settings-shell follow-up slice
+    by grounding the next smallest generic/local docs drift in
+    `docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md`.
+    The audit confirmed `specs/acceptance/generic-local-git.md` already records
+    the shipped generic-host quick-open affordance and fail-closed unsafe-URL
+    behavior backed by `web/src/App.tsx` and `web/src/App.test.tsx`, while
+    `specs/FEATURE_PARITY.md` still understates that baseline and
+    `docs/reports/2026-04-18-parity-gap-report.md` remains an acceptable
+    intentionally broader summary. The next smallest truthful slice is to
+    tighten only the generic/local parity-matrix row without changing product
     behavior.
   tests:
-    - python3 raw-content parity-gap-report check confirmed the stale `Add settings-driven import UX` phrase is gone and the updated generic/local evidence/gap wording is present: passed
+    - python3 raw-content cross-doc audit check confirmed the acceptance spec contains the generic-host quick-open plus unsafe-URL fail-closed baseline while `specs/FEATURE_PARITY.md` and `docs/reports/2026-04-18-parity-gap-report.md` do not: passed
     - git diff --check: passed
-    - python3 added-lines security scan for docs/reports/2026-04-18-parity-gap-report.md: passed
+    - python3 raw-content audit-note presence check confirmed the note records the quick-open/fail-closed finding and queues `task20q2am60b`: passed
+    - python3 added-lines security scan for docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am59b` by removing the stale generic/local report claim while staying within the report-row scope and without broader backend/API, retry, or settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/reports/2026-04-18-parity-gap-report.md` diff
-  commit: 4f980a6c68d4dce7d294b3ea5d7b58825406d519
-  next_task: task20q2am60a
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit stays within `task20q2am60a` scope, accurately grounds the quick-open/fail-closed evidence, and queues exactly one parity-matrix-only follow-up slice without broader report or product changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md` diff
+  commit: d19ae074c1e16620f1c93693025a2c73cbdfa1f0
+  next_task: task20q2am60b
 current_task:
-  id: task20q2am60a
+  id: task20q2am60b
   parent_task: task20q2am60
-  title: Audit the next smallest generic/local parity evidence/report gap after the generic/local report-row correction and queue one concrete follow-up slice
+  title: Tighten the generic/local parity-matrix row to mention the shipped generic-host quick-open and unsafe-URL fail-closed baseline
   status: pending
   summary: >-
-    `docs/reports/2026-04-18-parity-gap-report.md` now no longer understates the
-    already-landed settings-driven local import and read-only sync-history
-    baseline. The next run should ground the next smallest remaining generic/
-    local parity evidence/report drift across the acceptance docs, parity
-    matrix, and canonical gap report, then queue exactly one follow-up slice
-    without changing product behavior.
+    `docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md`
+    confirmed the smallest remaining generic/local docs drift is in
+    `specs/FEATURE_PARITY.md`, which still omits the already-landed
+    generic-host quick-open affordance and fail-closed unsafe-URL behavior.
+    The next run should tighten only that parity-matrix row, keep the canonical
+    gap report at its broader summary level, and avoid any product-behavior
+    changes.
 history:
+  - id: task20q2am60a
+    status: done
+    summary: >-
+      Closed the one-hundred-fourth split task20q2 settings-shell follow-up slice
+      by grounding the next smallest generic/local docs drift in
+      `docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md`.
+      The audit confirmed `specs/acceptance/generic-local-git.md` already records
+      the shipped generic-host quick-open affordance and fail-closed unsafe-URL
+      behavior backed by `web/src/App.tsx` and `web/src/App.test.tsx`, while
+      `specs/FEATURE_PARITY.md` still understates that baseline and
+      `docs/reports/2026-04-18-parity-gap-report.md` remains an acceptable
+      intentionally broader summary. The next smallest truthful slice is to
+      tighten only the generic/local parity-matrix row without changing product
+      behavior.
+    tests:
+      - python3 raw-content cross-doc audit check confirmed the acceptance spec contains the generic-host quick-open plus unsafe-URL fail-closed baseline while `specs/FEATURE_PARITY.md` and `docs/reports/2026-04-18-parity-gap-report.md` do not: passed
+      - git diff --check: passed
+      - python3 raw-content audit-note presence check confirmed the note records the quick-open/fail-closed finding and queues `task20q2am60b`: passed
+      - python3 added-lines security scan for docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit stays within `task20q2am60a` scope, accurately grounds the quick-open/fail-closed evidence, and queues exactly one parity-matrix-only follow-up slice without broader report or product changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am60a-generic-local-parity-matrix-quick-open-gap-audit.md` diff
+    commit: d19ae074c1e16620f1c93693025a2c73cbdfa1f0
+    next_task: task20q2am60b
   - id: task20q2am59b
     status: done
     summary: >-
