@@ -1237,13 +1237,28 @@ function repositorySyncJobActivityTimestamp(syncJob: RepositorySyncJob) {
   return Date.parse(syncJob.finished_at ?? syncJob.started_at ?? syncJob.queued_at);
 }
 
+function repositorySyncJobInProgressPriority(status: RepositorySyncJobStatus) {
+  if (status === 'running') {
+    return 2;
+  }
+  if (status === 'queued') {
+    return 1;
+  }
+  return 0;
+}
+
 function compareRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
   const queuedAtDifference = Date.parse(right.queued_at) - Date.parse(left.queued_at);
   if (queuedAtDifference !== 0) {
     return queuedAtDifference;
   }
 
-  return repositorySyncJobActivityTimestamp(right) - repositorySyncJobActivityTimestamp(left);
+  const activityDifference = repositorySyncJobActivityTimestamp(right) - repositorySyncJobActivityTimestamp(left);
+  if (activityDifference !== 0) {
+    return activityDifference;
+  }
+
+  return repositorySyncJobInProgressPriority(right.status) - repositorySyncJobInProgressPriority(left.status);
 }
 
 function compareLatestRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
@@ -1252,17 +1267,7 @@ function compareLatestRepositorySyncJobs(left: RepositorySyncJob, right: Reposit
     return baseComparison;
   }
 
-  const inProgressPriority = (status: RepositorySyncJobStatus) => {
-    if (status === 'running') {
-      return 2;
-    }
-    if (status === 'queued') {
-      return 1;
-    }
-    return 0;
-  };
-
-  return inProgressPriority(right.status) - inProgressPriority(left.status);
+  return repositorySyncJobInProgressPriority(right.status) - repositorySyncJobInProgressPriority(left.status);
 }
 
 function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
