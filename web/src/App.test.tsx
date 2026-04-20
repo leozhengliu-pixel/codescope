@@ -2940,6 +2940,137 @@ describe('App', () => {
     expect(within(gitlabNewestTerminalRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share the same newest queued_at timestamp across cards, already arrive newest-first, and also reuse the same repository id', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-failed-newest-shared-repo-same-timestamp-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest-shared-repo-same-timestamp-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-older-shared-repo-same-timestamp-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-github-older-shared-repo-same-timestamp-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:01:00Z',
+            finished_at: '2026-04-18T12:04:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-older-shared-repo-same-timestamp-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-gitlab-older-shared-repo-same-timestamp-stable-order-error-details',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:02:00Z',
+            finished_at: '2026-04-18T11:06:00Z',
+            error: 'GitLab import failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
+    expect(await screen.findByText('GitLab Mirror')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+      '#/repos/repo-github-older-shared-repo-same-timestamp-stable-order-error-details',
+    ]);
+    expect(within(gitlabCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+      '#/repos/repo-gitlab-older-shared-repo-same-timestamp-stable-order-error-details',
+    ]);
+
+    const githubNewestTerminalRow = within(githubCard!).getByRole('link', {
+      name: 'Open repository detail for repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+    }).closest('div');
+    expect(githubNewestTerminalRow).toBeInTheDocument();
+    expect(within(githubNewestTerminalRow!).getByText('Error: GitHub permissions denied')).toBeInTheDocument();
+    expect(within(githubNewestTerminalRow!).queryByText('Error: GitLab import failed')).not.toBeInTheDocument();
+
+    const githubOlderTerminalRow = within(githubCard!).getByRole('link', {
+      name: 'Open repository detail for repo-github-older-shared-repo-same-timestamp-stable-order-error-details',
+    }).closest('div');
+    expect(githubOlderTerminalRow).toBeInTheDocument();
+    expect(within(githubOlderTerminalRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(githubOlderTerminalRow!).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+
+    const gitlabNewestTerminalRow = within(gitlabCard!).getByRole('link', {
+      name: 'Open repository detail for repo-sibling-shared-newest-same-timestamp-stable-order-error-details',
+    }).closest('div');
+    expect(gitlabNewestTerminalRow).toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).queryByText('Error: GitLab import failed')).not.toBeInTheDocument();
+
+    const gitlabOlderTerminalRow = within(gitlabCard!).getByRole('link', {
+      name: 'Open repository detail for repo-gitlab-older-shared-repo-same-timestamp-stable-order-error-details',
+    }).closest('div');
+    expect(gitlabOlderTerminalRow).toBeInTheDocument();
+    expect(within(gitlabOlderTerminalRow!).getByText('Error: GitLab import failed')).toBeInTheDocument();
+    expect(within(gitlabOlderTerminalRow!).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+  });
+
   it('keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp and the API returns them in reverse order', async () => {
     window.location.hash = '#/settings/connections';
 
