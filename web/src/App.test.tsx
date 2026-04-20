@@ -3071,7 +3071,7 @@ describe('App', () => {
     expect(within(gitlabNewestTerminalRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
   });
 
-  it('keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share the same newest queued_at timestamp across cards, already arrive newest-first, and also reuse the same repository id', async () => {
+  it('keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -3120,8 +3120,8 @@ describe('App', () => {
             connection_id: 'conn-2',
             status: 'succeeded',
             queued_at: '2026-04-18T13:00:00Z',
-            started_at: '2026-04-18T13:02:00Z',
-            finished_at: '2026-04-18T13:06:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
             error: null,
           },
           {
