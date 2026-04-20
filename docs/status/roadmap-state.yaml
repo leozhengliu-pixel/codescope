@@ -5,45 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: da6c296802cc06aa081c777ca2d1d5d06be2611e
+  head: 12ff85885eb953ffb15b4e797914907dc4c98761
 last_completed_task:
-  id: task20q2am23
-  title: Add sibling mixed terminal-state latest-sync summary coverage when newest tied rows also share activity timestamps, already arrive newest-first, and also reuse the same repository id
+  id: task20q2am24
+  title: Add sibling mixed terminal-state sync-history timestamp-detail coverage when newest tied rows also share activity timestamps, already arrive newest-first, and also reuse the same repository id
   status: done
   summary: >-
-    Closed the sixty-second split task20q2 settings-shell follow-up slice by
+    Closed the sixty-third split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving sibling
     authenticated connection cards keep their mixed failed-versus-succeeded
-    latest-sync summaries scoped and truthful when the newest tied terminal-state
-    rows also share activity timestamps, already arrive newest-first, and also
-    reuse the same repository id, without changing backend APIs, retry
-    semantics, or broader admin/settings navigation.
+    sync-history timestamp details scoped and truthful when the newest tied
+    terminal-state rows also share activity timestamps, already arrive
+    newest-first, and also reuse the same repository id, without changing
+    backend APIs, retry semantics, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 93 skipped)
+    - npm test -- --run src/App.test.tsx -t "share both newest queued_at and activity timestamps across cards": passed (4 passed | 90 skipped)
     - npm test -- --run src/App.test.tsx: passed (94/94)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state latest-sync-summary exact-timestamp newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state sync-history timestamp-detail exact-timestamp newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: da6c296802cc06aa081c777ca2d1d5d06be2611e
-  next_task: task20q2am24
+  commit: 12ff85885eb953ffb15b4e797914907dc4c98761
+  next_task: task20q2am25
 current_task:
-  id: task20q2am24
+  id: task20q2am25
   parent_task: task20q2
-  title: Add sibling mixed terminal-state sync-history timestamp-detail coverage when newest tied rows also share activity timestamps, already arrive newest-first, and also reuse the same repository id
+  title: Add sibling mixed terminal-state sync-history error-detail coverage when newest tied rows also share activity timestamps, already arrive newest-first, and also reuse the same repository id
   status: pending
   summary: >-
-    After locking the sibling mixed terminal-state latest-sync-summary
+    After locking the sibling mixed terminal-state sync-history timestamp-detail
     exact-timestamp newest-first shared-repository-id slice, the next smallest
     unblocked settings-shell follow-up is to cover sibling authenticated
-    connection cards' mixed terminal-state sync-history timestamp details when
-    the newest tied rows also share activity timestamps, already arrive
+    connection cards' mixed terminal-state sync-history error details when the
+    newest tied rows also share activity timestamps, already arrive
     newest-first, and also reuse the same repository id, before expanding into
     broader retry or unrelated settings behavior.
 history:
+  - id: task20q2am24
+    status: done
+    summary: >-
+      Closed the sixty-third split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep their mixed failed-versus-succeeded
+      sync-history timestamp details scoped and truthful when the newest tied
+      terminal-state rows also share activity timestamps, already arrive
+      newest-first, and also reuse the same repository id, without changing
+      backend APIs, retry semantics, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "share both newest queued_at and activity timestamps across cards": passed (4 passed | 90 skipped)
+      - npm test -- --run src/App.test.tsx: passed (94/94)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state sync-history timestamp-detail exact-timestamp newest-first shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 12ff85885eb953ffb15b4e797914907dc4c98761
+    next_task: task20q2am25
   - id: task20q2am23
     status: done
     summary: >-
