@@ -5,67 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1d3d96e21846492f0ade079dff6772b455518c9d
+  head: 834313479474b7a7122de9056030bb6485fdadd1
 last_completed_task:
-  id: task20q2am13
-  title: Add sibling queued-running latest-sync summary coverage when exact-timestamp rows already arrive newest-first and also reuse the same repository id
+  id: task20q2am14
+  title: Add same-card queued-running latest-sync summary coverage when exact-timestamp rows already arrive newest-first and also reuse the same repository id
   status: done
   summary: >-
-    Closed the fifty-second split task20q2 settings-shell follow-up slice by
+    Closed the fifty-third split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep queued/running latest-sync summaries
-    scoped and truthful when the newest rows tie on both `queued_at` and
-    activity timestamp, already arrive newest-first, and also reuse the same
-    repository id, without changing backend APIs, retry semantics, or broader
+    `#/settings/connections` now has explicit coverage proving a single
+    authenticated connection card keeps its queued/running latest-sync summary
+    truthful when the newest rows tie on both `queued_at` and activity
+    timestamp, already arrive newest-first, and also reuse the same repository
+    id, without changing backend APIs, retry semantics, or broader
     admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "already arrive newest-first, and also reuse the same repository id": passed (2 passed | 82 skipped)
-    - npm test -- --run src/App.test.tsx: passed (84/84)
+    - npm test -- --run src/App.test.tsx -t "already arrive newest-first, and also reuse the same repository id": passed (3 passed | 82 skipped)
+    - npm test -- --run src/App.test.tsx: passed (85/85)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling queued/running exact-timestamp stable-order latest-sync-summary coverage slice for rows that already arrive newest-first and also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card queued/running exact-timestamp stable-order latest-sync-summary coverage slice for rows that already arrive newest-first and also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 1d3d96e21846492f0ade079dff6772b455518c9d
-  next_task: task20q2am14
+  commit: 834313479474b7a7122de9056030bb6485fdadd1
+  next_task: task20q2am15
 current_task:
-  id: task20q2am14
+  id: task20q2am15
   parent_task: task20q2
-  title: Add same-card queued-running latest-sync summary coverage when exact-timestamp rows already arrive newest-first and also reuse the same repository id
+  title: Add same-card queued-running sync-history timestamp-detail coverage when exact-timestamp rows already arrive newest-first and also reuse the same repository id
   status: pending
   summary: >-
-    After locking the sibling exact-timestamp stable-order shared-repository-id
+    After locking the same-card exact-timestamp stable-order shared-repository-id
     latest-sync-summary case, the next smallest unblocked settings-shell
     sync-history follow-up is to cover the same authenticated connection-card
-    latest-sync-summary variant where queued/running rows tie on both newest
+    queued/running timestamp-detail variant where the newest rows tie on both
     `queued_at` and activity timestamp, already arrive newest-first, and also
     reuse the same repository id, before expanding into broader sync-job
     semantics.
 history:
-  - id: task20q2am13
+  - id: task20q2am14
     status: done
     summary: >-
-      Closed the fifty-second split task20q2 settings-shell follow-up slice by
+      Closed the fifty-third split task20q2 settings-shell follow-up slice by
       adding one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
-      `#/settings/connections` now has explicit coverage proving sibling
-      authenticated connection cards keep queued/running latest-sync summaries
-      scoped and truthful when the newest rows tie on both `queued_at` and
-      activity timestamp, already arrive newest-first, and also reuse the same
-      repository id, without changing backend APIs, retry semantics, or broader
+      `#/settings/connections` now has explicit coverage proving a single
+      authenticated connection card keeps its queued/running latest-sync summary
+      truthful when the newest rows tie on both `queued_at` and activity
+      timestamp, already arrive newest-first, and also reuse the same repository
+      id, without changing backend APIs, retry semantics, or broader
       admin/settings navigation.
     tests:
-      - npm test -- --run src/App.test.tsx -t "already arrive newest-first, and also reuse the same repository id": passed (2 passed | 82 skipped)
-      - npm test -- --run src/App.test.tsx: passed (84/84)
+      - npm test -- --run src/App.test.tsx -t "already arrive newest-first, and also reuse the same repository id": passed (3 passed | 82 skipped)
+      - npm test -- --run src/App.test.tsx: passed (85/85)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling queued/running exact-timestamp stable-order latest-sync-summary coverage slice for rows that already arrive newest-first and also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card queued/running exact-timestamp stable-order latest-sync-summary coverage slice for rows that already arrive newest-first and also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-    commit: 1d3d96e21846492f0ade079dff6772b455518c9d
-    next_task: task20q2am14
+    commit: 834313479474b7a7122de9056030bb6485fdadd1
+    next_task: task20q2am15
   - id: task20q2am11
     status: done
     summary: >-
