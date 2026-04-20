@@ -5,45 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 381508297ff7f8e5ddc854c712a282e3b6bc1cb5
+  head: 27eea49d3cc0c2aa240266f01861980ea0ae9363
 last_completed_task:
-  id: task20q2am30
-  title: Add same-card mixed terminal-state latest-sync summary coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
+  id: task20q2am31
+  title: Add same-card mixed terminal-state sync-history timestamp-detail coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
   status: done
   summary: >-
-    Closed the sixty-ninth split task20q2 settings-shell follow-up slice by
+    Closed the seventieth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving a single
     authenticated connection card keeps its mixed failed-versus-succeeded
-    latest-sync summary scoped and truthful when the newest tied terminal-state
-    rows also share activity timestamps, reuse the same repository id, and
-    arrive in reverse API order, without changing backend APIs, retry
-    semantics, or broader admin/settings navigation.
+    sync-history queued/started/finished timestamp details scoped and truthful
+    when the newest tied terminal-state rows also share activity timestamps,
+    reuse the same repository id, and arrive in reverse API order, without
+    changing backend APIs, retry semantics, or broader admin/settings
+    navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 98 skipped)
-    - npm test -- --run src/App.test.tsx: passed (99/99)
+    - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history timestamp details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 99 skipped)
+    - npm test -- --run src/App.test.tsx: passed (100/100)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state latest-sync-summary exact-timestamp reverse-order shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state sync-history timestamp-detail exact-timestamp reverse-order shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 381508297ff7f8e5ddc854c712a282e3b6bc1cb5
-  next_task: task20q2am31
+  commit: 27eea49d3cc0c2aa240266f01861980ea0ae9363
+  next_task: task20q2am32
 current_task:
-  id: task20q2am31
+  id: task20q2am32
   parent_task: task20q2
-  title: Add same-card mixed terminal-state sync-history timestamp-detail coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
+  title: Add same-card mixed terminal-state sync-history error-detail coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
   status: pending
   summary: >-
-    After locking the same-card mixed terminal-state latest-sync exact-timestamp
-    reverse-order shared-repository-id slice, the next smallest unblocked
-    settings-shell follow-up is to cover one authenticated connection card's
-    mixed terminal-state sync-history timestamp details when the newest tied
+    After locking the same-card mixed terminal-state sync-history timestamp-detail
+    exact-timestamp reverse-order shared-repository-id slice, the next smallest
+    unblocked settings-shell follow-up is to cover one authenticated connection
+    card's mixed terminal-state sync-history error details when the newest tied
     rows also share activity timestamps, reuse the same repository id, and
     arrive in reverse API order, before expanding into unrelated settings
     behavior.
 history:
+  - id: task20q2am31
+    status: done
+    summary: >-
+      Closed the seventieth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving a single
+      authenticated connection card keeps its mixed failed-versus-succeeded
+      sync-history queued/started/finished timestamp details scoped and truthful
+      when the newest tied terminal-state rows also share activity timestamps,
+      reuse the same repository id, and arrive in reverse API order, without
+      changing backend APIs, retry semantics, or broader admin/settings
+      navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history timestamp details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 99 skipped)
+      - npm test -- --run src/App.test.tsx: passed (100/100)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state sync-history timestamp-detail exact-timestamp reverse-order shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 27eea49d3cc0c2aa240266f01861980ea0ae9363
+    next_task: task20q2am32
   - id: task20q2am30
     status: done
     summary: >-
