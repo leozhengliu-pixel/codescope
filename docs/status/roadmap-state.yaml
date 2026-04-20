@@ -5,7 +5,7 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6332171625688f11801f6be3382fcd37b090f04a
+  head: e464328c5924b3607fdd1cad4cefeb040841a7eb
 last_completed_task:
   id: task20q2am54
   title: Ground sibling mixed terminal-state sync-history error-detail evidence for the opposite-newest-rows baseline case
@@ -32,22 +32,51 @@ last_completed_task:
     spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am54`, grounding the already-landed sibling mixed terminal-state sync-history error-detail opposite-newest-rows baseline and sibling-card scoping evidence without backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
   commit: 6332171625688f11801f6be3382fcd37b090f04a
-  next_task: task20q2am55
+  next_task: task20q2am55a
 current_task:
-  id: task20q2am55
-  parent_task: task20q2
-  title: Ground same-card mixed terminal-state sync-history error-detail evidence for the older-failed/newer-succeeded baseline case
+  id: task20q2am55a
+  parent_task: task20q2am55
+  title: Add focused same-card mixed terminal-state sync-history error-detail regression for the older-failed/newer-succeeded baseline
   status: pending
   summary: >-
-    With the sibling mixed terminal-state sync-history error-detail
-    opposite-newest-rows baseline now explicitly grounded, the next smallest
-    unblocked task20q2 follow-up is to tighten
-    `specs/acceptance/generic-local-git.md` for the already-landed
-    `web/src/App.test.tsx` same-card mixed terminal-state sync-history
-    error-detail baseline where an older failed row remains subordinate to a
-    newer succeeded row on the same authenticated connection card, before any
-    broader settings or sync-runtime behavior.
+    Independent spec review showed the planned docs-only `task20q2am55`
+    grounding slice overclaimed already-landed evidence: the repo currently has
+    same-card mixed terminal-state sync-history error-detail coverage for the
+    exact-timestamp shared-repository-id variants, but not a focused older-
+    failed/newer-succeeded baseline assertion. The next smallest truthful slice
+    is to add that focused `web/src/App.test.tsx` regression before retrying the
+    acceptance-doc grounding.
 history:
+  - id: task20q2am55
+    status: blocked
+    summary: >-
+      Attempted the docs-only closure for the planned same-card mixed
+      terminal-state sync-history error-detail older-failed/newer-succeeded
+      baseline grounding, but the independent spec review showed the claimed
+      already-landed `web/src/App.test.tsx` baseline evidence does not yet
+      exist. The repo currently grounds exact-timestamp shared-repository-id
+      same-card error-detail cases and the simpler latest-sync summary baseline,
+      so shipping the docs wording would overstate coverage.
+    tests:
+      - python3 raw-content same-card older-failed/newer-succeeded sync-history error-detail acceptance wording presence check before edit: failed (phrase absent)
+      - npm test -- --run src/App.test.tsx -t "multiple succeeded and failed terminal-state sync-history error details truthful and newest-first on the same authenticated connection card": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for specs/acceptance/generic-local-git.md: passed
+    review:
+      spec: failed one independent post-implementation review; reviewer confirmed the proposed docs wording was not truthful because the repo currently lacks a focused same-card mixed terminal-state sync-history error-detail older-failed/newer-succeeded baseline assertion in `web/src/App.test.tsx`
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the narrow docs diff itself, but that approval was insufficient because spec compliance failed
+    blocked_on: missing already-landed same-card mixed terminal-state sync-history error-detail older-failed/newer-succeeded baseline evidence in `web/src/App.test.tsx`
+    evidence:
+      - `web/src/App.test.tsx` currently covers same-card mixed terminal-state sync-history error-detail exact-timestamp shared-repository-id variants and the simpler latest-sync summary older-failed/newer-succeeded baseline, but not the focused sync-history error-detail baseline claimed by the docs diff
+      - Independent spec reviewer: FAIL — docs wording overstates current evidence and would misreport shipped parity coverage
+    suggested_next_action: >-
+      Add one focused `web/src/App.test.tsx` regression that proves the same-card
+      mixed terminal-state sync-history error-detail older-failed/newer-
+      succeeded baseline, then retry the acceptance-doc grounding as a follow-up
+      slice.
+    next_task: task20q2am55a
   - id: task20q2am54
     status: done
     summary: >-
@@ -4696,6 +4725,22 @@ notes:
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
     - Use docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
   blockers:
+    - id: task20q2am55
+      title: Ground same-card mixed terminal-state sync-history error-detail evidence for the older-failed/newer-succeeded baseline case
+      status: blocked
+      blocked_on: missing already-landed same-card mixed terminal-state sync-history error-detail older-failed/newer-succeeded baseline evidence in `web/src/App.test.tsx`
+      evidence: >-
+        Independent spec review confirmed the proposed docs wording would
+        overstate shipped coverage: the repo currently has exact-timestamp
+        shared-repository-id same-card sync-history error-detail coverage and the
+        simpler latest-sync summary older-failed/newer-succeeded baseline, but
+        not the focused sync-history error-detail baseline this docs-only slice
+        expected to ground.
+      suggested_next_action: >-
+        Add one focused `web/src/App.test.tsx` regression for the same-card mixed
+        terminal-state sync-history error-detail older-failed/newer-succeeded
+        baseline, then retry the acceptance-doc grounding in a later execution
+        unit.
     - id: task07b
       title: Add first Postgres-backed repository listing query
       status: blocked
