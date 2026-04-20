@@ -5,44 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9e49a982784fcdd0b0ef7d3d830535aa008ec15d
+  head: 9e8ef122497ec4642fe5289c53e26665ff456c5f
 last_completed_task:
-  id: task20q2am4
-  title: Add deterministic latest-sync summary coverage for sibling authenticated connection cards when queued and running rows share both newest queued_at and activity timestamps across cards
+  id: task20q2am5
+  title: Add deterministic latest-sync summary coverage for the same authenticated connection card when queued and running rows share both newest queued_at and activity timestamps and arrive in reverse API order
   status: done
   summary: >-
-    Closed the forty-third split task20q2 settings-shell follow-up slice by
+    Closed the forty-fourth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep each latest-sync summary scoped and
-    truthful when queued and running rows share both newest `queued_at` and
-    activity timestamps across cards, without changing backend APIs,
-    sync-history ordering, same-card behavior, retries, or broader
-    admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving a single
+    authenticated connection card keeps its latest-sync summary truthful when
+    queued and running rows tie on both newest `queued_at` and activity
+    timestamp and the API returns those tied rows in reverse order, without
+    changing backend APIs, sibling-card behavior, sync-history ordering,
+    retries, or broader admin/settings navigation.
   tests:
-    - npm test -- src/App.test.tsx -t "share both newest queued_at and activity timestamps across cards": passed (1 passed | 74 skipped)
-    - npm test -- src/App.test.tsx: passed (75/75)
+    - npm test -- src/App.test.tsx -t "same newest queued_at and activity timestamps and the API returns them in reverse order": passed (1 passed | 75 skipped)
+    - npm test -- src/App.test.tsx: passed (76/76)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one sibling-card queued-versus-running exact-timestamp latest-sync-summary coverage slice plus matching acceptance grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one same-card queued-versus-running exact-timestamp reverse-order latest-sync-summary coverage slice plus matching acceptance grounding, with no backend API, sibling-card scope, sync-job semantics, retry, or broader admin/settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 9e49a982784fcdd0b0ef7d3d830535aa008ec15d
-  next_task: task20q2am5
+  commit: 9e8ef122497ec4642fe5289c53e26665ff456c5f
+  next_task: task20q2am6
 current_task:
-  id: task20q2am5
+  id: task20q2am6
   parent_task: task20q2
-  title: Add deterministic latest-sync summary coverage for the same authenticated connection card when queued and running rows share both newest queued_at and activity timestamps and arrive in reverse API order
+  title: Add deterministic latest-sync summary coverage for sibling authenticated connection cards when queued and running rows share both newest queued_at and activity timestamps across cards and arrive in reverse API order
   status: pending
   summary: >-
-    After closing the sibling-card exact-timestamp tie case, the next smallest
-    unblocked settings-shell sync-history follow-up is to lock one same-card
-    latest-sync-summary contract proving queued and running rows that tie on
-    both newest `queued_at` and activity timestamp stay truthful even when the
-    API returns the tied rows in reverse order, before expanding into broader
-    sync-job semantics or other settings surfaces.
+    After closing the same-card exact-timestamp reverse-order tie case, the next
+    smallest unblocked settings-shell sync-history follow-up is to lock one
+    sibling-card latest-sync-summary contract proving queued and running rows
+    that tie on both newest `queued_at` and activity timestamp stay scoped and
+    truthful across cards even when the API returns those tied rows in reverse
+    order, before expanding into broader sync-job semantics or other settings
+    surfaces.
 history:
+  - id: task20q2am5
+    status: done
+    summary: >-
+      Closed the forty-fourth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving a single
+      authenticated connection card keeps its latest-sync summary truthful when
+      queued and running rows tie on both newest `queued_at` and activity
+      timestamp and the API returns those tied rows in reverse order, without
+      changing backend APIs, sibling-card behavior, sync-history ordering,
+      retries, or broader admin/settings navigation.
+    tests:
+      - npm test -- src/App.test.tsx -t "same newest queued_at and activity timestamps and the API returns them in reverse order": passed (1 passed | 75 skipped)
+      - npm test -- src/App.test.tsx: passed (76/76)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one same-card queued-versus-running exact-timestamp reverse-order latest-sync-summary coverage slice plus matching acceptance grounding, with no backend API, sibling-card scope, sync-job semantics, retry, or broader admin/settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 9e8ef122497ec4642fe5289c53e26665ff456c5f
+    next_task: task20q2am6
   - id: task20q2am4
     status: done
     summary: >-
