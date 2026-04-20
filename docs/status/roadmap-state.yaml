@@ -5,47 +5,68 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c81a4ca7d091bee8eea1c52cbc722ae832cab17d
+  head: e04a6b494accd620ac372a93bd3744d192b7c450
 last_completed_task:
-  id: task20q2ai
-  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where opposite mixed histories share the same newest queued_at timestamp across cards and arrive in reverse API order
+  id: task20q2aj
+  title: Add focused latest-sync summary truthfulness coverage for the same authenticated connection card when opposite mixed terminal-state rows share the same newest queued_at timestamp and arrive in reverse API order
   status: done
   summary: >-
-    Closed the thirty-fifth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
-    `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep opposite mixed latest-sync summaries
-    truthful when their newest terminal-state rows share the same `queued_at`
-    timestamp across cards and the API returns those tied newest rows in reverse
-    cross-card order, without changing backend APIs, sync-job semantics,
-    retries, or broader admin/settings navigation.
+    Closed the thirty-sixth split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression, the minimal
+    `web/src/App.tsx` tie-breaker for same-connection equal-`queued_at` sync-job
+    ordering, and the matching `specs/acceptance/generic-local-git.md`
+    grounding so `#/settings/connections` now keeps a single authenticated
+    connection card's latest-sync summary truthful when opposite mixed terminal-
+    state rows share the same newest `queued_at` timestamp and the API returns
+    those tied rows in reverse order, without changing backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "tied newest rows in reverse order": passed (1 passed | 67 skipped)
-    - npx vitest run src/App.test.tsx: passed (68/68)
+    - npx vitest run src/App.test.tsx -t "same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp": passed (1 passed | 68 skipped)
+    - npx vitest run src/App.test.tsx: passed (69/69)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ai diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding for the reverse-order same-newest-`queued_at` cross-card case, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: c81a4ca7d091bee8eea1c52cbc722ae832cab17d
-  next_task: task20q2aj
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2aj diff stays limited to one `#/settings/connections` same-card opposite-history latest-sync summary coverage slice plus the minimal equal-`queued_at` tie-breaker and matching acceptance-doc grounding for the reverse-order case, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that future maintainers may benefit from an inline comment documenting the equal-`queued_at` ordering rule
+  commit: e04a6b494accd620ac372a93bd3744d192b7c450
+  next_task: task20q2ak
 current_task:
-  id: task20q2aj
+  id: task20q2ak
   parent_task: task20q2
-  title: Add focused latest-sync summary truthfulness coverage for the same authenticated connection card when opposite mixed terminal-state histories share the same newest queued_at timestamp and arrive in reverse API order
+  title: Add focused latest-sync summary truthfulness coverage for the same authenticated connection card when opposite mixed terminal-state rows share the same newest queued_at timestamp, reuse the same repository id, and arrive in reverse API order
   status: pending
   summary: >-
-    The settings shell now has explicit sibling latest-sync summary coverage for
-    opposite mixed terminal-state history orderings that share the same newest
-    `queued_at` timestamp across cards even when the API returns those tied rows
-    in reverse cross-card order, so the next smallest unblocked follow-up is to
-    add one focused same-card regression proving a single authenticated
-    connection card keeps its latest-sync summary truthful when opposite mixed
-    terminal-state rows share the same newest `queued_at` timestamp and arrive
-    in reverse API order, without changing backend APIs, sync-job semantics,
-    retries, or broader admin/settings navigation.
+    The settings shell now has explicit same-card latest-sync summary coverage
+    for opposite mixed terminal-state rows that share the same newest
+    `queued_at` timestamp even when the API returns those tied rows in reverse
+    order, so the next smallest unblocked follow-up is to tighten that same-card
+    edge case when the opposite mixed rows also reuse the same repository id,
+    without changing backend APIs, sync-job semantics, retries, or broader
+    admin/settings navigation.
 history:
+  - id: task20q2aj
+    status: done
+    summary: >-
+      Closed the thirty-sixth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression, the minimal
+      `web/src/App.tsx` tie-breaker for same-connection equal-`queued_at`
+      sync-job ordering, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now keeps a single authenticated connection
+      card's latest-sync summary truthful when opposite mixed terminal-state
+      rows share the same newest `queued_at` timestamp and the API returns
+      those tied rows in reverse order, without changing backend APIs,
+      sync-job semantics, retries, or broader admin/settings navigation.
+    tests:
+      - npx vitest run src/App.test.tsx -t "same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp": passed (1 passed | 68 skipped)
+      - npx vitest run src/App.test.tsx: passed (69/69)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2aj diff stays limited to one `#/settings/connections` same-card opposite-history latest-sync summary coverage slice plus the minimal equal-`queued_at` tie-breaker and matching acceptance-doc grounding for the reverse-order case, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that future maintainers may benefit from an inline comment documenting the equal-`queued_at` ordering rule
+    commit: e04a6b494accd620ac372a93bd3744d192b7c450
+    next_task: task20q2ak
   - id: task20q2ai
     status: done
     summary: >-
