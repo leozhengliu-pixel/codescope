@@ -1246,6 +1246,25 @@ function compareRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyn
   return repositorySyncJobActivityTimestamp(right) - repositorySyncJobActivityTimestamp(left);
 }
 
+function compareLatestRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
+  const baseComparison = compareRepositorySyncJobs(left, right);
+  if (baseComparison !== 0) {
+    return baseComparison;
+  }
+
+  const inProgressPriority = (status: RepositorySyncJobStatus) => {
+    if (status === 'running') {
+      return 2;
+    }
+    if (status === 'queued') {
+      return 1;
+    }
+    return 0;
+  };
+
+  return inProgressPriority(right.status) - inProgressPriority(left.status);
+}
+
 function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
   return syncJobs.reduce<Map<string, RepositorySyncJob[]>>((jobsByConnectionId, syncJob) => {
     const existingJobs = jobsByConnectionId.get(syncJob.connection_id) ?? [];
@@ -1254,6 +1273,16 @@ function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
     jobsByConnectionId.set(syncJob.connection_id, existingJobs);
     return jobsByConnectionId;
   }, new Map<string, RepositorySyncJob[]>());
+}
+
+function latestRepositorySyncJob(syncJobs: RepositorySyncJob[]) {
+  return syncJobs.reduce<RepositorySyncJob | null>((latestSyncJob, syncJob) => {
+    if (latestSyncJob === null) {
+      return syncJob;
+    }
+
+    return compareLatestRepositorySyncJobs(syncJob, latestSyncJob) < 0 ? syncJob : latestSyncJob;
+  }, null);
 }
 
 function SettingsConnectionsPage() {
@@ -1638,7 +1667,7 @@ function SettingsConnectionsPage() {
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
-            const latestConnectionSyncJob = connectionSyncJobs[0] ?? null;
+            const latestConnectionSyncJob = latestRepositorySyncJob(connectionSyncJobs);
             const localImportState = connection.kind === 'local' ? localImportStates[connection.id] ?? initialLocalImportState(connection) : null;
             const localImportRootPath = connection.kind === 'local' ? localConnectionRepoPath(connection) : '';
             const showLocalImportReset = connection.kind === 'local' && localImportState !== null && localImportState.path !== localImportRootPath;
