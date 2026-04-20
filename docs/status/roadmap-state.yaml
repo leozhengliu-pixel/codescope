@@ -5,43 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7b40ee487f1c7cf03ffae52aa1cafa774302c88b
+  head: a9b24bc2e01e1f7d9d9c3ba04efba5d8de48b05c
 last_completed_task:
-  id: task20q2am45
-  title: Add same-card queued/running latest-sync summary coverage for the exact-timestamp reverse-order shared-repository-id case
+  id: task20q2am46
+  title: Add same-card queued/running latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
   status: done
   summary: >-
-    Closed the eighty-fourth split task20q2 settings-shell follow-up slice by
-    reconciling roadmap-state drift against the already-landed
-    `web/src/App.test.tsx` same-card queued/running reverse-order
-    exact-timestamp shared-repository-id latest-sync regression and restoring the
-    matching `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now truthfully documents that same-card latest-sync
-    summary coverage without changing backend APIs, retry semantics, or broader
-    admin/settings navigation.
+    Closed the eighty-fifth split task20q2 settings-shell follow-up slice by
+    tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+    now explicitly states the already-landed `web/src/App.test.tsx` same-card
+    queued/running newest-first exact-timestamp shared-repository-id latest-sync
+    summary case alongside the reverse-order case without expanding backend APIs,
+    retry semantics, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "same authenticated connection card has queued and running rows sharing the same newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 106 skipped)
+    - npm test -- --run src/App.test.tsx -t "same authenticated connection card has queued and running rows tying on both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
     - npm test -- --run src/App.test.tsx: passed (107/107)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - python3 raw-content evidence check for same-card queued/running reverse-order latest-sync acceptance wording: passed
+    - python3 raw-content evidence check for same-card queued/running newest-first latest-sync acceptance wording: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff is the smallest truthful closure for `task20q2am45`, grounding the already-landed same-card queued/running reverse-order shared-repository-id exact-timestamp latest-sync coverage without backend/API, retry, or broader settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff and confirmed the wording no longer underreports other existing same-card coverage
-  commit: 7b40ee487f1c7cf03ffae52aa1cafa774302c88b
-  next_task: task20q2am46
+    spec: passed one independent post-implementation review; reviewer confirmed the diff is the smallest truthful closure for `task20q2am46`, grounding the already-landed same-card queued/running newest-first exact-timestamp shared-repository-id latest-sync coverage without backend/API, retry, or broader settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+  commit: a9b24bc2e01e1f7d9d9c3ba04efba5d8de48b05c
+  next_task: task20q2am47
 current_task:
-  id: task20q2am46
+  id: task20q2am47
   parent_task: task20q2
-  title: Add same-card queued/running latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
+  title: Add same-card queued/running sync-history timestamp-detail acceptance grounding for the exact-timestamp newest-first shared-repository-id case
   status: pending
   summary: >-
-    With the reverse-order shared-repository-id same-card queued/running
-    latest-sync slice now truthfully grounded, the next smallest unblocked
-    settings-shell follow-up is to make the matching newest-first exact-timestamp
-    shared-repository-id same-card latest-sync acceptance evidence explicit
-    before widening into broader settings or sync-runtime behavior.
+    With the same-card queued/running newest-first shared-repository-id
+    latest-sync acceptance slice now explicitly grounded, the next smallest
+    unblocked settings-shell follow-up is to make the matching same-card
+    queued/running sync-history timestamp-detail newest-first exact-timestamp
+    shared-repository-id evidence explicit before widening into broader settings
+    or sync-runtime behavior.
 history:
+  - id: task20q2am46
+    status: done
+    summary: >-
+      Closed the eighty-fifth split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+      now explicitly states the already-landed `web/src/App.test.tsx` same-card
+      queued/running newest-first exact-timestamp shared-repository-id latest-sync
+      summary case alongside the reverse-order case without expanding backend
+      APIs, retry semantics, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "same authenticated connection card has queued and running rows tying on both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - python3 raw-content evidence check for same-card queued/running newest-first latest-sync acceptance wording: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff is the smallest truthful closure for `task20q2am46`, grounding the already-landed same-card queued/running newest-first exact-timestamp shared-repository-id latest-sync coverage without backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: a9b24bc2e01e1f7d9d9c3ba04efba5d8de48b05c
+    next_task: task20q2am47
   - id: task20q2am45
     status: done
     summary: >-
