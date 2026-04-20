@@ -2679,6 +2679,82 @@ describe('App', () => {
     expect(latestSyncSummary).not.toHaveTextContent('repo-failed-older · 2026-04-18T12:00:00Z');
   });
 
+  it('keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp, reusing the same repository id, and the API returns them in reverse order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-failed-newest-shared-repo-same-timestamp-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-newest-same-timestamp',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-succeeded-newest-shared-repo-same-timestamp-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-newest-same-timestamp',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-failed-older-shared-repo-same-timestamp-reverse-order',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-older',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror fetch failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    const latestSyncSummary = within(githubCard!).getByLabelText('Latest sync summary for GitHub Cloud');
+    expect(latestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(latestSyncSummary).toHaveTextContent('succeeded');
+    expect(latestSyncSummary).toHaveTextContent('repo-shared-newest-same-timestamp · 2026-04-18T13:00:00Z');
+    expect(latestSyncSummary).not.toHaveTextContent('failed');
+    expect(latestSyncSummary).not.toHaveTextContent('repo-shared-older · 2026-04-18T12:00:00Z');
+  });
+
   it('keeps the latest-sync summary truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row', async () => {
     window.location.hash = '#/settings/connections';
 
