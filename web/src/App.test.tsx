@@ -7125,6 +7125,159 @@ describe('App', () => {
     expect(within(gitlabQueuedRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps sibling authenticated connection cards queued-running sync-history error details truthful when rows share both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-running-newest-identical-activity-stable-order-across-cards-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: 'GitHub fetch still cloning',
+          },
+          {
+            id: 'job-conn-1-queued-newest-identical-activity-stable-order-across-cards-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: 'GitHub queue waiting for mirror slot',
+          },
+          {
+            id: 'job-conn-2-running-newest-identical-activity-stable-order-across-cards-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-2',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: 'GitLab import still running',
+          },
+          {
+            id: 'job-conn-2-queued-newest-identical-activity-stable-order-across-cards-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-2',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: 'GitLab queue waiting for credentials',
+          },
+          {
+            id: 'job-conn-1-queued-older-stable-order-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-github-queued-older-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: 'GitHub older queue waiting for mirror slot',
+          },
+          {
+            id: 'job-conn-2-running-older-stable-order-shared-repo-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-gitlab-running-older-stable-order-error-details',
+            connection_id: 'conn-2',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:05:00Z',
+            finished_at: null,
+            error: 'GitLab older import still running',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubRunningRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-identical-activity-stable-order-error-details (running)',
+    );
+    expect(githubRunningRow).toBeInTheDocument();
+    expect(within(githubRunningRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-identical-activity-stable-order-error-details (running)',
+    )).toHaveTextContent('Error: GitHub fetch still cloning');
+    expect(within(githubRunningRow).queryByText('Error: GitLab import still running')).not.toBeInTheDocument();
+    expect(within(githubRunningRow).queryByText('Error: GitHub queue waiting for mirror slot')).not.toBeInTheDocument();
+
+    const githubQueuedRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-identical-activity-stable-order-error-details (queued)',
+    );
+    expect(githubQueuedRow).toBeInTheDocument();
+    expect(within(githubQueuedRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-identical-activity-stable-order-error-details (queued)',
+    )).toHaveTextContent('Error: GitHub queue waiting for mirror slot');
+    expect(within(githubQueuedRow).queryByText('Error: GitHub fetch still cloning')).not.toBeInTheDocument();
+    expect(within(githubQueuedRow).queryByText('Error: GitLab queue waiting for credentials')).not.toBeInTheDocument();
+
+    const gitlabRunningRow = within(gitlabCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-identical-activity-stable-order-error-details (running)',
+    );
+    expect(gitlabRunningRow).toBeInTheDocument();
+    expect(within(gitlabRunningRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-identical-activity-stable-order-error-details (running)',
+    )).toHaveTextContent('Error: GitLab import still running');
+    expect(within(gitlabRunningRow).queryByText('Error: GitHub fetch still cloning')).not.toBeInTheDocument();
+    expect(within(gitlabRunningRow).queryByText('Error: GitLab queue waiting for credentials')).not.toBeInTheDocument();
+
+    const gitlabQueuedRow = within(gitlabCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-identical-activity-stable-order-error-details (queued)',
+    );
+    expect(gitlabQueuedRow).toBeInTheDocument();
+    expect(within(gitlabQueuedRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-identical-activity-stable-order-error-details (queued)',
+    )).toHaveTextContent('Error: GitLab queue waiting for credentials');
+    expect(within(gitlabQueuedRow).queryByText('Error: GitHub queue waiting for mirror slot')).not.toBeInTheDocument();
+    expect(within(gitlabQueuedRow).queryByText('Error: GitLab import still running')).not.toBeInTheDocument();
+  });
+
   it('keeps the empty sync-history state on one authenticated connection card while another shows queued and running rows on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
