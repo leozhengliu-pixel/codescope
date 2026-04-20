@@ -1233,11 +1233,24 @@ function buildConnectionUpdateRequest(connection: AuthConnection, draft: EditCon
   };
 }
 
+function repositorySyncJobActivityTimestamp(syncJob: RepositorySyncJob) {
+  return Date.parse(syncJob.finished_at ?? syncJob.started_at ?? syncJob.queued_at);
+}
+
+function compareRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
+  const queuedAtDifference = Date.parse(right.queued_at) - Date.parse(left.queued_at);
+  if (queuedAtDifference !== 0) {
+    return queuedAtDifference;
+  }
+
+  return repositorySyncJobActivityTimestamp(right) - repositorySyncJobActivityTimestamp(left);
+}
+
 function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
   return syncJobs.reduce<Map<string, RepositorySyncJob[]>>((jobsByConnectionId, syncJob) => {
     const existingJobs = jobsByConnectionId.get(syncJob.connection_id) ?? [];
     existingJobs.push(syncJob);
-    existingJobs.sort((left, right) => Date.parse(right.queued_at) - Date.parse(left.queued_at));
+    existingJobs.sort(compareRepositorySyncJobs);
     jobsByConnectionId.set(syncJob.connection_id, existingJobs);
     return jobsByConnectionId;
   }, new Map<string, RepositorySyncJob[]>());
