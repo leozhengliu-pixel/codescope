@@ -5,42 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 877e53a844ef75670bc53906848daf96e859abf8
+  head: f48a1d7d2ead261d264b9522975fe4806a6aed43
 last_completed_task:
-  id: task20q2am49
-  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
+  id: task20q2am50
+  title: Ground same-card mixed terminal-state latest-sync evidence for the older-failed/newer-succeeded case
   status: done
   summary: >-
-    Closed the eighty-eighth split task20q2 settings-shell follow-up slice by
+    Closed the eighty-ninth split task20q2 settings-shell follow-up slice by
     tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
     now explicitly states the already-landed `web/src/App.test.tsx` same-card
-    mixed terminal-state latest-sync summary newest-first exact-timestamp
-    shared-repository-id case without expanding backend APIs, retry semantics,
-    or broader admin/settings navigation.
+    mixed terminal-state latest-sync summary case where an older failed row
+    remains subordinate to a newer succeeded terminal-state row on the same
+    authenticated connection card, without expanding backend APIs, retry
+    semantics, or broader admin/settings navigation.
   tests:
-    - python3 raw-content explicit same-card newest-first latest-sync acceptance wording check: passed
-    - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
+    - python3 raw-content explicit same-card older-failed/newer-succeeded latest-sync acceptance wording check: passed
+    - npm test -- --run src/App.test.tsx -t "older failed row but a newer succeeded terminal-state row": passed (1 passed | 106 skipped)
     - npm test -- --run src/App.test.tsx: passed (107/107)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am49`, grounding the already-landed same-card mixed terminal-state latest-sync summary newest-first exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am50`, grounding the already-landed same-card mixed terminal-state latest-sync summary older-failed/newer-succeeded coverage without backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: 877e53a844ef75670bc53906848daf96e859abf8
-  next_task: task20q2am50
+  commit: f48a1d7d2ead261d264b9522975fe4806a6aed43
+  next_task: task20q2am51
 current_task:
-  id: task20q2am50
+  id: task20q2am51
   parent_task: task20q2
-  title: Audit and ground the next smallest uncovered generic/local Git settings-shell parity evidence slice after the same-card newest-first mixed terminal latest-sync closure
+  title: Ground same-card mixed terminal-state latest-sync evidence for the older-succeeded/newer-failed case
   status: pending
   summary: >-
-    With both same-card mixed terminal-state latest-sync summary shared-
-    repository-id exact-timestamp cases now explicitly grounded, the next
-    smallest unblocked task20q2 follow-up is to inspect the remaining
-    generic/local Git settings-shell acceptance wording and split the next
-    uncovered evidence gap into its own smallest truthful closure before any
-    broader settings or sync-runtime behavior.
+    With the same-card mixed terminal-state latest-sync older-failed/newer-
+    succeeded case now explicitly grounded, the next smallest unblocked
+    task20q2 follow-up is to tighten `specs/acceptance/generic-local-git.md`
+    for the already-landed same-card gap where an older succeeded row remains
+    subordinate to a newer failed terminal-state row on the same authenticated
+    connection card before any broader settings or sync-runtime behavior.
 history:
+  - id: task20q2am50
+    status: done
+    summary: >-
+      Closed the eighty-ninth split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+      now explicitly states the already-landed `web/src/App.test.tsx` same-card
+      mixed terminal-state latest-sync summary case where an older failed row
+      remains subordinate to a newer succeeded terminal-state row on the same
+      authenticated connection card, without expanding backend APIs, retry
+      semantics, or broader admin/settings navigation.
+    tests:
+      - python3 raw-content explicit same-card older-failed/newer-succeeded latest-sync acceptance wording check: passed
+      - npm test -- --run src/App.test.tsx -t "older failed row but a newer succeeded terminal-state row": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am50`, grounding the already-landed same-card mixed terminal-state latest-sync summary older-failed/newer-succeeded coverage without backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: f48a1d7d2ead261d264b9522975fe4806a6aed43
+    next_task: task20q2am51
   - id: task20q2am49
     status: done
     summary: >-
