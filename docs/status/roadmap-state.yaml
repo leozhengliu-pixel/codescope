@@ -5,67 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 81adae4984f3a024784da1e0d4cb2f614950f3db
+  head: d808036e21e98343d2dd25ca7d1d1deadc12769b
 last_completed_task:
-  id: task20q2ab
-  title: Add focused latest-sync summary truthfulness coverage for same-card identical terminal-error-string sync-history rows
+  id: task20q2ac
+  title: Add focused latest-sync summary truthfulness coverage for sibling identical terminal-error-string sync-history rows
   status: done
   summary: >-
-    Closed the twenty-eighth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression, the minimal
-    `web/src/App.tsx` latest-sync summary accessibility label, and the matching
+    Closed the twenty-ninth split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving the per-card
-    latest-sync summary still reflects the newest failed row truthfully when
-    multiple failed terminal-state sync-history rows on the same authenticated
-    connection card share the same error string, without changing backend APIs,
-    sync-job semantics, retries, or broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving sibling
+    authenticated connection cards keep each latest-sync summary truthful to the
+    newest failed row on its own card even when multiple cards expose identical
+    terminal-state error strings, without changing backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when multiple failed rows on the same authenticated connection card share the same terminal error string": passed (1/1)
-    - npx vitest run src/App.test.tsx: passed (62/62)
+    - npx vitest run src/App.test.tsx -t "keeps each sibling authenticated connection card latest-sync summary truthful to its own newest failed row when terminal error strings match": passed (1/1)
+    - npx vitest run src/App.test.tsx: passed (63/63)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ab diff stays limited to one `#/settings/connections` same-card identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, and that the minimal `web/src/App.tsx` latest-sync summary accessibility hook stays within scope without expanding into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future accessibility hook could use a stable identifier instead of the display name
-  commit: 81adae4984f3a024784da1e0d4cb2f614950f3db
-  next_task: task20q2ac
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ac diff stays limited to one `#/settings/connections` sibling identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+  commit: d808036e21e98343d2dd25ca7d1d1deadc12769b
+  next_task: task20q2ad
 current_task:
-  id: task20q2ac
+  id: task20q2ad
   parent_task: task20q2
-  title: Add focused latest-sync summary truthfulness coverage for sibling identical terminal-error-string sync-history rows
+  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows
   status: pending
   summary: >-
-    The settings shell now has explicit same-card identical terminal-state
+    The settings shell now has explicit sibling identical terminal-state
     error-string latest-sync summary coverage, so the next smallest unblocked
     follow-up is to add one focused regression proving sibling authenticated
-    connection cards keep each latest-sync summary truthful to the newest failed
-    row on its own card even when multiple cards expose identical terminal-state
-    error strings, without changing backend APIs, sync-job semantics, retries,
-    or broader admin/settings navigation.
+    connection cards keep each latest-sync summary truthful when those cards show
+    mixed terminal-state newest rows, without changing backend APIs, sync-job
+    semantics, retries, or broader admin/settings navigation.
 history:
-  - id: task20q2ab
+  - id: task20q2ac
     status: done
     summary: >-
-      Closed the twenty-eighth split task20q2 settings-shell follow-up slice by
-      adding one focused `web/src/App.test.tsx` regression, the minimal
-      `web/src/App.tsx` latest-sync summary accessibility label, and the matching
+      Closed the twenty-ninth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
-      `#/settings/connections` now has explicit coverage proving the per-card
-      latest-sync summary still reflects the newest failed row truthfully when
-      multiple failed terminal-state sync-history rows on the same authenticated
-      connection card share the same error string, without changing backend APIs,
-      sync-job semantics, retries, or broader admin/settings navigation.
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep each latest-sync summary truthful to the
+      newest failed row on its own card even when multiple cards expose identical
+      terminal-state error strings, without changing backend APIs, sync-job
+      semantics, retries, or broader admin/settings navigation.
     tests:
-      - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when multiple failed rows on the same authenticated connection card share the same terminal error string": passed (1/1)
-      - npx vitest run src/App.test.tsx: passed (62/62)
+      - npx vitest run src/App.test.tsx -t "keeps each sibling authenticated connection card latest-sync summary truthful to its own newest failed row when terminal error strings match": passed (1/1)
+      - npx vitest run src/App.test.tsx: passed (63/63)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ab diff stays limited to one `#/settings/connections` same-card identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, and that the minimal `web/src/App.tsx` latest-sync summary accessibility hook stays within scope without expanding into backend APIs, sync-job semantics, retries, or broader admin/settings navigation
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff, with only a non-blocking note that a future accessibility hook could use a stable identifier instead of the display name
-    commit: 81adae4984f3a024784da1e0d4cb2f614950f3db
-    next_task: task20q2ac
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ac diff stays limited to one `#/settings/connections` sibling identical terminal-error-string latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: d808036e21e98343d2dd25ca7d1d1deadc12769b
+    next_task: task20q2ad
   - id: task20q2aa
     status: done
     summary: >-
