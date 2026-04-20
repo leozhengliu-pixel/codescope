@@ -5,42 +5,62 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f96f0476502722a93947bde7fba5dbff91fcbfdd
+  head: 877e53a844ef75670bc53906848daf96e859abf8
 last_completed_task:
-  id: task20q2am48
-  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp reverse-order shared-repository-id case
+  id: task20q2am49
+  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
   status: done
   summary: >-
-    Closed the eighty-seventh split task20q2 settings-shell follow-up slice by
+    Closed the eighty-eighth split task20q2 settings-shell follow-up slice by
     tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
     now explicitly states the already-landed `web/src/App.test.tsx` same-card
-    mixed terminal-state latest-sync summary reverse-order exact-timestamp
+    mixed terminal-state latest-sync summary newest-first exact-timestamp
     shared-repository-id case without expanding backend APIs, retry semantics,
     or broader admin/settings navigation.
   tests:
-    - python3 raw-content explicit same-card reverse-order latest-sync acceptance wording check: passed
-    - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, reusing the same repository id, and the API returns them in reverse order": passed (1 passed | 106 skipped)
+    - python3 raw-content explicit same-card newest-first latest-sync acceptance wording check: passed
+    - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
     - npm test -- --run src/App.test.tsx: passed (107/107)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am48`, grounding the already-landed same-card mixed terminal-state latest-sync summary reverse-order exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am49`, grounding the already-landed same-card mixed terminal-state latest-sync summary newest-first exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: f96f0476502722a93947bde7fba5dbff91fcbfdd
-  next_task: task20q2am49
+  commit: 877e53a844ef75670bc53906848daf96e859abf8
+  next_task: task20q2am50
 current_task:
-  id: task20q2am49
+  id: task20q2am50
   parent_task: task20q2
-  title: Add same-card mixed terminal-state latest-sync summary acceptance grounding for the exact-timestamp newest-first shared-repository-id case
+  title: Audit and ground the next smallest uncovered generic/local Git settings-shell parity evidence slice after the same-card newest-first mixed terminal latest-sync closure
   status: pending
   summary: >-
-    With the same-card mixed terminal-state latest-sync summary reverse-order
-    shared-repository-id acceptance slice now explicitly grounded, the next
-    smallest unblocked settings-shell follow-up is to split the remaining
-    same-card newest-first shared-repository-id exact-timestamp latest-sync
-    wording into its own evidence slice before widening into broader settings or
-    sync-runtime behavior.
+    With both same-card mixed terminal-state latest-sync summary shared-
+    repository-id exact-timestamp cases now explicitly grounded, the next
+    smallest unblocked task20q2 follow-up is to inspect the remaining
+    generic/local Git settings-shell acceptance wording and split the next
+    uncovered evidence gap into its own smallest truthful closure before any
+    broader settings or sync-runtime behavior.
 history:
+  - id: task20q2am49
+    status: done
+    summary: >-
+      Closed the eighty-eighth split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+      now explicitly states the already-landed `web/src/App.test.tsx` same-card
+      mixed terminal-state latest-sync summary newest-first exact-timestamp
+      shared-repository-id case without expanding backend APIs, retry semantics,
+      or broader admin/settings navigation.
+    tests:
+      - python3 raw-content explicit same-card newest-first latest-sync acceptance wording check: passed
+      - npm test -- --run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am49`, grounding the already-landed same-card mixed terminal-state latest-sync summary newest-first exact-timestamp shared-repository-id coverage without backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: 877e53a844ef75670bc53906848daf96e859abf8
+    next_task: task20q2am50
   - id: task20q2am48
     status: done
     summary: >-
