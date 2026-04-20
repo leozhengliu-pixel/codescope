@@ -2951,7 +2951,7 @@ describe('App', () => {
     expect(gitlabLatestSyncSummary).not.toHaveTextContent('GitHub permissions denied');
   });
 
-  it('keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share the same newest queued_at timestamp across cards, already arrive newest-first, and also reuse the same repository id', async () => {
+  it('keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -3000,8 +3000,8 @@ describe('App', () => {
             connection_id: 'conn-2',
             status: 'succeeded',
             queued_at: '2026-04-18T13:00:00Z',
-            started_at: '2026-04-18T13:02:00Z',
-            finished_at: '2026-04-18T13:06:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
             error: null,
           },
           {
@@ -3057,17 +3057,17 @@ describe('App', () => {
     expect(within(githubNewestTerminalRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
     expect(within(githubNewestTerminalRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
     expect(within(githubNewestTerminalRow!).getByText('Finished at: 2026-04-18T13:05:00Z')).toBeInTheDocument();
-    expect(within(githubNewestTerminalRow!).queryByText('Started at: 2026-04-18T13:02:00Z')).not.toBeInTheDocument();
-    expect(within(githubNewestTerminalRow!).queryByText('Finished at: 2026-04-18T13:06:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestTerminalRow!).queryByText('Started at: 2026-04-18T12:01:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestTerminalRow!).queryByText('Finished at: 2026-04-18T12:04:00Z')).not.toBeInTheDocument();
     expect(within(githubNewestTerminalRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
 
     const gitlabNewestTerminalRow = within(gitlabCard!).getByRole('link', { name: 'Open repository detail for repo-sibling-shared-newest-same-timestamp-stable-order-details' }).closest('div');
     expect(gitlabNewestTerminalRow).toBeInTheDocument();
     expect(within(gitlabNewestTerminalRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
-    expect(within(gitlabNewestTerminalRow!).getByText('Started at: 2026-04-18T13:02:00Z')).toBeInTheDocument();
-    expect(within(gitlabNewestTerminalRow!).getByText('Finished at: 2026-04-18T13:06:00Z')).toBeInTheDocument();
-    expect(within(gitlabNewestTerminalRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
-    expect(within(gitlabNewestTerminalRow!).queryByText('Finished at: 2026-04-18T13:05:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).getByText('Finished at: 2026-04-18T13:05:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).queryByText('Started at: 2026-04-18T11:02:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestTerminalRow!).queryByText('Finished at: 2026-04-18T11:06:00Z')).not.toBeInTheDocument();
     expect(within(gitlabNewestTerminalRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
   });
 
