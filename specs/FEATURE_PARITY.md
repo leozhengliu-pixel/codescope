@@ -30,7 +30,7 @@ placeholder columns for later parity-audit updates.
 | Integrations | Bitbucket | Needs audit | _TBD_ |
 | Integrations | Azure DevOps | Needs audit | _TBD_ |
 | Integrations | Generic Git host / local Git | Partial | `specs/acceptance/generic-local-git.md` now grounds the current baseline: shared `generic_git`/`local` connection kinds and configs, authenticated `/api/v1/auth/connections` CRUD, the first authenticated `POST /api/v1/auth/repositories/import/local` baseline for importing one real local Git working tree into the current catalog path, repo-detail connection metadata, and the limited `#/settings/connections` shell with local `repo_path` handling, local-only explicit-path import UX for existing local connections, quick navigation from successful imports into `#/repos/:repoId`, the shipped generic-host quick-open affordance with fail-closed rejection of unsafe `javascript:` URLs, and read-only sync-history visibility. Generic-host discovery, broader status/control UX, and durable catalog-backed parity remain open. |
-| Integrations | OIDC / SSO providers | Needs audit | _TBD_ |
+| Integrations | OIDC / SSO providers | Missing | `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground that the rewrite still lacks OIDC/SSO provider login and external-account mapping; the live auth surface remains local bootstrap/login/session management plus OAuth-client admin endpoints. |
 | Integrations | MCP server | Needs audit | _TBD_ |
 | Integrations | Public REST API | Needs audit | _TBD_ |
 | Later-phase advanced features | Audit logs | Needs audit | _TBD_ |
