@@ -5,46 +5,70 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cfef22dd3f4fdaea64afc754f551f3941e7e0e00
+  head: 624b5c490944f18bdbbefa790249f0fdc2f3caf3
 last_completed_task:
-  id: task20q2am52
-  title: Ground sibling mixed terminal-state latest-sync evidence for the opposite-newest-rows baseline case
+  id: task20q2am53
+  title: Ground sibling mixed terminal-state sync-history timestamp-detail evidence for the opposite-newest-rows baseline case
   status: done
   summary: >-
-    Closed the ninety-first split task20q2 settings-shell follow-up slice by
+    Closed the ninety-second split task20q2 settings-shell follow-up slice by
     tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
     now explicitly states the already-landed `web/src/App.test.tsx` sibling-card
-    mixed terminal-state latest-sync baseline where one connection card keeps a
-    newer failed row authoritative while the other keeps a newer succeeded row
-    authoritative under the shared exact-timestamp repository-id tie, without
-    expanding backend APIs, retry semantics, or broader admin/settings
-    navigation.
+    mixed terminal-state sync-history timestamp-detail baseline where one
+    connection card keeps a newer failed row authoritative while the other keeps
+    a newer succeeded row authoritative under the shared exact-timestamp
+    repository-id tie, without expanding backend APIs, retry semantics, or
+    broader admin/settings navigation.
   tests:
-    - python3 raw-content explicit sibling opposite-newest-rows latest-sync acceptance wording check: passed
-    - npm test -- --run src/App.test.tsx -t "latest-sync summaries truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
-    - npm test -- --run src/App.test.tsx -t "latest-sync summaries truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 106 skipped)
+    - python3 raw-content explicit sibling opposite-newest-rows sync-history timestamp-detail acceptance wording check: passed
+    - npm test -- --run src/App.test.tsx -t "terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 106 skipped)
+    - npm test -- --run src/App.test.tsx -t "terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
     - npm test -- --run src/App.test.tsx: passed (107/107)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am52`, grounding the already-landed sibling mixed terminal-state latest-sync opposite-newest-rows baseline without backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am53`, grounding the already-landed sibling mixed terminal-state sync-history timestamp-detail opposite-newest-rows baseline without backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: cfef22dd3f4fdaea64afc754f551f3941e7e0e00
-  next_task: task20q2am53
+  commit: 624b5c490944f18bdbbefa790249f0fdc2f3caf3
+  next_task: task20q2am54
 current_task:
-  id: task20q2am53
+  id: task20q2am54
   parent_task: task20q2
-  title: Ground sibling mixed terminal-state sync-history timestamp-detail evidence for the opposite-newest-rows baseline case
+  title: Ground sibling mixed terminal-state sync-history error-detail evidence for the opposite-newest-rows baseline case
   status: pending
   summary: >-
-    With the sibling mixed terminal-state latest-sync opposite-newest-rows
-    baseline now explicitly grounded, the next smallest unblocked task20q2
-    follow-up is to tighten `specs/acceptance/generic-local-git.md` for the
-    already-landed `web/src/App.test.tsx` sibling-card mixed terminal-state
-    sync-history timestamp-detail baseline where opposite histories keep failed
-    vs succeeded newest rows under the same exact-timestamp shared-repository-id
-    tie, before any broader settings or sync-runtime behavior.
+    With the sibling mixed terminal-state sync-history timestamp-detail
+    opposite-newest-rows baseline now explicitly grounded, the next smallest
+    unblocked task20q2 follow-up is to tighten
+    `specs/acceptance/generic-local-git.md` for the already-landed
+    `web/src/App.test.tsx` sibling-card mixed terminal-state sync-history
+    error-detail baseline where opposite histories keep failed vs succeeded
+    newest rows under the same exact-timestamp shared-repository-id tie, before
+    any broader settings or sync-runtime behavior.
 history:
+  - id: task20q2am53
+    status: done
+    summary: >-
+      Closed the ninety-second split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
+      now explicitly states the already-landed `web/src/App.test.tsx`
+      sibling-card mixed terminal-state sync-history timestamp-detail baseline
+      where one connection card keeps a newer failed row authoritative while the
+      other keeps a newer succeeded row authoritative under the shared
+      exact-timestamp repository-id tie, without expanding backend APIs, retry
+      semantics, or broader admin/settings navigation.
+    tests:
+      - python3 raw-content explicit sibling opposite-newest-rows sync-history timestamp-detail acceptance wording check: passed
+      - npm test -- --run src/App.test.tsx -t "terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx -t "terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
+      - npm test -- --run src/App.test.tsx: passed (107/107)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am53`, grounding the already-landed sibling mixed terminal-state sync-history timestamp-detail opposite-newest-rows baseline without backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: 624b5c490944f18bdbbefa790249f0fdc2f3caf3
+    next_task: task20q2am54
   - id: task20q2am52
     status: done
     summary: >-
