@@ -5,45 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6e8d61cc718b0f3bdb82bb654ebedef53d53a48b
+  head: ca35d64d1246cd77b39f79676507f6e7914eb552
 last_completed_task:
-  id: task20q2am8
-  title: Add deterministic queued-running sync-history timestamp-detail coverage for the same authenticated connection card when rows share both newest queued_at and activity timestamps and arrive in reverse API order
+  id: task20q2am9
+  title: Add same-card queued-running latest-sync summary coverage when exact-timestamp reverse-order rows also reuse the same repository id
   status: done
   summary: >-
-    Closed the forty-seventh split task20q2 settings-shell follow-up slice by
+    Closed the forty-eighth split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving a single
-    authenticated connection card keeps queued/running sync-history row ordering
-    and queued/started/finished fallback timestamp details deterministic and
+    authenticated connection card keeps its queued/running latest-sync summary
     truthful when the newest rows tie on both `queued_at` and activity
-    timestamp and the API returns those tied rows in reverse order, without
-    changing backend APIs, retry semantics, or broader admin/settings
-    navigation.
+    timestamp, arrive in reverse API order, and also reuse the same repository
+    id, without changing backend APIs, retry semantics, or broader
+    admin/settings navigation.
   tests:
-    - npm test -- -t "keeps queued-running sync-history timestamp details deterministic and truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card and arrive in reverse API order": passed (1 passed | 78 skipped)
-    - npm test -- src/App.test.tsx: passed (79/79)
+    - npm test -- src/App.test.tsx -t "reusing the same repository id, and the API returns them in reverse order": passed (2 passed | 78 skipped)
+    - npm test -- src/App.test.tsx: passed (80/80)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card queued/running exact-timestamp reverse-order sync-history timestamp-detail coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card queued/running exact-timestamp reverse-order latest-sync-summary coverage slice for rows that also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 6e8d61cc718b0f3bdb82bb654ebedef53d53a48b
-  next_task: task20q2am9
+  commit: ca35d64d1246cd77b39f79676507f6e7914eb552
+  next_task: task20q2am10
 current_task:
-  id: task20q2am9
+  id: task20q2am10
   parent_task: task20q2
-  title: Add same-card queued-running latest-sync summary coverage when exact-timestamp reverse-order rows also reuse the same repository id
+  title: Add sibling queued-running latest-sync summary coverage when exact-timestamp reverse-order rows also reuse the same repository id
   status: pending
   summary: >-
-    After closing the same-card exact-timestamp reverse-order timestamp-detail
-    slice, the next smallest unblocked settings-shell sync-history follow-up is
-    to lock the same-card latest-sync summary contract for that same queued/
-    running equal-`queued_at` plus equal-activity reverse-order case when the
-    tied rows also reuse the same repository id, before expanding into sibling
-    same-repository variants or broader sync-job semantics.
+    After locking the same-card exact-timestamp reverse-order shared-repository
+    latest-sync-summary case, the next smallest unblocked settings-shell
+    sync-history follow-up is to cover the sibling authenticated connection-card
+    variant where queued/running rows tie on both newest `queued_at` and
+    activity timestamp, arrive in reverse API order, and also reuse the same
+    repository id, before expanding into broader sync-job semantics.
 history:
+  - id: task20q2am9
+    status: done
+    summary: >-
+      Closed the forty-eighth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving a single
+      authenticated connection card keeps its queued/running latest-sync summary
+      truthful when the newest rows tie on both `queued_at` and activity
+      timestamp, arrive in reverse API order, and also reuse the same
+      repository id, without changing backend APIs, retry semantics, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- src/App.test.tsx -t "reusing the same repository id, and the API returns them in reverse order": passed (2 passed | 78 skipped)
+      - npm test -- src/App.test.tsx: passed (80/80)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card queued/running exact-timestamp reverse-order latest-sync-summary coverage slice for rows that also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: ca35d64d1246cd77b39f79676507f6e7914eb552
+    next_task: task20q2am10
   - id: task20q2am8
     status: done
     summary: >-
