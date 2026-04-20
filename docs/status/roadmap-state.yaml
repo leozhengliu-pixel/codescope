@@ -5,44 +5,60 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4293d1e9a0a6c1722bc0c280e27d52eb5e21db3d
+  head: d23d54ff759081da618717814b7b64ce3e7aefbd
 last_completed_task:
-  id: task20q2am61a
-  title: Audit the OIDC / SSO providers parity-matrix row against the current integrations acceptance evidence and gap report
+  id: task20q2am61b
+  title: Tighten the OIDC / SSO providers parity-matrix row to record the already-grounded missing status and evidence
   status: done
   summary: >-
-    Closed the one-hundred-sixth split task20q2 settings-shell follow-up slice by
-    grounding the next OIDC/SSO documentation drift in
-    `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`. The audit
-    confirmed `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` already agree that OIDC/SSO
-    provider login and external-account mapping remain missing, while
-    `specs/FEATURE_PARITY.md` still says `Needs audit | _TBD_ |`. The next
-    smallest truthful slice is to tighten only that parity-matrix row without
-    changing product behavior or broadening other integration rows.
+    Closed the one-hundred-seventh split task20q2 settings-shell follow-up slice
+    by tightening the `specs/FEATURE_PARITY.md` `OIDC / SSO providers` row so it
+    now records the already-grounded `Missing` status and cites the current
+    integrations acceptance/gap-report evidence without changing product
+    behavior or broadening other integration rows.
   tests:
-    - python3 raw-content audit-note presence check confirmed the note records the OIDC/SSO parity-matrix drift, the missing implementation evidence, and queues `task20q2am61b`: passed
+    - python3 raw-content precheck confirmed the `OIDC / SSO providers` row was still stale before the edit: passed
+    - python3 raw-content postcheck confirmed the row now records `Missing` and cites the grounded OIDC/SSO evidence without the rejected callback-handling overreach: passed
     - git diff --check: passed
-    - python3 added-lines security scan for `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md`: passed
+    - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am61a`, stays within the OIDC/SSO parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am61a-oidc-sso-parity-matrix-gap-audit.md` diff
-  commit: 4293d1e9a0a6c1722bc0c280e27d52eb5e21db3d
-  next_task: task20q2am61b
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am61b`, updates only the OIDC/SSO parity-matrix row, and stays within the already-grounded missing-status evidence
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
+  commit: d23d54ff759081da618717814b7b64ce3e7aefbd
+  next_task: task20q2am62a
 current_task:
-  id: task20q2am61b
-  parent_task: task20q2am61
-  title: Tighten the OIDC / SSO providers parity-matrix row to record the already-grounded missing status and evidence
+  id: task20q2am62a
+  parent_task: task20q2am62
+  title: Audit the MCP server parity-matrix row against the current integrations acceptance evidence and gap report
   status: pending
   summary: >-
-    `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` already keep OIDC/SSO parity
-    conservative: provider login, callback handling, and external-account
-    mapping remain missing. The next smallest truthful slice is to tighten only
-    `specs/FEATURE_PARITY.md` so the `OIDC / SSO providers` row reflects that
-    already-grounded missing status and cites the current evidence without
-    changing any product behavior or other integration rows.
+    `specs/acceptance/integrations.md` already says MCP server requests should
+    expose repository-aware tools under the caller's permission scope, and
+    `docs/reports/2026-04-18-parity-gap-report.md` already records the live MCP
+    retrieval surface as `Partial` because `crates/mcp/src/lib.rs` currently
+    proves crate-local retrieval-tool contracts while transport/runtime/auth
+    wiring and explicit permission-scoped acceptance evidence remain open. The
+    next smallest truthful slice is to audit that parity-matrix drift before
+    tightening only the `specs/FEATURE_PARITY.md` `MCP server` row.
 history:
+  - id: task20q2am61b
+    status: done
+    summary: >-
+      Closed the one-hundred-seventh split task20q2 settings-shell follow-up slice
+      by tightening the `specs/FEATURE_PARITY.md` `OIDC / SSO providers` row so it
+      now records the already-grounded `Missing` status and cites the current
+      integrations acceptance/gap-report evidence without changing product
+      behavior or broadening other integration rows.
+    tests:
+      - python3 raw-content precheck confirmed the `OIDC / SSO providers` row was still stale before the edit: passed
+      - python3 raw-content postcheck confirmed the row now records `Missing` and cites the grounded OIDC/SSO evidence without the rejected callback-handling overreach: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am61b`, updates only the OIDC/SSO parity-matrix row, and stays within the already-grounded missing-status evidence
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
+    commit: d23d54ff759081da618717814b7b64ce3e7aefbd
+    next_task: task20q2am62a
   - id: task20q2am61a
     status: done
     summary: >-
