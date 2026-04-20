@@ -5,42 +5,68 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 78a533ee9dd7d589fc1593de441bac030a7486eb
+  head: 81e84bc851be3c9d714f9b063a996afeab4b40e8
 last_completed_task:
-  id: task20q2am56a
-  title: Add focused same-card mixed terminal-state sync-history error-detail regression for the older-succeeded/newer-failed baseline
+  id: task20q2am56b
+  title: Ground same-card mixed terminal-state sync-history error-detail older-succeeded/newer-failed baseline evidence in acceptance docs
   status: done
   summary: >-
-    Closed the ninety-sixth split task20q2 settings-shell follow-up slice by
-    adding a focused `web/src/App.test.tsx` regression that proves one
-    authenticated connection card keeps sync-history error details scoped and
-    truthful when an older succeeded terminal-state row remains subordinate to a
-    newer failed row, without changing backend APIs, retry semantics, or
-    broader admin/settings navigation.
+    Closed the ninety-seventh split task20q2 settings-shell follow-up slice by
+    tightening `specs/acceptance/generic-local-git.md` so the acceptance
+    evidence now explicitly states the already-landed same-card mixed
+    terminal-state sync-history error-detail baseline where an older succeeded
+    row keeps its error detail subordinate to a newer failed terminal-state
+    row, without expanding backend APIs, retry semantics, or broader
+    admin/settings navigation.
   tests:
+    - python3 raw-content same-card older-succeeded/newer-failed sync-history error-detail acceptance wording presence check before edit: failed (phrase absent)
+    - python3 raw-content same-card older-succeeded/newer-failed sync-history error-detail acceptance wording presence check after edit: passed
     - npx vitest run src/App.test.tsx -t "terminal-state sync-history error details truthful when the same authenticated connection card has an older succeeded row but a newer failed terminal-state row": passed (1 passed | 108 skipped)
     - npx vitest run src/App.test.tsx: passed (109/109)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
-    - python3 added-lines security scan for web/src/App.test.tsx: passed
+    - python3 added-lines security scan for specs/acceptance/generic-local-git.md: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the uncommitted diff exactly closes `task20q2am56a` by adding the missing focused same-card older-succeeded/newer-failed sync-history error-detail regression without broader backend/API, retry, or settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff
-  commit: 78a533ee9dd7d589fc1593de441bac030a7486eb
-  next_task: task20q2am56b
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am56b` by grounding the already-landed same-card mixed terminal-state sync-history error-detail older-succeeded/newer-failed baseline in `specs/acceptance/generic-local-git.md` without broader backend/API, retry, or settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+  commit: 81e84bc851be3c9d714f9b063a996afeab4b40e8
+  next_task: task20q2am57a
 current_task:
-  id: task20q2am56b
-  parent_task: task20q2am56
-  title: Ground same-card mixed terminal-state sync-history error-detail older-succeeded/newer-failed baseline evidence in acceptance docs
+  id: task20q2am57a
+  parent_task: task20q2am57
+  title: Add focused same-card mixed terminal-state sync-history timestamp-detail regression for the older-failed/newer-succeeded baseline
   status: pending
   summary: >-
-    The focused `web/src/App.test.tsx` regression for the same-card
-    older-succeeded/newer-failed sync-history error-detail baseline is now
-    landed. The next smallest truthful slice is to tighten
-    `specs/acceptance/generic-local-git.md` so the acceptance evidence grounds
-    that already-landed baseline without expanding backend APIs, retry
-    semantics, or broader admin/settings navigation.
+    The acceptance-doc grounding for the same-card older-succeeded/newer-failed
+    sync-history error-detail baseline is now landed. The next smallest
+    truthful slice is to add one focused `web/src/App.test.tsx` regression that
+    proves the same-card older-failed/newer-succeeded sync-history
+    timestamp-detail baseline without expanding backend APIs, retry semantics,
+    or broader admin/settings navigation.
 history:
+  - id: task20q2am56b
+    status: done
+    summary: >-
+      Closed the ninety-seventh split task20q2 settings-shell follow-up slice by
+      tightening `specs/acceptance/generic-local-git.md` so the acceptance
+      evidence now explicitly states the already-landed same-card mixed
+      terminal-state sync-history error-detail baseline where an older succeeded
+      row keeps its error detail subordinate to a newer failed terminal-state
+      row, without expanding backend APIs, retry semantics, or broader
+      admin/settings navigation.
+    tests:
+      - python3 raw-content same-card older-succeeded/newer-failed sync-history error-detail acceptance wording presence check before edit: failed (phrase absent)
+      - python3 raw-content same-card older-succeeded/newer-failed sync-history error-detail acceptance wording presence check after edit: passed
+      - npx vitest run src/App.test.tsx -t "terminal-state sync-history error details truthful when the same authenticated connection card has an older succeeded row but a newer failed terminal-state row": passed (1 passed | 108 skipped)
+      - npx vitest run src/App.test.tsx: passed (109/109)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for specs/acceptance/generic-local-git.md: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am56b` by grounding the already-landed same-card mixed terminal-state sync-history error-detail older-succeeded/newer-failed baseline in `specs/acceptance/generic-local-git.md` without broader backend/API, retry, or settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: 81e84bc851be3c9d714f9b063a996afeab4b40e8
+    next_task: task20q2am57a
   - id: task20q2am56a
     status: done
     summary: >-
