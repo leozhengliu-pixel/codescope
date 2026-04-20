@@ -2951,7 +2951,7 @@ describe('App', () => {
     expect(gitlabLatestSyncSummary).not.toHaveTextContent('GitHub permissions denied');
   });
 
-  it('keeps sibling authenticated connection cards latest-sync summaries scoped to each card when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order', async () => {
+  it('keeps sibling authenticated connection cards latest-sync summaries truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
