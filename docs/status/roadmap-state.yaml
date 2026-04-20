@@ -5,45 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d4fa4bb76c668de6fe4abcd30ab84fb0aced4e97
+  head: 167de162f037c4c330dae9c69e1af7f0021192e1
 last_completed_task:
-  id: task20q2am58b
-  title: Ground same-card mixed terminal-state sync-history timestamp-detail older-succeeded/newer-failed baseline evidence in acceptance docs
+  id: task20q2am59a
+  title: Audit the next smallest generic/local settings-shell sync-history evidence/report gap and queue one concrete follow-up slice
   status: done
   summary: >-
-    Closed the one-hundred-first split task20q2 settings-shell follow-up slice
-    by tightening `specs/acceptance/generic-local-git.md` so the acceptance
-    evidence now explicitly states the already-landed same-card mixed
-    terminal-state sync-history timestamp-detail baseline where an older
-    succeeded row keeps its timestamp detail subordinate to a newer failed
-    terminal-state row, without expanding backend APIs, retry semantics, or
-    broader admin/settings navigation.
+    Closed the one-hundred-second split task20q2 settings-shell follow-up slice
+    by grounding the next report-level evidence gap in
+    `docs/status/task20q2am59a-generic-local-sync-history-gap-audit.md`.
+    The audit confirmed `specs/acceptance/generic-local-git.md` and
+    `specs/FEATURE_PARITY.md` already reflect the limited settings-driven local
+    import UX plus read-only sync-history baseline, while
+    `docs/reports/2026-04-18-parity-gap-report.md` still stalely lists `Add
+    settings-driven import UX` as an open gap. The next smallest truthful slice
+    is to tighten that generic/local parity-gap-report row without expanding
+    backend APIs, retry semantics, or broader admin/settings navigation.
   tests:
-    - python3 raw-content same-card older-succeeded/newer-failed sync-history timestamp-detail acceptance wording presence check after edit: passed
-    - npx vitest run src/App.test.tsx -t "keeps terminal-state sync-history timestamp details truthful when the same authenticated connection card has an older succeeded row but a newer failed terminal-state row": passed (1 passed | 110 skipped)
-    - npx vitest run src/App.test.tsx: passed (111/111)
-    - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+    - python3 raw-content audit check confirmed `docs/reports/2026-04-18-parity-gap-report.md` still says `Add settings-driven import UX` while `specs/FEATURE_PARITY.md` and `specs/acceptance/generic-local-git.md` already ground the limited settings-driven import and read-only sync-history baseline: passed
     - git diff --check: passed
-    - python3 added-lines security scan for specs/acceptance/generic-local-git.md: passed
+    - python3 added-lines security scan for docs/status/task20q2am59a-generic-local-sync-history-gap-audit.md: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am58b` by grounding the already-landed same-card mixed terminal-state sync-history timestamp-detail older-succeeded/newer-failed baseline in `specs/acceptance/generic-local-git.md` without broader backend/API, retry, or settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: d4fa4bb76c668de6fe4abcd30ab84fb0aced4e97
-  next_task: task20q2am59a
+    spec: passed one independent post-implementation review; reviewer confirmed the audit note stays within `task20q2am59a` scope, truthfully identifies the stale generic/local parity-gap-report claim, and correctly queues exactly one follow-up slice without broader product changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final docs-only audit diff
+  commit: 167de162f037c4c330dae9c69e1af7f0021192e1
+  next_task: task20q2am59b
 current_task:
-  id: task20q2am59a
+  id: task20q2am59b
   parent_task: task20q2am59
-  title: Audit the next smallest generic/local settings-shell sync-history evidence gap after task20q2am58b and queue one concrete follow-up slice
+  title: Tighten the generic/local parity-gap-report row so it stops claiming the already-landed settings-driven import UX is missing
   status: pending
   summary: >-
-    The generic/local acceptance doc now truthfully grounds the same-card mixed
-    terminal-state sync-history timestamp-detail older-succeeded/newer-failed
-    baseline. The next smallest truthful slice is to audit the remaining
-    generic/local settings-shell sync-history evidence/report gaps, identify the
-    next still-ungrounded concrete parity slice, and queue that one follow-up
-    task without expanding into broader backend APIs, retry semantics, or
-    admin/settings navigation.
+    The audit in
+    `docs/status/task20q2am59a-generic-local-sync-history-gap-audit.md`
+    confirmed the smallest remaining evidence/report drift is in
+    `docs/reports/2026-04-18-parity-gap-report.md`, whose generic/local row
+    still lists `Add settings-driven import UX` even though the limited settings
+    shell, local explicit-path import UX, and read-only sync-history baseline
+    are already grounded elsewhere. The next slice should narrow that row's
+    evidence/highest-value-next-gap wording without changing product behavior.
 history:
+  - id: task20q2am59a
+    status: done
+    summary: >-
+      Closed the one-hundred-second split task20q2 settings-shell follow-up slice
+      by grounding the next report-level evidence gap in
+      `docs/status/task20q2am59a-generic-local-sync-history-gap-audit.md`.
+      The audit confirmed `specs/acceptance/generic-local-git.md` and
+      `specs/FEATURE_PARITY.md` already reflect the limited settings-driven local
+      import UX plus read-only sync-history baseline, while
+      `docs/reports/2026-04-18-parity-gap-report.md` still stalely lists `Add
+      settings-driven import UX` as an open gap. The next smallest truthful
+      slice is to tighten that generic/local parity-gap-report row without
+      expanding backend APIs, retry semantics, or broader admin/settings
+      navigation.
+    tests:
+      - python3 raw-content audit check confirmed `docs/reports/2026-04-18-parity-gap-report.md` still says `Add settings-driven import UX` while `specs/FEATURE_PARITY.md` and `specs/acceptance/generic-local-git.md` already ground the limited settings-driven import and read-only sync-history baseline: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for docs/status/task20q2am59a-generic-local-sync-history-gap-audit.md: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the audit note stays within `task20q2am59a` scope, truthfully identifies the stale generic/local parity-gap-report claim, and correctly queues exactly one follow-up slice without broader product changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final docs-only audit diff
+    commit: 167de162f037c4c330dae9c69e1af7f0021192e1
+    next_task: task20q2am59b
   - id: task20q2am58b
     status: done
     summary: >-
