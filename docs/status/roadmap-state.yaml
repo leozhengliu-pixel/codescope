@@ -5,46 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9dfbbecd207cb4b25b6a78e85abae8cb04eb8e63
+  head: 247f2c9cb852269c4687ba889a565ce1c4485858
 last_completed_task:
-  id: task20q2am32
-  title: Add same-card mixed terminal-state sync-history error-detail coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
+  id: task20q2am33
+  title: Add sibling mixed terminal-state latest-sync summary coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
   status: done
   summary: >-
-    Closed the seventy-first split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression, the minimal
-    `web/src/App.tsx` sync-history-only exact-timestamp terminal-state tie-break
-    fix, and matching `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now keeps a single authenticated connection card's
-    mixed failed-versus-succeeded sync-history error details scoped and truthful
-    when the newest tied terminal-state rows also share activity timestamps,
-    reuse the same repository id, and arrive in reverse API order, without
-    changing backend APIs, retry semantics, or broader admin/settings
-    navigation.
+    Closed the seventy-second split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression plus matching
+    `specs/acceptance/generic-local-git.md` grounding so
+    `#/settings/connections` now has explicit coverage proving sibling
+    authenticated connection cards keep their mixed failed-versus-succeeded
+    latest-sync summaries scoped to each card when the newest tied terminal-state
+    rows also share activity timestamps, reuse the same repository id, and
+    arrive in reverse API order across cards, without changing backend APIs,
+    retry semantics, or broader admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps terminal-state sync-history error details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, arrive in reverse API order, and also reuse the same repository id": passed (1 passed | 100 skipped)
-    - npm test -- --run src/App.test.tsx: passed (101/101)
+    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards latest-sync summaries scoped to each card when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 101 skipped)
+    - npm test -- --run src/App.test.tsx: passed (102/102)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` same-card mixed terminal-state sync-history error-detail exact-timestamp reverse-order shared-repository-id coverage slice plus the minimal sync-history-only ordering fix and matching acceptance grounding, with no backend/API, retry, or broader settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff
-  commit: 9dfbbecd207cb4b25b6a78e85abae8cb04eb8e63
-  next_task: task20q2am33
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state latest-sync-summary exact-timestamp reverse-order shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion and no overclaim beyond per-card scoping for this tie case
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+  commit: 247f2c9cb852269c4687ba889a565ce1c4485858
+  next_task: task20q2am34
 current_task:
-  id: task20q2am33
+  id: task20q2am34
   parent_task: task20q2
-  title: Add sibling mixed terminal-state latest-sync summary coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
+  title: Add sibling mixed terminal-state sync-history timestamp-detail coverage when newest tied rows share both activity timestamps and the same repository id in reverse API order
   status: pending
   summary: >-
-    After locking the same-card mixed terminal-state sync-history error-detail
-    exact-timestamp reverse-order shared-repository-id slice, the next smallest
-    unblocked settings-shell follow-up is to cover sibling authenticated
-    connection cards' mixed terminal-state latest-sync summaries when the newest
-    tied rows also share activity timestamps, reuse the same repository id, and
-    arrive in reverse API order, before expanding into unrelated settings
-    behavior.
+    After locking the sibling mixed terminal-state latest-sync-summary scoping
+    slice for the exact-timestamp reverse-order shared-repository-id case, the
+    next smallest unblocked settings-shell follow-up is to cover sibling
+    authenticated connection cards' mixed terminal-state sync-history timestamp
+    details for that same reverse-order shared-repository-id exact-timestamp
+    scenario before expanding into unrelated settings behavior.
 history:
+  - id: task20q2am33
+    status: done
+    summary: >-
+      Closed the seventy-second split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep their mixed failed-versus-succeeded
+      latest-sync summaries scoped to each card when the newest tied terminal-state
+      rows also share activity timestamps, reuse the same repository id, and
+      arrive in reverse API order across cards, without changing backend APIs,
+      retry semantics, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards latest-sync summaries scoped to each card when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 101 skipped)
+      - npm test -- --run src/App.test.tsx: passed (102/102)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling mixed terminal-state latest-sync-summary exact-timestamp reverse-order shared-repository-id coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion and no overclaim beyond per-card scoping for this tie case
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 247f2c9cb852269c4687ba889a565ce1c4485858
+    next_task: task20q2am34
   - id: task20q2am32
     status: done
     summary: >-
