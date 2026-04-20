@@ -2014,13 +2014,13 @@ describe('App', () => {
     expect(gitlabFailedRow).toBeInTheDocument();
     expect(gitlabSucceededRow).toBeInTheDocument();
 
-    expect(within(githubFailedRow!).getByLabelText('Error details for repo-conn-1-failed-newest')).toHaveTextContent('Error: Mirror fetch failed');
-    expect(within(gitlabFailedRow!).getByLabelText('Error details for repo-conn-2-failed-newest')).toHaveTextContent('Error: Mirror fetch failed');
-    expect(within(githubSucceededRow!).queryByLabelText('Error details for repo-conn-1-succeeded-older')).not.toBeInTheDocument();
-    expect(within(gitlabSucceededRow!).queryByLabelText('Error details for repo-conn-2-succeeded-older')).not.toBeInTheDocument();
+    expect(within(githubFailedRow!).getByLabelText('Error details for repo-conn-1-failed-newest (failed)')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(gitlabFailedRow!).getByLabelText('Error details for repo-conn-2-failed-newest (failed)')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(githubSucceededRow!).queryByLabelText('Error details for repo-conn-1-succeeded-older (succeeded)')).not.toBeInTheDocument();
+    expect(within(gitlabSucceededRow!).queryByLabelText('Error details for repo-conn-2-succeeded-older (succeeded)')).not.toBeInTheDocument();
 
-    expect(within(githubFailedRow!).queryByLabelText('Error details for repo-conn-2-failed-newest')).not.toBeInTheDocument();
-    expect(within(gitlabFailedRow!).queryByLabelText('Error details for repo-conn-1-failed-newest')).not.toBeInTheDocument();
+    expect(within(githubFailedRow!).queryByLabelText('Error details for repo-conn-2-failed-newest (failed)')).not.toBeInTheDocument();
+    expect(within(gitlabFailedRow!).queryByLabelText('Error details for repo-conn-1-failed-newest (failed)')).not.toBeInTheDocument();
     expect(within(githubCard!).getAllByText('Error: Mirror fetch failed')).toHaveLength(1);
     expect(within(gitlabCard!).getAllByText('Error: Mirror fetch failed')).toHaveLength(1);
   });
@@ -2099,16 +2099,16 @@ describe('App', () => {
       '#/repos/repo-succeeded-oldest',
     ]);
 
-    const newestFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-newest');
-    const middleFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-middle');
-    const succeededRow = within(githubCard!).getByLabelText('Repository sync history row for repo-succeeded-oldest');
+    const newestFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-newest (failed)');
+    const middleFailedRow = within(githubCard!).getByLabelText('Repository sync history row for repo-failed-middle (failed)');
+    const succeededRow = within(githubCard!).getByLabelText('Repository sync history row for repo-succeeded-oldest (succeeded)');
 
-    expect(within(newestFailedRow).getByLabelText('Error details for repo-failed-newest')).toHaveTextContent('Error: Mirror fetch failed');
-    expect(within(middleFailedRow).getByLabelText('Error details for repo-failed-middle')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(newestFailedRow).getByLabelText('Error details for repo-failed-newest (failed)')).toHaveTextContent('Error: Mirror fetch failed');
+    expect(within(middleFailedRow).getByLabelText('Error details for repo-failed-middle (failed)')).toHaveTextContent('Error: Mirror fetch failed');
     expect(within(succeededRow).queryByText('Error: Mirror fetch failed')).not.toBeInTheDocument();
 
-    expect(within(newestFailedRow).queryByLabelText('Error details for repo-failed-middle')).not.toBeInTheDocument();
-    expect(within(middleFailedRow).queryByLabelText('Error details for repo-failed-newest')).not.toBeInTheDocument();
+    expect(within(newestFailedRow).queryByLabelText('Error details for repo-failed-middle (failed)')).not.toBeInTheDocument();
+    expect(within(middleFailedRow).queryByLabelText('Error details for repo-failed-newest (failed)')).not.toBeInTheDocument();
     expect(within(newestFailedRow).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
     expect(within(middleFailedRow).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
     expect(within(githubCard!).getAllByText('Error: Mirror fetch failed')).toHaveLength(2);
@@ -3372,6 +3372,182 @@ describe('App', () => {
     expect(within(gitlabNewestTerminalRow!).queryByText('Started at: 2026-04-18T11:02:00Z')).not.toBeInTheDocument();
     expect(within(gitlabNewestTerminalRow!).queryByText('Finished at: 2026-04-18T11:06:00Z')).not.toBeInTheDocument();
     expect(within(gitlabNewestTerminalRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
+  });
+
+  it('keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-succeeded-newest-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-failed-newest-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-failed-newest-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: 'GitLab import failed',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-older-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-github-older-shared-repo-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-older-shared-repo-exact-timestamp-reverse-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-error-details',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:02:00Z',
+            finished_at: '2026-04-18T11:06:00Z',
+            error: 'GitLab import failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
+    expect(await screen.findByText('GitLab Mirror')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+      '#/repos/repo-github-older-shared-repo-exact-timestamp-reverse-order-error-details',
+    ]);
+    expect(within(gitlabCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details',
+      '#/repos/repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-error-details',
+    ]);
+
+    const githubNewestSucceededRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (succeeded)',
+    );
+    expect(githubNewestSucceededRow).toBeInTheDocument();
+    expect(within(githubNewestSucceededRow).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(githubNewestSucceededRow).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+    expect(within(githubNewestSucceededRow).queryByText('Error: GitLab import failed')).not.toBeInTheDocument();
+
+    const githubNewestFailedRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (failed)',
+    );
+    expect(githubNewestFailedRow).toBeInTheDocument();
+    expect(within(githubNewestFailedRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (failed)',
+    )).toHaveTextContent('Error: GitHub permissions denied');
+    expect(within(githubNewestFailedRow).queryByText('Error: GitLab import failed')).not.toBeInTheDocument();
+
+    const githubOlderTerminalRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-github-older-shared-repo-exact-timestamp-reverse-order-error-details (succeeded)',
+    );
+    expect(githubOlderTerminalRow).toBeInTheDocument();
+    expect(within(githubOlderTerminalRow).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(githubOlderTerminalRow).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+
+    const gitlabNewestSucceededRow = within(gitlabCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (succeeded)',
+    );
+    expect(gitlabNewestSucceededRow).toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow).queryByText('Error: GitLab import failed')).not.toBeInTheDocument();
+
+    const gitlabNewestFailedRow = within(gitlabCard!).getByLabelText(
+      'Repository sync history row for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (failed)',
+    );
+    expect(gitlabNewestFailedRow).toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow).getByLabelText(
+      'Error details for repo-sibling-shared-newest-exact-timestamp-reverse-order-error-details (failed)',
+    )).toHaveTextContent('Error: GitLab import failed');
+    expect(within(gitlabNewestFailedRow).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
+
+    const gitlabOlderTerminalRow = within(gitlabCard!).getByLabelText(
+      'Repository sync history row for repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-error-details (failed)',
+    );
+    expect(gitlabOlderTerminalRow).toBeInTheDocument();
+    expect(within(gitlabOlderTerminalRow).getByLabelText(
+      'Error details for repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-error-details (failed)',
+    )).toHaveTextContent('Error: GitLab import failed');
+    expect(within(gitlabOlderTerminalRow).queryByText('Error: GitHub permissions denied')).not.toBeInTheDocument();
   });
 
   it('keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id', async () => {

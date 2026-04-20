@@ -1915,7 +1915,7 @@ function SettingsConnectionsPage() {
                       {connectionSyncHistoryJobs.map((syncJob) => (
                         <div
                           key={syncJob.id}
-                          aria-label={`Repository sync history row for ${syncJob.repository_id}`}
+                          aria-label={`Repository sync history row for ${syncJob.repository_id} (${syncJob.status})`}
                           style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
                         >
                           <div>Repository id: {syncJob.repository_id}</div>
@@ -1933,7 +1933,7 @@ function SettingsConnectionsPage() {
                           >
                             Open repository detail
                           </a>
-                          {syncJob.error ? <div aria-label={`Error details for ${syncJob.repository_id}`}>Error: {syncJob.error}</div> : null}
+                          {syncJob.error ? <div aria-label={`Error details for ${syncJob.repository_id} (${syncJob.status})`}>Error: {syncJob.error}</div> : null}
                         </div>
                       ))}
                     </div>
