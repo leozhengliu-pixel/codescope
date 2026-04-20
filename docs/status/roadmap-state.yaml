@@ -5,44 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 32efbec8da702adcd58ba370f271d8cbb712c94f
+  head: 37c1ea4a59a538a8f79585894c93079bdbb6d888
 last_completed_task:
-  id: task20q2ag
-  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where one card's newest row fails after older succeeded history while another card's newest row succeeds after older failed history
+  id: task20q2ah
+  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where opposite mixed histories share the same newest queued_at timestamp across cards
   status: done
   summary: >-
-    Closed the thirty-third split task20q2 settings-shell follow-up slice by
-    tightening one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the thirty-fourth split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving sibling
     authenticated connection cards keep each latest-sync summary truthful when
-    opposite mixed terminal-state history orderings appear at the same time,
-    even when both cards reuse the same repository id, without changing backend
-    APIs, sync-job semantics, retries, or broader admin/settings navigation.
+    opposite mixed terminal-state history orderings share the same newest
+    `queued_at` timestamp across cards, without changing backend APIs,
+    sync-job semantics, retries, or broader admin/settings navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "opposite mixed terminal-state histories": passed (1 passed | 65 skipped)
-    - npx vitest run src/App.test.tsx: passed (66/66)
+    - npx vitest run src/App.test.tsx -t "share the same newest queued_at timestamp across cards": passed (1 passed | 66 skipped)
+    - npx vitest run src/App.test.tsx: passed (67/67)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ag diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ah diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding for the same-newest-`queued_at` cross-card case, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 32efbec8da702adcd58ba370f271d8cbb712c94f
-  next_task: task20q2ah
+  commit: 37c1ea4a59a538a8f79585894c93079bdbb6d888
+  next_task: task20q2ai
 current_task:
-  id: task20q2ah
+  id: task20q2ai
   parent_task: task20q2
-  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where opposite mixed histories share the same newest queued_at timestamp across cards
+  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where opposite mixed histories share the same newest queued_at timestamp across cards and arrive in reverse API order
   status: pending
   summary: >-
     The settings shell now has explicit sibling latest-sync summary coverage for
-    opposite mixed terminal-state history orderings even when both cards reuse
-    the same repository id, so the next smallest unblocked follow-up is to add
-    one focused sibling-card regression proving each latest-sync summary remains
-    scoped and truthful when those opposite mixed orderings also share the same
-    newest `queued_at` timestamp across cards, without changing backend APIs,
-    sync-job semantics, retries, or broader admin/settings navigation.
+    opposite mixed terminal-state history orderings that share the same newest
+    `queued_at` timestamp across cards, so the next smallest unblocked follow-up
+    is to add one focused sibling-card regression proving those same-timestamp
+    latest-sync summaries remain scoped and truthful even when the API returns
+    the tied newest rows in reverse cross-card order, without changing backend
+    APIs, sync-job semantics, retries, or broader admin/settings navigation.
 history:
+  - id: task20q2ah
+    status: done
+    summary: >-
+      Closed the thirty-fourth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep each latest-sync summary truthful when
+      opposite mixed terminal-state history orderings share the same newest
+      `queued_at` timestamp across cards, without changing backend APIs,
+      sync-job semantics, retries, or broader admin/settings navigation.
+    tests:
+      - npx vitest run src/App.test.tsx -t "share the same newest queued_at timestamp across cards": passed (1 passed | 66 skipped)
+      - npx vitest run src/App.test.tsx: passed (67/67)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ah diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding for the same-newest-`queued_at` cross-card case, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 37c1ea4a59a538a8f79585894c93079bdbb6d888
+    next_task: task20q2ai
   - id: task20q2ag
     status: done
     summary: >-
