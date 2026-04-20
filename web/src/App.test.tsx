@@ -2178,6 +2178,111 @@ describe('App', () => {
     expect(latestSyncSummary).not.toHaveTextContent('repo-failed-older · 2026-04-18T12:00:00Z');
   });
 
+  it('keeps each sibling authenticated connection card latest-sync summary truthful to its own newest failed row when terminal error strings match', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-failed-older',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed-older',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-conn-2-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-newest',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T13:30:00Z',
+            started_at: '2026-04-18T13:31:00Z',
+            finished_at: '2026-04-18T13:35:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-conn-1-failed-newest',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-1-failed-newest',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-conn-2-failed-older',
+            organization_id: 'org-1',
+            repository_id: 'repo-conn-2-failed-older',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:02:00Z',
+            finished_at: '2026-04-18T11:06:00Z',
+            error: 'Mirror fetch failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubLatestSyncSummary = within(githubCard!).getByLabelText('Latest sync summary for GitHub Cloud');
+    expect(githubLatestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(githubLatestSyncSummary).toHaveTextContent('failed');
+    expect(githubLatestSyncSummary).toHaveTextContent('repo-conn-1-failed-newest · 2026-04-18T13:00:00Z');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-conn-1-failed-older · 2026-04-18T12:00:00Z');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-conn-2-failed-newest · 2026-04-18T13:30:00Z');
+
+    const gitlabLatestSyncSummary = within(gitlabCard!).getByLabelText('Latest sync summary for GitLab Mirror');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('failed');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('repo-conn-2-failed-newest · 2026-04-18T13:30:00Z');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-conn-2-failed-older · 2026-04-18T11:00:00Z');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-conn-1-failed-newest · 2026-04-18T13:00:00Z');
+  });
+
   it('renders queued and running sync-history rows with the shared status badge presentation on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
