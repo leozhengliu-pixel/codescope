@@ -4960,6 +4960,77 @@ describe('App', () => {
     expect(latestSyncSummary).not.toHaveTextContent('repo-failed-older · 2026-04-18T12:00:00Z');
   });
 
+  it('keeps terminal-state sync-history error details truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-failed-older-error-details-baseline',
+            organization_id: 'org-1',
+            repository_id: 'repo-failed-older-error-details-baseline',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-succeeded-newest-error-details-baseline',
+            organization_id: 'org-1',
+            repository_id: 'repo-succeeded-newest-error-details-baseline',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    const newestSucceededRow = within(githubCard!).getByRole('link', {
+      name: 'Open repository detail for repo-succeeded-newest-error-details-baseline',
+    }).closest('div');
+    expect(newestSucceededRow).toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText(/Error:/)).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Error: Mirror fetch failed')).not.toBeInTheDocument();
+
+    const olderFailedRow = within(githubCard!).getByRole('link', {
+      name: 'Open repository detail for repo-failed-older-error-details-baseline',
+    }).closest('div');
+    expect(olderFailedRow).toBeInTheDocument();
+    expect(within(olderFailedRow!).getByText('Error: Mirror fetch failed')).toBeInTheDocument();
+  });
+
   it('keeps the latest-sync summary truthful when the same authenticated connection card has an older succeeded row but a newer failed terminal-state row', async () => {
     window.location.hash = '#/settings/connections';
 
