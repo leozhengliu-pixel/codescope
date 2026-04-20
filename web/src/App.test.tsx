@@ -3818,6 +3818,97 @@ describe('App', () => {
     expect(within(oldestRunningRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
   });
 
+  it('keeps queued-running sync-history timestamp details deterministic and truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card and arrive in reverse API order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-queued-newest-identical-activity-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-queued-newest-identical-activity-reverse-order-details',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-running-newest-identical-activity-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-newest-identical-activity-reverse-order-details',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-running-older-identical-activity-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-older-identical-activity-details',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:05:00Z',
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-running-newest-identical-activity-reverse-order-details',
+      '#/repos/repo-queued-newest-identical-activity-reverse-order-details',
+      '#/repos/repo-running-older-identical-activity-details',
+    ]);
+
+    const runningNewestRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-running-newest-identical-activity-reverse-order-details' }).closest('div');
+    expect(runningNewestRow).toBeInTheDocument();
+    expect(within(runningNewestRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(runningNewestRow!).getByText('Started at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(runningNewestRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(runningNewestRow!).queryByText('Started at: Not started')).not.toBeInTheDocument();
+    expect(within(runningNewestRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+
+    const queuedNewestRow = within(githubCard!).getByRole('link', { name: 'Open repository detail for repo-queued-newest-identical-activity-reverse-order-details' }).closest('div');
+    expect(queuedNewestRow).toBeInTheDocument();
+    expect(within(queuedNewestRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(queuedNewestRow!).getByText('Started at: Not started')).toBeInTheDocument();
+    expect(within(queuedNewestRow!).getByText('Finished at: Not finished')).toBeInTheDocument();
+    expect(within(queuedNewestRow!).queryByText('Started at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(queuedNewestRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+  });
+
   it('keeps queued and running sync-history rows scoped to their owning connection cards on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
