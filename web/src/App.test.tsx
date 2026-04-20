@@ -3790,6 +3790,111 @@ describe('App', () => {
     expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-github-running-newest-identical-activity-reverse-order · 2026-04-18T13:00:00Z');
   });
 
+  it('keeps sibling authenticated connection cards latest-sync summaries truthful when queued and running rows tie on both newest queued_at and activity timestamps, arrive in reverse API order, and also reuse the same repository id', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-queued-older-shared-repo-identical-activity-reverse-order-across-cards',
+            organization_id: 'org-1',
+            repository_id: 'repo-github-queued-older-shared-repo-identical-activity-reverse-order',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-2-running-older-shared-repo-identical-activity-reverse-order-across-cards',
+            organization_id: 'org-1',
+            repository_id: 'repo-gitlab-running-older-shared-repo-identical-activity-reverse-order',
+            connection_id: 'conn-2',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:05:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-1-running-newest-shared-repo-identical-activity-reverse-order-across-cards',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-reverse-order',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: null,
+          },
+          {
+            id: 'job-conn-2-queued-newest-shared-repo-identical-activity-reverse-order-across-cards',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-identical-activity-reverse-order',
+            connection_id: 'conn-2',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    const githubLatestSyncSummary = within(githubCard!).getByLabelText('Latest sync summary for GitHub Cloud');
+    expect(githubLatestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(githubLatestSyncSummary).toHaveTextContent('running');
+    expect(githubLatestSyncSummary).toHaveTextContent('repo-sibling-shared-newest-identical-activity-reverse-order · 2026-04-18T13:00:00Z');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('queued');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-github-queued-older-shared-repo-identical-activity-reverse-order · 2026-04-18T12:00:00Z');
+
+    const gitlabLatestSyncSummary = within(gitlabCard!).getByLabelText('Latest sync summary for GitLab Mirror');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('Latest sync:');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('queued');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('repo-sibling-shared-newest-identical-activity-reverse-order · 2026-04-18T13:00:00Z');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('running');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-gitlab-running-older-shared-repo-identical-activity-reverse-order · 2026-04-18T12:00:00Z');
+  });
+
   it('keeps multiple queued and running sync-history timestamp details truthful and newest-first on the same authenticated connection card', async () => {
     window.location.hash = '#/settings/connections';
 
