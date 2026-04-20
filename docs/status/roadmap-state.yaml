@@ -5,45 +5,68 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 331bbb49cbb71296dfbf5d6bd7151e544c05cf55
+  head: 3169d81408d3d744d77f95f1f4a9fbcda71b09c8
 last_completed_task:
-  id: task20q2am42
-  title: Add sibling queued/running sync-history error-detail coverage for the exact-timestamp newest-first shared-repository-id case
+  id: task20q2am43
+  title: Add same-card queued/running sync-history error-detail coverage for the exact-timestamp reverse-order shared-repository-id case
   status: done
   summary: >-
-    Closed the eighty-first split task20q2 settings-shell follow-up slice by
+    Closed the eighty-second split task20q2 settings-shell follow-up slice by
     adding one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep queued/running sync-history error
-    details scoped and truthful when rows share both newest `queued_at` and
-    activity timestamps, already arrive newest-first, and also reuse the same
-    repository id, without changing backend APIs, retry semantics, or broader
+    `#/settings/connections` now has explicit coverage proving one authenticated
+    connection card keeps same-card queued/running sync-history error details
+    scoped and truthful when rows share both newest `queued_at` and activity
+    timestamps, arrive in reverse API order, and also reuse the same repository
+    id, without changing backend APIs, retry semantics, or broader
     admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "queued-running sync-history error details truthful when rows share both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 104 skipped)
-    - npm test -- --run src/App.test.tsx: passed (105/105)
+    - npm test -- --run src/App.test.tsx -t "keeps queued-running sync-history error details truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card, arrive in reverse API order, and also reuse the same repository id": passed (1 passed | 105 skipped)
+    - npm test -- --run src/App.test.tsx: passed (106/106)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - python3 raw-content evidence check for sibling queued/running sync-history error-detail acceptance wording: passed
+    - python3 raw-content evidence check for same-card queued/running sync-history error-detail acceptance wording: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff stays limited to one `#/settings/connections` sibling queued/running sync-history error-detail newest-first shared-repository-id exact-timestamp coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the diff stays limited to one `#/settings/connections` same-card queued/running sync-history error-detail reverse-order shared-repository-id exact-timestamp coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 331bbb49cbb71296dfbf5d6bd7151e544c05cf55
-  next_task: task20q2am43
+  commit: 3169d81408d3d744d77f95f1f4a9fbcda71b09c8
+  next_task: task20q2am44
 current_task:
-  id: task20q2am43
+  id: task20q2am44
   parent_task: task20q2
-  title: Add same-card queued/running sync-history error-detail coverage for the exact-timestamp reverse-order shared-repository-id case
+  title: Add same-card queued/running sync-history error-detail coverage for the exact-timestamp newest-first shared-repository-id case
   status: pending
   summary: >-
-    With sibling queued/running sync-history error-detail coverage now explicit
-    for the newest-first shared-repository-id exact-timestamp case, the next
+    With same-card queued/running sync-history error-detail coverage now explicit
+    for the reverse-order shared-repository-id exact-timestamp case, the next
     smallest unblocked settings-shell follow-up is to add the matching same-card
-    queued/running sync-history error-detail reverse-order shared-repository-id
+    queued/running sync-history error-detail newest-first shared-repository-id
     exact-timestamp coverage and acceptance grounding before widening into
     broader settings or sync-runtime behavior.
 history:
+  - id: task20q2am43
+    status: done
+    summary: >-
+      Closed the eighty-second split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving one authenticated
+      connection card keeps same-card queued/running sync-history error details
+      scoped and truthful when rows share both newest `queued_at` and activity
+      timestamps, arrive in reverse API order, and also reuse the same repository
+      id, without changing backend APIs, retry semantics, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps queued-running sync-history error details truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card, arrive in reverse API order, and also reuse the same repository id": passed (1 passed | 105 skipped)
+      - npm test -- --run src/App.test.tsx: passed (106/106)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - python3 raw-content evidence check for same-card queued/running sync-history error-detail acceptance wording: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff stays limited to one `#/settings/connections` same-card queued/running sync-history error-detail reverse-order shared-repository-id exact-timestamp coverage slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 3169d81408d3d744d77f95f1f4a9fbcda71b09c8
+    next_task: task20q2am44
   - id: task20q2am42
     status: done
     summary: >-
