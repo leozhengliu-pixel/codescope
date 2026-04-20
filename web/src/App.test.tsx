@@ -2283,7 +2283,7 @@ describe('App', () => {
     expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-conn-1-failed-newest · 2026-04-18T13:00:00Z');
   });
 
-  it('keeps sibling authenticated connection cards latest-sync summaries truthful when their newest terminal-state rows have mixed statuses', async () => {
+  it('keeps sibling authenticated connection cards latest-sync summaries truthful when opposite mixed terminal-state histories end in failed-vs-succeeded newest rows', async () => {
     window.location.hash = '#/settings/connections';
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -2317,7 +2317,7 @@ describe('App', () => {
           {
             id: 'job-conn-1-succeeded-older',
             organization_id: 'org-1',
-            repository_id: 'repo-conn-1-succeeded-older',
+            repository_id: 'repo-shared-history',
             connection_id: 'conn-1',
             status: 'succeeded',
             queued_at: '2026-04-18T12:00:00Z',
@@ -2328,7 +2328,7 @@ describe('App', () => {
           {
             id: 'job-conn-2-failed-older',
             organization_id: 'org-1',
-            repository_id: 'repo-conn-2-failed-older',
+            repository_id: 'repo-shared-history',
             connection_id: 'conn-2',
             status: 'failed',
             queued_at: '2026-04-18T11:00:00Z',
@@ -2339,7 +2339,7 @@ describe('App', () => {
           {
             id: 'job-conn-1-failed-newest',
             organization_id: 'org-1',
-            repository_id: 'repo-conn-1-failed-newest',
+            repository_id: 'repo-shared-history',
             connection_id: 'conn-1',
             status: 'failed',
             queued_at: '2026-04-18T13:00:00Z',
@@ -2350,7 +2350,7 @@ describe('App', () => {
           {
             id: 'job-conn-2-succeeded-newest',
             organization_id: 'org-1',
-            repository_id: 'repo-conn-2-succeeded-newest',
+            repository_id: 'repo-shared-history',
             connection_id: 'conn-2',
             status: 'succeeded',
             queued_at: '2026-04-18T13:30:00Z',
@@ -2376,16 +2376,18 @@ describe('App', () => {
     const githubLatestSyncSummary = within(githubCard!).getByLabelText('Latest sync summary for GitHub Cloud');
     expect(githubLatestSyncSummary).toHaveTextContent('Latest sync:');
     expect(githubLatestSyncSummary).toHaveTextContent('failed');
-    expect(githubLatestSyncSummary).toHaveTextContent('repo-conn-1-failed-newest · 2026-04-18T13:00:00Z');
-    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-conn-1-succeeded-older · 2026-04-18T12:00:00Z');
-    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-conn-2-succeeded-newest · 2026-04-18T13:30:00Z');
+    expect(githubLatestSyncSummary).toHaveTextContent('repo-shared-history · 2026-04-18T13:00:00Z');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('succeeded');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-shared-history · 2026-04-18T12:00:00Z');
+    expect(githubLatestSyncSummary).not.toHaveTextContent('repo-shared-history · 2026-04-18T13:30:00Z');
 
     const gitlabLatestSyncSummary = within(gitlabCard!).getByLabelText('Latest sync summary for GitLab Mirror');
     expect(gitlabLatestSyncSummary).toHaveTextContent('Latest sync:');
     expect(gitlabLatestSyncSummary).toHaveTextContent('succeeded');
-    expect(gitlabLatestSyncSummary).toHaveTextContent('repo-conn-2-succeeded-newest · 2026-04-18T13:30:00Z');
-    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-conn-2-failed-older · 2026-04-18T11:00:00Z');
-    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-conn-1-failed-newest · 2026-04-18T13:00:00Z');
+    expect(gitlabLatestSyncSummary).toHaveTextContent('repo-shared-history · 2026-04-18T13:30:00Z');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('failed');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-shared-history · 2026-04-18T11:00:00Z');
+    expect(gitlabLatestSyncSummary).not.toHaveTextContent('repo-shared-history · 2026-04-18T13:00:00Z');
   });
 
   it('keeps the latest-sync summary truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row', async () => {
