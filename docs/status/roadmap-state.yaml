@@ -5,46 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 923f80eba6b63b601f95cda702aad16a9b7ecf74
+  head: ee3cdfae7a8329bb959fe00f1f18b8956d59baaa
 last_completed_task:
-  id: task20q2am39
-  title: Make sibling mixed terminal-state sync-history error-detail evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
+  id: task20q2am40
+  title: Make sibling queued/running latest-sync summary evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
   status: done
   summary: >-
-    Closed the seventy-eighth split task20q2 settings-shell follow-up slice by
+    Closed the seventy-ninth split task20q2 settings-shell follow-up slice by
     keeping the existing exact-timestamp newest-first shared-repository-id
-    sibling mixed terminal-state sync-history error-detail behavior and focused
+    sibling queued/running latest-sync summary behavior and focused
     `web/src/App.test.tsx` regression unchanged, and tightening
     `specs/acceptance/generic-local-git.md` so the shipped evidence now states
-    this newest-first shared-repository-id sync-history error-detail case
-    explicitly alongside the already-grounded reverse-order case without
-    expanding backend APIs, retry semantics, or broader admin/settings
-    navigation.
+    this newest-first shared-repository-id sibling queued/running latest-sync
+    summary case explicitly alongside the already-grounded reverse-order case
+    without expanding backend APIs, retry semantics, or broader
+    admin/settings navigation.
   tests:
-    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
+    - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards latest-sync summaries truthful when queued and running rows tie on both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
     - npm test -- --run src/App.test.tsx: passed (104/104)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - python3 raw-content evidence check for newest-first sibling sync-history error-detail acceptance wording: passed
+    - python3 raw-content evidence check for newest-first sibling queued/running latest-sync acceptance wording: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff explicitly grounds the sibling mixed terminal-state sync-history error-detail newest-first exact-timestamp shared-repository-id case and stays within the smallest docs/evidence-only closure for task20q2am39, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the diff explicitly grounds the sibling queued/running latest-sync-summary newest-first exact-timestamp shared-repository-id case and stays within the smallest docs/evidence-only closure for task20q2am40, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: 923f80eba6b63b601f95cda702aad16a9b7ecf74
-  next_task: task20q2am40
+  commit: ee3cdfae7a8329bb959fe00f1f18b8956d59baaa
+  next_task: task20q2am41
 current_task:
-  id: task20q2am40
+  id: task20q2am41
   parent_task: task20q2
-  title: Make sibling queued/running latest-sync summary evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
+  title: Make sibling queued/running sync-history timestamp-detail evidence equally explicit for the exact-timestamp newest-first shared-repository-id case
   status: pending
   summary: >-
-    With the sibling mixed terminal-state exact-timestamp shared-repository-id
-    latest-sync, sync-history timestamp-detail, and sync-history error-detail
-    cases now grounded explicitly for both reverse-order and newest-first input
-    orderings, the next smallest unblocked settings-shell follow-up is to make
-    the matching sibling queued/running latest-sync-summary newest-first
-    shared-repository-id exact-timestamp case equally explicit before widening
-    into broader settings or sync-runtime behavior.
+    With the sibling queued/running exact-timestamp shared-repository-id
+    latest-sync summary case now grounded explicitly for both reverse-order and
+    newest-first input orderings, the next smallest unblocked settings-shell
+    follow-up is to make the matching sibling queued/running sync-history
+    timestamp-detail newest-first shared-repository-id exact-timestamp case
+    equally explicit before widening into broader settings or sync-runtime
+    behavior.
 history:
+  - id: task20q2am40
+    status: done
+    summary: >-
+      Closed the seventy-ninth split task20q2 settings-shell follow-up slice by
+      keeping the existing exact-timestamp newest-first shared-repository-id
+      sibling queued/running latest-sync summary behavior and focused
+      `web/src/App.test.tsx` regression unchanged, and tightening
+      `specs/acceptance/generic-local-git.md` so the shipped evidence now states
+      this newest-first shared-repository-id sibling queued/running latest-sync
+      summary case explicitly alongside the already-grounded reverse-order case
+      without expanding backend APIs, retry semantics, or broader
+      admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "keeps sibling authenticated connection cards latest-sync summaries truthful when queued and running rows tie on both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 103 skipped)
+      - npm test -- --run src/App.test.tsx: passed (104/104)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - python3 raw-content evidence check for newest-first sibling queued/running latest-sync acceptance wording: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the diff explicitly grounds the sibling queued/running latest-sync-summary newest-first exact-timestamp shared-repository-id case and stays within the smallest docs/evidence-only closure for task20q2am40, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
+    commit: ee3cdfae7a8329bb959fe00f1f18b8956d59baaa
+    next_task: task20q2am41
   - id: task20q2am39
     status: done
     summary: >-
