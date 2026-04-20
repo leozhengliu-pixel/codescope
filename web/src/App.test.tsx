@@ -3618,6 +3618,116 @@ describe('App', () => {
     expect(within(olderFailedRow!).queryByText('Finished at: 2026-04-18T13:06:00Z')).not.toBeInTheDocument();
   });
 
+
+  it('keeps terminal-state sync-history timestamp details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing both newest queued_at and activity timestamps, already arrive newest-first, and also reuse the same repository id', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-succeeded-newest-shared-repo-exact-timestamp-stable-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-newest-exact-timestamp-stable-order-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: null,
+          },
+          {
+            id: 'job-failed-newest-shared-repo-exact-timestamp-stable-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-newest-exact-timestamp-stable-order-details',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:01:00Z',
+            finished_at: '2026-04-18T13:05:00Z',
+            error: 'Mirror fetch failed',
+          },
+          {
+            id: 'job-failed-older-shared-repo-exact-timestamp-stable-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-shared-older-exact-timestamp-stable-order-details',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: 'Older mirror fetch failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-shared-newest-exact-timestamp-stable-order-details',
+      '#/repos/repo-shared-newest-exact-timestamp-stable-order-details',
+      '#/repos/repo-shared-older-exact-timestamp-stable-order-details',
+    ]);
+
+    const terminalRows = within(githubCard!).getAllByRole('link', {
+      name: 'Open repository detail for repo-shared-newest-exact-timestamp-stable-order-details',
+    });
+    expect(terminalRows).toHaveLength(2);
+
+    const newestSucceededRow = terminalRows[0].closest('div');
+    expect(newestSucceededRow).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).getByText('Finished at: 2026-04-18T13:05:00Z')).toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(newestSucceededRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+
+    const newestFailedRow = terminalRows[1].closest('div');
+    expect(newestFailedRow).toBeInTheDocument();
+    expect(within(newestFailedRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(newestFailedRow!).getByText('Started at: 2026-04-18T13:01:00Z')).toBeInTheDocument();
+    expect(within(newestFailedRow!).getByText('Finished at: 2026-04-18T13:05:00Z')).toBeInTheDocument();
+    expect(within(newestFailedRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(newestFailedRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(newestFailedRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+
+    const olderFailedRow = within(githubCard!).getByRole('link', {
+      name: 'Open repository detail for repo-shared-older-exact-timestamp-stable-order-details',
+    }).closest('div');
+    expect(olderFailedRow).toBeInTheDocument();
+    expect(within(olderFailedRow!).getByText('Queued at: 2026-04-18T12:00:00Z')).toBeInTheDocument();
+    expect(within(olderFailedRow!).getByText('Started at: 2026-04-18T12:02:00Z')).toBeInTheDocument();
+    expect(within(olderFailedRow!).getByText('Finished at: 2026-04-18T12:06:00Z')).toBeInTheDocument();
+    expect(within(olderFailedRow!).queryByText('Queued at: 2026-04-18T13:00:00Z')).not.toBeInTheDocument();
+    expect(within(olderFailedRow!).queryByText('Started at: 2026-04-18T13:01:00Z')).not.toBeInTheDocument();
+    expect(within(olderFailedRow!).queryByText('Finished at: 2026-04-18T13:05:00Z')).not.toBeInTheDocument();
+  });
+
   it('keeps terminal-state sync-history error details truthful when the same authenticated connection card has opposite mixed terminal-state rows sharing the same newest queued_at timestamp, already arrive newest-first, and also reuse the same repository id', async () => {
     window.location.hash = '#/settings/connections';
 
