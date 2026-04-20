@@ -1247,6 +1247,16 @@ function repositorySyncJobInProgressPriority(status: RepositorySyncJobStatus) {
   return 0;
 }
 
+function repositorySyncJobTerminalPriority(status: RepositorySyncJobStatus) {
+  if (status === 'succeeded') {
+    return 2;
+  }
+  if (status === 'failed') {
+    return 1;
+  }
+  return 0;
+}
+
 function compareRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
   const queuedAtDifference = Date.parse(right.queued_at) - Date.parse(left.queued_at);
   if (queuedAtDifference !== 0) {
@@ -1259,6 +1269,15 @@ function compareRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyn
   }
 
   return repositorySyncJobInProgressPriority(right.status) - repositorySyncJobInProgressPriority(left.status);
+}
+
+function compareRepositorySyncHistoryJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
+  const baseComparison = compareRepositorySyncJobs(left, right);
+  if (baseComparison !== 0) {
+    return baseComparison;
+  }
+
+  return repositorySyncJobTerminalPriority(right.status) - repositorySyncJobTerminalPriority(left.status);
 }
 
 function compareLatestRepositorySyncJobs(left: RepositorySyncJob, right: RepositorySyncJob) {
@@ -1274,10 +1293,13 @@ function repositorySyncJobsByConnectionId(syncJobs: RepositorySyncJob[]) {
   return syncJobs.reduce<Map<string, RepositorySyncJob[]>>((jobsByConnectionId, syncJob) => {
     const existingJobs = jobsByConnectionId.get(syncJob.connection_id) ?? [];
     existingJobs.push(syncJob);
-    existingJobs.sort(compareRepositorySyncJobs);
     jobsByConnectionId.set(syncJob.connection_id, existingJobs);
     return jobsByConnectionId;
   }, new Map<string, RepositorySyncJob[]>());
+}
+
+function sortedRepositorySyncHistoryJobs(syncJobs: RepositorySyncJob[]) {
+  return [...syncJobs].sort(compareRepositorySyncHistoryJobs);
 }
 
 function latestRepositorySyncJob(syncJobs: RepositorySyncJob[]) {
@@ -1672,6 +1694,7 @@ function SettingsConnectionsPage() {
             const isEditing = editingConnection?.connectionId === connection.id;
             const isUpdating = updatingConnectionId === connection.id;
             const connectionSyncJobs = syncJobsByConnectionId.get(connection.id) ?? [];
+            const connectionSyncHistoryJobs = sortedRepositorySyncHistoryJobs(connectionSyncJobs);
             const latestConnectionSyncJob = latestRepositorySyncJob(connectionSyncJobs);
             const localImportState = connection.kind === 'local' ? localImportStates[connection.id] ?? initialLocalImportState(connection) : null;
             const localImportRootPath = connection.kind === 'local' ? localConnectionRepoPath(connection) : '';
@@ -1884,12 +1907,12 @@ function SettingsConnectionsPage() {
                       </span>
                     </div>
                   ) : null}
-                  {!syncJobsError && !syncJobsLoading && connectionSyncJobs.length === 0 ? (
+                  {!syncJobsError && !syncJobsLoading && connectionSyncHistoryJobs.length === 0 ? (
                     <div style={{ color: '#57606a', fontSize: 14 }}>No repository sync jobs found for this connection.</div>
                   ) : null}
-                  {!syncJobsError && connectionSyncJobs.length > 0 ? (
+                  {!syncJobsError && connectionSyncHistoryJobs.length > 0 ? (
                     <div style={{ display: 'grid', gap: 8 }}>
-                      {connectionSyncJobs.map((syncJob) => (
+                      {connectionSyncHistoryJobs.map((syncJob) => (
                         <div
                           key={syncJob.id}
                           aria-label={`Repository sync history row for ${syncJob.repository_id}`}
