@@ -5,65 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2aa7c36f72968138820e3a123851fd3098930fa0
+  head: 32efbec8da702adcd58ba370f271d8cbb712c94f
 last_completed_task:
-  id: task20q2af
-  title: Add focused latest-sync summary truthfulness coverage for same-card mixed terminal-state sync-history rows when the newest row fails after older succeeded history
+  id: task20q2ag
+  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where one card's newest row fails after older succeeded history while another card's newest row succeeds after older failed history
   status: done
   summary: >-
-    Closed the thirty-second split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the thirty-third split task20q2 settings-shell follow-up slice by
+    tightening one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving a single
-    authenticated connection card keeps its latest-sync summary truthful when an
-    older succeeded terminal-state row is followed by a newer failed terminal-
-    state row, without changing backend APIs, sync-job semantics, retries, or
-    broader admin/settings navigation.
+    `#/settings/connections` now has explicit coverage proving sibling
+    authenticated connection cards keep each latest-sync summary truthful when
+    opposite mixed terminal-state history orderings appear at the same time,
+    even when both cards reuse the same repository id, without changing backend
+    APIs, sync-job semantics, retries, or broader admin/settings navigation.
   tests:
-    - npx vitest run src/App.test.tsx -t "older succeeded row but a newer failed terminal-state row": passed (1 passed | 65 skipped)
+    - npx vitest run src/App.test.tsx -t "opposite mixed terminal-state histories": passed (1 passed | 65 skipped)
     - npx vitest run src/App.test.tsx: passed (66/66)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2af diff stays limited to one `#/settings/connections` same-card mixed terminal-state latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ag diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 2aa7c36f72968138820e3a123851fd3098930fa0
-  next_task: task20q2ag
+  commit: 32efbec8da702adcd58ba370f271d8cbb712c94f
+  next_task: task20q2ah
 current_task:
-  id: task20q2ag
+  id: task20q2ah
   parent_task: task20q2
-  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where one card's newest row fails after older succeeded history while another card's newest row succeeds after older failed history
+  title: Add focused latest-sync summary truthfulness coverage for sibling mixed terminal-state sync-history rows where opposite mixed histories share the same newest queued_at timestamp across cards
   status: pending
   summary: >-
-    The settings shell now has explicit same-card mixed terminal-state latest-
-    sync summary coverage for both newest-succeeded and newest-failed history
-    orderings, so the next smallest unblocked follow-up is to add one focused
-    sibling-card regression proving each authenticated connection card keeps its
-    own latest-sync summary truthful when those opposite mixed terminal-state
-    history orderings appear at the same time, without changing backend APIs,
+    The settings shell now has explicit sibling latest-sync summary coverage for
+    opposite mixed terminal-state history orderings even when both cards reuse
+    the same repository id, so the next smallest unblocked follow-up is to add
+    one focused sibling-card regression proving each latest-sync summary remains
+    scoped and truthful when those opposite mixed orderings also share the same
+    newest `queued_at` timestamp across cards, without changing backend APIs,
     sync-job semantics, retries, or broader admin/settings navigation.
 history:
-  - id: task20q2af
+  - id: task20q2ag
     status: done
     summary: >-
-      Closed the thirty-second split task20q2 settings-shell follow-up slice by
-      adding one focused `web/src/App.test.tsx` regression plus the matching
+      Closed the thirty-third split task20q2 settings-shell follow-up slice by
+      tightening one focused `web/src/App.test.tsx` regression plus the matching
       `specs/acceptance/generic-local-git.md` grounding so
-      `#/settings/connections` now has explicit coverage proving a single
-      authenticated connection card keeps its latest-sync summary truthful when
-      an older succeeded terminal-state row is followed by a newer failed
-      terminal-state row, without changing backend APIs, sync-job semantics,
-      retries, or broader admin/settings navigation.
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep each latest-sync summary truthful when
+      opposite mixed terminal-state history orderings appear at the same time,
+      even when both cards reuse the same repository id, without changing
+      backend APIs, sync-job semantics, retries, or broader admin/settings
+      navigation.
     tests:
-      - npx vitest run src/App.test.tsx -t "older succeeded row but a newer failed terminal-state row": passed (1 passed | 65 skipped)
+      - npx vitest run src/App.test.tsx -t "opposite mixed terminal-state histories": passed (1 passed | 65 skipped)
       - npx vitest run src/App.test.tsx: passed (66/66)
       - npm run build: passed
       - git diff --check: passed
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2af diff stays limited to one `#/settings/connections` same-card mixed terminal-state latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
+      spec: passed one independent post-implementation review; reviewer confirmed the live task20q2ag diff stays limited to one `#/settings/connections` sibling opposite-history latest-sync summary coverage slice plus matching acceptance-doc grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
       code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-    commit: 2aa7c36f72968138820e3a123851fd3098930fa0
-    next_task: task20q2ag
+    commit: 32efbec8da702adcd58ba370f271d8cbb712c94f
+    next_task: task20q2ah
   - id: task20q2ae
     status: done
     summary: >-
