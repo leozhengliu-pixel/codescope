@@ -6503,6 +6503,111 @@ describe('App', () => {
     expect(within(olderRunningRow).queryByText('Error: GitHub queue waiting for mirror slot')).not.toBeInTheDocument();
   });
 
+  it('keeps queued-running sync-history error details truthful when rows share both newest queued_at and activity timestamps on the same authenticated connection card, already arrive newest-first, and also reuse the same repository id', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-running-newest-identical-activity-shared-repo-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-same-card-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:00:00Z',
+            finished_at: null,
+            error: 'GitHub fetch still cloning',
+          },
+          {
+            id: 'job-queued-newest-identical-activity-shared-repo-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-same-card-shared-newest-identical-activity-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'queued',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: 'GitHub queue waiting for mirror slot',
+          },
+          {
+            id: 'job-running-older-identical-activity-shared-repo-stable-order-error-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-running-older-identical-activity-shared-repo-stable-order-error-details',
+            connection_id: 'conn-1',
+            status: 'running',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:05:00Z',
+            finished_at: null,
+            error: 'GitHub older import still running',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    expect(githubCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-same-card-shared-newest-identical-activity-stable-order-error-details',
+      '#/repos/repo-same-card-shared-newest-identical-activity-stable-order-error-details',
+      '#/repos/repo-running-older-identical-activity-shared-repo-stable-order-error-details',
+    ]);
+
+    const runningNewestRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-same-card-shared-newest-identical-activity-stable-order-error-details (running)',
+    );
+    expect(runningNewestRow).toBeInTheDocument();
+    expect(within(runningNewestRow).getByLabelText(
+      'Error details for repo-same-card-shared-newest-identical-activity-stable-order-error-details (running)',
+    )).toHaveTextContent('Error: GitHub fetch still cloning');
+    expect(within(runningNewestRow).queryByText('Error: GitHub queue waiting for mirror slot')).not.toBeInTheDocument();
+    expect(within(runningNewestRow).queryByText('Error: GitHub older import still running')).not.toBeInTheDocument();
+
+    const queuedNewestRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-same-card-shared-newest-identical-activity-stable-order-error-details (queued)',
+    );
+    expect(queuedNewestRow).toBeInTheDocument();
+    expect(within(queuedNewestRow).getByLabelText(
+      'Error details for repo-same-card-shared-newest-identical-activity-stable-order-error-details (queued)',
+    )).toHaveTextContent('Error: GitHub queue waiting for mirror slot');
+    expect(within(queuedNewestRow).queryByText('Error: GitHub fetch still cloning')).not.toBeInTheDocument();
+    expect(within(queuedNewestRow).queryByText('Error: GitHub older import still running')).not.toBeInTheDocument();
+
+    const olderRunningRow = within(githubCard!).getByLabelText(
+      'Repository sync history row for repo-running-older-identical-activity-shared-repo-stable-order-error-details (running)',
+    );
+    expect(olderRunningRow).toBeInTheDocument();
+    expect(within(olderRunningRow).getByLabelText(
+      'Error details for repo-running-older-identical-activity-shared-repo-stable-order-error-details (running)',
+    )).toHaveTextContent('Error: GitHub older import still running');
+    expect(within(olderRunningRow).queryByText('Error: GitHub fetch still cloning')).not.toBeInTheDocument();
+    expect(within(olderRunningRow).queryByText('Error: GitHub queue waiting for mirror slot')).not.toBeInTheDocument();
+  });
+
   it('keeps queued and running sync-history rows scoped to their owning connection cards on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 
