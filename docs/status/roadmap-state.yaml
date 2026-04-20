@@ -5,45 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e76dda73627fdba652e765701e563e6caf2b0326
+  head: 61221c5c9b72c7ac0257c0ecaeafbb2489248df0
 last_completed_task:
-  id: task20q2am6
-  title: Add deterministic latest-sync summary coverage for sibling authenticated connection cards when queued and running rows share both newest queued_at and activity timestamps across cards and arrive in reverse API order
+  id: task20q2am7
+  title: Add deterministic queued-running sync-history timestamp-detail coverage for sibling authenticated connection cards when rows share both newest queued_at and activity timestamps across cards and arrive in reverse API order
   status: done
   summary: >-
-    Closed the forty-fifth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the forty-sixth split task20q2 settings-shell follow-up slice by
+    adding one focused `web/src/App.test.tsx` regression, the minimal
+    `web/src/App.tsx` in-progress tie-breaker hardening, and the matching
     `specs/acceptance/generic-local-git.md` grounding so
-    `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep each latest-sync summary scoped and
-    truthful when queued and running rows tie on both newest `queued_at` and
-    activity timestamp across cards even if the API returns those tied rows in
-    reverse order, without changing backend APIs, same-card behavior,
-    sync-history row semantics, retries, or broader admin/settings navigation.
+    `#/settings/connections` now keeps sibling authenticated connection cards'
+    queued/running sync-history rows and queued/started/finished fallback
+    timestamp details deterministic, scoped, and truthful when those newest
+    cross-card rows tie on both `queued_at` and activity timestamp and arrive in
+    reverse API order, without changing backend APIs, retry semantics, or
+    broader admin/settings navigation.
   tests:
-    - npm test -- src/App.test.tsx -t "activity timestamps across cards and arrive in reverse API order": passed (1 passed | 76 skipped)
-    - npm test -- src/App.test.tsx: passed (77/77)
+    - npm test -- -t "keeps sibling authenticated connection cards queued-running sync-history timestamp details deterministic and truthful when rows share both newest queued_at and activity timestamps and arrive in reverse API order": passed (1 passed | 77 skipped)
+    - npm test -- src/App.test.tsx: passed (78/78)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one sibling-card queued-versus-running exact-timestamp reverse-order latest-sync-summary coverage slice plus matching acceptance grounding, with no backend API, sync-job semantics, retry, or broader admin/settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: e76dda73627fdba652e765701e563e6caf2b0326
-  next_task: task20q2am7
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling-card queued/running exact-timestamp reverse-order sync-history timestamp-detail slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff
+  commit: 61221c5c9b72c7ac0257c0ecaeafbb2489248df0
+  next_task: task20q2am8
 current_task:
-  id: task20q2am7
+  id: task20q2am8
   parent_task: task20q2
-  title: Add deterministic queued-running sync-history timestamp-detail coverage for sibling authenticated connection cards when rows share both newest queued_at and activity timestamps across cards and arrive in reverse API order
+  title: Add deterministic queued-running sync-history timestamp-detail coverage for the same authenticated connection card when rows share both newest queued_at and activity timestamps and arrive in reverse API order
   status: pending
   summary: >-
-    After closing the sibling latest-sync-summary exact-timestamp reverse-order
-    tie case, the next smallest unblocked settings-shell sync-history follow-up
-    is to lock one sibling-card queued-running timestamp-detail contract proving
-    those exact-timestamp cross-card ties keep each card's queued/started/
-    finished fallback details scoped and truthful even when the API returns the
-    tied rows in reverse order, before expanding into broader sync-job semantics
-    or other settings surfaces.
+    After closing the sibling-card exact-timestamp reverse-order timestamp-detail
+    slice, the next smallest unblocked settings-shell sync-history follow-up is
+    to lock the same-card queued/running timestamp-detail contract for that same
+    equal-`queued_at` plus equal-activity reverse-order tie case before
+    expanding into broader sync-job semantics or other settings surfaces.
 history:
+  - id: task20q2am7
+    status: done
+    summary: >-
+      Closed the forty-sixth split task20q2 settings-shell follow-up slice by
+      adding one focused `web/src/App.test.tsx` regression, the minimal
+      `web/src/App.tsx` in-progress tie-breaker hardening, and the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now keeps sibling authenticated connection cards'
+      queued/running sync-history rows and queued/started/finished fallback
+      timestamp details deterministic, scoped, and truthful when those newest
+      cross-card rows tie on both `queued_at` and activity timestamp and arrive
+      in reverse API order, without changing backend APIs, retry semantics, or
+      broader admin/settings navigation.
+    tests:
+      - npm test -- -t "keeps sibling authenticated connection cards queued-running sync-history timestamp details deterministic and truthful when rows share both newest queued_at and activity timestamps and arrive in reverse API order": passed (1 passed | 77 skipped)
+      - npm test -- src/App.test.tsx: passed (78/78)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling-card queued/running exact-timestamp reverse-order sync-history timestamp-detail slice plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.tsx`, `web/src/App.test.tsx`, and `specs/acceptance/generic-local-git.md` diff
+    commit: 61221c5c9b72c7ac0257c0ecaeafbb2489248df0
+    next_task: task20q2am8
   - id: task20q2am6
     status: done
     summary: >-
