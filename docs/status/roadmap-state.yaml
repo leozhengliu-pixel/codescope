@@ -5,45 +5,67 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6235d9cab6509f13e0daf222d6f19f7651a8f3ee
+  head: 426b7f2430fb05c20dfc1d0272e1a7a0aeba6f01
 last_completed_task:
-  id: task20q2am10
-  title: Add sibling queued-running latest-sync summary coverage when exact-timestamp reverse-order rows also reuse the same repository id
+  id: task20q2am11
+  title: Add sibling queued-running sync-history timestamp-detail coverage when exact-timestamp reverse-order rows also reuse the same repository id
   status: done
   summary: >-
-    Closed the forty-ninth split task20q2 settings-shell follow-up slice by
-    adding one focused `web/src/App.test.tsx` regression plus the matching
+    Closed the fiftieth split task20q2 settings-shell follow-up slice by adding
+    one focused `web/src/App.test.tsx` regression plus the matching
     `specs/acceptance/generic-local-git.md` grounding so
     `#/settings/connections` now has explicit coverage proving sibling
-    authenticated connection cards keep queued/running latest-sync summaries
-    scoped and truthful when the newest rows tie on both `queued_at` and
-    activity timestamp, arrive in reverse API order, and also reuse the same
-    repository id, without changing backend APIs, retry semantics, or broader
-    admin/settings navigation.
+    authenticated connection cards keep queued/running sync-history timestamp
+    details deterministic, scoped, and truthful when the newest rows tie on
+    both `queued_at` and activity timestamp, arrive in reverse API order, and
+    also reuse the same repository id, without changing backend APIs, retry
+    semantics, or broader admin/settings navigation.
   tests:
-    - npm test -- App.test.tsx -t "also reuse the same repository id": passed (1 passed | 80 skipped)
-    - npm test -- App.test.tsx: passed (81/81)
+    - npm test -- --run src/App.test.tsx -t "also reuse the same repository id": passed (2 passed | 80 skipped)
+    - npm test -- --run src/App.test.tsx: passed (82/82)
     - npm run build: passed
     - git diff --check: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling queued/running exact-timestamp reverse-order latest-sync-summary coverage slice for rows that also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+    spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling queued/running exact-timestamp reverse-order sync-history timestamp-detail coverage slice for rows that also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
     code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
-  commit: 6235d9cab6509f13e0daf222d6f19f7651a8f3ee
-  next_task: task20q2am11
+  commit: 426b7f2430fb05c20dfc1d0272e1a7a0aeba6f01
+  next_task: task20q2am12
 current_task:
-  id: task20q2am11
+  id: task20q2am12
   parent_task: task20q2
-  title: Add sibling queued-running sync-history timestamp-detail coverage when exact-timestamp reverse-order rows also reuse the same repository id
+  title: Add sibling queued-running sync-history timestamp-detail coverage when exact-timestamp rows also reuse the same repository id without reverse-order API bias
   status: pending
   summary: >-
     After locking the sibling exact-timestamp reverse-order shared-repository-id
-    latest-sync-summary case, the next smallest unblocked settings-shell
+    timestamp-detail case, the next smallest unblocked settings-shell
     sync-history follow-up is to cover the sibling authenticated connection-card
     timestamp-detail variant where queued/running rows tie on both newest
-    `queued_at` and activity timestamp, arrive in reverse API order, and also
-    reuse the same repository id, before expanding into broader sync-job
-    semantics.
+    `queued_at` and activity timestamp and also reuse the same repository id
+    even when the API already returns them in the stable newest-first order,
+    before expanding into broader sync-job semantics.
 history:
+  - id: task20q2am11
+    status: done
+    summary: >-
+      Closed the fiftieth split task20q2 settings-shell follow-up slice by adding
+      one focused `web/src/App.test.tsx` regression plus the matching
+      `specs/acceptance/generic-local-git.md` grounding so
+      `#/settings/connections` now has explicit coverage proving sibling
+      authenticated connection cards keep queued/running sync-history timestamp
+      details deterministic, scoped, and truthful when the newest rows tie on
+      both `queued_at` and activity timestamp, arrive in reverse API order, and
+      also reuse the same repository id, without changing backend APIs, retry
+      semantics, or broader admin/settings navigation.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "also reuse the same repository id": passed (2 passed | 80 skipped)
+      - npm test -- --run src/App.test.tsx: passed (82/82)
+      - npm run build: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the final diff stays limited to one `#/settings/connections` sibling queued/running exact-timestamp reverse-order sync-history timestamp-detail coverage slice for rows that also reuse the same repository id, plus matching acceptance grounding, with no backend/API, retry, or broader settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` and `specs/acceptance/generic-local-git.md` diff
+    commit: 426b7f2430fb05c20dfc1d0272e1a7a0aeba6f01
+    next_task: task20q2am12
   - id: task20q2am10
     status: done
     summary: >-
