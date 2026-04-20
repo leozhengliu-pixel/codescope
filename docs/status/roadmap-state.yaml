@@ -5,48 +5,64 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e464328c5924b3607fdd1cad4cefeb040841a7eb
+  head: 2144613b5df5a2b0d30cef261fcc9a4af663fbdf
 last_completed_task:
-  id: task20q2am54
-  title: Ground sibling mixed terminal-state sync-history error-detail evidence for the opposite-newest-rows baseline case
+  id: task20q2am55a
+  title: Add focused same-card mixed terminal-state sync-history error-detail regression for the older-failed/newer-succeeded baseline
   status: done
   summary: >-
-    Closed the ninety-third split task20q2 settings-shell follow-up slice by
-    tightening `specs/acceptance/generic-local-git.md` so the shipped evidence
-    now explicitly states the already-landed `web/src/App.test.tsx`
-    sibling-card mixed terminal-state sync-history error-detail exact-timestamp
-    shared-repository-id cases alongside the broader sibling-card scoping
-    baseline where one connection card's newer failed row keeps its own error
-    detail while the other card's newer succeeded row stays free of that error,
-    without expanding backend APIs, retry semantics, or broader
-    admin/settings navigation.
+    Closed the ninety-fourth split task20q2 settings-shell follow-up slice by
+    adding a focused `web/src/App.test.tsx` regression that proves one
+    authenticated connection card keeps sync-history error details scoped and
+    truthful when an older failed terminal-state row remains visible beneath a
+    newer succeeded row, without changing backend APIs, retry semantics, or
+    broader admin/settings navigation.
   tests:
-    - python3 raw-content explicit sibling opposite-newest-rows sync-history error-detail acceptance wording check: passed
-    - npm test -- --run src/App.test.tsx -t "terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order": passed (1 passed | 106 skipped)
-    - npm test -- --run src/App.test.tsx -t "terminal-state sync-history error details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id": passed (1 passed | 106 skipped)
-    - npm test -- --run src/App.test.tsx: passed (107/107)
+    - npx vitest run src/App.test.tsx -t "keeps terminal-state sync-history error details truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row": passed (1 passed | 107 skipped)
+    - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row": passed (1 passed | 107 skipped)
+    - npx vitest run src/App.test.tsx: passed (108/108)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
-    - python3 added-lines security scan for specs/acceptance/generic-local-git.md: passed
+    - python3 added-lines security scan for web/src/App.test.tsx: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff is the smallest truthful closure for `task20q2am54`, grounding the already-landed sibling mixed terminal-state sync-history error-detail opposite-newest-rows baseline and sibling-card scoping evidence without backend/API, retry, or broader settings expansion
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/acceptance/generic-local-git.md` diff
-  commit: 6332171625688f11801f6be3382fcd37b090f04a
-  next_task: task20q2am55a
+    spec: passed one independent post-implementation review; reviewer confirmed the uncommitted diff exactly closes `task20q2am55a` by adding the missing focused same-card older-failed/newer-succeeded sync-history error-detail regression without broader backend/API, retry, or settings expansion
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff
+  commit: 2144613b5df5a2b0d30cef261fcc9a4af663fbdf
+  next_task: task20q2am55b
 current_task:
-  id: task20q2am55a
+  id: task20q2am55b
   parent_task: task20q2am55
-  title: Add focused same-card mixed terminal-state sync-history error-detail regression for the older-failed/newer-succeeded baseline
+  title: Ground same-card mixed terminal-state sync-history error-detail older-failed/newer-succeeded baseline evidence in acceptance docs
   status: pending
   summary: >-
-    Independent spec review showed the planned docs-only `task20q2am55`
-    grounding slice overclaimed already-landed evidence: the repo currently has
-    same-card mixed terminal-state sync-history error-detail coverage for the
-    exact-timestamp shared-repository-id variants, but not a focused older-
-    failed/newer-succeeded baseline assertion. The next smallest truthful slice
-    is to add that focused `web/src/App.test.tsx` regression before retrying the
-    acceptance-doc grounding.
+    The focused `web/src/App.test.tsx` regression for the same-card mixed
+    terminal-state sync-history error-detail older-failed/newer-succeeded
+    baseline now exists. The next smallest truthful slice is to update
+    `specs/acceptance/generic-local-git.md` so the acceptance evidence grounds
+    that shipped baseline without expanding backend APIs, retry semantics, or
+    broader admin/settings navigation.
 history:
+  - id: task20q2am55a
+    status: done
+    summary: >-
+      Closed the ninety-fourth split task20q2 settings-shell follow-up slice by
+      adding a focused `web/src/App.test.tsx` regression that proves one
+      authenticated connection card keeps sync-history error details scoped and
+      truthful when an older failed terminal-state row remains visible beneath a
+      newer succeeded row, without changing backend APIs, retry semantics, or
+      broader admin/settings navigation.
+    tests:
+      - npx vitest run src/App.test.tsx -t "keeps terminal-state sync-history error details truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row": passed (1 passed | 107 skipped)
+      - npx vitest run src/App.test.tsx -t "keeps the latest-sync summary truthful when the same authenticated connection card has an older failed row but a newer succeeded terminal-state row": passed (1 passed | 107 skipped)
+      - npx vitest run src/App.test.tsx: passed (108/108)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for web/src/App.test.tsx: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the uncommitted diff exactly closes `task20q2am55a` by adding the missing focused same-card older-failed/newer-succeeded sync-history error-detail regression without broader backend/API, retry, or settings expansion
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `web/src/App.test.tsx` diff
+    commit: 2144613b5df5a2b0d30cef261fcc9a4af663fbdf
+    next_task: task20q2am55b
   - id: task20q2am55
     status: blocked
     summary: >-
