@@ -3082,6 +3082,178 @@ describe('App', () => {
     expect(gitlabLatestSyncSummary).not.toHaveTextContent('GitHub permissions denied');
   });
 
+  it('keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, reuse the same repository id, and arrive in reverse API order', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-1',
+            name: 'GitHub Cloud',
+            kind: 'github',
+            config: {
+              provider: 'github',
+              base_url: 'https://github.com',
+            },
+          },
+          {
+            id: 'conn-2',
+            name: 'GitLab Mirror',
+            kind: 'gitlab',
+            config: {
+              provider: 'gitlab',
+              base_url: 'https://gitlab.example.com',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job-conn-1-succeeded-newest-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-failed-newest-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-1',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: 'GitHub permissions denied',
+          },
+          {
+            id: 'job-conn-2-failed-newest-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: 'GitLab import failed',
+          },
+          {
+            id: 'job-conn-2-succeeded-newest-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-2',
+            status: 'succeeded',
+            queued_at: '2026-04-18T13:00:00Z',
+            started_at: '2026-04-18T13:02:00Z',
+            finished_at: '2026-04-18T13:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-1-succeeded-older-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-github-older-shared-repo-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-1',
+            status: 'succeeded',
+            queued_at: '2026-04-18T12:00:00Z',
+            started_at: '2026-04-18T12:02:00Z',
+            finished_at: '2026-04-18T12:06:00Z',
+            error: null,
+          },
+          {
+            id: 'job-conn-2-failed-older-shared-repo-exact-timestamp-reverse-order-details',
+            organization_id: 'org-1',
+            repository_id: 'repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-details',
+            connection_id: 'conn-2',
+            status: 'failed',
+            queued_at: '2026-04-18T11:00:00Z',
+            started_at: '2026-04-18T11:02:00Z',
+            finished_at: '2026-04-18T11:06:00Z',
+            error: 'GitLab import failed',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    expect(await screen.findByText('GitHub Cloud')).toBeInTheDocument();
+    expect(await screen.findByText('GitLab Mirror')).toBeInTheDocument();
+
+    const githubCard = screen.getByText('GitHub Cloud').closest('article');
+    const gitlabCard = screen.getByText('GitLab Mirror').closest('article');
+    expect(githubCard).toBeInTheDocument();
+    expect(gitlabCard).toBeInTheDocument();
+
+    expect(within(githubCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+      '#/repos/repo-github-older-shared-repo-exact-timestamp-reverse-order-details',
+    ]);
+    expect(within(gitlabCard!).getAllByRole('link', { name: /Open repository detail for repo-/ }).map((link) => link.getAttribute('href'))).toEqual([
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+      '#/repos/repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+      '#/repos/repo-gitlab-older-shared-repo-exact-timestamp-reverse-order-details',
+    ]);
+
+    const githubTerminalRows = within(githubCard!).getAllByRole('link', {
+      name: 'Open repository detail for repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+    });
+    expect(githubTerminalRows).toHaveLength(2);
+
+    const githubNewestSucceededRow = githubTerminalRows[0].closest('div');
+    expect(githubNewestSucceededRow).toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).getByText('Started at: 2026-04-18T13:02:00Z')).toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).getByText('Finished at: 2026-04-18T13:06:00Z')).toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestSucceededRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+
+    const githubNewestFailedRow = githubTerminalRows[1].closest('div');
+    expect(githubNewestFailedRow).toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).getByText('Started at: 2026-04-18T13:02:00Z')).toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).getByText('Finished at: 2026-04-18T13:06:00Z')).toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).queryByText('Queued at: 2026-04-18T12:00:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).queryByText('Started at: 2026-04-18T12:02:00Z')).not.toBeInTheDocument();
+    expect(within(githubNewestFailedRow!).queryByText('Finished at: 2026-04-18T12:06:00Z')).not.toBeInTheDocument();
+
+    const gitlabTerminalRows = within(gitlabCard!).getAllByRole('link', {
+      name: 'Open repository detail for repo-sibling-shared-newest-exact-timestamp-reverse-order-details',
+    });
+    expect(gitlabTerminalRows).toHaveLength(2);
+
+    const gitlabNewestSucceededRow = gitlabTerminalRows[0].closest('div');
+    expect(gitlabNewestSucceededRow).toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).getByText('Started at: 2026-04-18T13:02:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).getByText('Finished at: 2026-04-18T13:06:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).queryByText('Started at: 2026-04-18T11:02:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestSucceededRow!).queryByText('Finished at: 2026-04-18T11:06:00Z')).not.toBeInTheDocument();
+
+    const gitlabNewestFailedRow = gitlabTerminalRows[1].closest('div');
+    expect(gitlabNewestFailedRow).toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).getByText('Queued at: 2026-04-18T13:00:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).getByText('Started at: 2026-04-18T13:02:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).getByText('Finished at: 2026-04-18T13:06:00Z')).toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).queryByText('Queued at: 2026-04-18T11:00:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).queryByText('Started at: 2026-04-18T11:02:00Z')).not.toBeInTheDocument();
+    expect(within(gitlabNewestFailedRow!).queryByText('Finished at: 2026-04-18T11:06:00Z')).not.toBeInTheDocument();
+  });
+
   it('keeps sibling authenticated connection cards terminal-state sync-history timestamp details truthful when opposite mixed terminal-state histories share both newest queued_at and activity timestamps across cards, already arrive newest-first, and also reuse the same repository id', async () => {
     window.location.hash = '#/settings/connections';
 
