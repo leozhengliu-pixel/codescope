@@ -5,50 +5,47 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f6d1e290a8f9349c6821ee2049ddb4fc9d940541
+  head: bf892067184ea664d1d437032f80398306b137ee
 last_completed_task:
-  id: task55b
-  title: Add an authenticated API-keys inventory panel within the shared settings shell
+  id: task55c
+  title: Add an authenticated observability panel within the shared settings shell
   status: done
   summary: >-
-    Chose another user-visible Task 55 vertical slice instead of falling back
-    to the deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx`
-    now turns `#/settings/api-keys` from a dead placeholder into a real
-    authenticated inventory panel: it fetches `/api/v1/auth/api-keys`, shows
-    loading/error/empty/populated states, renders truthful active-vs-revoked
-    status plus repo-scope wording, and lets users revoke active keys in place
-    through `/api/v1/auth/api-keys/{api_key_id}/revoke` while keeping key
-    creation/scoping UX explicitly out of scope. `web/src/App.test.tsx`,
+    Chose another Task 55 vertical slice with operator-visible value instead of
+    returning to the deferred docs-only `task20q2am63b` parity-row tweak.
+    `web/src/App.tsx` now turns `#/settings/observability` from a dead
+    placeholder into a real authenticated observability panel: it fetches
+    `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`, shows truthful
+    loading/error/empty/populated states for each dataset, renders visible audit
+    event and analytics record details, and keeps richer filtering/drill-down/
+    export workflows explicitly out of scope. `web/src/App.test.tsx`,
     `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
     `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
-    inventory-plus-revoke baseline without overstating full API-key parity.
+    observability baseline without overstating broader analytics parity.
   tests:
-    - npm test -- src/App.test.tsx -t 'renders api keys inventory inside the shared settings shell': passed (1 passed | 114 skipped)
-    - npm test -- src/App.test.tsx -t 'revokes an active api key from the inventory': passed (1 passed | 114 skipped)
-    - npm test -- src/App.test.tsx -t 'shows an api keys loading failure': passed (1 passed | 114 skipped)
-    - npm test -- src/App.test.tsx: passed (115 passed)
+    - npm test -- src/App.test.tsx -t 'audit and analytics inventory inside the shared settings shell|observability loading failures per endpoint': passed (2 passed | 115 skipped)
+    - npm test -- src/App.test.tsx: passed (117 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the API-keys placeholder with a real authenticated inventory/revoke panel inside the shared shell and that the focused docs/report updates match the intended task55b slice
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for revoke-failure handling and more granular per-key in-flight UI state
-  commit: f6d1e290a8f9349c6821ee2049ddb4fc9d940541
-  next_task: task55c
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the observability placeholder with a real authenticated audit/analytics panel inside the shared shell and that the focused docs/report updates match the intended task55c slice
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up hardening for malformed payload normalization and explicit empty-state tests
+  commit: bf892067184ea664d1d437032f80398306b137ee
+  next_task: task55d
 current_task:
-  id: task55c
+  id: task55d
   parent_task: task55
-  title: Add an authenticated observability panel within the shared settings shell
+  title: Add an authenticated OAuth-clients inventory panel within the shared settings shell
   status: pending
   summary: >-
-    Task55a gave the shared settings route family one discoverable shell and
-    task55b turned the API-keys subsection into a real authenticated workflow,
-    which restores product-surface balance after the earlier docs-only streak.
-    The next meaningful closure should bias toward operator-visible value by
-    replacing the `#/settings/observability` placeholder with a truthful audit /
-    analytics panel backed by `/api/v1/auth/audit-events` and
-    `/api/v1/auth/analytics`, rather than returning immediately to deferred
-    paperwork-only parity-row cleanup.
+    Task55a restored shared settings discoverability, task55b shipped a minimal
+    API-key inventory/revoke workflow, and task55c shipped an operator-visible
+    observability panel. The next meaningful Task 55 closure should keep that
+    product-surface momentum by replacing the `#/settings/oauth-clients`
+    placeholder with a truthful authenticated inventory panel backed by
+    `/api/v1/auth/oauth-clients`, rather than dropping back into the deferred
+    paperwork-only Public REST API parity-row cleanup.
 deferred_tasks:
   - id: task20q2am63b
     parent_task: task20q2am63
@@ -61,6 +58,31 @@ deferred_tasks:
       shipped settings-navigation closure and can resume once product-surface
       balance recovers.
 history:
+  - id: task55c
+    status: done
+    summary: >-
+      Chose another Task 55 vertical slice with operator-visible value instead of
+      returning to the deferred docs-only `task20q2am63b` parity-row tweak.
+      `web/src/App.tsx` now turns `#/settings/observability` from a dead
+      placeholder into a real authenticated observability panel: it fetches
+      `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`, shows truthful
+      loading/error/empty/populated states for each dataset, renders visible audit
+      event and analytics record details, and keeps richer filtering/drill-down/
+      export workflows explicitly out of scope. `web/src/App.test.tsx`,
+      `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
+      observability baseline without overstating broader analytics parity.
+    tests:
+      - npm test -- src/App.test.tsx -t 'audit and analytics inventory inside the shared settings shell|observability loading failures per endpoint': passed (2 passed | 115 skipped)
+      - npm test -- src/App.test.tsx: passed (117 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the observability placeholder with a real authenticated audit/analytics panel inside the shared shell and that the focused docs/report updates match the intended task55c slice
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up hardening for malformed payload normalization and explicit empty-state tests
+    commit: bf892067184ea664d1d437032f80398306b137ee
+    next_task: task55d
   - id: task55b
     status: done
     summary: >-
