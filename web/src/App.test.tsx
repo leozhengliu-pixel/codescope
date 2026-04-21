@@ -677,6 +677,127 @@ describe('App', () => {
     expect(screen.getByText('Unable to load analytics: Request failed: 502')).toBeInTheDocument();
   });
 
+  it('renders review automation inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/review-automation';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-webhooks' && !init) {
+        return jsonResponse([
+          {
+            id: 'review-webhook-visible',
+            organization_id: 'org-acme',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            events: ['pull_request.opened', 'pull_request.synchronize'],
+            created_by_user_id: 'local-user-1',
+            created_at: '2026-04-25T09:00:00Z',
+            secret_hash: 'must-not-render',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-webhook-delivery-attempts' && !init) {
+        return jsonResponse([
+          {
+            id: 'delivery-visible',
+            webhook_id: 'review-webhook-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            event_type: 'pull_request.opened',
+            review_id: 'review-42',
+            external_event_id: 'evt-99',
+            accepted_at: '2026-04-25T09:01:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse([
+          {
+            id: 'run-visible',
+            organization_id: 'org-acme',
+            webhook_id: 'review-webhook-visible',
+            delivery_attempt_id: 'delivery-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            review_id: 'review-42',
+            status: 'failed',
+            created_at: '2026-04-25T09:02:00Z',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
+    expect(screen.getByRole('heading', { name: 'Review automation' })).toBeInTheDocument();
+
+    const webhook = await screen.findByLabelText('Review webhook review-webhook-visible');
+    const attempt = await screen.findByLabelText('Delivery attempt delivery-visible');
+    const run = await screen.findByLabelText('Review-agent run run-visible');
+
+    expect(within(webhook).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(webhook).getByText('conn-github')).toBeInTheDocument();
+    expect(within(webhook).getByText('local-user-1')).toBeInTheDocument();
+    expect(within(webhook).getByText('2026-04-25T09:00:00Z')).toBeInTheDocument();
+    expect(within(webhook).getByText('pull_request.opened')).toBeInTheDocument();
+    expect(within(webhook).getByText('pull_request.synchronize')).toBeInTheDocument();
+
+    expect(within(attempt).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(attempt).getByText('review-42')).toBeInTheDocument();
+    expect(within(attempt).getByText('evt-99')).toBeInTheDocument();
+    expect(within(attempt).getByText('2026-04-25T09:01:00Z')).toBeInTheDocument();
+
+    expect(within(run).getByText('failed')).toBeInTheDocument();
+    expect(within(run).getByText('org-acme')).toBeInTheDocument();
+    expect(within(run).getByText('review-webhook-visible')).toBeInTheDocument();
+    expect(within(run).getByText('delivery-visible')).toBeInTheDocument();
+    expect(within(run).getByText('2026-04-25T09:02:00Z')).toBeInTheDocument();
+
+    expect(screen.queryByText('must-not-render')).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/review-webhooks');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/review-webhook-delivery-attempts');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/review-agent-runs');
+    });
+  });
+
+  it('shows review automation loading failures per endpoint', async () => {
+    window.location.hash = '#/settings/review-automation';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-webhooks' && !init) {
+        return jsonResponse({}, false, 503);
+      }
+
+      if (url === '/api/v1/auth/review-webhook-delivery-attempts' && !init) {
+        return jsonResponse({}, false, 502);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse({}, false, 500);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Review automation' })).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load review webhooks: Request failed: 503')).toBeInTheDocument();
+    expect(screen.getByText('Unable to load delivery attempts: Request failed: 502')).toBeInTheDocument();
+    expect(screen.getByText('Unable to load review-agent runs: Request failed: 500')).toBeInTheDocument();
+  });
+
   it('renders the Authenticated connections route inside the shared settings shell', async () => {
     window.location.hash = '#/settings/connections';
 

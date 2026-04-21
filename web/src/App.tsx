@@ -202,6 +202,41 @@ type OAuthClientListItem = {
   revoked_at: string | null;
 };
 
+type ReviewWebhookListItem = {
+  id: string;
+  organization_id: string;
+  connection_id: string;
+  repository_id: string;
+  events: string[];
+  created_by_user_id: string;
+  created_at: string;
+};
+
+type ReviewWebhookDeliveryAttemptListItem = {
+  id: string;
+  webhook_id: string;
+  connection_id: string;
+  repository_id: string;
+  event_type: string;
+  review_id: string;
+  external_event_id: string;
+  accepted_at: string;
+};
+
+type ReviewAgentRunStatus = 'queued' | 'claimed' | 'completed' | 'failed';
+
+type ReviewAgentRunListItem = {
+  id: string;
+  organization_id: string;
+  webhook_id: string;
+  delivery_attempt_id: string;
+  connection_id: string;
+  repository_id: string;
+  review_id: string;
+  status: ReviewAgentRunStatus;
+  created_at: string;
+};
+
 type AuditActor = {
   user_id?: string;
   api_key_id?: string;
@@ -2583,22 +2618,285 @@ function SettingsObservabilityPage() {
   );
 }
 
-function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'oauth-clients' | 'observability'> }) {
-  const section = settingsSectionById(sectionId);
+function SettingsReviewAutomationPage() {
+  const section = settingsSectionById('review-automation');
+  const [reviewWebhooks, setReviewWebhooks] = useState<ReviewWebhookListItem[]>([]);
+  const [deliveryAttempts, setDeliveryAttempts] = useState<ReviewWebhookDeliveryAttemptListItem[]>([]);
+  const [reviewAgentRuns, setReviewAgentRuns] = useState<ReviewAgentRunListItem[]>([]);
+  const [webhooksLoading, setWebhooksLoading] = useState(true);
+  const [deliveryAttemptsLoading, setDeliveryAttemptsLoading] = useState(true);
+  const [reviewAgentRunsLoading, setReviewAgentRunsLoading] = useState(true);
+  const [webhooksError, setWebhooksError] = useState<string | null>(null);
+  const [deliveryAttemptsError, setDeliveryAttemptsError] = useState<string | null>(null);
+  const [reviewAgentRunsError, setReviewAgentRunsError] = useState<string | null>(null);
 
-  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'oauth-clients' | 'observability'>, { title: string; body: string; followUp: string }> = {
-    'review-automation': {
-      title: 'Review automation',
-      body: 'The authenticated API already exposes review webhook, delivery-attempt, and review-agent run visibility under /api/v1/auth/review-webhooks, /api/v1/auth/review-webhook-delivery-attempts, and /api/v1/auth/review-agent-runs.',
-      followUp: 'Richer webhook management, retry, and automation run UX is follow-up work.',
-    },
-  };
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<ReviewWebhookListItem[]>('/api/v1/auth/review-webhooks')
+      .then((data) => {
+        if (!cancelled) {
+          setReviewWebhooks(data);
+          setWebhooksError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setReviewWebhooks([]);
+          setWebhooksError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWebhooksLoading(false);
+        }
+      });
+
+    fetchJson<ReviewWebhookDeliveryAttemptListItem[]>('/api/v1/auth/review-webhook-delivery-attempts')
+      .then((data) => {
+        if (!cancelled) {
+          setDeliveryAttempts(data);
+          setDeliveryAttemptsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setDeliveryAttempts([]);
+          setDeliveryAttemptsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDeliveryAttemptsLoading(false);
+        }
+      });
+
+    fetchJson<ReviewAgentRunListItem[]>('/api/v1/auth/review-agent-runs')
+      .then((data) => {
+        if (!cancelled) {
+          setReviewAgentRuns(data);
+          setReviewAgentRunsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setReviewAgentRuns([]);
+          setReviewAgentRunsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setReviewAgentRunsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <Panel title={content[sectionId].title} subtitle={section.description}>
-      <div style={{ display: 'grid', gap: 12 }}>
-        <p style={{ margin: 0, color: '#1f2328' }}>{content[sectionId].body}</p>
-        <p style={{ margin: 0, color: '#57606a' }}>{content[sectionId].followUp}</p>
+    <Panel title="Review automation" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This minimal panel turns the review-automation route into a real authenticated visibility surface by loading visible review
+          webhooks, delivery attempts, and review-agent runs side by side. Richer webhook management, retry, and automation run UX
+          remain follow-up work.
+        </p>
+
+        <div style={detailGridStyle}>
+          <Detail
+            label="Visible review webhooks"
+            value={webhooksLoading ? 'Loading…' : webhooksError ? 'Unavailable' : String(reviewWebhooks.length)}
+          />
+          <Detail
+            label="Visible delivery attempts"
+            value={deliveryAttemptsLoading ? 'Loading…' : deliveryAttemptsError ? 'Unavailable' : String(deliveryAttempts.length)}
+          />
+          <Detail
+            label="Visible review-agent runs"
+            value={reviewAgentRunsLoading ? 'Loading…' : reviewAgentRunsError ? 'Unavailable' : String(reviewAgentRuns.length)}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Review webhooks</div>
+          {webhooksLoading ? <div>Loading review webhooks…</div> : null}
+          {!webhooksLoading && webhooksError ? <div>Unable to load review webhooks: {webhooksError}</div> : null}
+          {!webhooksLoading && !webhooksError && reviewWebhooks.length === 0 ? (
+            <div style={detailCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No review webhooks found</div>
+              <div style={{ color: '#57606a' }}>
+                No visible review webhooks are currently available for your authenticated organizations.
+              </div>
+            </div>
+          ) : null}
+          {!webhooksLoading && !webhooksError && reviewWebhooks.length > 0 ? (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+              {reviewWebhooks.map((webhook) => (
+                <li
+                  key={webhook.id}
+                  aria-label={`Review webhook ${webhook.id}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{webhook.id}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#0969da')}>webhook</span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={webhook.organization_id} />
+                    <Detail label="Repository id" value={webhook.repository_id} />
+                    <Detail label="Connection id" value={webhook.connection_id} />
+                    <Detail label="Created by user" value={webhook.created_by_user_id} />
+                    <Detail label="Created at" value={webhook.created_at} />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Events</div>
+                    {webhook.events.length === 0 ? (
+                      <div style={{ color: '#57606a' }}>This visible review webhook does not currently list any subscribed events.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {webhook.events.map((eventName) => (
+                          <span key={eventName} style={searchMetaBadgeStyle}>
+                            {eventName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Delivery attempts</div>
+          {deliveryAttemptsLoading ? <div>Loading delivery attempts…</div> : null}
+          {!deliveryAttemptsLoading && deliveryAttemptsError ? (
+            <div>Unable to load delivery attempts: {deliveryAttemptsError}</div>
+          ) : null}
+          {!deliveryAttemptsLoading && !deliveryAttemptsError && deliveryAttempts.length === 0 ? (
+            <div style={detailCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No delivery attempts found</div>
+              <div style={{ color: '#57606a' }}>
+                No visible review-webhook delivery attempts are currently available for your authenticated organizations.
+              </div>
+            </div>
+          ) : null}
+          {!deliveryAttemptsLoading && !deliveryAttemptsError && deliveryAttempts.length > 0 ? (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+              {deliveryAttempts.map((attempt) => (
+                <li
+                  key={attempt.id}
+                  aria-label={`Delivery attempt ${attempt.id}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{attempt.id}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Event type: {attempt.event_type}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#8250df')}>delivery attempt</span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Webhook id" value={attempt.webhook_id} />
+                    <Detail label="Connection id" value={attempt.connection_id} />
+                    <Detail label="Repository id" value={attempt.repository_id} />
+                    <Detail label="Review id" value={attempt.review_id} />
+                    <Detail label="External event id" value={attempt.external_event_id} />
+                    <Detail label="Accepted at" value={attempt.accepted_at} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Review-agent runs</div>
+          {reviewAgentRunsLoading ? <div>Loading review-agent runs…</div> : null}
+          {!reviewAgentRunsLoading && reviewAgentRunsError ? (
+            <div>Unable to load review-agent runs: {reviewAgentRunsError}</div>
+          ) : null}
+          {!reviewAgentRunsLoading && !reviewAgentRunsError && reviewAgentRuns.length === 0 ? (
+            <div style={detailCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No review-agent runs found</div>
+              <div style={{ color: '#57606a' }}>
+                No visible review-agent runs are currently available for your authenticated organizations.
+              </div>
+            </div>
+          ) : null}
+          {!reviewAgentRunsLoading && !reviewAgentRunsError && reviewAgentRuns.length > 0 ? (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+              {reviewAgentRuns.map((run) => (
+                <li
+                  key={run.id}
+                  aria-label={`Review-agent run ${run.id}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{run.id}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Review id: {run.review_id}</div>
+                    </div>
+                    <span
+                      style={sharedStatusBadgeStyle(
+                        run.status === 'failed'
+                          ? '#cf222e'
+                          : run.status === 'completed'
+                            ? '#1a7f37'
+                            : run.status === 'claimed'
+                              ? '#9a6700'
+                              : '#0969da'
+                      )}
+                    >
+                      {run.status}
+                    </span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={run.organization_id} />
+                    <Detail label="Webhook id" value={run.webhook_id} />
+                    <Detail label="Delivery attempt id" value={run.delivery_attempt_id} />
+                    <Detail label="Connection id" value={run.connection_id} />
+                    <Detail label="Repository id" value={run.repository_id} />
+                    <Detail label="Created at" value={run.created_at} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </div>
     </Panel>
   );
@@ -2890,9 +3188,7 @@ export function App() {
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
           {route.section === 'oauth-clients' ? <SettingsOAuthClientsPage /> : null}
           {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
-          {route.section !== 'connections' && route.section !== 'api-keys' && route.section !== 'oauth-clients' && route.section !== 'observability' ? (
-            <SettingsPlaceholderPage sectionId={route.section} />
-          ) : null}
+          {route.section === 'review-automation' ? <SettingsReviewAutomationPage /> : null}
         </SettingsShell>
       ) : null}
       {route.kind === 'home' ? <RepoListPage /> : null}

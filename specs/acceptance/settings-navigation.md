@@ -1,7 +1,7 @@
 # Acceptance Spec: Settings Navigation Shell
 
 ## Purpose
-This document defines the current clean-room acceptance contract for the authenticated settings navigation shell in `web/src/App.tsx`. It covers discoverability plus the currently shipped subsection baselines: users should be able to open a general `#/settings` landing page, discover the currently exposed authenticated admin API surfaces, navigate into a shared settings shell for each shipped subsection, use the minimal API-key inventory/revoke panel, inspect a minimal read-only OAuth-client inventory panel, and inspect a minimal observability panel for authenticated audit/analytics visibility without overstating richer admin UX that is still follow-up work.
+This document defines the current clean-room acceptance contract for the authenticated settings navigation shell in `web/src/App.tsx`. It covers discoverability plus the currently shipped subsection baselines: users should be able to open a general `#/settings` landing page, discover the currently exposed authenticated admin API surfaces, navigate into a shared settings shell for each shipped subsection, use the minimal API-key inventory/revoke panel, inspect a minimal read-only OAuth-client inventory panel, inspect a minimal observability panel for authenticated audit/analytics visibility, and inspect a minimal review-automation visibility panel for authenticated review-webhook, delivery-attempt, and review-agent-run inventories without overstating richer admin UX that is still follow-up work.
 
 ## Grounding
 - Frontend route shell: `web/src/App.tsx`
@@ -38,18 +38,19 @@ The shipped settings shell currently covers these hash routes:
 4. The API keys route should render a real authenticated inventory panel instead of a dead placeholder.
 5. The OAuth clients route should render a real authenticated read-only inventory panel instead of a dead placeholder.
 6. The observability route should render a real authenticated audit/analytics panel instead of a dead placeholder.
+7. The review-automation route should render a real authenticated visibility panel instead of a dead placeholder.
 
 ### 3. Honest grounding in existing authenticated API surfaces
 1. The API keys subsection should fetch `GET /api/v1/auth/api-keys`, show loading/error/empty/populated states truthfully, and surface a focused revoke control through `POST /api/v1/auth/api-keys/{api_key_id}/revoke` for active keys only.
 2. The OAuth clients subsection should fetch `GET /api/v1/auth/oauth-clients`, show loading/error/empty/populated states truthfully, surface only the visible inventory fields returned by the backend (`name`, `client_id`, `organization_id`, `created_by_user_id`, `created_at`, `revoked_at`, and `redirect_uris`), and must not expose any secret hash or plaintext secret material.
 3. The observability subsection should fetch `GET /api/v1/auth/audit-events` and `GET /api/v1/auth/analytics`, show loading/error/empty/populated states truthfully for each dataset, and present the returned audit-event / analytics-record details without claiming filtering/export workflows that do not exist yet.
-4. Repo-scope copy must stay truthful: empty scope means the key is not repo-bound and can reach the repos currently visible to the authenticated user, not arbitrary hidden repositories.
-5. Other non-connections subsections may remain placeholders, but they must explicitly point to already exposed authenticated API surfaces and stay honest that richer management UX is follow-up work.
+4. The review-automation subsection should fetch `GET /api/v1/auth/review-webhooks`, `GET /api/v1/auth/review-webhook-delivery-attempts`, and `GET /api/v1/auth/review-agent-runs`, show loading/error/empty/populated states truthfully for each dataset, present the returned visibility fields without exposing secret hashes or secret material, and stay honest that webhook management/retry/run control UX remains follow-up work.
+5. Repo-scope copy must stay truthful: empty scope means the key is not repo-bound and can reach the repos currently visible to the authenticated user, not arbitrary hidden repositories.
 6. Grounding for each current non-connections section is:
    - API keys → authenticated inventory from `/api/v1/auth/api-keys` plus revoke through `/api/v1/auth/api-keys/{api_key_id}/revoke`
    - OAuth clients → authenticated read-only inventory from `/api/v1/auth/oauth-clients`
    - Audit & analytics / observability → authenticated inventory from `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`
-   - Review automation → authenticated review-webhook, delivery-attempt, and review-agent-run visibility endpoints
+   - Review automation → authenticated inventory from `/api/v1/auth/review-webhooks`, `/api/v1/auth/review-webhook-delivery-attempts`, and `/api/v1/auth/review-agent-runs`
 
 ### 4. Boundaries and non-goals
 1. This slice does **not** claim shipped onboarding, login, org membership, invite, or linked-account UX.
@@ -62,6 +63,7 @@ The shipped settings shell currently covers these hash routes:
    - the API-key subsection renders authenticated inventory details and revoke behavior inside the shared shell
    - the OAuth-clients subsection renders authenticated inventory details plus empty/error states inside the shared shell without exposing secret material
    - the observability subsection renders authenticated audit/analytics inventory details and endpoint-scoped failure states inside the shared shell
+   - the review-automation subsection renders authenticated review-webhook, delivery-attempt, and review-agent-run visibility details plus endpoint-scoped failure states inside the shared shell without exposing secret material
    - the existing connections route remains reachable within the shared shell
 2. Broader `web/src/App.test.tsx` coverage still passes after the route-family change.
 3. Production build still passes after the navigation-shell change.
