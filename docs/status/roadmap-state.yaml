@@ -5,53 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e086045dc6e63135698db22dc1d50258ad7ca14a
+  head: 4c10addd0af7ca8663ccff3391b95af9d259b036
 last_completed_task:
-  id: task78b
-  title: Add invite redemption to the auth route baseline
+  id: task78c
+  title: Add truthful OAuth callback-status handling to the auth route
   status: done
   summary: >-
-    Chose one Task 78 user-visible auth closure instead of splitting invite
-    redemption into separate backend, frontend, login-follow-up, and docs slices.
-    `crates/api/src/main.rs` now exposes `POST /api/v1/auth/invite-redeem`, which
-    consumes a pending non-expired invite plus invited email, reuses or creates only
-    the invited passwordless local account, adds the missing membership, marks the
-    invite accepted, rejects already-credentialed existing accounts, and issues a
-    local session. `web/src/App.tsx` now turns `#/auth?invite=...&email=...` into a
-    real invite-redemption flow that submits the invite payload, stores the returned
-    session, restores identity via `/api/v1/auth/me`, and still supports standard
-    local login afterward for the redeemed account. `web/src/App.test.tsx`,
-    `specs/acceptance/auth.md`, `specs/acceptance/index.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` now ground that narrower auth
-    baseline honestly without claiming invite creation/admin management or broader
-    external-provider parity.
+    Chose one more Task 78 user-visible auth closure instead of splitting provider
+    callback parsing, UI messaging, bootstrap/invite/session interactions, and docs
+    into separate paperwork slices. `web/src/App.tsx` now treats `#/auth`
+    callback params (`provider`, `error`, `error_description`, `code`, `state`) as a
+    narrow callback-status surface across bootstrap, invite-redemption, local-login,
+    and restored-session auth states, while keeping the messaging truthful that this
+    rewrite still does not finish external-provider sign-in/callback exchange there.
+    `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+    `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+    and `docs/plans/2026-04-21-auth-oauth-callback-status-plan.md` now ground that
+    closure without overclaiming full OAuth/SSO parity.
   tests:
-    - cargo test -p sourcebot-api invite_redeem -- --nocapture: passed (4 passed)
-    - npx vitest run src/App.test.tsx -t "invite redemption": passed (3 passed | 140 skipped)
-    - cargo test -p sourcebot-api: passed (281 passed)
-    - npx vitest run src/App.test.tsx: passed (143 passed)
+    - npx vitest run src/App.test.tsx -t "oauth callback|keeps first-run onboarding available when oauth callback params land on an unbootstrapped auth route": passed (4 passed | 143 skipped)
+    - npx vitest run src/App.test.tsx -t "keeps oauth callback status visible when an existing local session is restored on the auth route|keeps oauth callback status visible alongside invite redemption on the auth route": passed (2 passed | 147 skipped)
+    - npx vitest run src/App.test.tsx: passed (149 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
-    - python3 live API smoke against http://127.0.0.1:3000/api/v1/auth/invite-redeem: passed (422 for missing required fields, confirming the route is live instead of 404)
+    - python3 added-lines security scan over the substantive diff: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice closes the intended `#/auth` invite-redemption baseline, includes the required fail-closed cases, and keeps the acceptance/report wording narrow about broader invite-management and external-provider auth follow-up
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the invite-redeem validation, account/membership/session handling, local-login follow-through, or focused docs/report updates
-  commit: e086045dc6e63135698db22dc1d50258ad7ca14a
-  next_task: task78c
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice now surfaces callback-status context across the auth-route states that can coexist with callback params, keeps bootstrap/invite/local-session flows intact, and stays honest that real external-provider sign-in remains follow-up work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the callback-status routing, fail-closed auth-route state handling, focused tests, or scoped docs/report updates
+  commit: 4c10addd0af7ca8663ccff3391b95af9d259b036
+  next_task: task79
 current_task:
-  id: task78c
-  parent_task: task78
-  title: Extend auth route parity with the next real OAuth-facing auth screen
+  id: task79
+  parent_task: task79
+  title: Chat / agents route parity completion
   status: pending
   summary: >-
-    Task 78 still needs a concrete OAuth-facing auth extension beyond the shipped
-    onboarding, local login/session restoration, and invite-redemption baseline.
-    The next closure should stay on `#/auth` and land one real OAuth-facing auth
-    screen or callback flow in a single bounded run with implementation, focused
-    tests, truthful docs, review, commit, and push, rather than drifting back into
-    another paperwork-only auth slice.
+    Anti-microslice reassessment after three consecutive Task 78 auth-route closures
+    pivots the controller to the next unblocked user-visible product area instead of
+    immediately carving another small auth paperwork slice. Broader external-provider
+    login/callback exchange remains deferred follow-up, while the next meaningful
+    closure should advance the dedicated chat/agents route surface from roadmap Task 79.
 history:
+  - id: task78c
+    status: done
+    summary: >-
+      Chose one more Task 78 user-visible auth closure instead of splitting provider
+      callback parsing, UI messaging, bootstrap/invite/session interactions, and docs
+      into separate paperwork slices. `web/src/App.tsx` now treats `#/auth`
+      callback params (`provider`, `error`, `error_description`, `code`, `state`) as a
+      narrow callback-status surface across bootstrap, invite-redemption, local-login,
+      and restored-session auth states, while keeping the messaging truthful that this
+      rewrite still does not finish external-provider sign-in/callback exchange there.
+      `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+      `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+      and `docs/plans/2026-04-21-auth-oauth-callback-status-plan.md` now ground that
+      closure without overclaiming full OAuth/SSO parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t "oauth callback|keeps first-run onboarding available when oauth callback params land on an unbootstrapped auth route": passed (4 passed | 143 skipped)
+      - npx vitest run src/App.test.tsx -t "keeps oauth callback status visible when an existing local session is restored on the auth route|keeps oauth callback status visible alongside invite redemption on the auth route": passed (2 passed | 147 skipped)
+      - npx vitest run src/App.test.tsx: passed (149 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over the substantive diff: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice now surfaces callback-status context across the auth-route states that can coexist with callback params, keeps bootstrap/invite/local-session flows intact, and stays honest that real external-provider sign-in remains follow-up work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the callback-status routing, fail-closed auth-route state handling, focused tests, or scoped docs/report updates
+    commit: 4c10addd0af7ca8663ccff3391b95af9d259b036
+    next_task: task79
   - id: task78b
     status: done
     summary: >-
