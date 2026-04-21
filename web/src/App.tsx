@@ -191,6 +191,17 @@ type ApiKeyListItem = {
   repo_scope: string[];
 };
 
+type OAuthClientListItem = {
+  id: string;
+  organization_id: string;
+  name: string;
+  client_id: string;
+  redirect_uris: string[];
+  created_by_user_id: string;
+  created_at: string;
+  revoked_at: string | null;
+};
+
 type AuditActor = {
   user_id?: string;
   api_key_id?: string;
@@ -2270,6 +2281,119 @@ function SettingsApiKeysPage() {
   );
 }
 
+function SettingsOAuthClientsPage() {
+  const section = settingsSectionById('oauth-clients');
+  const [oauthClients, setOauthClients] = useState<OAuthClientListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<OAuthClientListItem[]>('/api/v1/auth/oauth-clients')
+      .then((data) => {
+        if (!cancelled) {
+          setOauthClients(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setOauthClients([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel title="OAuth clients" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This minimal panel shows the authenticated visible OAuth client inventory only. Richer OAuth authorization, token
+          issuance and revocation, and create/manage UX remain follow-up work.
+        </p>
+
+        {loading ? <div>Loading OAuth clients…</div> : null}
+        {!loading && error ? <div>Unable to load OAuth clients: {error}</div> : null}
+        {!loading && !error && oauthClients.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No OAuth clients found</div>
+            <div style={{ color: '#57606a' }}>
+              No visible OAuth clients are currently available for your authenticated organizations.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && oauthClients.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {oauthClients.map((oauthClient) => {
+              const isRevoked = oauthClient.revoked_at !== null;
+
+              return (
+                <li
+                  key={oauthClient.id}
+                  aria-label={`OAuth client ${oauthClient.name}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{oauthClient.name}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Client id: {oauthClient.client_id}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle(isRevoked ? '#cf222e' : '#1a7f37')}>
+                      {isRevoked ? 'revoked' : 'active'}
+                    </span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={oauthClient.organization_id} />
+                    <Detail label="Created by user" value={oauthClient.created_by_user_id} />
+                    <Detail label="Created at" value={oauthClient.created_at} />
+                    <Detail label="Revoked at" value={oauthClient.revoked_at ?? 'Active'} />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Redirect URIs</div>
+                    {oauthClient.redirect_uris.length === 0 ? (
+                      <div style={{ color: '#57606a' }}>
+                        This visible OAuth client does not currently list any redirect URIs.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {oauthClient.redirect_uris.map((redirectUri) => (
+                          <span key={redirectUri} style={searchMetaBadgeStyle}>
+                            {redirectUri}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
 function SettingsObservabilityPage() {
   const section = settingsSectionById('observability');
   const [auditEvents, setAuditEvents] = useState<AuditEventListItem[]>([]);
@@ -2459,15 +2583,10 @@ function SettingsObservabilityPage() {
   );
 }
 
-function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'observability'> }) {
+function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'oauth-clients' | 'observability'> }) {
   const section = settingsSectionById(sectionId);
 
-  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'observability'>, { title: string; body: string; followUp: string }> = {
-    'oauth-clients': {
-      title: 'OAuth clients',
-      body: 'The authenticated API already exposes /api/v1/auth/oauth-clients for client administration records.',
-      followUp: 'Richer OAuth authorization, token, and client-management UX is follow-up work.',
-    },
+  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'oauth-clients' | 'observability'>, { title: string; body: string; followUp: string }> = {
     'review-automation': {
       title: 'Review automation',
       body: 'The authenticated API already exposes review webhook, delivery-attempt, and review-agent run visibility under /api/v1/auth/review-webhooks, /api/v1/auth/review-webhook-delivery-attempts, and /api/v1/auth/review-agent-runs.',
@@ -2769,8 +2888,9 @@ export function App() {
         <SettingsShell activeSection={route.section}>
           {route.section === 'connections' ? <SettingsConnectionsPage /> : null}
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
+          {route.section === 'oauth-clients' ? <SettingsOAuthClientsPage /> : null}
           {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
-          {route.section !== 'connections' && route.section !== 'api-keys' && route.section !== 'observability' ? (
+          {route.section !== 'connections' && route.section !== 'api-keys' && route.section !== 'oauth-clients' && route.section !== 'observability' ? (
             <SettingsPlaceholderPage sectionId={route.section} />
           ) : null}
         </SettingsShell>

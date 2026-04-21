@@ -492,6 +492,95 @@ describe('App', () => {
     expect(await screen.findByText('Unable to load API keys: Request failed: 503')).toBeInTheDocument();
   });
 
+  it('renders oauth client inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/oauth-clients';
+
+    const oauthClientsResponse = deferredResponse();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(oauthClientsResponse.promise);
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'OAuth clients' })).toBeInTheDocument();
+    expect(screen.getByText('Loading OAuth clients…')).toBeInTheDocument();
+
+    oauthClientsResponse.resolve(
+      jsonResponse([
+        {
+          id: 'oauth-active',
+          organization_id: 'org-acme',
+          name: 'Acme Web App',
+          client_id: 'client-visible-active',
+          created_by_user_id: 'local-user-1',
+          created_at: '2026-04-24T00:05:00Z',
+          revoked_at: null,
+          redirect_uris: ['https://acme.example.com/callback', 'http://localhost:3000/callback'],
+          client_secret_hash: 'secret-should-not-render',
+        },
+        {
+          id: 'oauth-revoked',
+          organization_id: 'org-acme',
+          name: 'Acme CLI',
+          client_id: 'client-visible-revoked',
+          created_by_user_id: 'local-user-admin',
+          created_at: '2026-04-24T00:06:00Z',
+          revoked_at: '2026-04-25T00:06:00Z',
+          redirect_uris: [],
+          client_secret_hash: 'another-secret-that-must-stay-hidden',
+        },
+      ])
+    );
+
+    const activeClient = await screen.findByLabelText('OAuth client Acme Web App');
+    const revokedClient = screen.getByLabelText('OAuth client Acme CLI');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/oauth-clients');
+    expect(
+      screen.getByText(/Richer OAuth authorization, token issuance and revocation, and create\/manage UX remain follow-up work\./)
+    ).toBeInTheDocument();
+
+    expect(within(activeClient).getByText('Client id: client-visible-active')).toBeInTheDocument();
+    expect(within(activeClient).getByText('org-acme')).toBeInTheDocument();
+    expect(within(activeClient).getByText('local-user-1')).toBeInTheDocument();
+    expect(within(activeClient).getByText('2026-04-24T00:05:00Z')).toBeInTheDocument();
+    expect(within(activeClient).getByText('active')).toBeInTheDocument();
+    expect(within(activeClient).getByText('Active')).toBeInTheDocument();
+    expect(within(activeClient).getByText('https://acme.example.com/callback')).toBeInTheDocument();
+    expect(within(activeClient).getByText('http://localhost:3000/callback')).toBeInTheDocument();
+
+    expect(within(revokedClient).getByText('revoked')).toBeInTheDocument();
+    expect(within(revokedClient).getByText('2026-04-25T00:06:00Z')).toBeInTheDocument();
+    expect(
+      within(revokedClient).getByText('This visible OAuth client does not currently list any redirect URIs.')
+    ).toBeInTheDocument();
+
+    expect(screen.queryByText('secret-should-not-render')).not.toBeInTheDocument();
+    expect(screen.queryByText('another-secret-that-must-stay-hidden')).not.toBeInTheDocument();
+  });
+
+  it('shows an oauth clients empty state', async () => {
+    window.location.hash = '#/settings/oauth-clients';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse([]));
+
+    render(<App />);
+
+    expect(await screen.findByText('No OAuth clients found')).toBeInTheDocument();
+    expect(
+      screen.getByText('No visible OAuth clients are currently available for your authenticated organizations.')
+    ).toBeInTheDocument();
+  });
+
+  it('shows an oauth clients loading failure', async () => {
+    window.location.hash = '#/settings/oauth-clients';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({}, false, 503));
+
+    render(<App />);
+
+    expect(await screen.findByText('Unable to load OAuth clients: Request failed: 503')).toBeInTheDocument();
+  });
+
   it('renders audit and analytics inventory inside the shared settings shell', async () => {
     window.location.hash = '#/settings/observability';
 

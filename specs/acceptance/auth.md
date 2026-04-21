@@ -42,5 +42,6 @@
 - A viewer can search and browse allowed repos but cannot manage connections.
 - An authenticated user can open `#/settings/api-keys`, load their current API-key inventory, distinguish active vs revoked keys, and see repo-scope wording that stays truthful when a key is not repo-bound.
 - An authenticated user can revoke an active key from that minimal inventory panel, after which the key is no longer shown as active even though richer creation/scoping UX remains follow-up work.
+- An authenticated user can open `#/settings/oauth-clients`, load the membership-visible OAuth client inventory from `/api/v1/auth/oauth-clients`, inspect returned client metadata and redirect URIs, and confirm that no secret hash or secret material is exposed in the UI while richer OAuth authorization/token/create-manage workflows remain follow-up work.
 - An authenticated user can open `#/settings/observability`, load visible audit-event and analytics inventories from `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`, and see truthful per-endpoint loading/failure states without claiming filtering/export workflows that do not exist yet.
 - Revoking a user's org membership removes search results from previously visible repos.
