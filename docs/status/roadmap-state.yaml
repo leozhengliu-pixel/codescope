@@ -5,52 +5,78 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1e7e47511371b7c9d60f8108741537980cbbc6f4
+  head: 6acf16b1d80463251df920394a8f29199dc90a4d
 last_completed_task:
-  id: task77b
-  title: Add read-only access visibility inventory to the shared settings shell
+  id: task77c
+  title: Add read-only linked accounts inventory to the shared settings shell
   status: done
   summary: >-
-    Chose a Task 77 user-visible access closure instead of splitting settings parity
-    into separate route, authz-filtering, docs, and audit fragments. `web/src/App.tsx`
-    now exposes a discoverable `#/settings/access` destination inside the shared
-    settings shell with truthful loading, empty, and populated read-only repository
-    visibility states. `crates/api/src/main.rs` now filters `GET /api/v1/repos` to the
-    caller's currently visible repositories when authentication succeeds, while keeping
-    the pre-existing public repository inventory baseline for unauthenticated or invalid
-    authorization requests. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+    Chose a Task 77 user-visible linked-accounts closure instead of splitting settings
+    parity into separate route, auth fail-closed behavior, frontend shell, and docs
+    paperwork fragments. `crates/api/src/main.rs` now exposes authenticated
+    `GET /api/v1/auth/linked-accounts`, which returns only the current local account
+    identity plus memberships visible to that identity and fails closed when the local
+    session lacks a real `LocalAccount` record. `web/src/App.tsx` now exposes a
+    discoverable `#/settings/linked-accounts` destination inside the shared settings
+    shell with truthful loading, error, empty, and populated read-only states, while
+    `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
     `specs/acceptance/settings-navigation.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly as a
-    read-only access-visibility baseline without claiming permission-sync management or
-    role-edit parity.
+    `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly without
+    claiming external provider linking, SSO, or account-merge parity.
   tests:
-    - cargo test -p sourcebot-api repo_list_filters_to_visible_repositories_for_authenticated_sessions -- --nocapture: passed
-    - cargo test -p sourcebot-api repo_list_preserves_public_inventory_for_invalid_authorization_headers -- --nocapture: passed
-    - cargo test -p sourcebot-api repo_list_returns_seeded_repositories -- --nocapture: passed
-    - npx vitest run src/App.test.tsx -t 'renders access inventory inside the shared settings shell|shows an access empty state inside the shared settings shell': passed (2 passed | 132 skipped)
-    - npx vitest run src/App.test.tsx: passed (134 passed)
+    - cargo test -p sourcebot-api auth_linked_accounts -- --nocapture: passed (3 passed)
+    - npx vitest run src/App.test.tsx -t 'linked accounts': passed (2 passed | 134 skipped)
+    - cargo test -p sourcebot-api: passed (302 passed)
+    - npx vitest run src/App.test.tsx: passed (136 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - cargo test -p sourcebot-api: passed (272 passed)
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77b slice adds a discoverable read-only access panel, filters authenticated `/api/v1/repos` results to visible repositories, preserves the public repo inventory baseline for unauthenticated or invalid-authorization requests, and keeps the docs/report wording narrow
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the access panel, repository visibility filtering, or focused acceptance/report updates
-  commit: 1e7e47511371b7c9d60f8108741537980cbbc6f4
-  next_task: task77c
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77c slice adds a discoverable linked-accounts subsection, exposes the intended authenticated read-only identity-plus-membership payload, fails closed for missing auth or missing local-account records, and keeps the UI/docs wording narrow about follow-up external-provider work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the linked-accounts route, hidden-data boundaries, shared-shell wiring, or focused docs/report updates
+  commit: 6acf16b1d80463251df920394a8f29199dc90a4d
+  next_task: task78
 current_task:
-  id: task77c
-  parent_task: task77
-  title: Complete the next still-missing settings subsection after access visibility
+  id: task78
+  parent_task: task78
+  title: Complete auth and onboarding route parity after settings-shell completion
   status: pending
   summary: >-
     Task 77 now includes truthful settings-shell closures for connections, API keys,
-    members, access visibility, OAuth clients, observability, and review automation.
-    The next smallest meaningful closure should advance another still-missing
-    user-visible settings/admin surface with real product value — most likely linked
-    accounts or another currently absent settings subsection — instead of returning to
-    docs-only cleanup or further micro-splitting the access slice.
+    members, access visibility, linked accounts, OAuth clients, observability, and
+    review automation. The next smallest meaningful closure should move to Task 78 and
+    land one user-visible auth/onboarding route baseline — such as login, invite
+    redemption, or another real auth screen — instead of returning to docs-only cleanup
+    inside the now-broader settings domain.
 history:
+  - id: task77c
+    status: done
+    summary: >-
+      Chose a Task 77 user-visible linked-accounts closure instead of splitting
+      settings parity into separate route, auth fail-closed behavior, frontend shell,
+      and docs paperwork fragments. `crates/api/src/main.rs` now exposes
+      authenticated `GET /api/v1/auth/linked-accounts`, which returns only the
+      current local account identity plus memberships visible to that identity and
+      fails closed when the local session lacks a real `LocalAccount` record.
+      `web/src/App.tsx` now exposes a discoverable `#/settings/linked-accounts`
+      destination inside the shared settings shell with truthful loading, error,
+      empty, and populated read-only states, while `web/src/App.test.tsx`,
+      `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly
+      without claiming external provider linking, SSO, or account-merge parity.
+    tests:
+      - cargo test -p sourcebot-api auth_linked_accounts -- --nocapture: passed (3 passed)
+      - npx vitest run src/App.test.tsx -t 'linked accounts': passed (2 passed | 134 skipped)
+      - cargo test -p sourcebot-api: passed (302 passed)
+      - npx vitest run src/App.test.tsx: passed (136 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 77c slice adds a discoverable linked-accounts subsection, exposes the intended authenticated read-only identity-plus-membership payload, fails closed for missing auth or missing local-account records, and keeps the UI/docs wording narrow about follow-up external-provider work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the linked-accounts route, hidden-data boundaries, shared-shell wiring, or focused docs/report updates
+    commit: 6acf16b1d80463251df920394a8f29199dc90a4d
+    next_task: task78
   - id: task77b
     status: done
     summary: >-
