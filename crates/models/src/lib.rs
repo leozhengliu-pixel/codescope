@@ -247,6 +247,8 @@ pub struct LocalAccount {
     pub id: String,
     pub email: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_hash: Option<String>,
     pub created_at: String,
 }
 

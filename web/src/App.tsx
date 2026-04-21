@@ -862,19 +862,36 @@ function RepoListPage() {
   );
 }
 
-function AuthPage() {
+function AuthPage({
+  inviteId = null,
+  inviteEmail = null,
+}: {
+  inviteId?: string | null;
+  inviteEmail?: string | null;
+}) {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatusResponse | null>(null);
   const [identity, setIdentity] = useState<AuthMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapSubmitting, setBootstrapSubmitting] = useState(false);
   const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [logoutSubmitting, setLogoutSubmitting] = useState(false);
   const [bootstrapName, setBootstrapName] = useState('');
   const [bootstrapEmail, setBootstrapEmail] = useState('');
   const [bootstrapPassword, setBootstrapPassword] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteEmailInput, setInviteEmailInput] = useState(inviteEmail ?? '');
+  const [invitePassword, setInvitePassword] = useState('');
+  const hasInviteContext = Boolean(inviteId && inviteEmail);
+
+  useEffect(() => {
+    setInviteEmailInput(inviteEmail ?? '');
+    setInviteName('');
+    setInvitePassword('');
+  }, [inviteEmail]);
 
   const loadBootstrapStatus = async () => {
     const status = await fetchJson<BootstrapStatusResponse>('/api/v1/auth/bootstrap');
@@ -919,6 +936,17 @@ function AuthPage() {
     void refreshAuthPage();
   }, []);
 
+  const completeLocalSessionLogin = async (loginResponse: LocalLoginResponse) => {
+    storeLocalSession({
+      sessionId: loginResponse.session_id,
+      sessionSecret: loginResponse.session_secret,
+    });
+
+    const restoredIdentity = await fetchJson<AuthMeResponse>('/api/v1/auth/me');
+    setIdentity(restoredIdentity);
+    setBootstrapStatus({ bootstrap_required: false });
+  };
+
   const handleBootstrapSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBootstrapSubmitting(true);
@@ -960,19 +988,42 @@ function AuthPage() {
         }),
       });
 
-      storeLocalSession({
-        sessionId: loginResponse.session_id,
-        sessionSecret: loginResponse.session_secret,
-      });
-
-      const restoredIdentity = await fetchJson<AuthMeResponse>('/api/v1/auth/me');
-      setIdentity(restoredIdentity);
-      setBootstrapStatus({ bootstrap_required: false });
+      await completeLocalSessionLogin(loginResponse);
     } catch (authError) {
       clearStoredLocalSession();
       setError(authError instanceof Error ? authError.message : 'Unknown auth error');
     } finally {
       setLoginSubmitting(false);
+    }
+  };
+
+  const handleInviteRedeemSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!inviteId) {
+      return;
+    }
+
+    setInviteSubmitting(true);
+    setError(null);
+
+    try {
+      const loginResponse = await fetchJson<LocalLoginResponse>('/api/v1/auth/invite-redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invite_id: inviteId,
+          email: inviteEmailInput,
+          name: inviteName,
+          password: invitePassword,
+        }),
+      });
+
+      await completeLocalSessionLogin(loginResponse);
+    } catch (authError) {
+      clearStoredLocalSession();
+      setError(authError instanceof Error ? authError.message : 'Unknown auth error');
+    } finally {
+      setInviteSubmitting(false);
     }
   };
 
@@ -996,12 +1047,12 @@ function AuthPage() {
   };
 
   if (loading) {
-    return <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">Checking auth state…</Panel>;
+    return <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">Checking auth state…</Panel>;
   }
 
   if (identity) {
     return (
-      <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+      <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Signed in as {identity.name}</div>
           <div style={{ color: '#57606a' }}>{identity.email}</div>
@@ -1019,7 +1070,7 @@ function AuthPage() {
 
   if (bootstrapStatus?.bootstrap_required) {
     return (
-      <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+      <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
         <div style={{ display: 'grid', gap: 16 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 24 }}>First-run onboarding</h2>
@@ -1052,13 +1103,48 @@ function AuthPage() {
     );
   }
 
+  if (hasInviteContext) {
+    return (
+      <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 24 }}>Invite redemption</h2>
+            <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
+              Finish accepting your local workspace invite and create the password for this account.
+            </p>
+          </div>
+          <form onSubmit={handleInviteRedeemSubmit} style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Name</span>
+              <input value={inviteName} onChange={(event) => setInviteName(event.target.value)} required />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Email address</span>
+              <input type="email" value={inviteEmailInput} onChange={(event) => setInviteEmailInput(event.target.value)} required />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Password</span>
+              <input type="password" value={invitePassword} onChange={(event) => setInvitePassword(event.target.value)} required />
+            </label>
+            <div>
+              <button type="submit" style={primaryButtonStyle} disabled={inviteSubmitting}>
+                {inviteSubmitting ? 'Accepting invite and signing in…' : 'Accept invite and sign in'}
+              </button>
+            </div>
+          </form>
+          {error ? <div style={{ color: '#cf222e' }}>Authentication error: {error}</div> : null}
+        </div>
+      </Panel>
+    );
+  }
+
   return (
-    <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+    <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
       <div style={{ display: 'grid', gap: 16 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Local login</h2>
           <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
-            Sign in with the restored local-admin baseline. Invites, SSO, and broader account management remain follow-up work.
+            Sign in with a local account or use an invite redemption link to finish setting up an invited account.
           </p>
         </div>
         <form onSubmit={handleLoginSubmit} style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
@@ -4371,7 +4457,12 @@ export function App() {
     const [hashPath, hashQuery = ''] = hash.split('?');
 
     if (hashPath === '#/auth') {
-      return { kind: 'auth' as const };
+      const params = new URLSearchParams(hashQuery);
+      return {
+        kind: 'auth' as const,
+        inviteId: params.get('invite')?.trim() || null,
+        inviteEmail: params.get('email')?.trim() || null,
+      };
     }
 
     if (hashPath === '#/search') {
@@ -4456,7 +4547,7 @@ export function App() {
           searchHash={route.searchHash}
         />
       ) : null}
-      {route.kind === 'auth' ? <AuthPage /> : null}
+      {route.kind === 'auth' ? <AuthPage key={hash} inviteId={route.inviteId} inviteEmail={route.inviteEmail} /> : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>

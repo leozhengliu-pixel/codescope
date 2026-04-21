@@ -238,6 +238,153 @@ describe('App', () => {
     expect(window.localStorage.getItem('sourcebot-local-session')).toBeNull();
   });
 
+  it('renders invite redemption on the auth route, stores the returned session, and restores the invited identity', async () => {
+    window.location.hash = '#/auth?invite=invite-7&email=invitee%40example.com';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      if (url === '/api/v1/auth/invite-redeem') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe(JSON.stringify({
+          invite_id: 'invite-7',
+          email: 'invitee@example.com',
+          name: 'Invitee Person',
+          password: 'invite-password',
+        }));
+
+        return jsonResponse({
+          session_id: 'invite-session-1',
+          session_secret: 'invite-secret-1',
+          user_id: 'user-invitee',
+          created_at: '2026-04-21T12:00:00Z',
+        }, true, 201);
+      }
+
+      if (url === '/api/v1/auth/me') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer invite-session-1:invite-secret-1',
+        });
+
+        return jsonResponse({
+          user_id: 'user-invitee',
+          email: 'invitee@example.com',
+          name: 'Invitee Person',
+          session_id: 'invite-session-1',
+          created_at: '2026-04-21T12:00:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Invite redemption' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('invitee@example.com')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Invitee Person' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'invite-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept invite and sign in' }));
+
+    expect(await screen.findByText('Signed in as Invitee Person')).toBeInTheDocument();
+    expect(window.localStorage.getItem('sourcebot-local-session')).toBe(
+      JSON.stringify({ sessionId: 'invite-session-1', sessionSecret: 'invite-secret-1' })
+    );
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/bootstrap');
+  });
+
+  it('shows a truthful auth error when invite redemption fails and keeps the session cleared', async () => {
+    window.location.hash = '#/auth?invite=invite-7&email=invitee%40example.com';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      if (url === '/api/v1/auth/invite-redeem') {
+        expect(init?.method).toBe('POST');
+        return jsonResponse({ error: 'unauthorized' }, false, 401);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Invite redemption' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Invitee Person' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'invite-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept invite and sign in' }));
+
+    expect(await screen.findByText('Authentication error: Request failed: 401')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Invite redemption' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('sourcebot-local-session')).toBeNull();
+  });
+
+  it('lets an invited local account return through the standard auth login form after invite redemption', async () => {
+    window.location.hash = '#/auth';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      if (url === '/api/v1/auth/login') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe(JSON.stringify({
+          email: 'invitee@example.com',
+          password: 'invite-password',
+        }));
+
+        return jsonResponse({
+          session_id: 'invite-login-session',
+          session_secret: 'invite-login-secret',
+          user_id: 'user-invitee',
+          created_at: '2026-04-21T12:05:00Z',
+        }, true, 201);
+      }
+
+      if (url === '/api/v1/auth/me') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer invite-login-session:invite-login-secret',
+        });
+
+        return jsonResponse({
+          user_id: 'user-invitee',
+          email: 'invitee@example.com',
+          name: 'Invitee Person',
+          session_id: 'invite-login-session',
+          created_at: '2026-04-21T12:05:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'invitee@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'invite-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in locally' }));
+
+    expect(await screen.findByText('Signed in as Invitee Person')).toBeInTheDocument();
+    expect(screen.getByText('invitee@example.com')).toBeInTheDocument();
+    expect(window.localStorage.getItem('sourcebot-local-session')).toBe(
+      JSON.stringify({ sessionId: 'invite-login-session', sessionSecret: 'invite-login-secret' })
+    );
+  });
+
   it('keeps the repository home focused on repository inventory while linking to the dedicated search route', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       jsonResponse([

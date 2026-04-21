@@ -31,8 +31,8 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig, ConnectionKind,
-    LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite, OrganizationRole,
-    OrganizationState, RepositoryDetail, RepositorySummary, RepositorySyncJob,
+    LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
+    OrganizationRole, OrganizationState, RepositoryDetail, RepositorySummary, RepositorySyncJob,
     ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
     SearchContext,
 };
@@ -159,6 +159,7 @@ fn build_router(
             get(get_bootstrap_status).post(create_bootstrap_admin),
         )
         .route("/api/v1/auth/login", post(login_local_admin))
+        .route("/api/v1/auth/invite-redeem", post(redeem_local_invite))
         .route("/api/v1/auth/me", get(get_authenticated_local_admin))
         .route(
             "/api/v1/auth/connections",
@@ -328,6 +329,14 @@ struct BootstrapCreateBody {
 #[derive(Debug, Deserialize)]
 struct LoginBody {
     email: String,
+    password: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InviteRedeemBody {
+    invite_id: String,
+    email: String,
+    name: String,
     password: String,
 }
 
@@ -801,21 +810,52 @@ async fn login_local_admin(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let bootstrap_state = state
+    let bootstrap_status = state
+        .bootstrap
+        .bootstrap_status()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if bootstrap_status.bootstrap_required {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let normalized_email = email.to_ascii_lowercase();
+    let authenticated_user_id = if let Some(bootstrap_state) = state
         .bootstrap
         .bootstrap_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::CONFLICT)?;
-    if bootstrap_state.admin_email != email {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    let password_hash = PasswordHash::new(&bootstrap_state.password_hash)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Argon2::default()
-        .verify_password(password.as_bytes(), &password_hash)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        .filter(|bootstrap_state| bootstrap_state.admin_email.eq_ignore_ascii_case(email))
+    {
+        let password_hash = PasswordHash::new(&bootstrap_state.password_hash)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Argon2::default()
+            .verify_password(password.as_bytes(), &password_hash)
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string()
+    } else {
+        let organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let account = organization_state
+            .accounts
+            .iter()
+            .find(|account| account.email.trim().eq_ignore_ascii_case(&normalized_email))
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let password_hash = account
+            .password_hash
+            .as_deref()
+            .ok_or(StatusCode::UNAUTHORIZED)
+            .and_then(|password_hash| {
+                PasswordHash::new(password_hash).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+            })?;
+        Argon2::default()
+            .verify_password(password.as_bytes(), &password_hash)
+            .map_err(|_| StatusCode::UNAUTHORIZED)?;
+        account.id.clone()
+    };
 
     let session_id = format!(
         "local_session_{}",
@@ -836,7 +876,7 @@ async fn login_local_admin(
         .local_sessions
         .store_local_session(LocalSession {
             id: session_id.clone(),
-            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            user_id: authenticated_user_id.clone(),
             secret_hash,
             created_at: created_at.clone(),
         })
@@ -848,7 +888,151 @@ async fn login_local_admin(
         Json(LoginResponse {
             session_id,
             session_secret,
-            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            user_id: authenticated_user_id,
+            created_at,
+        }),
+    ))
+}
+
+async fn redeem_local_invite(
+    State(state): State<AppState>,
+    Json(payload): Json<InviteRedeemBody>,
+) -> Result<(StatusCode, Json<LoginResponse>), StatusCode> {
+    let invite_id = payload.invite_id.trim();
+    let email = payload.email.trim();
+    let name = payload.name.trim();
+    let password = payload.password;
+    if invite_id.is_empty() || email.is_empty() || name.is_empty() || password.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let session_id = format!(
+        "local_session_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+    let session_secret = SaltString::generate(&mut OsRng).to_string();
+    let secret_hash = Argon2::default()
+        .hash_password(session_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+    let created_at = current_timestamp();
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let invite_index = organization_state
+        .invites
+        .iter()
+        .position(|invite| invite.id == invite_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let invite = &organization_state.invites[invite_index];
+    let invite_expired = OffsetDateTime::parse(invite.expires_at.trim(), &Rfc3339)
+        .ok()
+        .map(|expires_at| expires_at < OffsetDateTime::now_utc())
+        .unwrap_or(true);
+    if !invite.email.trim().eq_ignore_ascii_case(email)
+        || invite.accepted_at.is_some()
+        || invite.accepted_by_user_id.is_some()
+        || invite_expired
+        || !organization_state
+            .organizations
+            .iter()
+            .any(|organization| organization.id == invite.organization_id)
+    {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let invite_organization_id = invite.organization_id.clone();
+    let invite_role = invite.role.clone();
+
+    let invite_password_hash = Argon2::default()
+        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
+
+    let accepted_user_id = if let Some(existing_account) = organization_state
+        .accounts
+        .iter_mut()
+        .find(|account| account.email.trim().eq_ignore_ascii_case(email))
+    {
+        if existing_account.password_hash.is_some() {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        if existing_account.name.trim().is_empty() {
+            existing_account.name = name.to_string();
+        }
+        existing_account.password_hash = Some(invite_password_hash.clone());
+        existing_account.id.clone()
+    } else {
+        let generated_user_id = format!(
+            "local_user_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        );
+        organization_state.accounts.push(LocalAccount {
+            id: generated_user_id.clone(),
+            email: email.to_string(),
+            name: name.to_string(),
+            password_hash: Some(invite_password_hash),
+            created_at: created_at.clone(),
+        });
+        generated_user_id
+    };
+
+
+    if !organization_state.memberships.iter().any(|membership| {
+        membership.organization_id == invite_organization_id && membership.user_id == accepted_user_id
+    }) {
+        organization_state.memberships.push(OrganizationMembership {
+            organization_id: invite_organization_id.clone(),
+            user_id: accepted_user_id.clone(),
+            role: invite_role,
+            joined_at: created_at.clone(),
+        });
+    }
+
+    organization_state.invites[invite_index].accepted_by_user_id = Some(accepted_user_id.clone());
+    organization_state.invites[invite_index].accepted_at = Some(created_at.clone());
+
+    let local_session = LocalSession {
+        id: session_id.clone(),
+        user_id: accepted_user_id.clone(),
+        secret_hash,
+        created_at: created_at.clone(),
+    };
+    state
+        .local_sessions
+        .store_local_session(local_session.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Err(_) = state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+    {
+        state
+            .local_sessions
+            .delete_local_session(&local_session.id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok((
+        StatusCode::CREATED,
+        Json(LoginResponse {
+            session_id,
+            session_secret,
+            user_id: accepted_user_id,
             created_at,
         }),
     ))
@@ -981,12 +1165,46 @@ async fn get_authenticated_local_admin(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<AuthMeResponse>, StatusCode> {
-    let (bootstrap_state, session) = authenticate_local_session(&state, &headers).await?;
+    let session = authenticate_local_session_record(&state, &headers).await?;
+
+    if session.user_id == LOCAL_BOOTSTRAP_ADMIN_USER_ID {
+        let bootstrap_state = state
+            .bootstrap
+            .bootstrap_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        if bootstrap_state.admin_email.trim().is_empty() || bootstrap_state.admin_name.trim().is_empty() {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+
+        return Ok(Json(AuthMeResponse {
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            email: bootstrap_state.admin_email,
+            name: bootstrap_state.admin_name,
+            session_id: session.id,
+            created_at: session.created_at,
+        }));
+    }
+
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let account = organization_state
+        .accounts
+        .iter()
+        .find(|account| account.id == session.user_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if account.email.trim().is_empty() || account.name.trim().is_empty() || account.created_at.trim().is_empty() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     Ok(Json(AuthMeResponse {
-        user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
-        email: bootstrap_state.admin_email,
-        name: bootstrap_state.admin_name,
+        user_id: account.id.clone(),
+        email: account.email.clone(),
+        name: account.name.clone(),
         session_id: session.id,
         created_at: session.created_at,
     }))
@@ -3610,6 +3828,14 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
+    struct InviteRedeemRequest {
+        invite_id: String,
+        email: String,
+        name: String,
+        password: String,
+    }
+
+    #[derive(Debug, Serialize)]
     struct RevokeRequest {
         session_id: String,
     }
@@ -3975,6 +4201,7 @@ mod tests {
                 id: "user_admin".into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             invites: vec![OrganizationInvite {
@@ -4186,6 +4413,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: repo_ids
@@ -4340,6 +4568,7 @@ mod tests {
                 id: user_id.into(),
                 email: format!("{user_id}@example.com"),
                 name: format!("{user_id} display"),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -5819,6 +6048,597 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn invite_redeem_reuses_pending_invite_account_adds_membership_and_returns_session() {
+        let organization_state_path = unique_test_path("invite-redeem-success-orgs");
+        let local_session_state_path = unique_test_path("invite-redeem-success-sessions");
+        let invitee_user_id = "user_invited_existing";
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![
+                LocalAccount {
+                    id: "user_admin".into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                },
+                LocalAccount {
+                    id: invitee_user_id.into(),
+                    email: "invitee@example.com".into(),
+                    name: "Invited Person".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:56:00Z".into(),
+                },
+            ],
+            invites: vec![OrganizationInvite {
+                id: "invite_pending".into(),
+                organization_id: "org_acme".into(),
+                email: "invitee@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "user_admin".into(),
+                created_at: "2026-04-21T00:05:00Z".into(),
+                expires_at: "2026-04-28T00:05:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(&organization_state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("invite-redeem-success-bootstrap")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: " invitee@example.com ".into(),
+                            name: "Invited Person".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload: LoginResponseBody = read_json(response).await;
+        assert!(payload.session_id.starts_with("local_session_"));
+        assert!(!payload.session_secret.is_empty());
+        assert_eq!(payload.user_id, invitee_user_id);
+        assert!(OffsetDateTime::parse(&payload.created_at, &Rfc3339).is_ok());
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(
+            persisted_state
+                .accounts
+                .iter()
+                .filter(|account| account.email == "invitee@example.com")
+                .count(),
+            1
+        );
+        let invitee_account = persisted_state
+            .accounts
+            .iter()
+            .find(|account| account.id == invitee_user_id)
+            .unwrap();
+        let invitee_password_hash = PasswordHash::new(invitee_account.password_hash.as_deref().unwrap()).unwrap();
+        assert!(Argon2::default()
+            .verify_password(b"correct horse battery staple", &invitee_password_hash)
+            .is_ok());
+        assert!(persisted_state.memberships.iter().any(|membership| {
+            membership.organization_id == "org_acme"
+                && membership.user_id == invitee_user_id
+                && membership.role == OrganizationRole::Viewer
+        }));
+        let invite = persisted_state
+            .invites
+            .iter()
+            .find(|invite| invite.id == "invite_pending")
+            .unwrap();
+        assert_eq!(invite.accepted_by_user_id.as_deref(), Some(invitee_user_id));
+        assert!(invite.accepted_at.is_some());
+        assert!(OffsetDateTime::parse(invite.accepted_at.as_ref().unwrap(), &Rfc3339).is_ok());
+
+        let persisted_sessions: LocalSessionState =
+            serde_json::from_slice(&fs::read(&local_session_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_sessions.sessions.len(), 1);
+        let session = &persisted_sessions.sessions[0];
+        assert_eq!(session.id, payload.session_id);
+        assert_eq!(session.user_id, invitee_user_id);
+        assert_eq!(session.created_at, payload.created_at);
+        assert_ne!(session.secret_hash, payload.session_secret);
+        let persisted_secret_hash = PasswordHash::new(&session.secret_hash).unwrap();
+        assert!(Argon2::default()
+            .verify_password(payload.session_secret.as_bytes(), &persisted_secret_hash)
+            .is_ok());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_rejects_mismatched_or_already_accepted_invites_without_side_effects() {
+        let organization_state_path = unique_test_path("invite-redeem-reject-orgs");
+        let local_session_state_path = unique_test_path("invite-redeem-reject-sessions");
+        let original_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![
+                LocalAccount {
+                    id: "user_admin".into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                },
+                LocalAccount {
+                    id: "user_existing".into(),
+                    email: "accepted@example.com".into(),
+                    name: "Accepted User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:56:00Z".into(),
+                },
+            ],
+            invites: vec![
+                OrganizationInvite {
+                    id: "invite_pending".into(),
+                    organization_id: "org_acme".into(),
+                    email: "pending@example.com".into(),
+                    role: OrganizationRole::Viewer,
+                    invited_by_user_id: "user_admin".into(),
+                    created_at: "2026-04-21T00:05:00Z".into(),
+                    expires_at: "2026-04-28T00:05:00Z".into(),
+                    accepted_by_user_id: None,
+                    accepted_at: None,
+                },
+                OrganizationInvite {
+                    id: "invite_accepted".into(),
+                    organization_id: "org_acme".into(),
+                    email: "accepted@example.com".into(),
+                    role: OrganizationRole::Viewer,
+                    invited_by_user_id: "user_admin".into(),
+                    created_at: "2026-04-21T00:06:00Z".into(),
+                    expires_at: "2026-04-28T00:06:00Z".into(),
+                    accepted_by_user_id: Some("user_existing".into()),
+                    accepted_at: Some("2026-04-21T00:07:00Z".into()),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&original_state).unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("invite-redeem-reject-bootstrap")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let mismatched_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: "wrong@example.com".into(),
+                            name: "Wrong User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mismatched_response.status(), StatusCode::UNAUTHORIZED);
+
+        let accepted_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_accepted".into(),
+                            email: "accepted@example.com".into(),
+                            name: "Accepted User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted_response.status(), StatusCode::UNAUTHORIZED);
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state, original_state);
+        assert!(!local_session_state_path.is_file());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_rejects_existing_credentialed_account_without_side_effects() {
+        let organization_state_path = unique_test_path("invite-redeem-existing-account-orgs");
+        let local_session_state_path = unique_test_path("invite-redeem-existing-account-sessions");
+        let existing_password_hash = Argon2::default()
+            .hash_password(
+                b"already-owned-password",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        let original_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![
+                LocalAccount {
+                    id: "user_admin".into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                },
+                LocalAccount {
+                    id: "user_existing".into(),
+                    email: "invitee@example.com".into(),
+                    name: "Existing Invitee".into(),
+                    password_hash: Some(existing_password_hash),
+                    created_at: "2026-04-20T23:56:00Z".into(),
+                },
+            ],
+            invites: vec![OrganizationInvite {
+                id: "invite_pending".into(),
+                organization_id: "org_acme".into(),
+                email: "invitee@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "user_admin".into(),
+                created_at: "2026-04-21T00:05:00Z".into(),
+                expires_at: "2026-04-28T00:05:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&original_state).unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("invite-redeem-existing-account-bootstrap")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Existing Invitee".into(),
+                            password: "replacement-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state, original_state);
+        assert!(!local_session_state_path.is_file());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_rejects_expired_invites_without_side_effects() {
+        let organization_state_path = unique_test_path("invite-redeem-expired-orgs");
+        let local_session_state_path = unique_test_path("invite-redeem-expired-sessions");
+        let original_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "user_admin".into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: "user_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            invites: vec![OrganizationInvite {
+                id: "invite_expired".into(),
+                organization_id: "org_acme".into(),
+                email: "invitee@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "user_admin".into(),
+                created_at: "2026-04-01T00:05:00Z".into(),
+                expires_at: "2026-04-02T00:05:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&original_state).unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("invite-redeem-expired-bootstrap")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_expired".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Expired Invitee".into(),
+                            password: "replacement-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state, original_state);
+        assert!(!local_session_state_path.is_file());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn login_allows_invited_local_accounts_to_sign_in_after_redeeming_invite() {
+        let bootstrap_state_path = unique_test_path("login-invited-account-bootstrap");
+        let organization_state_path = unique_test_path("login-invited-account-orgs");
+        let local_session_state_path = unique_test_path("login-invited-account-sessions");
+        let invite_password = "invite-password";
+        let invite_password_hash = Argon2::default()
+            .hash_password(invite_password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-20T23:50:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash: Argon2::default()
+                    .hash_password(
+                        b"correct horse battery staple",
+                        &SaltString::generate(&mut OsRng),
+                    )
+                    .unwrap()
+                    .to_string(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                accounts: vec![LocalAccount {
+                    id: "user_invited".into(),
+                    email: "invitee@example.com".into(),
+                    name: "Invitee Person".into(),
+                    password_hash: Some(invite_password_hash),
+                    created_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "invitee@example.com".into(),
+                            password: invite_password.into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload: LoginResponseBody = read_json(response).await;
+        assert_eq!(payload.user_id, "user_invited");
+        assert!(!payload.session_secret.is_empty());
+
+        let persisted_sessions: LocalSessionState =
+            serde_json::from_slice(&fs::read(&local_session_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_sessions.sessions.len(), 1);
+        assert_eq!(persisted_sessions.sessions[0].user_id, "user_invited");
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_local_account_identity_for_non_bootstrap_local_sessions() {
+        let organization_state_path = unique_test_path("auth-me-local-account-orgs");
+        let local_session_state_path = unique_test_path("auth-me-local-account-sessions");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                accounts: vec![LocalAccount {
+                    id: "user_invited".into(),
+                    email: "invitee@example.com".into(),
+                    name: "Invitee Person".into(),
+                    password_hash: None,
+                    created_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &local_session_state_path,
+            serde_json::to_vec(&LocalSessionState {
+                sessions: vec![LocalSession {
+                    id: "local_session_invitee".into(),
+                    user_id: "user_invited".into(),
+                    secret_hash: Argon2::default()
+                        .hash_password(
+                            b"invitee-secret",
+                            &SaltString::from_b64("c2FsdFNhbXBsZQ").unwrap(),
+                        )
+                        .unwrap()
+                        .to_string(),
+                    created_at: "2026-04-21T00:05:00Z".into(),
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: unique_test_path("auth-me-local-account-bootstrap")
+                .display()
+                .to_string(),
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer local_session_invitee:invitee-secret",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AuthMeResponseBody = read_json(response).await;
+        assert_eq!(payload.user_id, "user_invited");
+        assert_eq!(payload.email, "invitee@example.com");
+        assert_eq!(payload.name, "Invitee Person");
+        assert_eq!(payload.session_id, "local_session_invitee");
+        assert_eq!(payload.created_at, "2026-04-21T00:05:00Z");
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn auth_me_returns_bootstrap_admin_for_valid_bearer_local_session() {
         let bootstrap_state_path = unique_test_path("auth-me-bootstrap");
         let local_session_state_path = unique_test_path("auth-me-sessions");
@@ -5918,6 +6738,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             api_keys: vec![
@@ -6027,6 +6848,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             search_contexts: vec![
@@ -6135,6 +6957,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             search_contexts: vec![SearchContext {
@@ -6242,6 +7065,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: vec![
@@ -6388,6 +7212,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-21T00:55:00Z".into(),
             }],
             repo_permissions: vec![
@@ -6506,6 +7331,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-21T23:55:00Z".into(),
             }],
             audit_events: vec![
@@ -6632,6 +7458,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-22T23:55:00Z".into(),
             }],
             analytics_records: vec![
@@ -6741,6 +7568,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             oauth_clients: vec![
@@ -6962,12 +7790,14 @@ mod tests {
                     id: user_id.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-18T00:00:00Z".into(),
                 },
                 LocalAccount {
                     id: "local_user_hidden".into(),
                     email: "hidden@example.com".into(),
                     name: "Hidden User".into(),
+                    password_hash: None,
                     created_at: "2026-04-19T00:00:00Z".into(),
                 },
             ],
@@ -7048,6 +7878,7 @@ mod tests {
                 id: user_id.into(),
                 email: "viewer@example.com".into(),
                 name: "Viewer User".into(),
+                password_hash: None,
                 created_at: "2026-04-18T00:00:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -7128,18 +7959,21 @@ mod tests {
                     id: user_id.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-18T00:00:00Z".into(),
                 },
                 LocalAccount {
                     id: "local_user_viewer".into(),
                     email: "viewer@example.com".into(),
                     name: "Viewer User".into(),
+                    password_hash: None,
                     created_at: "2026-04-19T00:00:00Z".into(),
                 },
                 LocalAccount {
                     id: "local_user_hidden".into(),
                     email: "hidden@example.com".into(),
                     name: "Hidden User".into(),
+                    password_hash: None,
                     created_at: "2026-04-19T01:00:00Z".into(),
                 },
             ],
@@ -7253,18 +8087,21 @@ mod tests {
                     id: user_id.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-18T00:00:00Z".into(),
                 },
                 LocalAccount {
                     id: "local_user_viewer".into(),
                     email: "viewer@example.com".into(),
                     name: "Viewer User".into(),
+                    password_hash: None,
                     created_at: "2026-04-19T00:00:00Z".into(),
                 },
                 LocalAccount {
                     id: "local_user_hidden".into(),
                     email: "hidden@example.com".into(),
                     name: "Hidden User".into(),
+                    password_hash: None,
                     created_at: "2026-04-19T01:00:00Z".into(),
                 },
             ],
@@ -7442,6 +8279,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -7508,6 +8346,7 @@ mod tests {
                 id: user_id.into(),
                 email: "viewer@example.com".into(),
                 name: "Viewer User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -7578,6 +8417,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -7951,6 +8791,7 @@ mod tests {
                 id: user_id.into(),
                 email: "viewer@example.com".into(),
                 name: "Viewer User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8043,6 +8884,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8142,6 +8984,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8233,6 +9076,7 @@ mod tests {
                 id: user_id.into(),
                 email: "viewer@example.com".into(),
                 name: "Viewer User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8338,6 +9182,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8440,6 +9285,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8568,6 +9414,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8642,6 +9489,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -8721,6 +9569,7 @@ mod tests {
                 id: user_id.into(),
                 email: "viewer@example.com".into(),
                 name: "Viewer User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8806,6 +9655,7 @@ mod tests {
                 id: user_id.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -8874,6 +9724,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -8994,6 +9845,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9106,6 +9958,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9205,6 +10058,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9351,6 +10205,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9532,6 +10387,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9652,6 +10508,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9794,6 +10651,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -9971,6 +10829,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10106,6 +10965,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10248,6 +11108,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10444,6 +11305,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10564,6 +11426,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10709,6 +11572,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -10850,6 +11714,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -11056,6 +11921,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -11192,6 +12058,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![
@@ -11764,6 +12631,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -11880,6 +12748,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -12000,6 +12869,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -12117,6 +12987,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -12244,6 +13115,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -12370,6 +13242,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -12494,6 +13367,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-24T23:55:00Z".into(),
             }],
             review_webhooks: vec![ReviewWebhook {
@@ -13274,6 +14148,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
@@ -13398,6 +14273,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
@@ -13565,6 +14441,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             api_keys: vec![
@@ -13681,6 +14558,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: vec![
@@ -13755,6 +14633,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -13811,6 +14690,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             repo_permissions: vec![RepositoryPermissionBinding {
@@ -13869,6 +14749,7 @@ mod tests {
                 id: user_id.into(),
                 email: "member@example.com".into(),
                 name: "Member User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             api_keys: vec![ApiKey {
@@ -14285,6 +15166,7 @@ mod tests {
                     id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-20T23:55:00Z".into(),
                 }],
                 ..OrganizationState::default()
@@ -14747,6 +15629,7 @@ mod tests {
                     id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-20T23:55:00Z".into(),
                 }],
                 ..OrganizationState::default()
@@ -14870,6 +15753,7 @@ mod tests {
                 id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
             ..OrganizationState::default()
@@ -15289,6 +16173,7 @@ mod tests {
                     id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-20T23:55:00Z".into(),
                 }],
                 ..OrganizationState::default()
@@ -15367,6 +16252,7 @@ mod tests {
                     id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
                     email: "admin@example.com".into(),
                     name: "Admin User".into(),
+                    password_hash: None,
                     created_at: "2026-04-20T23:55:00Z".into(),
                 }],
                 ..OrganizationState::default()

@@ -873,6 +873,7 @@ mod tests {
                 id: "local_user_bootstrap_admin".into(),
                 email: "admin@example.com".into(),
                 name: "Bootstrap Admin".into(),
+                password_hash: None,
                 created_at: "2026-04-16T19:58:00Z".into(),
             }],
             invites: vec![OrganizationInvite {
