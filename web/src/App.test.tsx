@@ -764,9 +764,85 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
     expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute('href', '#/settings/members');
     expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('href', '#/settings/access');
+    expect(screen.getByRole('link', { name: 'Linked accounts' })).toHaveAttribute('href', '#/settings/linked-accounts');
     expect(screen.getByRole('link', { name: 'OAuth clients' })).toHaveAttribute('href', '#/settings/oauth-clients');
     expect(screen.getByRole('link', { name: 'Audit & analytics' })).toHaveAttribute('href', '#/settings/observability');
     expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
+  });
+
+  it('renders linked accounts inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/linked-accounts';
+
+    const linkedAccountsResponse = deferredResponse();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(linkedAccountsResponse.promise);
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Linked accounts' })).toBeInTheDocument();
+    expect(screen.getByText('Loading linked accounts…')).toBeInTheDocument();
+
+    linkedAccountsResponse.resolve(
+      jsonResponse({
+        identities: [
+          {
+            provider: 'local',
+            user_id: 'local-user-admin',
+            email: 'admin@acme.test',
+            name: 'Acme Admin',
+            created_at: '2026-04-18T09:00:00Z',
+            primary: true,
+          },
+        ],
+        memberships: [
+          {
+            organization: {
+              id: 'org-acme',
+              slug: 'acme',
+              name: 'Acme, Inc.',
+            },
+            role: 'admin',
+            joined_at: '2026-04-20T09:00:00Z',
+          },
+          {
+            organization: {
+              id: 'org-beta',
+              slug: 'beta',
+              name: 'Beta Org',
+            },
+            role: 'viewer',
+            joined_at: '2026-04-21T09:00:00Z',
+          },
+        ],
+        external_linking_supported: false,
+      })
+    );
+
+    const localIdentityCard = await screen.findByLabelText('Linked identity local Acme Admin');
+    const acmeMembership = screen.getByLabelText('Linked-account membership Acme, Inc.');
+    const betaMembership = screen.getByLabelText('Linked-account membership Beta Org');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/linked-accounts');
+    expect(within(localIdentityCard).getByText('User id: local-user-admin')).toBeInTheDocument();
+    expect(within(localIdentityCard).getByText('admin@acme.test')).toBeInTheDocument();
+    expect(within(localIdentityCard).getByText('Current session identity')).toBeInTheDocument();
+    expect(within(acmeMembership).getByText('Organization id: org-acme')).toBeInTheDocument();
+    expect(within(acmeMembership).getByText('Slug: acme')).toBeInTheDocument();
+    expect(within(acmeMembership).getByText('admin')).toBeInTheDocument();
+    expect(within(betaMembership).getByText('viewer')).toBeInTheDocument();
+    expect(screen.getByText(/This baseline is intentionally read-only: it shows the current local account identity and visible organization memberships/i)).toBeInTheDocument();
+    expect(screen.getByText(/External provider linking and SSO remain follow-up work\./i)).toBeInTheDocument();
+  });
+
+  it('shows a linked accounts loading failure inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/linked-accounts';
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Request failed: 401'));
+
+    render(<App />);
+
+    expect(screen.getByText('Loading linked accounts…')).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load linked accounts: Request failed: 401')).toBeInTheDocument();
   });
 
   it('renders access inventory inside the shared settings shell', async () => {

@@ -247,6 +247,31 @@ type MembersOrganizationInventory = {
   invites: InviteRosterEntry[];
 };
 
+type LinkedAccountIdentity = {
+  provider: string;
+  user_id: string;
+  email: string;
+  name: string;
+  created_at: string;
+  primary: boolean;
+};
+
+type LinkedAccountMembership = {
+  organization: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  role: 'admin' | 'viewer';
+  joined_at: string;
+};
+
+type LinkedAccountsInventory = {
+  identities: LinkedAccountIdentity[];
+  memberships: LinkedAccountMembership[];
+  external_linking_supported: boolean;
+};
+
 type ReviewWebhookListItem = {
   id: string;
   organization_id: string;
@@ -2419,6 +2444,7 @@ type SettingsSectionId =
   | 'api-keys'
   | 'members'
   | 'access'
+  | 'linked-accounts'
   | 'oauth-clients'
   | 'observability'
   | 'review-automation';
@@ -2455,6 +2481,12 @@ const settingsSections: SettingsSectionDefinition[] = [
     label: 'Access',
     href: '#/settings/access',
     description: 'Inspect the repositories currently visible to your account through the authz-filtered /api/v1/repos inventory.',
+  },
+  {
+    id: 'linked-accounts',
+    label: 'Linked accounts',
+    href: '#/settings/linked-accounts',
+    description: 'Inspect the current local account identity and visible organization memberships exposed at /api/v1/auth/linked-accounts.',
   },
   {
     id: 'oauth-clients',
@@ -2526,8 +2558,8 @@ function SettingsLandingPage() {
     >
       <p style={{ margin: 0, color: '#57606a' }}>
         The current rewrite exposes authenticated admin API surfaces for connections, API keys, members, access visibility,
-        OAuth clients, audit and analytics, and review automation visibility. Use the sections above to inspect the shipped
-        route shells.
+        linked accounts, OAuth clients, audit and analytics, and review automation visibility. Use the sections above to
+        inspect the shipped route shells.
       </p>
     </Panel>
   );
@@ -2612,6 +2644,126 @@ function SettingsAccessPage() {
                   <Detail label="Default branch" value={repository.default_branch} />
                   <Detail label="Sync state" value={<StatusBadge state={repository.sync_state} />} />
                 </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
+function SettingsLinkedAccountsPage() {
+  const section = settingsSectionById('linked-accounts');
+  const [inventory, setInventory] = useState<LinkedAccountsInventory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<LinkedAccountsInventory>('/api/v1/auth/linked-accounts')
+      .then((data) => {
+        if (!cancelled) {
+          setInventory(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setInventory(null);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const identities = inventory?.identities ?? [];
+  const memberships = inventory?.memberships ?? [];
+
+  return (
+    <Panel title="Linked accounts" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This baseline is intentionally read-only: it shows the current local account identity and visible organization
+          memberships without claiming external provider linking, SSO, or account-merge workflows that do not exist yet.
+        </p>
+        {!loading && !error && inventory && !inventory.external_linking_supported ? (
+          <p style={{ margin: 0, color: '#57606a' }}>External provider linking and SSO remain follow-up work.</p>
+        ) : null}
+
+        {loading ? <div>Loading linked accounts…</div> : null}
+        {!loading && error ? <div>Unable to load linked accounts: {error}</div> : null}
+        {!loading && !error && identities.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No linked identities found</div>
+            <div style={{ color: '#57606a' }}>
+              Your authenticated session does not currently map to a visible local account identity.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && identities.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {identities.map((identity) => (
+              <li
+                key={`${identity.provider}-${identity.user_id}`}
+                aria-label={`Linked identity ${identity.provider} ${identity.name}`}
+                style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{identity.name}</div>
+                    <div style={{ color: '#57606a' }}>{identity.email}</div>
+                    <div style={{ color: '#57606a' }}>User id: {identity.user_id}</div>
+                  </div>
+                  <span style={sharedStatusBadgeStyle(identity.primary ? '#0969da' : '#57606a')}>
+                    {identity.provider}
+                  </span>
+                </div>
+                <div style={detailGridStyle}>
+                  <Detail label="Provider" value={identity.provider} />
+                  <Detail label="Created at" value={identity.created_at} />
+                </div>
+                {identity.primary ? <div style={{ color: '#57606a' }}>Current session identity</div> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {!loading && !error && memberships.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No visible memberships found</div>
+            <div style={{ color: '#57606a' }}>
+              Your current identity is not yet attached to any visible organization membership records.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && memberships.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {memberships.map((membership) => (
+              <li
+                key={`${membership.organization.id}-${membership.joined_at}`}
+                aria-label={`Linked-account membership ${membership.organization.name}`}
+                style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{membership.organization.name}</div>
+                    <div style={{ color: '#57606a' }}>Organization id: {membership.organization.id}</div>
+                    <div style={{ color: '#57606a' }}>Slug: {membership.organization.slug}</div>
+                  </div>
+                  <span style={sharedStatusBadgeStyle(membership.role === 'admin' ? '#0969da' : '#57606a')}>
+                    {membership.role}
+                  </span>
+                </div>
+                <div style={{ color: '#57606a' }}>Joined at {membership.joined_at}</div>
               </li>
             ))}
           </ul>
@@ -3846,6 +3998,7 @@ export function App() {
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
           {route.section === 'members' ? <SettingsMembersPage /> : null}
           {route.section === 'access' ? <SettingsAccessPage /> : null}
+          {route.section === 'linked-accounts' ? <SettingsLinkedAccountsPage /> : null}
           {route.section === 'oauth-clients' ? <SettingsOAuthClientsPage /> : null}
           {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
           {route.section === 'review-automation' ? <SettingsReviewAutomationPage /> : null}

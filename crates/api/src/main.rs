@@ -178,6 +178,10 @@ fn build_router(
         )
         .route("/api/v1/auth/members", get(list_authenticated_members))
         .route(
+            "/api/v1/auth/linked-accounts",
+            get(list_authenticated_linked_accounts),
+        )
+        .route(
             "/api/v1/auth/search-contexts",
             get(list_authenticated_search_contexts),
         )
@@ -421,6 +425,30 @@ struct MembersOrganizationResponse {
     organization: MembersOrganizationIdentityResponse,
     members: Vec<MemberRosterEntryResponse>,
     invites: Vec<InviteRosterEntryResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct LinkedAccountsResponse {
+    identities: Vec<LinkedAccountIdentityResponse>,
+    memberships: Vec<LinkedAccountMembershipResponse>,
+    external_linking_supported: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct LinkedAccountIdentityResponse {
+    provider: String,
+    user_id: String,
+    email: String,
+    name: String,
+    created_at: String,
+    primary: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct LinkedAccountMembershipResponse {
+    organization: MembersOrganizationIdentityResponse,
+    role: OrganizationRole,
+    joined_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1263,6 +1291,25 @@ async fn list_authenticated_members(
         .collect();
 
     Ok(Json(payload))
+}
+
+async fn list_authenticated_linked_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<LinkedAccountsResponse>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let account = organization_state
+        .accounts
+        .iter()
+        .find(|account| account.id == session.user_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    Ok(Json(linked_accounts_response(&organization_state, account)))
 }
 
 async fn list_authenticated_search_contexts(
@@ -2116,6 +2163,54 @@ fn members_organization_response(
         members: member_roster_entries_for_organization(organization_state, &organization.id),
         invites: invite_roster_entries_for_organization(organization_state, &organization.id),
     }
+}
+
+fn linked_accounts_response(
+    organization_state: &OrganizationState,
+    account: &LocalAccount,
+) -> LinkedAccountsResponse {
+    LinkedAccountsResponse {
+        identities: vec![LinkedAccountIdentityResponse {
+            provider: "local".to_string(),
+            user_id: account.id.clone(),
+            email: account.email.clone(),
+            name: account.name.clone(),
+            created_at: account.created_at.clone(),
+            primary: true,
+        }],
+        memberships: linked_account_memberships_for_user(organization_state, &account.id),
+        external_linking_supported: false,
+    }
+}
+
+fn linked_account_memberships_for_user(
+    organization_state: &OrganizationState,
+    user_id: &str,
+) -> Vec<LinkedAccountMembershipResponse> {
+    let organizations_by_id: HashMap<&str, &Organization> = organization_state
+        .organizations
+        .iter()
+        .map(|organization| (organization.id.as_str(), organization))
+        .collect();
+
+    organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.user_id == user_id)
+        .filter_map(|membership| {
+            organizations_by_id.get(membership.organization_id.as_str()).map(|organization| {
+                LinkedAccountMembershipResponse {
+                    organization: MembersOrganizationIdentityResponse {
+                        id: organization.id.clone(),
+                        slug: organization.slug.clone(),
+                        name: organization.name.clone(),
+                    },
+                    role: membership.role.clone(),
+                    joined_at: membership.joined_at.clone(),
+                }
+            })
+        })
+        .collect()
 }
 
 fn member_roster_entries_for_organization(
@@ -3600,6 +3695,30 @@ mod tests {
         created_by_user_id: String,
         created_at: String,
         revoked_at: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LinkedAccountsResponseBody {
+        identities: Vec<LinkedAccountIdentityResponseBody>,
+        memberships: Vec<LinkedAccountMembershipResponseBody>,
+        external_linking_supported: bool,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LinkedAccountIdentityResponseBody {
+        provider: String,
+        user_id: String,
+        email: String,
+        name: String,
+        created_at: String,
+        primary: bool,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LinkedAccountMembershipResponseBody {
+        organization: MembersOrganizationIdentityResponseBody,
+        role: String,
+        joined_at: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -6722,6 +6841,185 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item.get("client_secret_hash").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_linked_accounts_requires_authenticated_local_session() {
+        let app = test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/linked-accounts")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_linked_accounts_fails_closed_when_session_user_has_no_local_account_record() {
+        let organization_state_path = unique_test_path("auth-linked-accounts-missing-account");
+        let local_session_state_path = unique_test_path("auth-linked-accounts-missing-account-sessions");
+        let user_id = "local_user_missing";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-20T00:00:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/linked-accounts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_linked_accounts_returns_current_local_identity_and_visible_memberships() {
+        let organization_state_path = unique_test_path("auth-linked-accounts-visible-memberships");
+        let local_session_state_path = unique_test_path("auth-linked-accounts-visible-memberships-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_beta".into(),
+                    slug: "beta".into(),
+                    name: "Beta".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-20T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_beta".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_hidden".into(),
+                    user_id: "local_user_hidden".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-22T00:00:00Z".into(),
+                },
+            ],
+            accounts: vec![
+                LocalAccount {
+                    id: user_id.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-18T00:00:00Z".into(),
+                },
+                LocalAccount {
+                    id: "local_user_hidden".into(),
+                    email: "hidden@example.com".into(),
+                    name: "Hidden User".into(),
+                    created_at: "2026-04-19T00:00:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/linked-accounts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: LinkedAccountsResponseBody = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.identities.len(), 1);
+        assert_eq!(payload.identities[0].provider, "local");
+        assert_eq!(payload.identities[0].user_id, user_id);
+        assert_eq!(payload.identities[0].email, "admin@example.com");
+        assert_eq!(payload.identities[0].name, "Admin User");
+        assert_eq!(payload.identities[0].created_at, "2026-04-18T00:00:00Z");
+        assert!(payload.identities[0].primary);
+        assert_eq!(payload.memberships.len(), 2);
+        assert_eq!(payload.memberships[0].organization.id, "org_acme");
+        assert_eq!(payload.memberships[0].organization.slug, "acme");
+        assert_eq!(payload.memberships[0].organization.name, "Acme");
+        assert_eq!(payload.memberships[0].role, "admin");
+        assert_eq!(payload.memberships[0].joined_at, "2026-04-20T00:00:00Z");
+        assert_eq!(payload.memberships[1].organization.id, "org_beta");
+        assert_eq!(payload.memberships[1].role, "viewer");
+        assert!(!payload.external_linking_supported);
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let serialized = serde_json::to_string(&json).unwrap();
+        assert!(!serialized.contains("org_hidden"));
+        assert!(!serialized.contains("hidden@example.com"));
+        assert!(!serialized.contains("client_secret_hash"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
