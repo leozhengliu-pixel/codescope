@@ -193,6 +193,40 @@ describe('App', () => {
     );
   });
 
+  it('keeps oauth callback status visible when an existing local session is restored on the auth route', async () => {
+    window.location.hash = '#/auth?provider=github&error=access_denied';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-9', sessionSecret: 'secret-9' })
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/me') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-9:secret-9',
+        });
+
+        return jsonResponse({
+          user_id: 'user-9',
+          email: 'admin@example.com',
+          name: 'Restored Admin',
+          session_id: 'session-9',
+          created_at: '2026-04-18T12:00:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Signed in as Restored Admin')).toBeInTheDocument();
+    expect(screen.getByText('OAuth callback parameters for GitHub indicate sign-in did not complete.')).toBeInTheDocument();
+    expect(screen.getByText('OAuth error: access_denied')).toBeInTheDocument();
+  });
+
   it('logs out from the auth route, clears the stored session, and returns to local login', async () => {
     window.location.hash = '#/auth';
     window.localStorage.setItem(
@@ -298,6 +332,27 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/bootstrap');
   });
 
+  it('keeps oauth callback status visible alongside invite redemption on the auth route', async () => {
+    window.location.hash = '#/auth?invite=invite-7&email=invitee%40example.com&provider=github&error=access_denied';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Invite redemption' })).toBeInTheDocument();
+    expect(screen.getByText('OAuth callback parameters for GitHub indicate sign-in did not complete.')).toBeInTheDocument();
+    expect(screen.getByText('OAuth error: access_denied')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Accept invite and sign in' })).toBeInTheDocument();
+  });
+
   it('shows a truthful auth error when invite redemption fails and keeps the session cleared', async () => {
     window.location.hash = '#/auth?invite=invite-7&email=invitee%40example.com';
 
@@ -383,6 +438,96 @@ describe('App', () => {
     expect(window.localStorage.getItem('sourcebot-local-session')).toBe(
       JSON.stringify({ sessionId: 'invite-login-session', sessionSecret: 'invite-login-secret' })
     );
+  });
+
+  it('renders an oauth callback error status on the auth route while keeping local login available', async () => {
+    window.location.hash = '#/auth?provider=github&error=access_denied&error_description=Org%20SSO%20required';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+    expect(screen.getByText('OAuth callback parameters for GitHub indicate sign-in did not complete.')).toBeInTheDocument();
+    expect(screen.getByText('OAuth error: access_denied')).toBeInTheDocument();
+    expect(screen.getByText('Org SSO required')).toBeInTheDocument();
+    expect(screen.getByText('This rewrite does not finish external-provider sign-in on this screen yet.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in locally' })).toBeInTheDocument();
+  });
+
+  it('renders an oauth callback provider status when only the provider param is present', async () => {
+    window.location.hash = '#/auth?provider=github';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+    expect(screen.getByText('This auth route received OAuth callback parameters for GitHub.')).toBeInTheDocument();
+    expect(screen.getByText('Provider: GitHub')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in locally' })).toBeInTheDocument();
+  });
+
+  it('renders an oauth callback code status on the auth route while keeping local login available without echoing secret callback values', async () => {
+    window.location.hash = '#/auth?provider=github&code=callback-code&state=opaque-state';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+    expect(screen.getByText('This auth route received OAuth callback parameters for GitHub.')).toBeInTheDocument();
+    expect(screen.getByText('This rewrite does not finish external-provider sign-in here yet, so use local login below if you need access right now.')).toBeInTheDocument();
+    expect(screen.getByText('An authorization code was received, but it is not exchanged on this screen yet.')).toBeInTheDocument();
+    expect(screen.getByText('An OAuth state parameter was also present.')).toBeInTheDocument();
+    expect(screen.queryByText('Authorization code received: callback-code')).not.toBeInTheDocument();
+    expect(screen.queryByText('State received: opaque-state')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in locally' })).toBeInTheDocument();
+  });
+
+  it('keeps first-run onboarding available when oauth callback params land on an unbootstrapped auth route', async () => {
+    window.location.hash = '#/auth?provider=github&error=access_denied';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: true });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First-run onboarding' })).toBeInTheDocument();
+    expect(screen.getByText('OAuth callback parameters for GitHub indicate sign-in did not complete.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create first admin account' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in locally' })).not.toBeInTheDocument();
   });
 
   it('keeps the repository home focused on repository inventory while linking to the dedicated search route', async () => {

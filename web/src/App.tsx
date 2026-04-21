@@ -393,6 +393,14 @@ type AuthMeResponse = {
   created_at: string;
 };
 
+type OAuthCallbackContext = {
+  provider: string | null;
+  error: string | null;
+  errorDescription: string | null;
+  code: string | null;
+  state: string | null;
+};
+
 const authConnectionKindOptions: AuthConnectionKind[] = [
   'github',
   'gitlab',
@@ -508,6 +516,31 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`Request failed: ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+function humanizeOAuthProvider(provider: string | null): string {
+  if (!provider) {
+    return 'External provider';
+  }
+
+  const knownProviders: Record<string, string> = {
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    gitea: 'Gitea',
+    gerrit: 'Gerrit',
+    bitbucket: 'Bitbucket',
+    azure_devops: 'Azure DevOps',
+  };
+
+  if (knownProviders[provider]) {
+    return knownProviders[provider];
+  }
+
+  return provider
+    .split(/[_\s-]+/)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
 }
 
 function sharedStatusBadgeStyle(color: string): CSSProperties {
@@ -865,9 +898,11 @@ function RepoListPage() {
 function AuthPage({
   inviteId = null,
   inviteEmail = null,
+  oauthCallback = null,
 }: {
   inviteId?: string | null;
   inviteEmail?: string | null;
+  oauthCallback?: OAuthCallbackContext | null;
 }) {
   const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatusResponse | null>(null);
   const [identity, setIdentity] = useState<AuthMeResponse | null>(null);
@@ -886,6 +921,43 @@ function AuthPage({
   const [inviteEmailInput, setInviteEmailInput] = useState(inviteEmail ?? '');
   const [invitePassword, setInvitePassword] = useState('');
   const hasInviteContext = Boolean(inviteId && inviteEmail);
+  const oauthProviderName = humanizeOAuthProvider(oauthCallback?.provider ?? null);
+  const hasOAuthCallbackContext = Boolean(
+    oauthCallback && (oauthCallback.provider || oauthCallback.error || oauthCallback.errorDescription || oauthCallback.code || oauthCallback.state)
+  );
+  const isOAuthErrorCallback = Boolean(oauthCallback?.error || oauthCallback?.errorDescription);
+  const oauthCallbackNotice = hasOAuthCallbackContext ? (
+    <div
+      style={{
+        ...detailCardStyle,
+        borderColor: isOAuthErrorCallback ? '#cf222e' : '#0969da',
+        background: isOAuthErrorCallback ? '#fff8f8' : '#f6f8ff',
+        display: 'grid',
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 18, fontWeight: 700 }}>
+        {isOAuthErrorCallback
+          ? `OAuth callback parameters for ${oauthProviderName} indicate sign-in did not complete.`
+          : `This auth route received OAuth callback parameters for ${oauthProviderName}.`}
+      </div>
+      <div style={{ color: '#57606a' }}>
+        {isOAuthErrorCallback
+          ? 'This rewrite does not finish external-provider sign-in on this screen yet.'
+          : 'This rewrite does not finish external-provider sign-in here yet, so use local login below if you need access right now.'}
+      </div>
+      {oauthCallback?.provider ? <div>Provider: {oauthProviderName}</div> : null}
+      {oauthCallback?.error ? <div>OAuth error: {oauthCallback.error}</div> : null}
+      {oauthCallback?.errorDescription ? (
+        <div>
+          <div>Description</div>
+          <div>{oauthCallback.errorDescription}</div>
+        </div>
+      ) : null}
+      {oauthCallback?.code ? <div>An authorization code was received, but it is not exchanged on this screen yet.</div> : null}
+      {oauthCallback?.state ? <div>An OAuth state parameter was also present.</div> : null}
+    </div>
+  ) : null;
 
   useEffect(() => {
     setInviteEmailInput(inviteEmail ?? '');
@@ -1054,6 +1126,7 @@ function AuthPage({
     return (
       <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
         <div style={{ display: 'grid', gap: 12 }}>
+          {oauthCallbackNotice}
           <div style={{ fontSize: 18, fontWeight: 700 }}>Signed in as {identity.name}</div>
           <div style={{ color: '#57606a' }}>{identity.email}</div>
           <div style={{ color: '#57606a' }}>Session id: {identity.session_id}</div>
@@ -1072,6 +1145,7 @@ function AuthPage({
     return (
       <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
         <div style={{ display: 'grid', gap: 16 }}>
+          {oauthCallbackNotice}
           <div>
             <h2 style={{ margin: 0, fontSize: 24 }}>First-run onboarding</h2>
             <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
@@ -1107,6 +1181,7 @@ function AuthPage({
     return (
       <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
         <div style={{ display: 'grid', gap: 16 }}>
+          {oauthCallbackNotice}
           <div>
             <h2 style={{ margin: 0, fontSize: 24 }}>Invite redemption</h2>
             <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
@@ -1141,6 +1216,7 @@ function AuthPage({
   return (
     <Panel title="Authentication" subtitle="First-run onboarding, local login, invite redemption, and session restoration.">
       <div style={{ display: 'grid', gap: 16 }}>
+        {oauthCallbackNotice}
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Local login</h2>
           <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
@@ -4462,6 +4538,13 @@ export function App() {
         kind: 'auth' as const,
         inviteId: params.get('invite')?.trim() || null,
         inviteEmail: params.get('email')?.trim() || null,
+        oauthCallback: {
+          provider: params.get('provider')?.trim() || null,
+          error: params.get('error')?.trim() || null,
+          errorDescription: params.get('error_description')?.trim() || null,
+          code: params.get('code')?.trim() || null,
+          state: params.get('state')?.trim() || null,
+        },
       };
     }
 
@@ -4547,7 +4630,9 @@ export function App() {
           searchHash={route.searchHash}
         />
       ) : null}
-      {route.kind === 'auth' ? <AuthPage key={hash} inviteId={route.inviteId} inviteEmail={route.inviteEmail} /> : null}
+      {route.kind === 'auth' ? (
+        <AuthPage key={hash} inviteId={route.inviteId} inviteEmail={route.inviteEmail} oauthCallback={route.oauthCallback} />
+      ) : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>
