@@ -365,6 +365,10 @@ type ReviewAgentRunListItem = {
   created_at: string;
 };
 
+type ReviewWebhookDetail = ReviewWebhookListItem;
+type ReviewWebhookDeliveryAttemptDetail = ReviewWebhookDeliveryAttemptListItem;
+type ReviewAgentRunDetail = ReviewAgentRunListItem;
+
 type AuditActor = {
   user_id?: string;
   api_key_id?: string;
@@ -730,6 +734,34 @@ function buildChatHash(repoId: string | null, threadId: string | null = null) {
 
   const query = params.toString();
   return `#/chat${query ? `?${query}` : ''}`;
+}
+
+function buildAgentsHash(runId: string | null = null) {
+  const params = new URLSearchParams();
+
+  if (runId && runId.length > 0) {
+    params.set('run_id', runId);
+  }
+
+  const query = params.toString();
+  return `#/agents${query ? `?${query}` : ''}`;
+}
+
+function reviewAgentRunStatusColor(status: ReviewAgentRunStatus) {
+  switch (status) {
+    case 'failed':
+      return '#cf222e';
+    case 'completed':
+      return '#1a7f37';
+    case 'claimed':
+      return '#9a6700';
+    case 'queued':
+      return '#0969da';
+  }
+}
+
+function ReviewAgentRunStatusBadge({ status }: { status: ReviewAgentRunStatus }) {
+  return <span style={sharedStatusBadgeStyle(reviewAgentRunStatusColor(status))}>{status}</span>;
 }
 
 function buildRepoHash(
@@ -4732,6 +4764,360 @@ function SettingsObservabilityPage() {
   );
 }
 
+function AgentsPage({ initialRunId }: { initialRunId: string | null }) {
+  const [reviewAgentRuns, setReviewAgentRuns] = useState<ReviewAgentRunListItem[]>([]);
+  const [runsLoading, setRunsLoading] = useState(true);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId);
+  const [selectedRunReloadKey, setSelectedRunReloadKey] = useState(0);
+  const [selectedRun, setSelectedRun] = useState<ReviewAgentRunDetail | null>(null);
+  const [selectedRunLoading, setSelectedRunLoading] = useState(false);
+  const [selectedRunError, setSelectedRunError] = useState<string | null>(null);
+  const [selectedDeliveryAttempt, setSelectedDeliveryAttempt] = useState<ReviewWebhookDeliveryAttemptDetail | null>(null);
+  const [selectedDeliveryAttemptLoading, setSelectedDeliveryAttemptLoading] = useState(false);
+  const [selectedDeliveryAttemptError, setSelectedDeliveryAttemptError] = useState<string | null>(null);
+  const [selectedWebhook, setSelectedWebhook] = useState<ReviewWebhookDetail | null>(null);
+  const [selectedWebhookLoading, setSelectedWebhookLoading] = useState(false);
+  const [selectedWebhookError, setSelectedWebhookError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedRunId(initialRunId);
+  }, [initialRunId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<ReviewAgentRunListItem[]>('/api/v1/auth/review-agent-runs')
+      .then((data) => {
+        if (!cancelled) {
+          setReviewAgentRuns(data);
+          setRunsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setReviewAgentRuns([]);
+          setRunsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRunsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setSelectedRun(null);
+    setSelectedDeliveryAttempt(null);
+    setSelectedDeliveryAttemptError(null);
+    setSelectedDeliveryAttemptLoading(false);
+    setSelectedWebhook(null);
+    setSelectedWebhookError(null);
+    setSelectedWebhookLoading(false);
+
+    if (!selectedRunId) {
+      setSelectedRunLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setSelectedRunError(null);
+    setSelectedRunLoading(true);
+
+    fetchJson<ReviewAgentRunDetail>(`/api/v1/auth/review-agent-runs/${encodeURIComponent(selectedRunId)}`)
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedRun(data);
+        setSelectedRunError(null);
+
+        setSelectedDeliveryAttemptLoading(true);
+        fetchJson<ReviewWebhookDeliveryAttemptDetail>(
+          `/api/v1/auth/review-webhook-delivery-attempts/${encodeURIComponent(data.delivery_attempt_id)}`
+        )
+          .then((attempt) => {
+            if (!cancelled) {
+              setSelectedDeliveryAttempt(attempt);
+              setSelectedDeliveryAttemptError(null);
+            }
+          })
+          .catch((err: Error) => {
+            if (!cancelled) {
+              setSelectedDeliveryAttempt(null);
+              setSelectedDeliveryAttemptError(err.message);
+            }
+          })
+          .finally(() => {
+            if (!cancelled) {
+              setSelectedDeliveryAttemptLoading(false);
+            }
+          });
+
+        setSelectedWebhookLoading(true);
+        fetchJson<ReviewWebhookDetail>(`/api/v1/auth/review-webhooks/${encodeURIComponent(data.webhook_id)}`)
+          .then((webhook) => {
+            if (!cancelled) {
+              setSelectedWebhook(webhook);
+              setSelectedWebhookError(null);
+            }
+          })
+          .catch((err: Error) => {
+            if (!cancelled) {
+              setSelectedWebhook(null);
+              setSelectedWebhookError(err.message);
+            }
+          })
+          .finally(() => {
+            if (!cancelled) {
+              setSelectedWebhookLoading(false);
+            }
+          });
+      })
+      .catch((err: Error) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (err instanceof HttpError && err.status === 404) {
+          setSelectedRunId(null);
+          setSelectedRun(null);
+          setSelectedRunError('The restored agent run is no longer visible.');
+          window.location.hash = buildAgentsHash();
+          return;
+        }
+
+        setSelectedRun(null);
+        setSelectedRunError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSelectedRunLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRunId, selectedRunReloadKey]);
+
+  const handleRunSelection = (runId: string) => {
+    if (selectedRunId === runId) {
+      setSelectedRunReloadKey((current) => current + 1);
+    } else {
+      setSelectedRunId(runId);
+    }
+    const targetHash = buildAgentsHash(runId);
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  };
+
+  return (
+    <Panel title="Agents" subtitle="Inspect visible review-agent runs from a dedicated operator route.">
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This baseline promotes operator-visible review-agent runs onto their own route while richer agent management,
+          retries, and orchestration remain follow-up work.
+        </p>
+
+        <div style={detailGridStyle}>
+          <Detail label="Visible review-agent runs" value={runsLoading ? 'Loading…' : runsError ? 'Unavailable' : String(reviewAgentRuns.length)} />
+          <Detail label="Selected run" value={selectedRunLoading ? 'Loading…' : selectedRun ? selectedRun.id : 'None'} />
+          <Detail
+            label="Related resources"
+            value={selectedRun ? `${selectedDeliveryAttempt ? 'Delivery attempt' : 'Run only'}${selectedWebhook ? ' + webhook' : ''}` : 'Select a run'}
+          />
+        </div>
+
+        {runsLoading ? <div>Loading review-agent runs…</div> : null}
+        {!runsLoading && runsError ? <div>Unable to load review-agent runs: {runsError}</div> : null}
+        {!runsLoading && !runsError && reviewAgentRuns.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No review-agent runs found</div>
+            <div style={{ color: '#57606a' }}>
+              No visible review-agent runs are currently available for your authenticated organizations.
+            </div>
+          </div>
+        ) : null}
+        {!runsLoading && !runsError && reviewAgentRuns.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {reviewAgentRuns.map((run) => {
+              const isSelected = run.id === selectedRunId;
+
+              return (
+                <li
+                  key={run.id}
+                  aria-label={`Agent run ${run.id}`}
+                  style={{
+                    ...detailCardStyle,
+                    display: 'grid',
+                    gap: 12,
+                    borderColor: isSelected ? '#0969da' : '#d8dee4',
+                    boxShadow: isSelected ? 'inset 0 0 0 1px #0969da' : 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{run.id}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Review id: {run.review_id}</div>
+                    </div>
+                    <ReviewAgentRunStatusBadge status={run.status} />
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={run.organization_id} />
+                    <Detail label="Webhook id" value={run.webhook_id} />
+                    <Detail label="Delivery attempt id" value={run.delivery_attempt_id} />
+                    <Detail label="Created at" value={run.created_at} />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {isSelected ? <span style={sharedStatusBadgeStyle('#0969da')}>Selected run</span> : null}
+                    <button type="button" style={primaryButtonStyle} onClick={() => handleRunSelection(run.id)}>
+                      {isSelected ? 'Reload details' : 'Open run details'}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {selectedRunId && selectedRunLoading ? <div>Loading selected agent run…</div> : null}
+        {!selectedRunLoading && selectedRunError ? <div>{selectedRunError}</div> : null}
+        {!selectedRunId && !selectedRunError && !runsLoading && !runsError && reviewAgentRuns.length > 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No run selected</div>
+            <div style={{ color: '#57606a' }}>Choose a visible review-agent run to inspect its related delivery attempt and webhook.</div>
+          </div>
+        ) : null}
+        {!selectedRunLoading && selectedRun ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Selected run detail</div>
+            <article aria-label={`Selected agent run ${selectedRun.id}`} style={{ ...detailCardStyle, display: 'grid', gap: 12 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedRun.id}</div>
+                  <div style={{ color: '#57606a', marginTop: 4 }}>Review id: {selectedRun.review_id}</div>
+                </div>
+                <ReviewAgentRunStatusBadge status={selectedRun.status} />
+              </div>
+              <div style={detailGridStyle}>
+                <Detail label="Organization id" value={selectedRun.organization_id} />
+                <Detail label="Webhook id" value={selectedRun.webhook_id} />
+                <Detail label="Delivery attempt id" value={selectedRun.delivery_attempt_id} />
+                <Detail label="Connection id" value={selectedRun.connection_id} />
+                <Detail label="Repository id" value={selectedRun.repository_id} />
+                <Detail label="Created at" value={selectedRun.created_at} />
+              </div>
+              <div>
+                <span style={sharedStatusBadgeStyle('#0969da')}>Selected run</span>
+              </div>
+            </article>
+          </div>
+        ) : null}
+
+        {selectedRun ? (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>Related delivery attempt</div>
+              {selectedDeliveryAttemptLoading ? <div>Loading selected delivery attempt…</div> : null}
+              {!selectedDeliveryAttemptLoading && selectedDeliveryAttemptError ? (
+                <div>Unable to load selected delivery attempt: {selectedDeliveryAttemptError}</div>
+              ) : null}
+              {!selectedDeliveryAttemptLoading && selectedDeliveryAttempt ? (
+                <article
+                  aria-label={`Selected delivery attempt ${selectedDeliveryAttempt.id}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedDeliveryAttempt.id}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Event type: {selectedDeliveryAttempt.event_type}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#8250df')}>delivery attempt</span>
+                  </div>
+                  <div style={detailGridStyle}>
+                    <Detail label="Webhook id" value={selectedDeliveryAttempt.webhook_id} />
+                    <Detail label="Connection id" value={selectedDeliveryAttempt.connection_id} />
+                    <Detail label="Repository id" value={selectedDeliveryAttempt.repository_id} />
+                    <Detail label="Review id" value={selectedDeliveryAttempt.review_id} />
+                    <Detail label="External event id" value={selectedDeliveryAttempt.external_event_id} />
+                    <Detail label="Accepted at" value={selectedDeliveryAttempt.accepted_at} />
+                  </div>
+                </article>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>Related review webhook</div>
+              {selectedWebhookLoading ? <div>Loading selected review webhook…</div> : null}
+              {!selectedWebhookLoading && selectedWebhookError ? <div>Unable to load selected review webhook: {selectedWebhookError}</div> : null}
+              {!selectedWebhookLoading && selectedWebhook ? (
+                <article aria-label={`Selected review webhook ${selectedWebhook.id}`} style={{ ...detailCardStyle, display: 'grid', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedWebhook.id}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#0969da')}>webhook</span>
+                  </div>
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={selectedWebhook.organization_id} />
+                    <Detail label="Repository id" value={selectedWebhook.repository_id} />
+                    <Detail label="Connection id" value={selectedWebhook.connection_id} />
+                    <Detail label="Created by user" value={selectedWebhook.created_by_user_id} />
+                    <Detail label="Created at" value={selectedWebhook.created_at} />
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Events</div>
+                    {selectedWebhook.events.length === 0 ? (
+                      <div style={{ color: '#57606a' }}>This visible review webhook does not currently list any subscribed events.</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {selectedWebhook.events.map((eventName) => (
+                          <span key={eventName} style={searchMetaBadgeStyle}>
+                            {eventName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
 function SettingsReviewAutomationPage() {
   const section = settingsSectionById('review-automation');
   const [reviewWebhooks, setReviewWebhooks] = useState<ReviewWebhookListItem[]>([]);
@@ -4983,19 +5369,7 @@ function SettingsReviewAutomationPage() {
                       <div style={{ fontSize: 18, fontWeight: 700 }}>{run.id}</div>
                       <div style={{ color: '#57606a', marginTop: 4 }}>Review id: {run.review_id}</div>
                     </div>
-                    <span
-                      style={sharedStatusBadgeStyle(
-                        run.status === 'failed'
-                          ? '#cf222e'
-                          : run.status === 'completed'
-                            ? '#1a7f37'
-                            : run.status === 'claimed'
-                              ? '#9a6700'
-                              : '#0969da'
-                      )}
-                    >
-                      {run.status}
-                    </span>
+                    <ReviewAgentRunStatusBadge status={run.status} />
                   </div>
 
                   <div style={detailGridStyle}>
@@ -5291,6 +5665,14 @@ export function App() {
       };
     }
 
+    if (hashPath === '#/agents') {
+      const params = new URLSearchParams(hashQuery);
+      return {
+        kind: 'agents' as const,
+        initialRunId: params.get('run_id')?.trim() || null,
+      };
+    }
+
     const settingsMatch = hashPath.match(/^#\/settings(?:\/([a-z-]+))?$/);
     if (settingsMatch) {
       const section = settingsMatch[1] as SettingsSectionId | undefined;
@@ -5351,6 +5733,9 @@ export function App() {
           <a href="#/search" style={{ color: '#0969da', fontWeight: 600 }}>
             Search
           </a>
+          <a href="#/agents" style={{ color: '#0969da', fontWeight: 600 }}>
+            Agents
+          </a>
           <a href="#/auth" style={{ color: '#0969da', fontWeight: 600 }}>
             Auth
           </a>
@@ -5376,6 +5761,7 @@ export function App() {
       {route.kind === 'chat' ? <ChatPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'ask' ? <AskPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
+      {route.kind === 'agents' ? <AgentsPage initialRunId={route.initialRunId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>
           <SettingsLandingPage />

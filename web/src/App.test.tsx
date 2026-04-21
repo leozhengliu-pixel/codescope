@@ -2809,6 +2809,319 @@ describe('App', () => {
     expect(screen.getByText('Unable to load analytics: Request failed: 502')).toBeInTheDocument();
   });
 
+  it('renders dedicated agents route with restored run detail and related resources', async () => {
+    window.location.hash = '#/agents?run_id=run-visible';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse([
+          {
+            id: 'run-visible',
+            organization_id: 'org-acme',
+            webhook_id: 'review-webhook-visible',
+            delivery_attempt_id: 'delivery-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            review_id: 'review-42',
+            status: 'failed',
+            created_at: '2026-04-25T09:02:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs/run-visible' && !init) {
+        return jsonResponse({
+          id: 'run-visible',
+          organization_id: 'org-acme',
+          webhook_id: 'review-webhook-visible',
+          delivery_attempt_id: 'delivery-visible',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          review_id: 'review-42',
+          status: 'failed',
+          created_at: '2026-04-25T09:02:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/review-webhook-delivery-attempts/delivery-visible' && !init) {
+        return jsonResponse({
+          id: 'delivery-visible',
+          webhook_id: 'review-webhook-visible',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          event_type: 'pull_request.opened',
+          review_id: 'review-42',
+          external_event_id: 'evt-99',
+          accepted_at: '2026-04-25T09:01:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/review-webhooks/review-webhook-visible' && !init) {
+        return jsonResponse({
+          id: 'review-webhook-visible',
+          organization_id: 'org-acme',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          events: ['pull_request.opened', 'pull_request.synchronize'],
+          created_by_user_id: 'local-user-1',
+          created_at: '2026-04-25T09:00:00Z',
+          secret_hash: 'must-not-render',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '#/agents');
+    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument();
+    expect(screen.getByText('Inspect visible review-agent runs from a dedicated operator route.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument();
+
+    const run = await screen.findByLabelText('Agent run run-visible');
+    const attempt = await screen.findByLabelText('Selected delivery attempt delivery-visible');
+    const webhook = await screen.findByLabelText('Selected review webhook review-webhook-visible');
+
+    expect(within(run).getByText('failed')).toBeInTheDocument();
+    expect(within(run).getByText('org-acme')).toBeInTheDocument();
+    expect(within(run).getByText('review-webhook-visible')).toBeInTheDocument();
+    expect(within(run).getByText('delivery-visible')).toBeInTheDocument();
+    expect(within(run).getByText('2026-04-25T09:02:00Z')).toBeInTheDocument();
+    expect(within(run).getByText('Selected run')).toBeInTheDocument();
+
+    expect(within(attempt).getByText('Event type: pull_request.opened')).toBeInTheDocument();
+    expect(within(attempt).getByText('review-42')).toBeInTheDocument();
+    expect(within(attempt).getByText('evt-99')).toBeInTheDocument();
+    expect(within(attempt).getByText('2026-04-25T09:01:00Z')).toBeInTheDocument();
+
+    expect(within(webhook).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(webhook).getByText('conn-github')).toBeInTheDocument();
+    expect(within(webhook).getByText('local-user-1')).toBeInTheDocument();
+    expect(within(webhook).getByText('2026-04-25T09:00:00Z')).toBeInTheDocument();
+    expect(within(webhook).getByText('pull_request.opened')).toBeInTheDocument();
+    expect(within(webhook).getByText('pull_request.synchronize')).toBeInTheDocument();
+
+    expect(screen.queryByText('must-not-render')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/agents?run_id=run-visible');
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/review-agent-runs');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/review-agent-runs/run-visible');
+      expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/auth/review-webhook-delivery-attempts/delivery-visible');
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/review-webhooks/review-webhook-visible');
+    });
+  });
+
+  it('reloads the selected agent run when re-opening the active run details', async () => {
+    window.location.hash = '#/agents?run_id=run-visible';
+
+    const runDetailResponses = [
+      {
+        id: 'run-visible',
+        organization_id: 'org-acme',
+        webhook_id: 'review-webhook-visible',
+        delivery_attempt_id: 'delivery-visible',
+        connection_id: 'conn-github',
+        repository_id: 'repo-alpha',
+        review_id: 'review-42',
+        status: 'queued',
+        created_at: '2026-04-25T09:02:00Z',
+      },
+      {
+        id: 'run-visible',
+        organization_id: 'org-acme',
+        webhook_id: 'review-webhook-visible',
+        delivery_attempt_id: 'delivery-visible',
+        connection_id: 'conn-github',
+        repository_id: 'repo-alpha',
+        review_id: 'review-42',
+        status: 'completed',
+        created_at: '2026-04-25T09:03:00Z',
+      },
+    ];
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse([
+          {
+            id: 'run-visible',
+            organization_id: 'org-acme',
+            webhook_id: 'review-webhook-visible',
+            delivery_attempt_id: 'delivery-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            review_id: 'review-42',
+            status: 'queued',
+            created_at: '2026-04-25T09:02:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs/run-visible' && !init) {
+        const next = runDetailResponses.shift();
+        if (!next) {
+          throw new Error('No run detail response left');
+        }
+        return jsonResponse(next);
+      }
+
+      if (url === '/api/v1/auth/review-webhook-delivery-attempts/delivery-visible' && !init) {
+        return jsonResponse({
+          id: 'delivery-visible',
+          webhook_id: 'review-webhook-visible',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          event_type: 'pull_request.opened',
+          review_id: 'review-42',
+          external_event_id: 'evt-99',
+          accepted_at: '2026-04-25T09:01:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/review-webhooks/review-webhook-visible' && !init) {
+        return jsonResponse({
+          id: 'review-webhook-visible',
+          organization_id: 'org-acme',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          events: ['pull_request.opened'],
+          created_by_user_id: 'local-user-1',
+          created_at: '2026-04-25T09:00:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const selectedRunCard = await screen.findByLabelText('Selected agent run run-visible');
+    expect(within(selectedRunCard).getByText('queued')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload details' }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([url]) => String(url) === '/api/v1/auth/review-agent-runs/run-visible')).toHaveLength(2);
+    });
+    expect(within(await screen.findByLabelText('Selected agent run run-visible')).getByText('completed')).toBeInTheDocument();
+    expect(screen.getByText('2026-04-25T09:03:00Z')).toBeInTheDocument();
+  });
+
+  it('keeps webhook visibility when the selected delivery attempt fails to load', async () => {
+    window.location.hash = '#/agents?run_id=run-visible';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse([
+          {
+            id: 'run-visible',
+            organization_id: 'org-acme',
+            webhook_id: 'review-webhook-visible',
+            delivery_attempt_id: 'delivery-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            review_id: 'review-42',
+            status: 'failed',
+            created_at: '2026-04-25T09:02:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs/run-visible' && !init) {
+        return jsonResponse({
+          id: 'run-visible',
+          organization_id: 'org-acme',
+          webhook_id: 'review-webhook-visible',
+          delivery_attempt_id: 'delivery-visible',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          review_id: 'review-42',
+          status: 'failed',
+          created_at: '2026-04-25T09:02:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/review-webhook-delivery-attempts/delivery-visible' && !init) {
+        return jsonResponse({}, false, 502);
+      }
+
+      if (url === '/api/v1/auth/review-webhooks/review-webhook-visible' && !init) {
+        return jsonResponse({
+          id: 'review-webhook-visible',
+          organization_id: 'org-acme',
+          connection_id: 'conn-github',
+          repository_id: 'repo-alpha',
+          events: ['pull_request.opened', 'pull_request.synchronize'],
+          created_by_user_id: 'local-user-1',
+          created_at: '2026-04-25T09:00:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Unable to load selected delivery attempt: Request failed: 502')).toBeInTheDocument();
+    const webhook = await screen.findByLabelText('Selected review webhook review-webhook-visible');
+    expect(within(webhook).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(webhook).getByText('pull_request.synchronize')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/review-webhooks/review-webhook-visible');
+    });
+  });
+
+  it('fails closed for a missing restored run on the dedicated agents route', async () => {
+    window.location.hash = '#/agents?run_id=run-missing';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/review-agent-runs' && !init) {
+        return jsonResponse([
+          {
+            id: 'run-visible',
+            organization_id: 'org-acme',
+            webhook_id: 'review-webhook-visible',
+            delivery_attempt_id: 'delivery-visible',
+            connection_id: 'conn-github',
+            repository_id: 'repo-alpha',
+            review_id: 'review-42',
+            status: 'queued',
+            created_at: '2026-04-25T09:02:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/review-agent-runs/run-missing' && !init) {
+        return jsonResponse({ error: 'missing' }, false, 404);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('The restored agent run is no longer visible.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Selected agent run run-missing')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Selected delivery attempt delivery-visible')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Selected review webhook review-webhook-visible')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/agents');
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/review-agent-runs');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/review-agent-runs/run-missing');
+    });
+  });
+
   it('renders review automation inventory inside the shared settings shell', async () => {
     window.location.hash = '#/settings/review-automation';
 
