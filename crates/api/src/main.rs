@@ -8,7 +8,10 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use ask::{build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, DynAskThreadStore};
+use ask::{
+    build_ask_thread_store, canonicalize_repo_scope, filter_ask_citations_to_repo_scope,
+    AskCompletionRequest, AskCompletionResponse, DynAskThreadStore,
+};
 use auth::{
     build_bootstrap_store, build_local_session_store, build_organization_store, DynBootstrapStore,
     DynLocalSessionStore, DynOrganizationStore,
@@ -3496,7 +3499,7 @@ async fn ask_request_context(
         Err(StatusCode::UNAUTHORIZED) => {
             let session = authenticate_local_session_record(state, headers).await?;
             let visible_repo_ids = visible_repo_ids_for_user_id(state, &session.user_id).await?;
-            Ok((DEFAULT_ASK_USER_ID.to_string(), visible_repo_ids))
+            Ok((session.user_id, visible_repo_ids))
         }
         Err(status) => Err(status),
     }
@@ -3561,7 +3564,7 @@ async fn create_ask_completion(
         .into_iter()
         .map(|repository| repository.id)
         .collect::<Vec<_>>();
-    let request = request.into_core_request(&repo_ids)?;
+    let mut request = request.into_core_request(&repo_ids)?;
     if request
         .repo_scope
         .iter()
@@ -3569,6 +3572,21 @@ async fn create_ask_completion(
     {
         return Err(StatusCode::NOT_FOUND);
     }
+    let existing_thread = if let Some(thread_id) = request.thread_id.as_deref() {
+        let existing_thread = state
+            .ask_threads
+            .get_thread_for_user(&ask_user_id, thread_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        if canonicalize_repo_scope(existing_thread.repo_scope.clone()) != request.repo_scope {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        request.previous_messages = existing_thread.messages.clone();
+        Some(existing_thread)
+    } else {
+        None
+    };
 
     let provider = build_llm_provider(LlmProviderConfig {
         provider: state
@@ -3584,8 +3602,10 @@ async fn create_ask_completion(
         .complete(&request)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let filtered_citations = filter_ask_citations_to_repo_scope(&response.citations, &request.repo_scope);
 
-    if let Some(thread_id) = request.thread_id.as_deref() {
+    let (thread_id, session_id) = if let Some(existing_thread) = existing_thread {
+        let thread_id = existing_thread.id.as_str();
         let timestamp = current_timestamp();
         state
             .ask_threads
@@ -3612,46 +3632,62 @@ async fn create_ask_completion(
                     id: next_ask_entity_id("msg"),
                     role: AskMessageRole::Assistant,
                     content: response.answer.clone(),
-                    citations: response.citations.clone(),
+                    citations: filtered_citations.clone(),
                 },
                 &timestamp,
             )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::NOT_FOUND)?;
+        (existing_thread.id, existing_thread.session_id)
     } else {
         let timestamp = current_timestamp();
+        let thread = AskThread {
+            id: next_ask_entity_id("thread"),
+            session_id: next_ask_entity_id("session"),
+            user_id: ask_user_id,
+            title: ask_thread_title_from_prompt(&request.prompt),
+            repo_scope: request.repo_scope.clone(),
+            visibility: AskThreadVisibility::Private,
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+            messages: vec![
+                AskMessage {
+                    id: next_ask_entity_id("msg"),
+                    role: AskMessageRole::User,
+                    content: request.prompt.clone(),
+                    citations: Vec::new(),
+                },
+                AskMessage {
+                    id: next_ask_entity_id("msg"),
+                    role: AskMessageRole::Assistant,
+                    content: response.answer.clone(),
+                    citations: filtered_citations.clone(),
+                },
+            ],
+        };
+        let thread_id = thread.id.clone();
+        let session_id = thread.session_id.clone();
         state
             .ask_threads
-            .create_thread(AskThread {
-                id: next_ask_entity_id("thread"),
-                session_id: next_ask_entity_id("session"),
-                user_id: ask_user_id,
-                title: ask_thread_title_from_prompt(&request.prompt),
-                repo_scope: request.repo_scope.clone(),
-                visibility: AskThreadVisibility::Private,
-                created_at: timestamp.clone(),
-                updated_at: timestamp,
-                messages: vec![
-                    AskMessage {
-                        id: next_ask_entity_id("msg"),
-                        role: AskMessageRole::User,
-                        content: request.prompt.clone(),
-                        citations: Vec::new(),
-                    },
-                    AskMessage {
-                        id: next_ask_entity_id("msg"),
-                        role: AskMessageRole::Assistant,
-                        content: response.answer.clone(),
-                        citations: response.citations.clone(),
-                    },
-                ],
-            })
+            .create_thread(thread)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+        (thread_id, session_id)
+    };
 
-    Ok(Json(response.into()))
+    Ok(Json(AskCompletionResponse {
+        provider: response.provider,
+        model: response.model,
+        answer: response.answer,
+        citations: filtered_citations.clone(),
+        rendered_citations: filtered_citations
+            .iter()
+            .map(|citation| citation.rendered())
+            .collect(),
+        thread_id,
+        session_id,
+    }))
 }
 
 #[cfg(test)]
@@ -3807,6 +3843,10 @@ mod tests {
         provider: String,
         model: Option<String>,
         answer: String,
+        citations: Vec<sourcebot_models::AskCitation>,
+        rendered_citations: Vec<sourcebot_models::AskRenderedCitation>,
+        thread_id: String,
+        session_id: String,
     }
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -5006,6 +5046,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ask_completions_filters_out_of_scope_provider_citations_from_persisted_threads_and_api_responses() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-filter-citations-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            llm_provider: Some("stub-citations".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-filter-citations-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-filter-citations-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = build_router(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "where is build_router implemented?".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                            thread_id: None,
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
+        assert_eq!(payload.provider, "stub-citations");
+        assert_eq!(payload.model.as_deref(), Some("stub-model"));
+        assert_eq!(payload.citations.len(), 1);
+        assert_eq!(payload.citations[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.rendered_citations.len(), 1);
+        assert_eq!(
+            payload.rendered_citations[0].repo_id,
+            "repo_sourcebot_rewrite"
+        );
+        assert!(!payload.citations.iter().any(|citation| citation.repo_id == "repo_hidden"));
+
+        let threads = ask_threads
+            .list_threads_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+            .await
+            .unwrap();
+        assert_eq!(threads.len(), 1);
+        let thread = ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &threads[0].id)
+            .await
+            .unwrap()
+            .expect("new ask completion should create a thread");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[1].citations.len(), 1);
+        assert_eq!(thread.messages[1].citations[0].repo_id, "repo_sourcebot_rewrite");
+        assert!(!thread.messages[1]
+            .citations
+            .iter()
+            .any(|citation| citation.repo_id == "repo_hidden"));
+    }
+
+    #[tokio::test]
     async fn ask_completions_api_key_returns_not_found_for_repo_outside_scope_even_when_owner_can_see_it(
     ) {
         let organization_state_path = unique_test_path("ask-api-key-hidden-orgs");
@@ -5375,20 +5501,28 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
 
         let threads = ask_threads
-            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .list_threads_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
             .await
             .unwrap();
         assert_eq!(threads.len(), 1);
+        assert_eq!(payload.thread_id, threads[0].id);
         assert_eq!(threads[0].title, "where is build_router implemented?");
         assert_eq!(threads[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert!(ask_threads
+            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .await
+            .unwrap()
+            .is_empty());
 
         let thread = ask_threads
-            .get_thread_for_user(DEFAULT_ASK_USER_ID, &threads[0].id)
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &threads[0].id)
             .await
             .unwrap()
             .expect("new ask completion should create a thread");
+        assert_eq!(payload.session_id, thread.session_id);
         assert_eq!(thread.created_at, thread.updated_at);
         assert!(OffsetDateTime::parse(&thread.created_at, &Rfc3339).is_ok());
         assert_eq!(thread.messages.len(), 2);
@@ -5415,7 +5549,7 @@ mod tests {
         let existing_thread = AskThread {
             id: "thread_existing".into(),
             session_id: "session_existing".into(),
-            user_id: DEFAULT_ASK_USER_ID.into(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
             title: "existing thread".into(),
             repo_scope: vec!["repo_sourcebot_rewrite".into()],
             visibility: AskThreadVisibility::Private,
@@ -5487,16 +5621,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
 
         let threads = ask_threads
-            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .list_threads_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
             .await
             .unwrap();
         assert_eq!(threads.len(), 1);
+        assert_eq!(payload.thread_id, existing_thread.id);
+        assert_eq!(payload.session_id, existing_thread.session_id);
         assert_eq!(threads[0].id, existing_thread.id);
+        assert!(ask_threads
+            .list_threads_for_user(DEFAULT_ASK_USER_ID)
+            .await
+            .unwrap()
+            .is_empty());
 
         let thread = ask_threads
-            .get_thread_for_user(DEFAULT_ASK_USER_ID, &existing_thread.id)
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &existing_thread.id)
             .await
             .unwrap()
             .expect("existing thread should remain addressable");
@@ -5514,10 +5656,301 @@ mod tests {
         assert_eq!(thread.messages[3].role, AskMessageRole::Assistant);
         assert!(thread.messages[3]
             .content
+            .contains("continuing thread with 2 prior messages"));
+        assert!(thread.messages[3].content.contains("original answer"));
+        assert!(thread.messages[3]
+            .content
             .contains("where is build_router implemented?"));
         assert!(thread.messages[3].citations.is_empty());
         assert_ne!(thread.updated_at, "2026-04-16T08:00:00Z");
         assert!(OffsetDateTime::parse(&thread.updated_at, &Rfc3339).is_ok());
+    }
+
+    #[tokio::test]
+    async fn ask_completions_accepts_existing_thread_when_repo_scope_order_differs() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-thread-scope-order-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let existing_thread = AskThread {
+            id: "thread_existing".into(),
+            session_id: "session_existing".into(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            title: "existing thread".into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into(), "repo_demo_docs".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: "2026-04-16T08:00:00Z".into(),
+            messages: vec![
+                AskMessage {
+                    id: "msg_existing_user".into(),
+                    role: AskMessageRole::User,
+                    content: "original prompt".into(),
+                    citations: Vec::new(),
+                },
+                AskMessage {
+                    id: "msg_existing_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "original answer".into(),
+                    citations: Vec::new(),
+                },
+            ],
+        };
+        ask_threads
+            .create_thread(existing_thread.clone())
+            .await
+            .unwrap();
+
+        let config = AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-thread-scope-order-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-thread-scope-order-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = build_router(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "follow-up question".into(),
+                            system_prompt: None,
+                            repo_scope: vec!["repo_demo_docs".into(), "repo_sourcebot_rewrite".into()],
+                            thread_id: Some(existing_thread.id.clone()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskCompletionResponseBody = read_json(response).await;
+        assert_eq!(payload.thread_id, existing_thread.id);
+        assert_eq!(payload.session_id, existing_thread.session_id);
+
+        let thread = ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &existing_thread.id)
+            .await
+            .unwrap()
+            .expect("existing thread should remain addressable");
+        assert_eq!(thread.messages.len(), 4);
+        assert_eq!(thread.repo_scope, existing_thread.repo_scope);
+    }
+
+    #[tokio::test]
+    async fn ask_completions_returns_not_found_when_thread_scope_does_not_match_requested_repo_scope() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-thread-scope-mismatch-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let existing_thread = AskThread {
+            id: "thread_existing".into(),
+            session_id: "session_existing".into(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            title: "existing thread".into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: "2026-04-16T08:00:00Z".into(),
+            messages: vec![
+                AskMessage {
+                    id: "msg_existing_user".into(),
+                    role: AskMessageRole::User,
+                    content: "original prompt".into(),
+                    citations: Vec::new(),
+                },
+                AskMessage {
+                    id: "msg_existing_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "original answer".into(),
+                    citations: Vec::new(),
+                },
+            ],
+        };
+        ask_threads
+            .create_thread(existing_thread.clone())
+            .await
+            .unwrap();
+
+        let config = AppConfig {
+            llm_provider: Some("stub".into()),
+            llm_model: Some("stub-model".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-thread-scope-mismatch-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-thread-scope-mismatch-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = build_router(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "follow up on the wrong scope".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_demo_docs".into()],
+                            thread_id: Some(existing_thread.id.clone()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let thread = ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &existing_thread.id)
+            .await
+            .unwrap()
+            .expect("existing thread should remain addressable");
+        assert_eq!(thread.repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "original prompt");
+        assert_eq!(thread.messages[1].content, "original answer");
+    }
+
+    #[tokio::test]
+    async fn ask_completions_validates_requested_thread_before_calling_provider() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        let organization_state_path = unique_test_path("ask-thread-validation-before-provider-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let existing_thread = AskThread {
+            id: "thread_existing".into(),
+            session_id: "session_existing".into(),
+            user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            title: "existing thread".into(),
+            repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            visibility: AskThreadVisibility::Private,
+            created_at: "2026-04-16T08:00:00Z".into(),
+            updated_at: "2026-04-16T08:00:00Z".into(),
+            messages: vec![
+                AskMessage {
+                    id: "msg_existing_user".into(),
+                    role: AskMessageRole::User,
+                    content: "original prompt".into(),
+                    citations: Vec::new(),
+                },
+                AskMessage {
+                    id: "msg_existing_assistant".into(),
+                    role: AskMessageRole::Assistant,
+                    content: "original answer".into(),
+                    citations: Vec::new(),
+                },
+            ],
+        };
+        ask_threads
+            .create_thread(existing_thread.clone())
+            .await
+            .unwrap();
+
+        let config = AppConfig {
+            llm_provider: Some("disabled".into()),
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("ask-thread-validation-before-provider-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("ask-thread-validation-before-provider-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = build_router(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_local_session_store(config.local_session_state_path.clone()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads.clone(),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/ask/completions")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskCompletionRequest {
+                            prompt: "follow up on the wrong scope".into(),
+                            system_prompt: Some("answer briefly".into()),
+                            repo_scope: vec!["repo_demo_docs".into()],
+                            thread_id: Some(existing_thread.id.clone()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let thread = ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, &existing_thread.id)
+            .await
+            .unwrap()
+            .expect("existing thread should remain addressable");
+        assert_eq!(thread.messages.len(), 2);
+        assert_eq!(thread.messages[0].content, "original prompt");
+        assert_eq!(thread.messages[1].content, "original answer");
     }
 
     #[tokio::test]

@@ -66,6 +66,519 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Repositories' })).not.toBeInTheDocument();
   });
 
+  it('renders a dedicated ask route, submits repo-scoped prompts with stored auth, and shows cited answers inline', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({
+        sessionId: 'session-local',
+        sessionSecret: 'secret-local',
+      })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-local:secret-local',
+        });
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.method).toBe('POST');
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-local:secret-local',
+          'Content-Type': 'application/json',
+        });
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Where is the router defined?',
+            repo_scope: ['repo-1'],
+          })
+        );
+
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'test-model',
+          answer: 'The router is defined in src/lib.rs.',
+          citations: [
+            {
+              repo_id: 'repo-1',
+              path: 'src/lib.rs',
+              revision: 'deadbeef',
+              line_start: 10,
+              line_end: 12,
+            },
+          ],
+          rendered_citations: [
+            {
+              repo_id: 'repo-1',
+              path: 'src/lib.rs',
+              revision: 'deadbeef',
+              line_start: 10,
+              line_end: 12,
+              display_label: 'src/lib.rs#L10-L12',
+              pinned_location: 'src/lib.rs@deadbeef#L10-L12',
+              line_fragment: 'L10-L12',
+            },
+          ],
+          thread_id: 'thread-1',
+          session_id: 'session-1',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('link', { name: 'Ask' })).toHaveAttribute('href', '#/ask');
+    expect(screen.getByText('Ask grounded questions across visible repositories from a dedicated route.')).toBeInTheDocument();
+    expect(await screen.findByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Where is the router defined?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('The router is defined in src/lib.rs.')).toBeInTheDocument();
+    expect(screen.getByText('Current scope: alpha-repo')).toBeInTheDocument();
+    expect(screen.getByText('Provider: test-provider')).toBeInTheDocument();
+    expect(screen.getByText('Model: test-model')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'src/lib.rs#L10-L12' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-1?path=src%2Flib.rs&revision=deadbeef'
+    );
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-1&thread_id=thread-1');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('restores the ask thread from the hash route for follow-up asks', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1&thread_id=thread-9';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'What about follow-up context?',
+            repo_scope: ['repo-1'],
+            thread_id: 'thread-9',
+          })
+        );
+
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'follow-up-model',
+          answer: 'Follow-up answers stay on the restored thread.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-9',
+          session_id: 'session-9',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Active thread: thread-9')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'What about follow-up context?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('Follow-up answers stay on the restored thread.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-1&thread_id=thread-9');
+  });
+
+  it('clears a stale restored ask thread after a 404 follow-up and resets the hash to a fresh thread baseline', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1&thread_id=thread-stale';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Resume the stale thread',
+            repo_scope: ['repo-1'],
+            thread_id: 'thread-stale',
+          })
+        );
+        return jsonResponse({ error: 'missing thread' }, false, 404);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Active thread: thread-stale')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Resume the stale thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText(/The restored ask thread is no longer available for this repository scope\. Start a fresh thread\./)).toBeInTheDocument();
+    expect(screen.queryByText('Active thread: thread-stale')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-1');
+  });
+
+  it('drops a restored ask thread when the hash route repo is not visible and falls back to a visible repo', async () => {
+    window.location.hash = '#/ask?repo_id=repo-hidden&thread_id=thread-9';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+    expect(screen.getByText('Current scope: alpha-repo')).toBeInTheDocument();
+    expect(screen.queryByText('Active thread: thread-9')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-1');
+  });
+
+  it('clears the restored ask thread when the repository scope changes before a follow-up ask', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1&thread_id=thread-9';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Ask beta follow-up',
+            repo_scope: ['repo-2'],
+          })
+        );
+
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'follow-up-model',
+          answer: 'Changing repository scope starts a fresh ask thread.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-22',
+          session_id: 'session-22',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Active thread: thread-9')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Repository scope'), { target: { value: 'repo-2' } });
+    await waitFor(() => {
+      expect(screen.queryByText('Active thread: thread-9')).not.toBeInTheDocument();
+    });
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-2');
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Ask beta follow-up' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('Changing repository scope starts a fresh ask thread.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-2&thread_id=thread-22');
+  });
+
+  it('clears stale ask answers when the hash route changes to a different repo scope', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.method).toBe('POST');
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'test-model',
+          answer: 'The first ask answer should disappear after route navigation.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-1',
+          session_id: 'session-1',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Where is the router defined?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('The first ask answer should disappear after route navigation.')).toBeInTheDocument();
+    expect(screen.getByText('Current scope: alpha-repo')).toBeInTheDocument();
+
+    window.location.hash = '#/ask?repo_id=repo-2';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('The first ask answer should disappear after route navigation.')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Current scope: beta-repo')).toBeInTheDocument();
+    expect(screen.getByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+  });
+
+  it('ignores stale ask responses that resolve after the route switches to a different repo scope', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1';
+
+    const delayedAsk = deferredResponse();
+    let askCallCount = 0;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        askCallCount += 1;
+
+        if (askCallCount === 1) {
+          expect(init?.body).toBe(
+            JSON.stringify({
+              prompt: 'Question for alpha',
+              repo_scope: ['repo-1'],
+            })
+          );
+          return delayedAsk.promise;
+        }
+
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Question for beta',
+            repo_scope: ['repo-2'],
+          })
+        );
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'fresh-model',
+          answer: 'Fresh beta answer should win.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-2',
+          session_id: 'session-2',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Question for alpha' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(screen.getByText('Loading answer…')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Repository scope'), { target: { value: 'repo-2' } });
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/ask?repo_id=repo-2');
+    });
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Question for beta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('Fresh beta answer should win.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/ask?repo_id=repo-2&thread_id=thread-2');
+
+    delayedAsk.resolve(
+      jsonResponse({
+        provider: 'test-provider',
+        model: 'stale-model',
+        answer: 'Stale alpha answer must be ignored.',
+        citations: [],
+        rendered_citations: [],
+        thread_id: 'thread-1',
+        session_id: 'session-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('Stale alpha answer must be ignored.')).not.toBeInTheDocument();
+      expect(window.location.hash).toBe('#/ask?repo_id=repo-2&thread_id=thread-2');
+    });
+  });
+
+  it('invalidates an in-flight ask before a repo-scope change can let a stale response rewrite the route hash', async () => {
+    window.location.hash = '#/ask?repo_id=repo-1';
+
+    const delayedAsk = deferredResponse();
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Question for alpha',
+            repo_scope: ['repo-1'],
+          })
+        );
+        return delayedAsk.promise;
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Choose a repository scope and submit a question to the ask completions API.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Question for alpha' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    expect(screen.getByText('Loading answer…')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Repository scope'), { target: { value: 'repo-2' } });
+    delayedAsk.resolve(
+      jsonResponse({
+        provider: 'test-provider',
+        model: 'stale-model',
+        answer: 'Stale alpha answer must be ignored.',
+        citations: [],
+        rendered_citations: [],
+        thread_id: 'thread-1',
+        session_id: 'session-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/ask?repo_id=repo-2');
+      expect(screen.queryByText('Stale alpha answer must be ignored.')).not.toBeInTheDocument();
+      expect(screen.queryByText('Active thread: thread-1')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders an auth route that supports first-run onboarding and then local login', async () => {
     window.location.hash = '#/auth';
 

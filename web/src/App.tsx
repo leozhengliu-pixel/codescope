@@ -125,6 +125,30 @@ type SearchResponse = {
   results: SearchResult[];
 };
 
+type AskCitation = {
+  repo_id: string;
+  path: string;
+  revision: string;
+  line_start: number;
+  line_end: number;
+};
+
+type AskRenderedCitation = AskCitation & {
+  display_label: string;
+  pinned_location: string;
+  line_fragment: string;
+};
+
+type AskCompletionResponse = {
+  provider: string;
+  model: string | null;
+  answer: string;
+  citations: AskCitation[];
+  rendered_citations: AskRenderedCitation[];
+  thread_id: string;
+  session_id: string;
+};
+
 type CommitSummary = {
   id: string;
   short_id: string;
@@ -487,7 +511,12 @@ function mergeRequestHeaders(headers?: HeadersInit, additionalHeaders?: Record<s
 }
 
 function buildAuthenticatedRequestInit(path: string, init?: RequestInit): RequestInit | undefined {
-  const needsAuthHeader = path.startsWith('/api/v1/auth/');
+  const needsAuthHeader =
+    path.startsWith('/api/v1/') &&
+    !path.startsWith('/api/v1/config') &&
+    !path.startsWith('/api/v1/auth/bootstrap') &&
+    !path.startsWith('/api/v1/auth/login') &&
+    !path.startsWith('/api/v1/auth/invite-redeem');
   if (!needsAuthHeader) {
     return init;
   }
@@ -510,10 +539,20 @@ async function authFetch(path: string, init?: RequestInit): Promise<Response> {
   return requestInit ? fetch(path, requestInit) : fetch(path);
 }
 
+class HttpError extends Error {
+  status: number;
+
+  constructor(status: number) {
+    super(`Request failed: ${status}`);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authFetch(path, init);
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    throw new HttpError(response.status);
   }
   return (await response.json()) as T;
 }
@@ -631,6 +670,21 @@ function useRepoSummaries() {
 function buildSearchHash(query: string, repoId: string) {
   const params = new URLSearchParams({ q: query, repo_id: repoId });
   return `#/search?${params.toString()}`;
+}
+
+function buildAskHash(repoId: string | null, threadId: string | null = null) {
+  const params = new URLSearchParams();
+
+  if (repoId && repoId.length > 0) {
+    params.set('repo_id', repoId);
+  }
+
+  if (threadId && threadId.length > 0) {
+    params.set('thread_id', threadId);
+  }
+
+  const query = params.toString();
+  return `#/ask${query ? `?${query}` : ''}`;
 }
 
 function buildRepoHash(
@@ -845,6 +899,244 @@ function SearchPage({ initialQuery, initialRepoId }: { initialQuery: string; ini
       initialQuery={initialQuery}
       initialRepoId={initialRepoId}
     />
+  );
+}
+
+function AskPage({ initialRepoId, initialThreadId }: { initialRepoId: string; initialThreadId: string | null }) {
+  const { repos, loading, error } = useRepoSummaries();
+  const [prompt, setPrompt] = useState('');
+  const [selectedRepoId, setSelectedRepoId] = useState(initialRepoId);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId);
+  const [answer, setAnswer] = useState<AskCompletionResponse | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const askRequestVersionRef = useRef(0);
+
+  const invalidateInFlightAskRequest = () => {
+    askRequestVersionRef.current += 1;
+    setSubmitting(false);
+  };
+
+  useEffect(() => {
+    if (repos.length === 0) {
+      setSelectedRepoId('');
+      return;
+    }
+
+    const requestedRepoId = initialRepoId.trim();
+    const requestedRepoIsVisible = requestedRepoId.length > 0 && repos.some((repo) => repo.id === requestedRepoId);
+    const nextRepoId =
+      requestedRepoIsVisible
+        ? requestedRepoId
+        : selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
+          ? selectedRepoId
+          : repos[0].id;
+
+    setSelectedRepoId((currentRepoId) => {
+      if (currentRepoId === nextRepoId) {
+        return currentRepoId;
+      }
+      invalidateInFlightAskRequest();
+      setAnswer(null);
+      setSubmitError(null);
+      return nextRepoId;
+    });
+
+    if (!requestedRepoIsVisible) {
+      const targetHash = buildAskHash(nextRepoId, null);
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
+    }
+  }, [initialRepoId, repos, selectedRepoId]);
+
+  useEffect(() => {
+    const requestedRepoId = initialRepoId.trim();
+    const canRestoreThread =
+      requestedRepoId.length > 0 && repos.some((repo) => repo.id === requestedRepoId);
+    const requestedThreadId = canRestoreThread ? initialThreadId : null;
+
+    setActiveThreadId((currentThreadId) => {
+      if (currentThreadId === requestedThreadId) {
+        return currentThreadId;
+      }
+      invalidateInFlightAskRequest();
+      setAnswer(null);
+      setSubmitError(null);
+      return requestedThreadId;
+    });
+  }, [initialRepoId, initialThreadId, repos]);
+
+  const selectedRepo = repos.find((repo) => repo.id === selectedRepoId) ?? null;
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (prompt.trim().length === 0 || !selectedRepoId) {
+      return;
+    }
+
+    const requestRepoId = selectedRepoId;
+    const requestVersion = askRequestVersionRef.current + 1;
+    askRequestVersionRef.current = requestVersion;
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const requestBody: { prompt: string; repo_scope: string[]; thread_id?: string } = {
+        prompt: prompt.trim(),
+        repo_scope: [requestRepoId],
+      };
+
+      if (activeThreadId) {
+        requestBody.thread_id = activeThreadId;
+      }
+
+      const response = await fetchJson<AskCompletionResponse>('/api/v1/ask/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (askRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      setAnswer(response);
+      setActiveThreadId(response.thread_id);
+
+      const targetHash = buildAskHash(requestRepoId, response.thread_id);
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
+    } catch (askError) {
+      if (askRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+      const staleRestoredThread = askError instanceof HttpError && askError.status === 404 && activeThreadId;
+      setAnswer(null);
+      if (staleRestoredThread) {
+        setActiveThreadId(null);
+        const targetHash = buildAskHash(requestRepoId, null);
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+        setSubmitError('The restored ask thread is no longer available for this repository scope. Start a fresh thread.');
+      } else {
+        setSubmitError(askError instanceof Error ? askError.message : 'Unknown ask error');
+      }
+    } finally {
+      if (askRequestVersionRef.current === requestVersion) {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  if (loading) return <Panel title="Ask" subtitle="Ask grounded questions across visible repositories from a dedicated route.">Loading visible repositories…</Panel>;
+  if (error) return <Panel title="Ask" subtitle="Ask grounded questions across visible repositories from a dedicated route.">Failed to load: {error}</Panel>;
+
+  return (
+    <Panel title="Ask" subtitle="Ask grounded questions across visible repositories from a dedicated route.">
+      {repos.length === 0 ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div>No visible repositories found</div>
+          <div style={{ color: '#57606a' }}>
+            Your current account does not have any visible repositories yet. Full ask history management and agents parity remain follow-up work.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 20 }}>
+          <form style={{ display: 'grid', gap: 12 }} onSubmit={(event) => void handleSubmit(event)}>
+            <div style={searchFormGridStyle}>
+              <label style={fieldLabelStyle}>
+                <span>Repository scope</span>
+                <select
+                  value={selectedRepoId}
+                  onChange={(event) => {
+                    const nextRepoId = event.target.value;
+                    invalidateInFlightAskRequest();
+                    setSelectedRepoId(nextRepoId);
+                    setActiveThreadId(null);
+                    setAnswer(null);
+                    setSubmitError(null);
+
+                    const targetHash = buildAskHash(nextRepoId, null);
+                    if (window.location.hash !== targetHash) {
+                      window.location.hash = targetHash;
+                    }
+                  }}
+                  style={inputStyle}
+                >
+                  {repos.map((repo) => (
+                    <option key={repo.id} value={repo.id}>
+                      {repo.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <label style={fieldLabelStyle}>
+              <span>Question</span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Ask a codebase question grounded in the selected repository"
+                rows={4}
+                style={{ ...inputStyle, resize: 'vertical' }}
+              />
+            </label>
+
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="submit" style={primaryButtonStyle} disabled={submitting || prompt.trim().length === 0 || !selectedRepoId}>
+                {submitting ? 'Asking…' : 'Ask'}
+              </button>
+              <div style={{ color: '#57606a' }}>Current scope: {selectedRepo?.name ?? selectedRepoId}</div>
+              {activeThreadId ? <div style={{ color: '#57606a' }}>Active thread: {activeThreadId}</div> : null}
+            </div>
+          </form>
+
+          {submitting ? <div style={{ color: '#57606a' }}>Loading answer…</div> : null}
+          {submitError ? <div style={{ color: '#cf222e' }}>Ask failed: {submitError}</div> : null}
+          {!submitting && !submitError && !answer ? (
+            <div style={{ color: '#57606a' }}>Choose a repository scope and submit a question to the ask completions API.</div>
+          ) : null}
+
+          {answer ? (
+            <div style={{ ...detailCardStyle, display: 'grid', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <span style={searchMetaBadgeStyle}>Provider: {answer.provider}</span>
+                <span style={searchMetaBadgeStyle}>Model: {answer.model ?? 'unknown'}</span>
+                <span style={searchMetaBadgeStyle}>Session: {answer.session_id}</span>
+              </div>
+              <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{answer.answer}</div>
+              {answer.rendered_citations.length > 0 ? (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong>Inline citations:</strong>
+                  {answer.rendered_citations.map((citation) => (
+                    <a
+                      key={`${citation.repo_id}:${citation.path}:${citation.line_start}:${citation.line_end}`}
+                      href={buildRepoHash(citation.repo_id, {
+                        path: citation.path,
+                        treePath: null,
+                        revision: citation.revision,
+                        from: null,
+                        searchHash: null,
+                      })}
+                      style={{ color: '#0969da' }}
+                    >
+                      {citation.display_label}
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: '#57606a' }}>No citations were returned for this answer.</div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -4557,6 +4849,15 @@ export function App() {
       };
     }
 
+    if (hashPath === '#/ask') {
+      const params = new URLSearchParams(hashQuery);
+      return {
+        kind: 'ask' as const,
+        initialRepoId: params.get('repo_id') ?? '',
+        initialThreadId: params.get('thread_id')?.trim() || null,
+      };
+    }
+
     const settingsMatch = hashPath.match(/^#\/settings(?:\/([a-z-]+))?$/);
     if (settingsMatch) {
       const section = settingsMatch[1] as SettingsSectionId | undefined;
@@ -4602,11 +4903,14 @@ export function App() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 32 }}>sourcebot-rewrite</h1>
         <p style={{ color: '#57606a', marginTop: 8 }}>
-          Clean-room code intelligence workspace: repository inventory, search, first-run onboarding/local auth, sync state, and API-backed detail views.
+          Clean-room code intelligence workspace: repository inventory, ask, search, first-run onboarding/local auth, sync state, and API-backed detail views.
         </p>
         <nav style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
             Repositories
+          </a>
+          <a href="#/ask" style={{ color: '#0969da', fontWeight: 600 }}>
+            Ask
           </a>
           <a href="#/search" style={{ color: '#0969da', fontWeight: 600 }}>
             Search
@@ -4633,6 +4937,7 @@ export function App() {
       {route.kind === 'auth' ? (
         <AuthPage key={hash} inviteId={route.inviteId} inviteEmail={route.inviteEmail} oauthCallback={route.oauthCallback} />
       ) : null}
+      {route.kind === 'ask' ? <AskPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>

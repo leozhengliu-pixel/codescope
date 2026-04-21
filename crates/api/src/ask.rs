@@ -2,11 +2,12 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use sourcebot_core::{AskRequest, AskResponse, AskThreadStore};
+use sourcebot_core::{AskRequest, AskThreadStore};
 use sourcebot_models::{
     AskCitation, AskMessage, AskMessageRole, AskRenderedCitation, AskThread, AskThreadSummary,
     AskThreadVisibility,
 };
+use std::path::{Component, Path};
 use std::sync::{Arc, RwLock};
 
 #[allow(dead_code)]
@@ -363,12 +364,7 @@ impl AskCompletionRequest {
             return Err(StatusCode::BAD_REQUEST);
         }
 
-        let repo_scope: Vec<String> = self
-            .repo_scope
-            .into_iter()
-            .map(|repo_id| repo_id.trim().to_string())
-            .filter(|repo_id| !repo_id.is_empty())
-            .collect();
+        let repo_scope = canonicalize_repo_scope(self.repo_scope);
         if repo_scope.is_empty() {
             return Err(StatusCode::BAD_REQUEST);
         }
@@ -386,8 +382,39 @@ impl AskCompletionRequest {
             system_prompt: self.system_prompt,
             repo_scope,
             thread_id: self.thread_id,
+            previous_messages: Vec::new(),
         })
     }
+}
+
+pub fn canonicalize_repo_scope(repo_scope: Vec<String>) -> Vec<String> {
+    let mut repo_scope: Vec<String> = repo_scope
+        .into_iter()
+        .map(|repo_id| repo_id.trim().to_string())
+        .filter(|repo_id| !repo_id.is_empty())
+        .collect();
+    repo_scope.sort();
+    repo_scope.dedup();
+    repo_scope
+}
+
+fn citation_path_is_safe(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let candidate = Path::new(trimmed);
+    if candidate.is_absolute() {
+        return false;
+    }
+
+    !candidate.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    })
 }
 
 #[allow(dead_code)]
@@ -398,28 +425,23 @@ pub struct AskCompletionResponse {
     pub answer: String,
     pub citations: Vec<AskCitation>,
     pub rendered_citations: Vec<AskRenderedCitation>,
+    pub thread_id: String,
+    pub session_id: String,
 }
 
-impl From<&AskResponse> for AskCompletionResponse {
-    fn from(response: &AskResponse) -> Self {
-        Self {
-            provider: response.provider.clone(),
-            model: response.model.clone(),
-            answer: response.answer.clone(),
-            citations: response.citations.clone(),
-            rendered_citations: response
-                .citations
-                .iter()
-                .map(|citation| citation.rendered())
-                .collect(),
-        }
-    }
-}
-
-impl From<AskResponse> for AskCompletionResponse {
-    fn from(response: AskResponse) -> Self {
-        Self::from(&response)
-    }
+pub fn filter_ask_citations_to_repo_scope(
+    citations: &[AskCitation],
+    repo_scope: &[String],
+) -> Vec<AskCitation> {
+    citations
+        .iter()
+        .filter(|citation| {
+            repo_scope.iter().any(|repo_id| repo_id == &citation.repo_id)
+                && citation_path_is_safe(&citation.path)
+                && !citation.revision.trim().is_empty()
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -1245,7 +1267,19 @@ mod tests {
             citations: vec![citation("crates/api/src/main.rs", "main", 10, 18)],
         };
 
-        let response = AskCompletionResponse::from(&completion);
+        let response = AskCompletionResponse {
+            provider: completion.provider.clone(),
+            model: completion.model.clone(),
+            answer: completion.answer.clone(),
+            citations: completion.citations.clone(),
+            rendered_citations: completion
+                .citations
+                .iter()
+                .map(|citation| citation.rendered())
+                .collect(),
+            thread_id: "thread_123".into(),
+            session_id: "session_123".into(),
+        };
 
         assert_eq!(response.provider, completion.provider);
         assert_eq!(response.model, completion.model);
@@ -1255,6 +1289,87 @@ mod tests {
         assert_eq!(
             response.rendered_citations[0],
             completion.citations[0].rendered()
+        );
+        assert_eq!(response.thread_id, "thread_123");
+        assert_eq!(response.session_id, "session_123");
+    }
+
+    #[test]
+    fn filter_ask_citations_to_repo_scope_excludes_out_of_scope_repositories() {
+        let citations = vec![
+            sourcebot_models::AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "crates/api/src/main.rs".into(),
+                revision: "main".into(),
+                line_start: 10,
+                line_end: 18,
+            },
+            sourcebot_models::AskCitation {
+                repo_id: "repo_hidden".into(),
+                path: "secret.txt".into(),
+                revision: "deadbeef".into(),
+                line_start: 1,
+                line_end: 1,
+            },
+        ];
+
+        let filtered = filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(filtered[0].path, "crates/api/src/main.rs");
+    }
+
+    #[test]
+    fn filter_ask_citations_to_repo_scope_excludes_unsafe_paths_and_blank_revisions() {
+        let citations = vec![
+            sourcebot_models::AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "../secrets.txt".into(),
+                revision: "main".into(),
+                line_start: 1,
+                line_end: 2,
+            },
+            sourcebot_models::AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "/etc/passwd".into(),
+                revision: "main".into(),
+                line_start: 1,
+                line_end: 1,
+            },
+            sourcebot_models::AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src/lib.rs".into(),
+                revision: "   ".into(),
+                line_start: 5,
+                line_end: 9,
+            },
+            sourcebot_models::AskCitation {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "src/main.rs".into(),
+                revision: "main".into(),
+                line_start: 10,
+                line_end: 12,
+            },
+        ];
+
+        let filtered = filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].path, "src/main.rs");
+        assert_eq!(filtered[0].revision, "main");
+    }
+
+    #[test]
+    fn canonicalize_repo_scope_sorts_and_deduplicates_trimmed_entries() {
+        assert_eq!(
+            canonicalize_repo_scope(vec![
+                " repo_b ".into(),
+                "repo_a".into(),
+                "repo_b".into(),
+                "".into(),
+            ]),
+            vec!["repo_a".to_string(), "repo_b".to_string()]
         );
     }
 

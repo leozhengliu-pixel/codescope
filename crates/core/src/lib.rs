@@ -797,6 +797,7 @@ pub struct AskRequest {
     pub system_prompt: Option<String>,
     pub repo_scope: Vec<String>,
     pub thread_id: Option<String>,
+    pub previous_messages: Vec<sourcebot_models::AskMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -904,6 +905,9 @@ pub fn build_llm_provider(config: LlmProviderConfig) -> Box<dyn LlmProvider> {
         "stub" => Box::new(StubLlmProvider {
             model: config.model,
         }),
+        "stub-citations" => Box::new(StubCitationsLlmProvider {
+            model: config.model,
+        }),
         _ => Box::new(DisabledLlmProvider {
             provider: config.provider,
         }),
@@ -931,14 +935,67 @@ struct StubLlmProvider {
 #[async_trait]
 impl LlmProvider for StubLlmProvider {
     async fn complete(&self, request: &AskRequest) -> Result<AskResponse> {
+        let prior_context = if request.previous_messages.is_empty() {
+            String::new()
+        } else {
+            let last_message = request
+                .previous_messages
+                .last()
+                .map(|message| message.content.as_str())
+                .unwrap_or("");
+            format!(
+                " continuing thread with {} prior messages (latest: '{}')",
+                request.previous_messages.len(),
+                last_message
+            )
+        };
         Ok(AskResponse {
             provider: "stub".into(),
             model: self.model.clone(),
             answer: format!(
-                "stub response: no real provider configured yet for prompt '{}'",
-                request.prompt
+                "stub response: no real provider configured yet for prompt '{}'{}",
+                request.prompt, prior_context
             ),
             citations: Vec::new(),
+        })
+    }
+}
+
+struct StubCitationsLlmProvider {
+    model: Option<String>,
+}
+
+#[async_trait]
+impl LlmProvider for StubCitationsLlmProvider {
+    async fn complete(&self, request: &AskRequest) -> Result<AskResponse> {
+        let scoped_repo_id = request
+            .repo_scope
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "repo_sourcebot_rewrite".into());
+        Ok(AskResponse {
+            provider: "stub-citations".into(),
+            model: self.model.clone(),
+            answer: format!(
+                "stub citations response: no real provider configured yet for prompt '{}'",
+                request.prompt
+            ),
+            citations: vec![
+                AskCitation {
+                    repo_id: scoped_repo_id,
+                    path: "src/lib.rs".into(),
+                    revision: "main".into(),
+                    line_start: 10,
+                    line_end: 12,
+                },
+                AskCitation {
+                    repo_id: "repo_hidden".into(),
+                    path: "secret.txt".into(),
+                    revision: "deadbeef".into(),
+                    line_start: 1,
+                    line_end: 1,
+                },
+            ],
         })
     }
 }
@@ -1809,6 +1866,7 @@ mod tests {
                 system_prompt: None,
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
                 thread_id: None,
+                previous_messages: Vec::new(),
             })
             .await;
 
@@ -1824,7 +1882,8 @@ mod tests {
                 prompt: "where is healthz implemented?".into(),
                 system_prompt: Some("answer with citations".into()),
                 repo_scope: vec!["repo_sourcebot_rewrite".into()],
-                thread_id: Some("thread_123".into()),
+                thread_id: None,
+                previous_messages: Vec::new(),
             })
             .await
             .expect("stub provider should succeed");
