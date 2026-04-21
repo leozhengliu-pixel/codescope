@@ -2738,6 +2738,7 @@ async fn revoke_local_admin_session(
 
 async fn list_repositories(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<RepositorySummary>>, StatusCode> {
     let repositories = state
         .catalog
@@ -2745,7 +2746,18 @@ async fn list_repositories(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(repositories))
+    let visible_repo_ids = match visible_search_repo_ids_for_request(&state, &headers).await {
+        Ok(visible_repo_ids) => visible_repo_ids,
+        Err(StatusCode::UNAUTHORIZED) => return Ok(Json(repositories)),
+        Err(status) => return Err(status),
+    };
+
+    Ok(Json(
+        repositories
+            .into_iter()
+            .filter(|repository| visible_repo_ids.contains(&repository.id))
+            .collect(),
+    ))
 }
 
 async fn get_repository_detail(
@@ -15164,6 +15176,63 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn repo_list_filters_to_visible_repositories_for_authenticated_sessions() {
+        let organization_state_path = unique_test_path("repo-list-auth-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let local_session_state_path = unique_test_path("repo-list-auth-sessions");
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-list-auth-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                .await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<RepositorySummary> = read_json(response).await;
+        let repo_ids: Vec<&str> = payload.iter().map(|repo| repo.id.as_str()).collect();
+        assert_eq!(repo_ids, vec!["repo_sourcebot_rewrite"]);
+    }
+
+    #[tokio::test]
+    async fn repo_list_preserves_public_inventory_for_invalid_authorization_headers() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos")
+                    .header(header::AUTHORIZATION, "Bearer not-a-valid-session")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<RepositorySummary> = read_json(response).await;
+        assert!(payload.iter().any(|repo| repo.id == "repo_sourcebot_rewrite"));
+        assert!(payload.iter().any(|repo| repo.id == "repo_demo_docs"));
     }
 
     #[tokio::test]

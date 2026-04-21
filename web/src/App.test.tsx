@@ -763,9 +763,66 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
     expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
     expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute('href', '#/settings/members');
+    expect(screen.getByRole('link', { name: 'Access' })).toHaveAttribute('href', '#/settings/access');
     expect(screen.getByRole('link', { name: 'OAuth clients' })).toHaveAttribute('href', '#/settings/oauth-clients');
     expect(screen.getByRole('link', { name: 'Audit & analytics' })).toHaveAttribute('href', '#/settings/observability');
     expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
+  });
+
+  it('renders access inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/access';
+
+    const reposResponse = deferredResponse();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(reposResponse.promise);
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Access' })).toBeInTheDocument();
+    expect(screen.getByText('Loading visible repositories…')).toBeInTheDocument();
+
+    reposResponse.resolve(
+      jsonResponse([
+        {
+          id: 'repo-alpha',
+          name: 'alpha-service',
+          default_branch: 'main',
+          sync_state: 'ready',
+        },
+        {
+          id: 'repo-beta',
+          name: 'beta-worker',
+          default_branch: 'develop',
+          sync_state: 'pending',
+        },
+      ])
+    );
+
+    const alphaRepo = await screen.findByLabelText('Visible repository alpha-service');
+    const betaRepo = screen.getByLabelText('Visible repository beta-worker');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos');
+    expect(within(alphaRepo).getByText('Repository id: repo-alpha')).toBeInTheDocument();
+    expect(within(alphaRepo).getByText('main')).toBeInTheDocument();
+    expect(within(alphaRepo).getAllByText('ready')).toHaveLength(2);
+    expect(within(betaRepo).getByText('Repository id: repo-beta')).toBeInTheDocument();
+    expect(within(betaRepo).getByText('develop')).toBeInTheDocument();
+    expect(within(betaRepo).getAllByText('pending')).toHaveLength(2);
+    expect(screen.getByText(/The current route is read-only: it lists repositories already visible to your account/i)).toBeInTheDocument();
+  });
+
+  it('shows an access empty state inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/access';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse([]));
+
+    render(<App />);
+
+    expect(screen.getByText('Loading visible repositories…')).toBeInTheDocument();
+    expect(await screen.findByText('No visible repositories found')).toBeInTheDocument();
+    expect(
+      screen.getByText('Your current account does not have any visible repositories yet. Permission sync and access-management workflows remain follow-up work.')
+    ).toBeInTheDocument();
   });
 
   it('renders members inventory inside the shared settings shell', async () => {

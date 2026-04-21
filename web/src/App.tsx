@@ -2414,7 +2414,14 @@ function SettingsConnectionsPage() {
   );
 }
 
-type SettingsSectionId = 'connections' | 'api-keys' | 'members' | 'oauth-clients' | 'observability' | 'review-automation';
+type SettingsSectionId =
+  | 'connections'
+  | 'api-keys'
+  | 'members'
+  | 'access'
+  | 'oauth-clients'
+  | 'observability'
+  | 'review-automation';
 
 type SettingsSectionDefinition = {
   id: SettingsSectionId;
@@ -2442,6 +2449,12 @@ const settingsSections: SettingsSectionDefinition[] = [
     label: 'Members',
     href: '#/settings/members',
     description: 'Inspect the authenticated read-only organization member and invite inventory exposed at /api/v1/auth/members.',
+  },
+  {
+    id: 'access',
+    label: 'Access',
+    href: '#/settings/access',
+    description: 'Inspect the repositories currently visible to your account through the authz-filtered /api/v1/repos inventory.',
   },
   {
     id: 'oauth-clients',
@@ -2512,9 +2525,98 @@ function SettingsLandingPage() {
       subtitle="This shell expands settings discoverability while richer management workflows remain follow-up work."
     >
       <p style={{ margin: 0, color: '#57606a' }}>
-        The current rewrite exposes authenticated admin API surfaces for connections, API keys, members, OAuth clients,
-        audit and analytics, and review automation visibility. Use the sections above to inspect the shipped route shells.
+        The current rewrite exposes authenticated admin API surfaces for connections, API keys, members, access visibility,
+        OAuth clients, audit and analytics, and review automation visibility. Use the sections above to inspect the shipped
+        route shells.
       </p>
+    </Panel>
+  );
+}
+
+function SettingsAccessPage() {
+  const section = settingsSectionById('access');
+  const [repositories, setRepositories] = useState<RepoSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<RepoSummary[]>('/api/v1/repos')
+      .then((data) => {
+        if (!cancelled) {
+          setRepositories(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setRepositories([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel title="Access" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          The current route is read-only: it lists repositories already visible to your account so you can inspect the
+          shipped access baseline without claiming permission-sync management or role-edit workflows that do not exist yet.
+        </p>
+
+        {loading ? <div>Loading visible repositories…</div> : null}
+        {!loading && error ? <div>Unable to load visible repositories: {error}</div> : null}
+        {!loading && !error && repositories.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No visible repositories found</div>
+            <div style={{ color: '#57606a' }}>
+              Your current account does not have any visible repositories yet. Permission sync and access-management
+              workflows remain follow-up work.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && repositories.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {repositories.map((repository) => (
+              <li
+                key={repository.id}
+                aria-label={`Visible repository ${repository.name}`}
+                style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'flex-start',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{repository.name}</div>
+                    <div style={{ color: '#57606a' }}>Repository id: {repository.id}</div>
+                  </div>
+                  <StatusBadge state={repository.sync_state} />
+                </div>
+                <div style={detailGridStyle}>
+                  <Detail label="Default branch" value={repository.default_branch} />
+                  <Detail label="Sync state" value={<StatusBadge state={repository.sync_state} />} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </Panel>
   );
 }
@@ -3743,6 +3845,7 @@ export function App() {
           {route.section === 'connections' ? <SettingsConnectionsPage /> : null}
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
           {route.section === 'members' ? <SettingsMembersPage /> : null}
+          {route.section === 'access' ? <SettingsAccessPage /> : null}
           {route.section === 'oauth-clients' ? <SettingsOAuthClientsPage /> : null}
           {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
           {route.section === 'review-automation' ? <SettingsReviewAutomationPage /> : null}
