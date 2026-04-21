@@ -5,46 +5,83 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 34a6bcc93db0e6e1905003428d12031b24e4c329
+  head: 72e4317f4c2a188402c05cd338c541eceecb77aa
 last_completed_task:
-  id: task76b
-  title: Harden repository detail and browse recovery states for route-stable repo navigation
+  id: task76c
+  title: Add branch/revision-aware repository detail, browse, and commit controls
   status: done
   summary: >-
     Chose one more Task 76 user-visible repo/browse closure instead of splitting
-    empty-state and error-state paperwork into separate runs. `web/src/App.tsx`
-    now keeps repository-detail routes stable when `/api/v1/repos/:id` fails,
-    preserves the contextual back link to dedicated search results during that
-    failure state, and offers an in-place retry button. `BrowsePanel` now keeps
-    the surrounding repo detail visible when tree loading fails, adds a focused
-    retry affordance for `/tree` failures, and continues to render an explicit
-    empty-directory state without pretending a file is selected. `web/src/App.test.tsx`,
-    `specs/acceptance/browse.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` now ground that narrower
-    recovery-state baseline truthfully without claiming branch/revision parity.
+    revision plumbing into separate route, test, and docs fragments. `web/src/App.tsx`
+    now keeps repo-detail hashes revision-aware and canonical, reloads browse tree/blob
+    and commit history for the selected branch/tag/revision, resets truthfully to the
+    repository default branch, and clears stale repo-scoped browse state when switching
+    to a different repository route. `crates/api/src/browse.rs`,
+    `crates/api/src/commits.rs`, and `crates/api/src/main.rs` now accept revision-aware
+    tree and commit-list requests and fail closed with `404` for invalid or option-like
+    revision inputs. `web/src/App.test.tsx`, `specs/acceptance/browse.md`,
+    `specs/acceptance/index.md`, and `docs/reports/2026-04-18-parity-gap-report.md`
+    ground that narrower revision-control baseline without claiming broader ref-discovery
+    or full browse/commit parity.
   tests:
-    - npx vitest run src/App.test.tsx -t 'preserves the search back link and can retry repository detail loading after an error|shows browse errors without breaking repository detail rendering and can retry the tree request': passed (2 passed | 125 skipped)
-    - npx vitest run src/App.test.tsx: passed (127 passed)
+    - npx vitest run src/App.test.tsx -t 'clears repo-scoped browse state when navigating to a different repository detail route': passed (1 passed | 128 skipped)
+    - npx vitest run src/App.test.tsx -t 'keeps branch or revision controls in the repo route and reloads browse plus commits for the selected revision': passed (1 passed | 128 skipped)
+    - cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_not_found -- --nocapture: passed
+    - cargo test -p sourcebot-api repo_commits_returns_not_found_for_option_like_revision -- --nocapture: passed
+    - npx vitest run src/App.test.tsx: passed (129 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+    - cargo test -p sourcebot-api: passed (294 passed)
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 76b slice truthfully closes repo-detail and browse recovery states, preserves the contextual search back link during detail failure, keeps browse failures scoped inside the repo shell, and does not overclaim broader branch/revision parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the retry-state wiring, contextual back-link preservation, or focused docs/test updates
-  commit: 34a6bcc93db0e6e1905003428d12031b24e4c329
-  next_task: task76c
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 76c slice stays narrowly scoped to repo-route revision control, browse/commit reloads, cross-repo stale-state clearing, backend 404 behavior for invalid revision inputs, and truthful docs/report wording without overclaiming broader branch/ref parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the revision-aware repo routing, browse/commit API wiring, or focused acceptance/report updates
+  commit: 72e4317f4c2a188402c05cd338c541eceecb77aa
+  next_task: task77
 current_task:
-  id: task76c
-  parent_task: task76
-  title: Add branch/revision-aware repository detail, browse, and commit controls
+  id: task77
+  parent_task: task77
+  title: Settings section parity completion
   status: pending
   summary: >-
-    Task 76 now has route-stable search deep links plus truthful repo-detail and
-    browse recovery states. The next smallest meaningful closure should stay on
-    repo/browse product value by adding one focused branch/revision control slice
-    across repository detail, browse, and commit panels, rather than falling back
-    into more paperwork-only parity wording.
+    Task 76 now covers dedicated-search deep links, repo-detail/browse recovery states,
+    and a truthful repo-route revision-control baseline. The next smallest meaningful
+    closure should move to the next roadmap task with new user-visible settings value
+    instead of continuing to micro-slice repo/browse paperwork after this revision
+    baseline shipped.
 history:
+  - id: task76c
+    status: done
+    summary: >-
+      Chose one more Task 76 user-visible repo/browse closure instead of splitting
+      revision plumbing into separate route, test, and docs fragments.
+      `web/src/App.tsx` now keeps repo-detail hashes revision-aware and canonical,
+      reloads browse tree/blob and commit history for the selected
+      branch/tag/revision, resets truthfully to the repository default branch, and
+      clears stale repo-scoped browse state when switching to a different
+      repository route. `crates/api/src/browse.rs`, `crates/api/src/commits.rs`,
+      and `crates/api/src/main.rs` now accept revision-aware tree and commit-list
+      requests and fail closed with `404` for invalid or option-like revision
+      inputs. `web/src/App.test.tsx`, `specs/acceptance/browse.md`,
+      `specs/acceptance/index.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` ground that narrower
+      revision-control baseline without claiming broader ref-discovery or full
+      browse/commit parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t 'clears repo-scoped browse state when navigating to a different repository detail route': passed (1 passed | 128 skipped)
+      - npx vitest run src/App.test.tsx -t 'keeps branch or revision controls in the repo route and reloads browse plus commits for the selected revision': passed (1 passed | 128 skipped)
+      - cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_not_found -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_commits_returns_not_found_for_option_like_revision -- --nocapture: passed
+      - npx vitest run src/App.test.tsx: passed (129 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - cargo test -p sourcebot-api: passed (294 passed)
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 76c slice stays narrowly scoped to repo-route revision control, browse/commit reloads, cross-repo stale-state clearing, backend 404 behavior for invalid revision inputs, and truthful docs/report wording without overclaiming broader branch/ref parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the revision-aware repo routing, browse/commit API wiring, or focused acceptance/report updates
+    commit: 72e4317f4c2a188402c05cd338c541eceecb77aa
+    next_task: task77
   - id: task76b
     status: done
     summary: >-
