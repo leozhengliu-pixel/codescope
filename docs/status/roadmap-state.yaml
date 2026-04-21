@@ -5,47 +5,56 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4acc45078c285642e4544c2100abbc8b6c9aef9b
+  head: cd86871c40be161f1aa03b91f0aab4c5f93f3b91
 last_completed_task:
-  id: task20q2am62a
-  title: Audit the MCP server parity-matrix row against the current integrations acceptance evidence and gap report
+  id: task20q2am62b
+  title: Tighten the MCP server parity-matrix row to record the already-grounded partial status and evidence
   status: done
   summary: >-
-    Closed the one-hundred-eighth split task20q2 settings-shell follow-up slice
-    by grounding the next MCP-server documentation drift in
-    `docs/status/task20q2am62a-mcp-server-parity-matrix-gap-audit.md`. The audit
-    confirmed `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` already agree that MCP parity
-    is only partial: `crates/mcp/src/lib.rs` ships a real library-level manifest
-    and retrieval-tool contract, while transport/runtime/auth wiring and explicit
-    permission-scoped acceptance evidence remain open. The next smallest truthful
-    slice is to tighten only the `specs/FEATURE_PARITY.md` `MCP server` row
-    without changing product behavior.
+    Closed the one-hundred-ninth split task20q2 settings-shell follow-up slice
+    by tightening the `specs/FEATURE_PARITY.md` `MCP server` row so it now records
+    the already-grounded `Partial` status and cites the current integrations
+    acceptance/gap-report evidence without changing product behavior or broadening
+    other integration rows.
   tests:
-    - python3 raw-content precheck confirmed the `MCP server` row is still stale in `specs/FEATURE_PARITY.md` while the integrations acceptance spec and parity gap report already ground MCP as `Partial`: passed
-    - python3 raw-content audit-note presence check confirmed the note records the MCP parity-matrix drift, the library-level MCP evidence, and queues `task20q2am62b`: passed
+    - python3 raw-content postcheck confirmed the `MCP server` row now records `Partial`, cites the existing integrations acceptance/gap-report evidence, lists the shipped `crates/mcp/src/lib.rs` manifest/tool-execution baseline, and keeps the remaining transport/runtime/auth plus permission-scoped evidence gaps explicit: passed
     - git diff --check: passed
-    - python3 added-lines security scan for `docs/status/task20q2am62a-mcp-server-parity-matrix-gap-audit.md`: passed
+    - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am62a`, stays within the MCP parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am62a-mcp-server-parity-matrix-gap-audit.md` diff
-  commit: 4acc45078c285642e4544c2100abbc8b6c9aef9b
-  next_task: task20q2am62b
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am62b`, updates only the `MCP server` parity-matrix row, and stays within the already-grounded partial-parity evidence
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
+  commit: cd86871c40be161f1aa03b91f0aab4c5f93f3b91
+  next_task: task20q2am63a
 current_task:
-  id: task20q2am62b
-  parent_task: task20q2am62
-  title: Tighten the MCP server parity-matrix row to record the already-grounded partial status and evidence
+  id: task20q2am63a
+  parent_task: task20q2am63
+  title: Audit the Public REST API parity-matrix row against the current integrations acceptance evidence and gap report
   status: pending
   summary: >-
-    `docs/status/task20q2am62a-mcp-server-parity-matrix-gap-audit.md` now grounds
-    that `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` already agree the MCP surface
-    is `Partial`: `crates/mcp/src/lib.rs` ships the manifest and retrieval-tool
-    contract, while transport/runtime/auth wiring and explicit permission-scoped
-    acceptance evidence remain open. The next smallest truthful slice is to
-    tighten only the `specs/FEATURE_PARITY.md` `MCP server` row so it reflects
-    that already-grounded partial state without changing product behavior.
+    `specs/FEATURE_PARITY.md` now truthfully records the MCP server row as
+    `Partial`. The next smallest documentation drift is the still-unaudited
+    `Public REST API` row, which should be audited against
+    `specs/acceptance/integrations.md` and
+    `docs/reports/2026-04-18-parity-gap-report.md` before tightening any
+    parity-matrix wording.
 history:
+  - id: task20q2am62b
+    status: done
+    summary: >-
+      Closed the one-hundred-ninth split task20q2 settings-shell follow-up slice
+      by tightening the `specs/FEATURE_PARITY.md` `MCP server` row so it now records
+      the already-grounded `Partial` status and cites the current integrations
+      acceptance/gap-report evidence without changing product behavior or broadening
+      other integration rows.
+    tests:
+      - python3 raw-content postcheck confirmed the `MCP server` row now records `Partial`, cites the existing integrations acceptance/gap-report evidence, lists the shipped `crates/mcp/src/lib.rs` manifest/tool-execution baseline, and keeps the remaining transport/runtime/auth plus permission-scoped evidence gaps explicit: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am62b`, updates only the `MCP server` parity-matrix row, and stays within the already-grounded partial-parity evidence
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
+    commit: cd86871c40be161f1aa03b91f0aab4c5f93f3b91
+    next_task: task20q2am63a
   - id: task20q2am62a
     status: done
     summary: >-
