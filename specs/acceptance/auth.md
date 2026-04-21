@@ -12,6 +12,13 @@
 - Organization membership and role assignments
 - API key creation requests
 
+## Current rewrite grounding
+- Backend auth/API-key surface: `crates/api/src/main.rs`
+- Persisted auth/org models: `crates/models/src/lib.rs`
+- Frontend API-key inventory/revoke panel: `web/src/App.tsx`
+- Focused frontend verification: `web/src/App.test.tsx`
+- Related settings-shell contract: `specs/acceptance/settings-navigation.md`
+
 ## Expected behavior
 1. First-run onboarding can initialize the first admin under a self-hosted deployment.
 2. Users can authenticate and receive a durable session.
@@ -33,4 +40,6 @@
 ## Black-box examples
 - First boot allows creating one admin account, then closes bootstrap flow.
 - A viewer can search and browse allowed repos but cannot manage connections.
+- An authenticated user can open `#/settings/api-keys`, load their current API-key inventory, distinguish active vs revoked keys, and see repo-scope wording that stays truthful when a key is not repo-bound.
+- An authenticated user can revoke an active key from that minimal inventory panel, after which the key is no longer shown as active even though richer creation/scoping UX remains follow-up work.
 - Revoking a user's org membership removes search results from previously visible repos.

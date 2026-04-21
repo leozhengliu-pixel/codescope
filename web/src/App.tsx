@@ -182,6 +182,15 @@ type AuthConnection = {
   config?: AuthConnectionConfig;
 };
 
+type ApiKeyListItem = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  revoked_at: string | null;
+  repo_scope: string[];
+};
+
 type RepositorySyncJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 type RepositorySyncJob = {
@@ -2047,15 +2056,182 @@ function SettingsLandingPage() {
   );
 }
 
-function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections'> }) {
+function SettingsApiKeysPage() {
+  const section = settingsSectionById('api-keys');
+  const [apiKeys, setApiKeys] = useState<ApiKeyListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
+  const [revokedKeyIds, setRevokedKeyIds] = useState<string[]>([]);
+  const [revokeErrors, setRevokeErrors] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<ApiKeyListItem[]>('/api/v1/auth/api-keys')
+      .then((data) => {
+        if (!cancelled) {
+          setApiKeys(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setApiKeys([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleRevoke = async (apiKeyId: string) => {
+    setRevokeErrors((currentErrors) => ({ ...currentErrors, [apiKeyId]: null }));
+    setRevokingKeyId(apiKeyId);
+
+    try {
+      const response = await fetch(`/api/v1/auth/api-keys/${apiKeyId}/revoke`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      setRevokedKeyIds((currentIds) => (currentIds.includes(apiKeyId) ? currentIds : [...currentIds, apiKeyId]));
+    } catch (err) {
+      setRevokeErrors((currentErrors) => ({
+        ...currentErrors,
+        [apiKeyId]: err instanceof Error ? err.message : 'Unknown error',
+      }));
+    } finally {
+      setRevokingKeyId(null);
+    }
+  };
+
+  return (
+    <Panel title="API keys" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This minimal panel shows the authenticated inventory and lets you revoke an active key. Key creation and richer
+          scoping UX remain follow-up work.
+        </p>
+
+        {loading ? <div>Loading API keys…</div> : null}
+        {!loading && error ? <div>Unable to load API keys: {error}</div> : null}
+        {!loading && !error && apiKeys.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No API keys found</div>
+            <div style={{ color: '#57606a' }}>
+              Your account does not have any API keys yet. Creation and more complete lifecycle workflows remain follow-up
+              work.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && apiKeys.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {apiKeys.map((apiKey) => {
+              const isRevoked = apiKey.revoked_at !== null || revokedKeyIds.includes(apiKey.id);
+              const isRevoking = revokingKeyId === apiKey.id;
+
+              return (
+                <li
+                  key={apiKey.id}
+                  aria-label={`API key ${apiKey.name}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{apiKey.name}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Key id: {apiKey.id}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle(isRevoked ? '#cf222e' : '#1a7f37')}>
+                      {isRevoked ? 'revoked' : 'active'}
+                    </span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="User id" value={apiKey.user_id} />
+                    <Detail label="Created at" value={apiKey.created_at} />
+                    <Detail
+                      label="Revoked at"
+                      value={
+                        apiKey.revoked_at
+                          ? apiKey.revoked_at
+                          : isRevoked
+                            ? 'Revoked successfully. Refresh later to load the server timestamp.'
+                            : 'Active'
+                      }
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Repo scope</div>
+                    {apiKey.repo_scope.length === 0 ? (
+                      <div style={{ color: '#57606a' }}>
+                        Not repo-bound. This key can reach the repos currently visible to you.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: 8 }}>
+                        <div style={{ color: '#57606a' }}>Limited to the listed repositories.</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {apiKey.repo_scope.map((repoId) => (
+                            <span key={repoId} style={searchMetaBadgeStyle}>
+                              {repoId}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {!isRevoked ? (
+                      <div>
+                        <button
+                          type="button"
+                          style={secondaryButtonStyle}
+                          disabled={isRevoking}
+                          onClick={() => {
+                            void handleRevoke(apiKey.id);
+                          }}
+                          aria-label={`Revoke key ${apiKey.name}`}
+                        >
+                          {isRevoking ? 'Revoking…' : 'Revoke key'}
+                        </button>
+                      </div>
+                    ) : null}
+                    {revokeErrors[apiKey.id] ? <div>Unable to revoke key: {revokeErrors[apiKey.id]}</div> : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
+function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys'> }) {
   const section = settingsSectionById(sectionId);
 
-  const content: Record<Exclude<SettingsSectionId, 'connections'>, { title: string; body: string; followUp: string }> = {
-    'api-keys': {
-      title: 'API keys',
-      body: 'The authenticated API already exposes /api/v1/auth/api-keys plus revoke endpoints for credential lifecycle work.',
-      followUp: 'Richer key creation, scoping, and revocation UX is follow-up work.',
-    },
+  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys'>, { title: string; body: string; followUp: string }> = {
     'oauth-clients': {
       title: 'OAuth clients',
       body: 'The authenticated API already exposes /api/v1/auth/oauth-clients for client administration records.',
@@ -2365,7 +2541,11 @@ export function App() {
       ) : null}
       {route.kind === 'settings-section' ? (
         <SettingsShell activeSection={route.section}>
-          {route.section === 'connections' ? <SettingsConnectionsPage /> : <SettingsPlaceholderPage sectionId={route.section} />}
+          {route.section === 'connections' ? <SettingsConnectionsPage /> : null}
+          {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
+          {route.section !== 'connections' && route.section !== 'api-keys' ? (
+            <SettingsPlaceholderPage sectionId={route.section} />
+          ) : null}
         </SettingsShell>
       ) : null}
       {route.kind === 'home' ? <RepoListPage /> : null}

@@ -389,8 +389,29 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
   });
 
-  it('renders the api keys settings section inside the shared settings shell', () => {
+  it('renders api keys inventory inside the shared settings shell', async () => {
     window.location.hash = '#/settings/api-keys';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse([
+        {
+          id: 'key-active',
+          user_id: 'local-user-1',
+          name: 'Personal automation',
+          created_at: '2026-04-20T12:00:00Z',
+          revoked_at: null,
+          repo_scope: [],
+        },
+        {
+          id: 'key-revoked',
+          user_id: 'local-user-1',
+          name: 'Scoped integration',
+          created_at: '2026-04-18T09:30:00Z',
+          revoked_at: '2026-04-21T10:00:00Z',
+          repo_scope: ['repo-alpha', 'repo-beta'],
+        },
+      ])
+    );
 
     render(<App />);
 
@@ -398,10 +419,77 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
     expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
     expect(screen.getByRole('heading', { name: 'API keys' })).toBeInTheDocument();
+
+    const activeKey = await screen.findByLabelText('API key Personal automation');
+    const revokedKey = screen.getByLabelText('API key Scoped integration');
+
+    expect(within(activeKey).getByText('Key id: key-active')).toBeInTheDocument();
+    expect(within(activeKey).getByText('local-user-1')).toBeInTheDocument();
+    expect(within(activeKey).getByText('2026-04-20T12:00:00Z')).toBeInTheDocument();
+    expect(within(activeKey).getByText('active')).toBeInTheDocument();
     expect(
-      screen.getByText('The authenticated API already exposes /api/v1/auth/api-keys plus revoke endpoints for credential lifecycle work.')
+      within(activeKey).getByText('Not repo-bound. This key can reach the repos currently visible to you.')
     ).toBeInTheDocument();
-    expect(screen.getByText('Richer key creation, scoping, and revocation UX is follow-up work.')).toBeInTheDocument();
+
+    expect(within(revokedKey).getByText('revoked')).toBeInTheDocument();
+    expect(within(revokedKey).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(revokedKey).getByText('repo-beta')).toBeInTheDocument();
+    expect(within(revokedKey).getByText('2026-04-21T10:00:00Z')).toBeInTheDocument();
+  });
+
+  it('revokes an active api key from the inventory', async () => {
+    window.location.hash = '#/settings/api-keys';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/api-keys' && !init) {
+        return jsonResponse([
+          {
+            id: 'key-active',
+            user_id: 'local-user-1',
+            name: 'Personal automation',
+            created_at: '2026-04-20T12:00:00Z',
+            revoked_at: null,
+            repo_scope: [],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/api-keys/key-active/revoke' && init?.method === 'POST') {
+        return jsonResponse({}, true, 204);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const activeKey = await screen.findByLabelText('API key Personal automation');
+    fireEvent.click(within(activeKey).getByRole('button', { name: 'Revoke key Personal automation' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/api-keys');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/api-keys/key-active/revoke', { method: 'POST' });
+    });
+
+    expect(within(activeKey).getByText('revoked')).toBeInTheDocument();
+    expect(
+      within(activeKey).getByText('Revoked successfully. Refresh later to load the server timestamp.')
+    ).toBeInTheDocument();
+    expect(within(activeKey).queryByRole('button', { name: 'Revoke key Personal automation' })).not.toBeInTheDocument();
+  });
+
+  it('shows an api keys loading failure', async () => {
+    window.location.hash = '#/settings/api-keys';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({}, false, 503));
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'API keys' })).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load API keys: Request failed: 503')).toBeInTheDocument();
   });
 
   it('renders the Authenticated connections route inside the shared settings shell', async () => {

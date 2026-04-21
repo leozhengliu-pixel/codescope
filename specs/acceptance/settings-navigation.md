@@ -1,7 +1,7 @@
 # Acceptance Spec: Settings Navigation Shell
 
 ## Purpose
-This document defines the current clean-room acceptance contract for the authenticated settings navigation shell in `web/src/App.tsx`. It covers discoverability and route-shell behavior only: users should be able to open a general `#/settings` landing page, discover the currently exposed authenticated admin API surfaces, and navigate into a shared settings shell for each shipped subsection.
+This document defines the current clean-room acceptance contract for the authenticated settings navigation shell in `web/src/App.tsx`. It covers discoverability plus the currently shipped subsection baselines: users should be able to open a general `#/settings` landing page, discover the currently exposed authenticated admin API surfaces, navigate into a shared settings shell for each shipped subsection, and use the minimal API-key inventory/revoke panel without overstating richer admin UX that is still follow-up work.
 
 ## Grounding
 - Frontend route shell: `web/src/App.tsx`
@@ -35,25 +35,27 @@ The shipped settings shell currently covers these hash routes:
 1. Each shipped settings subsection route should render inside the same shared settings navigation shell.
 2. The currently selected subsection should remain visually identifiable within the shared shell.
 3. The connections route should preserve the existing authenticated connection-management experience instead of regressing into a dead placeholder.
+4. The API keys route should render a real authenticated inventory panel instead of a dead placeholder.
 
 ### 3. Honest grounding in existing authenticated API surfaces
-1. Non-connections subsections may be placeholders, but they must explicitly point to already exposed authenticated API surfaces.
-2. The placeholder copy must stay honest about scope and state that richer management UX is follow-up work.
-3. Grounding for each current placeholder section is:
-   - API keys → `/api/v1/auth/api-keys` and revoke
+1. The API keys subsection should fetch `GET /api/v1/auth/api-keys`, show loading/error/empty/populated states truthfully, and surface a focused revoke control through `POST /api/v1/auth/api-keys/{api_key_id}/revoke` for active keys only.
+2. Repo-scope copy must stay truthful: empty scope means the key is not repo-bound and can reach the repos currently visible to the authenticated user, not arbitrary hidden repositories.
+3. Other non-connections subsections may remain placeholders, but they must explicitly point to already exposed authenticated API surfaces and stay honest that richer management UX is follow-up work.
+4. Grounding for each current non-connections section is:
+   - API keys → authenticated inventory from `/api/v1/auth/api-keys` plus revoke through `/api/v1/auth/api-keys/{api_key_id}/revoke`
    - OAuth clients → `/api/v1/auth/oauth-clients`
    - Audit & analytics / observability → `/api/v1/auth/audit-events`, `/api/v1/auth/analytics`
    - Review automation → authenticated review-webhook, delivery-attempt, and review-agent-run visibility endpoints
 
 ### 4. Boundaries and non-goals
 1. This slice does **not** claim shipped onboarding, login, org membership, invite, or linked-account UX.
-2. This slice does **not** claim CRUD-complete UX for API keys, OAuth clients, audit analytics filtering, or review automation.
+2. This slice does **not** claim CRUD-complete UX for API keys, OAuth clients, audit analytics filtering, or review automation; API keys currently have only a minimal inventory plus revoke panel.
 3. This slice does **not** add new backend routes; it only improves frontend route-shell discoverability over surfaces that already exist.
 
 ## Minimum verification evidence
 1. Focused frontend tests prove:
    - the settings landing page renders
-   - at least one non-connections subsection route renders inside the shared shell
+   - the API-key subsection renders authenticated inventory details and revoke behavior inside the shared shell
    - the existing connections route remains reachable within the shared shell
 2. Broader `web/src/App.test.tsx` coverage still passes after the route-family change.
 3. Production build still passes after the navigation-shell change.
