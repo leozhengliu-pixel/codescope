@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 
 type SyncState = 'pending' | 'ready' | 'error';
 
@@ -411,20 +411,32 @@ function useRepoSummaries() {
   return { repos, loading, error };
 }
 
-function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle: string }) {
-  const [query, setQuery] = useState('');
-  const [selectedRepoId, setSelectedRepoId] = useState('');
+function buildSearchHash(query: string, repoId: string) {
+  const params = new URLSearchParams({ q: query, repo_id: repoId });
+  return `#/search?${params.toString()}`;
+}
+
+function navigateToHash(event: MouseEvent<HTMLAnchorElement>, targetHash: string) {
+  event.preventDefault();
+  window.location.hash = targetHash;
+}
+
+function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { repos: RepoSummary[]; subtitle: string; initialQuery: string; initialRepoId: string }) {
+  const [query, setQuery] = useState(initialQuery);
+  const [selectedRepoId, setSelectedRepoId] = useState(initialRepoId);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(initialQuery.trim().length > 0 ? initialQuery.trim() : null);
+  const [submittedRepoId, setSubmittedRepoId] = useState(initialRepoId);
 
   const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
 
-  const runSearch = async () => {
-    const trimmedQuery = query.trim();
+  const runSearch = async (queryValue = query, repoIdValue = selectedRepoId) => {
+    const trimmedQuery = queryValue.trim();
     if (!trimmedQuery) {
       setSubmittedQuery(null);
+      setSubmittedRepoId('');
       setSearchResults([]);
       setSearchError(null);
       return;
@@ -433,19 +445,29 @@ function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle:
     setSearchLoading(true);
 
     try {
-      const params = new URLSearchParams({ q: trimmedQuery, repo_id: selectedRepoId });
+      const params = new URLSearchParams({ q: trimmedQuery, repo_id: repoIdValue });
       const data = await fetchJson<SearchResponse>(`/api/v1/search?${params.toString()}`);
       setSearchResults(data.results);
       setSubmittedQuery(data.query);
+      setSubmittedRepoId(data.repo_id ?? '');
       setSearchError(null);
     } catch (err) {
       setSearchResults([]);
       setSubmittedQuery(trimmedQuery);
+      setSubmittedRepoId(repoIdValue);
       setSearchError((err as Error).message);
     } finally {
       setSearchLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (initialQuery.trim().length === 0) {
+      return;
+    }
+
+    void runSearch(initialQuery, initialRepoId);
+  }, [initialQuery, initialRepoId]);
 
   return (
     <Panel title="Search" subtitle={subtitle}>
@@ -453,6 +475,19 @@ function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle:
         style={{ display: 'grid', gap: 12 }}
         onSubmit={(event) => {
           event.preventDefault();
+          const trimmedQuery = query.trim();
+
+          if (trimmedQuery.length === 0) {
+            window.location.hash = '#/search';
+            return;
+          }
+
+          const targetHash = buildSearchHash(trimmedQuery, selectedRepoId);
+          if (window.location.hash !== targetHash) {
+            window.location.hash = targetHash;
+            return;
+          }
+
           void runSearch();
         }}
       >
@@ -504,6 +539,32 @@ function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle:
                   <span style={searchMetaBadgeStyle}>Line {result.line_number}</span>
                 </div>
                 <pre style={searchLineStyle}>{result.line}</pre>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
+                  <a
+                    href={`#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`}
+                    onClick={(event) =>
+                      navigateToHash(
+                        event,
+                        `#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`,
+                      )
+                    }
+                    style={{ color: '#0969da', fontWeight: 600 }}
+                  >
+                    Open source in repository detail
+                  </a>
+                  <a
+                    href={`#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`}
+                    onClick={(event) =>
+                      navigateToHash(
+                        event,
+                        `#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`,
+                      )
+                    }
+                    style={{ color: '#0969da', fontWeight: 600 }}
+                  >
+                    Open repository detail
+                  </a>
+                </div>
               </div>
             ))}
           </div>
@@ -516,13 +577,20 @@ function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle:
   );
 }
 
-function SearchPage() {
+function SearchPage({ initialQuery, initialRepoId }: { initialQuery: string; initialRepoId: string }) {
   const { repos, loading, error } = useRepoSummaries();
 
   if (loading) return <Panel title="Search" subtitle="Run API-backed code search across repositories from a dedicated route.">Loading repositories…</Panel>;
   if (error) return <Panel title="Search" subtitle="Run API-backed code search across repositories from a dedicated route.">Failed to load: {error}</Panel>;
 
-  return <SearchExperience repos={repos} subtitle="Run API-backed code search across repositories from a dedicated route." />;
+  return (
+    <SearchExperience
+      repos={repos}
+      subtitle="Run API-backed code search across repositories from a dedicated route."
+      initialQuery={initialQuery}
+      initialRepoId={initialRepoId}
+    />
+  );
 }
 
 function RepoListPage() {
@@ -572,7 +640,7 @@ function RepoListPage() {
   );
 }
 
-function RepoDetailPage({ repoId }: { repoId: string }) {
+function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: string; initialPath: string | null; from: 'search' | null; searchHash: string | null }) {
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -621,11 +689,14 @@ function RepoDetailPage({ repoId }: { repoId: string }) {
         <CommitsPanel repoId={repoId} />
       </div>
       <div style={{ marginTop: 20 }}>
-        <BrowsePanel repoId={repoId} />
+        <BrowsePanel repoId={repoId} initialPath={initialPath} />
       </div>
       <div style={{ marginTop: 16 }}>
-        <a href="#/" style={{ color: '#0969da', textDecoration: 'none', fontWeight: 600 }}>
-          ← Back to repositories
+        <a
+          href={from === 'search' ? searchHash ?? '#/search' : '#/'}
+          onClick={(event) => navigateToHash(event, from === 'search' ? searchHash ?? '#/search' : '#/')}
+          style={{ color: '#0969da', textDecoration: 'none', fontWeight: 600 }}>
+          {from === 'search' ? '← Back to search results' : '← Back to repositories'}
         </a>
       </div>
     </Panel>
@@ -894,12 +965,12 @@ function parseBrowseUrl(browseUrl: string) {
   };
 }
 
-function BrowsePanel({ repoId }: { repoId: string }) {
-  const [treePath, setTreePath] = useState('');
+function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: string | null }) {
+  const [treePath, setTreePath] = useState(() => (initialPath ? pathDirectory(initialPath) : ''));
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeError, setTreeError] = useState<string | null>(null);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(initialPath);
   const [selectedRevision, setSelectedRevision] = useState<string | null>(null);
   const [blob, setBlob] = useState<BlobResponse | null>(null);
   const [blobLoading, setBlobLoading] = useState(false);
@@ -983,12 +1054,17 @@ function BrowsePanel({ repoId }: { repoId: string }) {
 
   useEffect(() => {
     navigationRequestId.current += 1;
+    setTreePath(initialPath ? pathDirectory(initialPath) : '');
+    setSelectedFilePath(initialPath);
+    setBlob(null);
+    setBlobError(null);
+    setBlobLoading(false);
     setSelectedRevision(null);
     setSymbol('');
     setNavigationLoading(false);
     setNavigationError(null);
     setNavigationState(null);
-  }, [repoId]);
+  }, [repoId, initialPath]);
 
   const parentPath = useMemo(() => {
     if (!treePath) return null;
@@ -3157,11 +3233,18 @@ export function App() {
   const hash = useHashLocation();
 
   const route = useMemo(() => {
-    if (hash === '#/search') {
-      return { kind: 'search' as const };
+    const [hashPath, hashQuery = ''] = hash.split('?');
+
+    if (hashPath === '#/search') {
+      const params = new URLSearchParams(hashQuery);
+      return {
+        kind: 'search' as const,
+        initialQuery: params.get('q') ?? '',
+        initialRepoId: params.get('repo_id') ?? '',
+      };
     }
 
-    const settingsMatch = hash.match(/^#\/settings(?:\/([a-z-]+))?$/);
+    const settingsMatch = hashPath.match(/^#\/settings(?:\/([a-z-]+))?$/);
     if (settingsMatch) {
       const section = settingsMatch[1] as SettingsSectionId | undefined;
       if (!section) {
@@ -3173,9 +3256,19 @@ export function App() {
       }
     }
 
-    const match = hash.match(/^#\/repos\/([^/]+)$/);
+    const match = hashPath.match(/^#\/repos\/([^/]+)$/);
     if (match) {
-      return { kind: 'repo' as const, repoId: decodeURIComponent(match[1]) };
+      const params = new URLSearchParams(hashQuery);
+      const initialPath = params.get('path');
+      const searchQuery = params.get('q') ?? '';
+      const searchRepoId = params.get('repo_id') ?? '';
+      return {
+        kind: 'repo' as const,
+        repoId: decodeURIComponent(match[1]),
+        initialPath: initialPath && initialPath.length > 0 ? initialPath : null,
+        from: params.get('from') === 'search' ? ('search' as const) : null,
+        searchHash: buildSearchHash(searchQuery, searchRepoId),
+      };
     }
     return { kind: 'home' as const };
   }, [hash]);
@@ -3208,8 +3301,16 @@ export function App() {
         </nav>
       </header>
 
-      {route.kind === 'repo' ? <RepoDetailPage repoId={route.repoId} /> : null}
-      {route.kind === 'search' ? <SearchPage /> : null}
+      {route.kind === 'repo' ? (
+        <RepoDetailPage
+          key={hash}
+          repoId={route.repoId}
+          initialPath={route.initialPath}
+          from={route.from}
+          searchHash={route.searchHash}
+        />
+      ) : null}
+      {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>
           <SettingsLandingPage />

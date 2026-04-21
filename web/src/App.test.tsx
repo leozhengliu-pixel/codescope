@@ -10746,6 +10746,182 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=repo-2');
   });
 
+  it('opens repository source from dedicated search results and keeps a contextual back link to search', async () => {
+    window.location.hash = '#/search';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            sync_state: 'pending',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/search?q=needle&repo_id=') {
+        return jsonResponse({
+          query: 'needle',
+          repo_id: null,
+          results: [
+            {
+              repo_id: 'repo-2',
+              path: 'src/search.ts',
+              line_number: 12,
+              line: 'const needle = true;',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-2') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-2/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-2',
+          commits: [],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-2/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-2',
+          path: 'src',
+          entries: [{ name: 'search.ts', path: 'src/search.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-2/blob?path=src%2Fsearch.ts') {
+        return jsonResponse({
+          repo_id: 'repo-2',
+          path: 'src/search.ts',
+          size_bytes: 21,
+          content: 'const needle = true;',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/search?q=needle&repo_id=');
+    });
+
+    const openSourceLink = await screen.findByRole('link', { name: 'Open source in repository detail' });
+    expect(openSourceLink).toHaveAttribute('href', '#/repos/repo-2?path=src%2Fsearch.ts&from=search&q=needle&repo_id=');
+
+    fireEvent.click(openSourceLink);
+
+    expect(await screen.findByText('Current path: src')).toBeInTheDocument();
+    expect(await screen.findByText('src/search.ts')).toBeInTheDocument();
+    expect(screen.getByText('const needle = true;')).toBeInTheDocument();
+
+    const backToSearchLink = screen.getByRole('link', { name: '← Back to search results' });
+    expect(backToSearchLink).toHaveAttribute('href', '#/search?q=needle&repo_id=');
+
+    fireEvent.click(backToSearchLink);
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/search?q=needle&repo_id=');
+    });
+    expect(await screen.findByLabelText('Search query')).toHaveValue('needle');
+    expect(screen.getByText('Results')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-2/tree?path=src');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-2/blob?path=src%2Fsearch.ts');
+  });
+
+  it('keeps dedicated search deep links pinned to the last submitted search context even if the form is edited afterwards', async () => {
+    window.location.hash = '#/search';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            sync_state: 'pending',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/search?q=needle&repo_id=repo-2') {
+        return jsonResponse({
+          query: 'needle',
+          repo_id: 'repo-2',
+          results: [
+            {
+              repo_id: 'repo-2',
+              path: 'src/search.ts',
+              line_number: 12,
+              line: 'const needle = true;',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
+    fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/search?q=needle&repo_id=repo-2');
+    });
+
+    const openSourceLink = await screen.findByRole('link', { name: 'Open source in repository detail' });
+    expect(openSourceLink).toHaveAttribute('href', '#/repos/repo-2?path=src%2Fsearch.ts&from=search&q=needle&repo_id=repo-2');
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'drifted' } });
+    fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-1' } });
+
+    expect(screen.getByRole('link', { name: 'Open source in repository detail' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-2?path=src%2Fsearch.ts&from=search&q=needle&repo_id=repo-2',
+    );
+  });
+
   it('shows an empty search state when no matches are returned on the dedicated search page', async () => {
     window.location.hash = '#/search';
 

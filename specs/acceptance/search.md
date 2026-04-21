@@ -34,7 +34,7 @@
 - Branches missing an index should surface partial availability rather than silent omission.
 
 ## Black-box examples
-- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, and result list instead of the repository inventory cards.
+- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, result list, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
 - Query `router` across all accessible repos returns matches from multiple repos.
 - Query `lang:rust path:crates/api healthz` returns matches only under `crates/api` in Rust files.
 - Query with invalid regex `([a-z` returns a validation error with no server crash.
