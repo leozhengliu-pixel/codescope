@@ -644,6 +644,9 @@ function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: str
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [detailRequestKey, setDetailRequestKey] = useState(0);
+  const backHref = from === 'search' ? searchHash ?? '#/search' : '#/';
+  const backLabel = from === 'search' ? '← Back to search results' : '← Back to repositories';
 
   useEffect(() => {
     let cancelled = false;
@@ -671,11 +674,49 @@ function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: str
     return () => {
       cancelled = true;
     };
-  }, [repoId]);
+  }, [repoId, detailRequestKey]);
 
-  if (loading) return <Panel title="Repository detail">Loading repository…</Panel>;
-  if (error) return <Panel title="Repository detail">Failed to load: {error}</Panel>;
-  if (!repo) return <Panel title="Repository detail">Repository not found.</Panel>;
+  const backLink = (
+    <div style={{ marginTop: 16 }}>
+      <a href={backHref} onClick={(event) => navigateToHash(event, backHref)} style={{ color: '#0969da', textDecoration: 'none', fontWeight: 600 }}>
+        {backLabel}
+      </a>
+    </div>
+  );
+
+  if (loading) {
+    return (
+      <Panel title="Repository detail" subtitle={`Repository id: ${repoId}`}>
+        <div>Loading repository…</div>
+        {backLink}
+      </Panel>
+    );
+  }
+
+  if (error) {
+    return (
+      <Panel title="Repository detail" subtitle={`Repository id: ${repoId}`}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>Failed to load repository: {error}</div>
+          <div>
+            <button type="button" style={secondaryButtonStyle} onClick={() => setDetailRequestKey((value) => value + 1)}>
+              Retry loading repository
+            </button>
+          </div>
+        </div>
+        {backLink}
+      </Panel>
+    );
+  }
+
+  if (!repo) {
+    return (
+      <Panel title="Repository detail" subtitle={`Repository id: ${repoId}`}>
+        <div>Repository not found.</div>
+        {backLink}
+      </Panel>
+    );
+  }
 
   return (
     <Panel title={repo.repository.name} subtitle={`Repository id: ${repo.repository.id}`}>
@@ -691,14 +732,7 @@ function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: str
       <div style={{ marginTop: 20 }}>
         <BrowsePanel repoId={repoId} initialPath={initialPath} />
       </div>
-      <div style={{ marginTop: 16 }}>
-        <a
-          href={from === 'search' ? searchHash ?? '#/search' : '#/'}
-          onClick={(event) => navigateToHash(event, from === 'search' ? searchHash ?? '#/search' : '#/')}
-          style={{ color: '#0969da', textDecoration: 'none', fontWeight: 600 }}>
-          {from === 'search' ? '← Back to search results' : '← Back to repositories'}
-        </a>
-      </div>
+      {backLink}
     </Panel>
   );
 }
@@ -970,6 +1004,7 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeError, setTreeError] = useState<string | null>(null);
+  const [treeRequestKey, setTreeRequestKey] = useState(0);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(initialPath);
   const [selectedRevision, setSelectedRevision] = useState<string | null>(null);
   const [blob, setBlob] = useState<BlobResponse | null>(null);
@@ -1007,7 +1042,7 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
     return () => {
       cancelled = true;
     };
-  }, [repoId, treePath]);
+  }, [repoId, treePath, treeRequestKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1183,7 +1218,16 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
         </div>
 
         {treeLoading ? <div>Loading files…</div> : null}
-        {!treeLoading && treeError ? <div>Unable to load files: {treeError}</div> : null}
+        {!treeLoading && treeError ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div>Unable to load files: {treeError}</div>
+            <div>
+              <button type="button" style={secondaryButtonStyle} onClick={() => setTreeRequestKey((value) => value + 1)}>
+                Retry loading files
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {!treeLoading && !treeError && tree ? (
           tree.entries.length > 0 ? (

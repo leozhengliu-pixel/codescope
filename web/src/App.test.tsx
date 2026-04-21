@@ -167,10 +167,68 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2FApp.tsx');
   });
 
-  it('shows browse errors without breaking repository detail rendering', async () => {
+  it('preserves the search back link and can retry repository detail loading after an error', async () => {
+    window.location.hash = '#/repos/repo-42?from=search&q=router&repo_id=repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        fetchMock.mock.calls.filter(([calledUrl]) => calledUrl === '/api/v1/repos/repo-42');
+        if (fetchMock.mock.calls.filter(([calledUrl]) => calledUrl === '/api/v1/repos/repo-42').length === 1) {
+          return jsonResponse({}, false, 503);
+        }
+
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'pending',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Failed to load repository: Request failed: 503')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '← Back to search results' })).toHaveAttribute('href', '#/search?q=router&repo_id=repo-42');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading repository' }));
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    expect(screen.getByText('No commits found.')).toBeInTheDocument();
+    expect(screen.getByText('This directory is empty.')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([calledUrl]) => calledUrl === '/api/v1/repos/repo-42')).toHaveLength(2);
+  });
+
+  it('shows browse errors without breaking repository detail rendering and can retry the tree request', async () => {
     window.location.hash = '#/repos/repo-42';
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
 
       if (url === '/api/v1/repos/repo-42') {
@@ -191,7 +249,22 @@ describe('App', () => {
       }
 
       if (url === '/api/v1/repos/repo-42/tree?path=') {
-        return jsonResponse({}, false, 503);
+        if (fetchMock.mock.calls.filter(([calledUrl]) => calledUrl === '/api/v1/repos/repo-42/tree?path=').length === 1) {
+          return jsonResponse({}, false, 503);
+        }
+
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'README.md', path: 'README.md', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [],
+        });
       }
 
       throw new Error(`Unhandled fetch: ${url}`);
@@ -201,6 +274,10 @@ describe('App', () => {
 
     expect(await screen.findByText('beta-repo')).toBeInTheDocument();
     expect(await screen.findByText('Unable to load files: Request failed: 503')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading files' }));
+
+    expect(await screen.findByText('README.md')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([calledUrl]) => calledUrl === '/api/v1/repos/repo-42/tree?path=')).toHaveLength(2);
   });
 
   it('loads recent commits and shows commit details when a commit is selected', async () => {
