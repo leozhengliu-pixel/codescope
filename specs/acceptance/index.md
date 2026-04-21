@@ -31,6 +31,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Repository operations | `specs/acceptance/repository-operations.md` | Present in task18c | Locks the current sync-state and authenticated sync-job visibility contract while recording the remaining persisted-catalog, index-status, recovery, and admin-surface parity gaps. |
 | Journey map and missing-spec prerequisites | `specs/acceptance/journeys.md` | Present in this slice | Maps indexed surfaces into user/admin/operator journeys and names the missing dedicated acceptance specs that must be created before broader implementation proceeds. |
 | Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
+| Settings navigation shell | `specs/acceptance/settings-navigation.md` | Present in this slice | Covers the shared `#/settings` landing page plus subsection-shell discoverability without over-claiming richer admin CRUD UX. |
 | Worker execution parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box worker/operator acceptance spec in a later Task 1 slice. |
 | Operator workflows parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box operator/admin/runtime acceptance spec in a later Task 1 slice. |
 
@@ -63,7 +64,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Commit panel | `web/src/App.tsx` → `CommitsPanel` | Commit list/detail/diff UX parity | `specs/acceptance/browse.md` until commit/front-end expansion lands |
 | Browse/source panel | `web/src/App.tsx` → `BrowsePanel` | Tree browsing, file rendering, symbol-click navigation parity | `specs/acceptance/browse.md` and `specs/acceptance/code-nav.md` |
 | Ask/chat frontend | _No dedicated page/component yet_ | Ask/chat thread history, citations, repo-scope controls, and chat UX parity | `specs/acceptance/ask.md` |
-| Auth/admin/settings frontend | `web/src/App.tsx` currently includes `#/settings/connections` → `SettingsConnectionsPage`, but no broader auth/onboarding/admin route family yet | Onboarding, login, org/admin/settings discoverability parity | `specs/acceptance/auth.md` today; later dedicated settings/admin specs still needed |
+| Auth/admin/settings frontend | `web/src/App.tsx` now includes `#/settings`, `#/settings/connections`, `#/settings/api-keys`, `#/settings/oauth-clients`, `#/settings/observability`, and `#/settings/review-automation` through a shared settings shell, while onboarding/login/admin flows remain otherwise limited | Onboarding, login, org/admin/settings discoverability parity | `specs/acceptance/settings-navigation.md` for the route-shell baseline, plus `specs/acceptance/auth.md` for the broader auth domain |
 
 ### 3. Worker and background-execution surface families
 
@@ -88,7 +89,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 1. The acceptance corpus has broad domain specs, but no dedicated worker/operator black-box specs yet.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
 3. `specs/FEATURE_PARITY.md` now has the evidence column needed for later parity auditing, but most rows are still only placeholders; later slices should keep replacing `_TBD_` rows with grounded evidence instead of treating the matrix as complete.
-4. Review-agent, OAuth, analytics, audit, settings/admin navigation, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds.
+4. Review-agent, OAuth, analytics, audit, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/settings-navigation.md` now covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
 
 ## Related follow-up document
 - `specs/acceptance/journeys.md` maps the indexed surfaces above into explicit user/admin/operator journeys and identifies the minimum dedicated missing acceptance-spec documents exposed by the current rewrite evidence.

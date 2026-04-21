@@ -1948,6 +1948,141 @@ function SettingsConnectionsPage() {
   );
 }
 
+type SettingsSectionId = 'connections' | 'api-keys' | 'oauth-clients' | 'observability' | 'review-automation';
+
+type SettingsSectionDefinition = {
+  id: SettingsSectionId;
+  label: string;
+  href: string;
+  description: string;
+};
+
+const settingsSections: SettingsSectionDefinition[] = [
+  {
+    id: 'connections',
+    label: 'Connections',
+    href: '#/settings/connections',
+    description:
+      'Inspect authenticated connection inventory and repository sync history exposed by /api/v1/auth/connections and /api/v1/auth/repository-sync-jobs.',
+  },
+  {
+    id: 'api-keys',
+    label: 'API keys',
+    href: '#/settings/api-keys',
+    description: 'Track the authenticated API-key lifecycle surface already exposed at /api/v1/auth/api-keys.',
+  },
+  {
+    id: 'oauth-clients',
+    label: 'OAuth clients',
+    href: '#/settings/oauth-clients',
+    description: 'Discover the current OAuth client administration surface exposed at /api/v1/auth/oauth-clients.',
+  },
+  {
+    id: 'observability',
+    label: 'Audit & analytics',
+    href: '#/settings/observability',
+    description: 'Inspect the authenticated audit and analytics endpoints at /api/v1/auth/audit-events and /api/v1/auth/analytics.',
+  },
+  {
+    id: 'review-automation',
+    label: 'Review automation',
+    href: '#/settings/review-automation',
+    description: 'Point users toward authenticated review webhook, delivery-attempt, and review-agent visibility APIs.',
+  },
+];
+
+function settingsSectionById(sectionId: SettingsSectionId) {
+  return settingsSections.find((section) => section.id === sectionId) ?? settingsSections[0];
+}
+
+function SettingsShell({
+  activeSection,
+  children,
+}: {
+  activeSection?: SettingsSectionId;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ display: 'grid', gap: 20 }}>
+      <Panel title="Settings" subtitle="Choose an authenticated admin surface to inspect.">
+        <div style={settingsNavGridStyle}>
+          {settingsSections.map((section) => {
+            const isActive = section.id === activeSection;
+
+            return (
+              <a
+                key={section.id}
+                href={section.href}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={section.label}
+                style={{
+                  ...settingsNavCardStyle,
+                  borderColor: isActive ? '#0969da' : '#d8dee4',
+                  boxShadow: isActive ? 'inset 0 0 0 1px #0969da' : 'none',
+                }}
+              >
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2328' }}>{section.label}</div>
+                <div style={{ color: '#57606a', marginTop: 8 }}>{section.description}</div>
+              </a>
+            );
+          })}
+        </div>
+      </Panel>
+      {children}
+    </div>
+  );
+}
+
+function SettingsLandingPage() {
+  return (
+    <Panel
+      title="Settings overview"
+      subtitle="This shell expands settings discoverability while richer management workflows remain follow-up work."
+    >
+      <p style={{ margin: 0, color: '#57606a' }}>
+        The current rewrite exposes authenticated admin API surfaces for connections, API keys, OAuth clients, audit and
+        analytics, and review automation visibility. Use the sections above to inspect the shipped route shells.
+      </p>
+    </Panel>
+  );
+}
+
+function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections'> }) {
+  const section = settingsSectionById(sectionId);
+
+  const content: Record<Exclude<SettingsSectionId, 'connections'>, { title: string; body: string; followUp: string }> = {
+    'api-keys': {
+      title: 'API keys',
+      body: 'The authenticated API already exposes /api/v1/auth/api-keys plus revoke endpoints for credential lifecycle work.',
+      followUp: 'Richer key creation, scoping, and revocation UX is follow-up work.',
+    },
+    'oauth-clients': {
+      title: 'OAuth clients',
+      body: 'The authenticated API already exposes /api/v1/auth/oauth-clients for client administration records.',
+      followUp: 'Richer OAuth authorization, token, and client-management UX is follow-up work.',
+    },
+    observability: {
+      title: 'Observability',
+      body: 'The authenticated API already exposes /api/v1/auth/audit-events and /api/v1/auth/analytics for audit and analytics visibility.',
+      followUp: 'Richer filtering, drill-down, and operator-facing observability UX is follow-up work.',
+    },
+    'review-automation': {
+      title: 'Review automation',
+      body: 'The authenticated API already exposes review webhook, delivery-attempt, and review-agent run visibility under /api/v1/auth/review-webhooks, /api/v1/auth/review-webhook-delivery-attempts, and /api/v1/auth/review-agent-runs.',
+      followUp: 'Richer webhook management, retry, and automation run UX is follow-up work.',
+    },
+  };
+
+  return (
+    <Panel title={content[sectionId].title} subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <p style={{ margin: 0, color: '#1f2328' }}>{content[sectionId].body}</p>
+        <p style={{ margin: 0, color: '#57606a' }}>{content[sectionId].followUp}</p>
+      </div>
+    </Panel>
+  );
+}
+
 function Panel({
   title,
   subtitle,
@@ -2159,12 +2294,35 @@ const searchLineStyle: CSSProperties = {
   color: '#1f2328',
 };
 
+const settingsNavGridStyle: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: 12,
+};
+
+const settingsNavCardStyle: CSSProperties = {
+  padding: 16,
+  borderRadius: 12,
+  border: '1px solid #d8dee4',
+  background: '#fff',
+  color: 'inherit',
+  textDecoration: 'none',
+};
+
 export function App() {
   const hash = useHashLocation();
 
   const route = useMemo(() => {
-    if (hash === '#/settings/connections') {
-      return { kind: 'settings-connections' as const };
+    const settingsMatch = hash.match(/^#\/settings(?:\/([a-z-]+))?$/);
+    if (settingsMatch) {
+      const section = settingsMatch[1] as SettingsSectionId | undefined;
+      if (!section) {
+        return { kind: 'settings-landing' as const };
+      }
+
+      if (settingsSections.some((settingsSection) => settingsSection.id === section)) {
+        return { kind: 'settings-section' as const, section };
+      }
     }
 
     const match = hash.match(/^#\/repos\/([^/]+)$/);
@@ -2193,14 +2351,23 @@ export function App() {
           <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
             Repositories
           </a>
-          <a href="#/settings/connections" style={{ color: '#0969da', fontWeight: 600 }}>
-            Settings / Connections
+          <a href="#/settings" style={{ color: '#0969da', fontWeight: 600 }}>
+            Settings
           </a>
         </nav>
       </header>
 
       {route.kind === 'repo' ? <RepoDetailPage repoId={route.repoId} /> : null}
-      {route.kind === 'settings-connections' ? <SettingsConnectionsPage /> : null}
+      {route.kind === 'settings-landing' ? (
+        <SettingsShell>
+          <SettingsLandingPage />
+        </SettingsShell>
+      ) : null}
+      {route.kind === 'settings-section' ? (
+        <SettingsShell activeSection={route.section}>
+          {route.section === 'connections' ? <SettingsConnectionsPage /> : <SettingsPlaceholderPage sectionId={route.section} />}
+        </SettingsShell>
+      ) : null}
       {route.kind === 'home' ? <RepoListPage /> : null}
     </main>
   );

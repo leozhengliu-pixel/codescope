@@ -375,7 +375,36 @@ describe('App', () => {
     expect(screen.getByText('Binary file or patch unavailable.')).toBeInTheDocument();
   });
 
-  it('renders the authenticated connections inventory and creates a new github connection from the settings route', async () => {
+  it('renders the settings landing page with shared navigation cards', () => {
+    window.location.hash = '#/settings';
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByText('Choose an authenticated admin surface to inspect.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
+    expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
+    expect(screen.getByRole('link', { name: 'OAuth clients' })).toHaveAttribute('href', '#/settings/oauth-clients');
+    expect(screen.getByRole('link', { name: 'Audit & analytics' })).toHaveAttribute('href', '#/settings/observability');
+    expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
+  });
+
+  it('renders the api keys settings section inside the shared settings shell', () => {
+    window.location.hash = '#/settings/api-keys';
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
+    expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
+    expect(screen.getByRole('heading', { name: 'API keys' })).toBeInTheDocument();
+    expect(
+      screen.getByText('The authenticated API already exposes /api/v1/auth/api-keys plus revoke endpoints for credential lifecycle work.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Richer key creation, scoping, and revocation UX is follow-up work.')).toBeInTheDocument();
+  });
+
+  it('renders the Authenticated connections route inside the shared settings shell', async () => {
     window.location.hash = '#/settings/connections';
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -441,6 +470,8 @@ describe('App', () => {
 
     render(<App />);
 
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
     expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
     expect(screen.getByText('GitHub Cloud')).toBeInTheDocument();
     expect(screen.getByText('Kind: github')).toBeInTheDocument();
