@@ -5,51 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d177ba67e408d513e288b5bee28f97c860d6d423
+  head: be48c97fe313d06176ce2452e17f9ca37bb8a71f
 last_completed_task:
-  id: task79b
-  title: Add dedicated `#/chat` thread-history baseline on top of ask threads
+  id: task79c
+  title: Add a dedicated `#/agents` route baseline on top of existing review-agent visibility APIs
   status: done
   summary: >-
-    Chose one meaningful Task 79 closure instead of splitting thread-read APIs,
-    chat-route UI, stale-thread recovery, docs, and review into separate paperwork
-    slices. `crates/api/src/main.rs` now ships authenticated
-    `/api/v1/ask/threads` plus `/api/v1/ask/threads/{thread_id}` reads that fail
-    closed on auth/visibility boundaries and re-filter persisted citations to the
-    visible repo scope. `web/src/App.tsx` and `web/src/App.test.tsx` now add a
-    dedicated `#/chat` route with top-level navigation, thread-list/detail reopen,
-    repo-scoped follow-up asks, fresh-chat reset, canonical hash restoration, and
-    in-flight invalidation so stale responses cannot repopulate the wrong thread
-    after switching scope. `specs/acceptance/ask.md`,
+    Chose one meaningful Task 79 closure instead of splitting the dedicated
+    agents route, restored run detail, reload/fail-closed behavior, delivery
+    attempt plus webhook visibility, docs, and review into separate paperwork
+    slices. `web/src/App.tsx` and `web/src/App.test.tsx` now ship a dedicated
+    `#/agents` route with top-level navigation, optional hash-restored `run_id`,
+    truthful selected-run reload behavior, independent webhook loading even when
+    delivery-attempt detail fails, and fail-closed reset to `#/agents` when a
+    restored run is no longer visible. `specs/acceptance/ask.md`,
     `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
-    and `docs/plans/2026-04-21-task79b-chat-route-thread-history-plan.md` now
-    ground the shipped ask+chat baseline truthfully while explicitly deferring
-    rename/delete/visibility lifecycle work and dedicated agents-route parity.
+    and `docs/plans/2026-04-21-task79c-agents-route-baseline-plan.md` now ground
+    the shipped operator-visible agents baseline truthfully while explicitly
+    deferring richer management, retries, and orchestration.
   tests:
-    - cargo test -p sourcebot-api ask_threads_ -- --nocapture: passed (3 passed)
-    - npx vitest run src/App.test.tsx -t "dedicated chat route|stale restored thread|in-flight ask": passed (4 passed | 157 skipped)
-    - cargo test -p sourcebot-api: passed (317 passed)
-    - npx vitest run src/App.test.tsx: passed (161 passed)
+    - npx vitest run src/App.test.tsx -t "reloads the selected agent run|keeps webhook visibility when the selected delivery attempt fails to load": passed (2 passed | 163 skipped)
+    - npx vitest run src/App.test.tsx: passed (165 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice closes one bounded Task 79 chat-route baseline with backend thread reads, dedicated `#/chat` navigation and restored-thread behavior, and truthful docs that keep rename/delete/visibility plus agents follow-up explicitly deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the ask-thread auth/visibility checks, citation refiltering, chat-route hash restoration, stale in-flight invalidation, focused tests, or scoped docs/report updates
-  commit: d177ba67e408d513e288b5bee28f97c860d6d423
-  next_task: task79c
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the intended narrow `#/agents` baseline with top-level nav, hash-restored `run_id`, fail-closed 404 reset, related run/delivery-attempt/webhook detail loading, preserved settings review-automation inventory, and docs that keep richer agent management/retry/orchestration explicitly deferred
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the reload regression and delivery-attempt/webhook decoupling fixes, and only suggested an optional future retry affordance for top-level run-list loading
+  commit: be48c97fe313d06176ce2452e17f9ca37bb8a71f
+  next_task: task80
 current_task:
-  id: task79c
-  parent_task: task79
-  title: Add a dedicated `#/agents` route baseline on top of existing review-agent visibility APIs
+  id: task80
+  parent_task: phase11
+  title: Deployment and config parity
   status: pending
   summary: >-
-    Task 79 now has real dedicated `#/ask` and `#/chat` pages with restored
-    thread continuity/history. The next meaningful closure should pivot to the
-    still-missing dedicated `#/agents` page and top-level navigation over the
-    already shipped review-agent visibility APIs, rather than micro-slicing chat
-    follow-up paperwork into rename/delete/doc-only fragments.
+    Task 79's dedicated ask/chat/agents route baseline is now closed with
+    truthful docs and focused verification. The next meaningful closure should
+    move into Phase 11 production hardening by selecting one bounded
+    deployment/config parity slice, rather than continuing Task 79 with smaller
+    paperwork-only follow-ups.
 history:
+  - id: task79c
+    status: done
+    summary: >-
+      Chose one meaningful Task 79 closure instead of splitting the dedicated
+      agents route, restored run detail, reload/fail-closed behavior, delivery
+      attempt plus webhook visibility, docs, and review into separate paperwork
+      slices. `web/src/App.tsx` and `web/src/App.test.tsx` now ship a dedicated
+      `#/agents` route with top-level navigation, optional hash-restored `run_id`,
+      truthful selected-run reload behavior, independent webhook loading even when
+      delivery-attempt detail fails, and fail-closed reset to `#/agents` when a
+      restored run is no longer visible. `specs/acceptance/ask.md`,
+      `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+      and `docs/plans/2026-04-21-task79c-agents-route-baseline-plan.md` now ground
+      the shipped operator-visible agents baseline truthfully while explicitly
+      deferring richer management, retries, and orchestration.
+    tests:
+      - npx vitest run src/App.test.tsx -t "reloads the selected agent run|keeps webhook visibility when the selected delivery attempt fails to load": passed (2 passed | 163 skipped)
+      - npx vitest run src/App.test.tsx: passed (165 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the intended narrow `#/agents` baseline with top-level nav, hash-restored `run_id`, fail-closed 404 reset, related run/delivery-attempt/webhook detail loading, preserved settings review-automation inventory, and docs that keep richer agent management/retry/orchestration explicitly deferred
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the reload regression and delivery-attempt/webhook decoupling fixes, and only suggested an optional future retry affordance for top-level run-list loading
+    commit: be48c97fe313d06176ce2452e17f9ca37bb8a71f
+    next_task: task80
   - id: task79b
     status: done
     summary: >-
