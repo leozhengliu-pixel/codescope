@@ -211,6 +211,42 @@ type OAuthClientListItem = {
   revoked_at: string | null;
 };
 
+type MembersAccount = {
+  id: string;
+  email: string;
+  name: string;
+  created_at?: string;
+};
+
+type MembersRosterEntry = {
+  user_id: string;
+  role: 'admin' | 'viewer';
+  joined_at: string;
+  account: MembersAccount;
+};
+
+type InviteRosterEntry = {
+  id: string;
+  email: string;
+  role: 'admin' | 'viewer';
+  created_at: string;
+  expires_at: string;
+  invited_by: MembersAccount | null;
+  accepted_by: MembersAccount | null;
+  accepted_at: string | null;
+  status: 'accepted' | 'pending';
+};
+
+type MembersOrganizationInventory = {
+  organization: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  members: MembersRosterEntry[];
+  invites: InviteRosterEntry[];
+};
+
 type ReviewWebhookListItem = {
   id: string;
   organization_id: string;
@@ -2378,7 +2414,7 @@ function SettingsConnectionsPage() {
   );
 }
 
-type SettingsSectionId = 'connections' | 'api-keys' | 'oauth-clients' | 'observability' | 'review-automation';
+type SettingsSectionId = 'connections' | 'api-keys' | 'members' | 'oauth-clients' | 'observability' | 'review-automation';
 
 type SettingsSectionDefinition = {
   id: SettingsSectionId;
@@ -2400,6 +2436,12 @@ const settingsSections: SettingsSectionDefinition[] = [
     label: 'API keys',
     href: '#/settings/api-keys',
     description: 'Track the authenticated API-key lifecycle surface already exposed at /api/v1/auth/api-keys.',
+  },
+  {
+    id: 'members',
+    label: 'Members',
+    href: '#/settings/members',
+    description: 'Inspect the authenticated read-only organization member and invite inventory exposed at /api/v1/auth/members.',
   },
   {
     id: 'oauth-clients',
@@ -2470,9 +2512,153 @@ function SettingsLandingPage() {
       subtitle="This shell expands settings discoverability while richer management workflows remain follow-up work."
     >
       <p style={{ margin: 0, color: '#57606a' }}>
-        The current rewrite exposes authenticated admin API surfaces for connections, API keys, OAuth clients, audit and
-        analytics, and review automation visibility. Use the sections above to inspect the shipped route shells.
+        The current rewrite exposes authenticated admin API surfaces for connections, API keys, members, OAuth clients,
+        audit and analytics, and review automation visibility. Use the sections above to inspect the shipped route shells.
       </p>
+    </Panel>
+  );
+}
+
+function SettingsMembersPage() {
+  const section = settingsSectionById('members');
+  const [organizations, setOrganizations] = useState<MembersOrganizationInventory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<MembersOrganizationInventory[]>('/api/v1/auth/members')
+      .then((data) => {
+        if (!cancelled) {
+          setOrganizations(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setOrganizations([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel title="Members" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This baseline is intentionally read-only: it shows only organizations you can administer plus their current
+          member and invite inventory. Invite, role-edit, and removal workflows remain follow-up work.
+        </p>
+
+        {loading ? <div>Loading members…</div> : null}
+        {!loading && error ? <div>Unable to load members: {error}</div> : null}
+        {!loading && !error && organizations.length === 0 ? (
+          <div style={detailCardStyle}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>No administered organizations found</div>
+            <div style={{ color: '#57606a' }}>
+              No member inventory is currently available for your authenticated admin scope.
+            </div>
+          </div>
+        ) : null}
+        {!loading && !error && organizations.length > 0 ? (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+            {organizations.map((organizationInventory) => (
+              <li
+                key={organizationInventory.organization.id}
+                aria-label={`Organization members ${organizationInventory.organization.name}`}
+                style={{ ...detailCardStyle, display: 'grid', gap: 16 }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{organizationInventory.organization.name}</div>
+                    <div style={{ color: '#57606a' }}>Organization id: {organizationInventory.organization.id}</div>
+                    <div style={{ color: '#57606a' }}>Slug: {organizationInventory.organization.slug}</div>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignContent: 'flex-start' }}>
+                    <span style={searchMetaBadgeStyle}>{organizationInventory.members.length} members</span>
+                    <span style={searchMetaBadgeStyle}>{organizationInventory.invites.length} invites</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Members</div>
+                  {organizationInventory.members.length === 0 ? (
+                    <div style={{ color: '#57606a' }}>No members are currently recorded for this organization.</div>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
+                      {organizationInventory.members.map((member) => (
+                        <li key={`${organizationInventory.organization.id}-${member.user_id}`} style={detailCardStyle}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'grid', gap: 4 }}>
+                              <div style={{ fontWeight: 700 }}>{member.account.name}</div>
+                              <div style={{ color: '#57606a' }}>{member.account.email}</div>
+                              <div style={{ color: '#57606a' }}>User id: {member.user_id}</div>
+                            </div>
+                            <span style={sharedStatusBadgeStyle(member.role === 'admin' ? '#0969da' : '#57606a')}>
+                              {member.role}
+                            </span>
+                          </div>
+                          <div style={{ color: '#57606a', marginTop: 8 }}>
+                            Joined at {member.joined_at}
+                            {member.account.created_at ? ` · Account created ${member.account.created_at}` : ''}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Invites</div>
+                  {organizationInventory.invites.length === 0 ? (
+                    <div style={{ color: '#57606a' }}>No invites are currently recorded for this organization.</div>
+                  ) : (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
+                      {organizationInventory.invites.map((invite) => (
+                        <li key={invite.id} style={detailCardStyle}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'grid', gap: 4 }}>
+                              <div style={{ fontWeight: 700 }}>{invite.email}</div>
+                              <div style={{ color: '#57606a' }}>Invite id: {invite.id}</div>
+                              <div style={{ color: '#57606a' }}>Role: {invite.role}</div>
+                            </div>
+                            <span style={sharedStatusBadgeStyle(invite.status === 'accepted' ? '#1a7f37' : '#9a6700')}>
+                              {invite.status}
+                            </span>
+                          </div>
+                          <div style={{ color: '#57606a', marginTop: 8, display: 'grid', gap: 4 }}>
+                            <div>Created at {invite.created_at}</div>
+                            <div>Expires at {invite.expires_at}</div>
+                            <div>
+                              Invited by {invite.invited_by ? invite.invited_by.name : 'Unknown local account'}
+                            </div>
+                            <div>
+                              {invite.status === 'accepted'
+                                ? `Accepted by ${invite.accepted_by ? invite.accepted_by.name : 'Unknown local account'}`
+                                : 'Awaiting acceptance'}
+                            </div>
+                            {invite.accepted_at ? <div>Accepted at {invite.accepted_at}</div> : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </Panel>
   );
 }
@@ -3556,6 +3742,7 @@ export function App() {
         <SettingsShell activeSection={route.section}>
           {route.section === 'connections' ? <SettingsConnectionsPage /> : null}
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
+          {route.section === 'members' ? <SettingsMembersPage /> : null}
           {route.section === 'oauth-clients' ? <SettingsOAuthClientsPage /> : null}
           {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
           {route.section === 'review-automation' ? <SettingsReviewAutomationPage /> : null}

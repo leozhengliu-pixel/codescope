@@ -31,14 +31,15 @@ use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderC
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
     AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig, ConnectionKind,
-    LocalSession, OAuthClient, OrganizationRole, OrganizationState, RepositoryDetail,
-    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
-    ReviewWebhookDeliveryAttempt, SearchContext,
+    LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite, OrganizationRole,
+    OrganizationState, RepositoryDetail, RepositorySummary, RepositorySyncJob,
+    ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
+    SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -175,6 +176,7 @@ fn build_router(
             "/api/v1/auth/api-keys",
             get(list_authenticated_api_keys).post(create_authenticated_api_key),
         )
+        .route("/api/v1/auth/members", get(list_authenticated_members))
         .route(
             "/api/v1/auth/search-contexts",
             get(list_authenticated_search_contexts),
@@ -412,6 +414,56 @@ struct OAuthClientListItemResponse {
     created_by_user_id: String,
     created_at: String,
     revoked_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct MembersOrganizationResponse {
+    organization: MembersOrganizationIdentityResponse,
+    members: Vec<MemberRosterEntryResponse>,
+    invites: Vec<InviteRosterEntryResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct MembersOrganizationIdentityResponse {
+    id: String,
+    slug: String,
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct MemberRosterEntryResponse {
+    user_id: String,
+    role: OrganizationRole,
+    joined_at: String,
+    account: MemberAccountResponse,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct MemberAccountResponse {
+    id: String,
+    email: String,
+    name: String,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct InviteRosterEntryResponse {
+    id: String,
+    email: String,
+    role: OrganizationRole,
+    created_at: String,
+    expires_at: String,
+    invited_by: Option<InviteAccountSummaryResponse>,
+    accepted_by: Option<InviteAccountSummaryResponse>,
+    accepted_at: Option<String>,
+    status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct InviteAccountSummaryResponse {
+    id: String,
+    email: String,
+    name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1189,6 +1241,28 @@ async fn list_authenticated_api_keys(
             })
             .collect(),
     ))
+}
+
+async fn list_authenticated_members(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MembersOrganizationResponse>>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
+
+    let payload: Vec<MembersOrganizationResponse> = organization_state
+        .organizations
+        .iter()
+        .filter(|organization| admin_organization_ids.contains(&organization.id))
+        .map(|organization| members_organization_response(&organization_state, organization))
+        .collect();
+
+    Ok(Json(payload))
 }
 
 async fn list_authenticated_search_contexts(
@@ -2029,6 +2103,139 @@ fn oauth_client_list_item_response(client: OAuthClient) -> OAuthClientListItemRe
     }
 }
 
+fn members_organization_response(
+    organization_state: &OrganizationState,
+    organization: &Organization,
+) -> MembersOrganizationResponse {
+    MembersOrganizationResponse {
+        organization: MembersOrganizationIdentityResponse {
+            id: organization.id.clone(),
+            slug: organization.slug.clone(),
+            name: organization.name.clone(),
+        },
+        members: member_roster_entries_for_organization(organization_state, &organization.id),
+        invites: invite_roster_entries_for_organization(organization_state, &organization.id),
+    }
+}
+
+fn member_roster_entries_for_organization(
+    organization_state: &OrganizationState,
+    organization_id: &str,
+) -> Vec<MemberRosterEntryResponse> {
+    let accounts_by_id = account_lookup(organization_state);
+
+    organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.organization_id == organization_id)
+        .filter_map(|membership| {
+            accounts_by_id
+                .get(membership.user_id.as_str())
+                .map(|account| MemberRosterEntryResponse {
+                    user_id: membership.user_id.clone(),
+                    role: membership.role.clone(),
+                    joined_at: membership.joined_at.clone(),
+                    account: member_account_response(account),
+                })
+        })
+        .collect()
+}
+
+fn invite_roster_entries_for_organization(
+    organization_state: &OrganizationState,
+    organization_id: &str,
+) -> Vec<InviteRosterEntryResponse> {
+    let accounts_by_id = account_lookup(organization_state);
+    let visible_account_ids: HashSet<&str> = organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.organization_id == organization_id)
+        .map(|membership| membership.user_id.as_str())
+        .collect();
+
+    organization_state
+        .invites
+        .iter()
+        .filter(|invite| invite.organization_id == organization_id)
+        .map(|invite| invite_roster_entry_response(invite, &accounts_by_id, &visible_account_ids))
+        .collect()
+}
+
+fn invite_roster_entry_response(
+    invite: &OrganizationInvite,
+    accounts_by_id: &HashMap<&str, &LocalAccount>,
+    visible_account_ids: &HashSet<&str>,
+) -> InviteRosterEntryResponse {
+    let invite_is_accepted = invite.accepted_at.is_some() && invite.accepted_by_user_id.is_some();
+    let invited_by = visible_invite_account_summary(
+        Some(invite.invited_by_user_id.as_str()),
+        accounts_by_id,
+        visible_account_ids,
+    );
+    let accepted_by = if invite_is_accepted {
+        visible_invite_account_summary(
+            invite.accepted_by_user_id.as_deref(),
+            accounts_by_id,
+            visible_account_ids,
+        )
+    } else {
+        None
+    };
+    let status = if invite_is_accepted { "accepted" } else { "pending" };
+
+    InviteRosterEntryResponse {
+        id: invite.id.clone(),
+        email: invite.email.clone(),
+        role: invite.role.clone(),
+        created_at: invite.created_at.clone(),
+        expires_at: invite.expires_at.clone(),
+        invited_by,
+        accepted_by,
+        accepted_at: if invite_is_accepted {
+            invite.accepted_at.clone()
+        } else {
+            None
+        },
+        status: status.to_string(),
+    }
+}
+
+fn visible_invite_account_summary(
+    user_id: Option<&str>,
+    accounts_by_id: &HashMap<&str, &LocalAccount>,
+    visible_account_ids: &HashSet<&str>,
+) -> Option<InviteAccountSummaryResponse> {
+    user_id
+        .filter(|candidate| visible_account_ids.contains(candidate))
+        .and_then(|candidate| accounts_by_id.get(candidate))
+        .map(|account| invite_account_summary_response(account))
+}
+
+fn member_account_response(account: &LocalAccount) -> MemberAccountResponse {
+    MemberAccountResponse {
+        id: account.id.clone(),
+        email: account.email.clone(),
+        name: account.name.clone(),
+        created_at: account.created_at.clone(),
+    }
+}
+
+fn invite_account_summary_response(account: &LocalAccount) -> InviteAccountSummaryResponse {
+    InviteAccountSummaryResponse {
+        id: account.id.clone(),
+        email: account.email.clone(),
+        name: account.name.clone(),
+    }
+}
+
+fn account_lookup(organization_state: &OrganizationState) -> HashMap<&str, &LocalAccount> {
+    organization_state
+        .accounts
+        .iter()
+        .map(|account| (account.id.as_str(), account))
+        .collect()
+}
+
 fn review_webhook_list_item_response(webhook: ReviewWebhook) -> ReviewWebhookListItemResponse {
     ReviewWebhookListItemResponse {
         id: webhook.id,
@@ -2078,6 +2285,19 @@ fn visible_organization_ids_for_user(
         .memberships
         .iter()
         .filter(|membership| membership.user_id == user_id)
+        .map(|membership| membership.organization_id.clone())
+        .collect()
+}
+
+fn admin_organization_ids_for_user(
+    organization_state: &OrganizationState,
+    user_id: &str,
+) -> HashSet<String> {
+    organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.user_id == user_id)
+        .filter(|membership| membership.role == OrganizationRole::Admin)
         .map(|membership| membership.organization_id.clone())
         .collect()
 }
@@ -3368,6 +3588,56 @@ mod tests {
         created_by_user_id: String,
         created_at: String,
         revoked_at: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MembersOrganizationResponseBody {
+        organization: MembersOrganizationIdentityResponseBody,
+        members: Vec<MemberRosterEntryResponseBody>,
+        invites: Vec<InviteRosterEntryResponseBody>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MembersOrganizationIdentityResponseBody {
+        id: String,
+        slug: String,
+        name: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MemberRosterEntryResponseBody {
+        user_id: String,
+        role: String,
+        joined_at: String,
+        account: MemberAccountResponseBody,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct MemberAccountResponseBody {
+        id: String,
+        email: String,
+        name: String,
+        created_at: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct InviteRosterEntryResponseBody {
+        id: String,
+        email: String,
+        role: String,
+        created_at: String,
+        expires_at: String,
+        invited_by: Option<InviteAccountSummaryResponseBody>,
+        accepted_by: Option<InviteAccountSummaryResponseBody>,
+        accepted_at: Option<String>,
+        status: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct InviteAccountSummaryResponseBody {
+        id: String,
+        email: String,
+        name: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -6440,6 +6710,366 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item.get("client_secret_hash").is_none()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_members_returns_empty_inventory_for_authenticated_users_without_admin_scope() {
+        let organization_state_path = unique_test_path("auth-members-no-admin-orgs");
+        let local_session_state_path = unique_test_path("auth-members-no-admin-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-20T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                created_at: "2026-04-18T00:00:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/members")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<MembersOrganizationResponseBody> = serde_json::from_slice(&body).unwrap();
+        assert!(payload.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_members_hides_cross_org_invite_accounts_and_incomplete_acceptance_details() {
+        let organization_state_path = unique_test_path("auth-members-invite-visibility");
+        let local_session_state_path = unique_test_path("auth-members-invite-visibility-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-20T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "local_user_viewer".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_hidden".into(),
+                    user_id: "local_user_hidden".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-22T00:00:00Z".into(),
+                },
+            ],
+            accounts: vec![
+                LocalAccount {
+                    id: user_id.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-18T00:00:00Z".into(),
+                },
+                LocalAccount {
+                    id: "local_user_viewer".into(),
+                    email: "viewer@example.com".into(),
+                    name: "Viewer User".into(),
+                    created_at: "2026-04-19T00:00:00Z".into(),
+                },
+                LocalAccount {
+                    id: "local_user_hidden".into(),
+                    email: "hidden@example.com".into(),
+                    name: "Hidden User".into(),
+                    created_at: "2026-04-19T01:00:00Z".into(),
+                },
+            ],
+            invites: vec![OrganizationInvite {
+                id: "invite_incomplete".into(),
+                organization_id: "org_acme".into(),
+                email: "pending@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "local_user_hidden".into(),
+                created_at: "2026-04-24T00:00:00Z".into(),
+                expires_at: "2026-05-01T00:00:00Z".into(),
+                accepted_by_user_id: Some("local_user_viewer".into()),
+                accepted_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/members")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<MembersOrganizationResponseBody> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].invites.len(), 1);
+        assert_eq!(payload[0].invites[0].status, "pending");
+        assert!(payload[0].invites[0].invited_by.is_none());
+        assert!(payload[0].invites[0].accepted_by.is_none());
+        assert_eq!(payload[0].invites[0].accepted_at, None);
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let serialized = serde_json::to_string(&json).unwrap();
+        assert!(!serialized.contains("hidden@example.com"));
+        assert!(!serialized.contains("Hidden User"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_members_lists_only_administered_organizations_with_member_and_invite_inventory() {
+        let organization_state_path = unique_test_path("auth-members-orgs");
+        let local_session_state_path = unique_test_path("auth-members-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_beta".into(),
+                    slug: "beta".into(),
+                    name: "Beta".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-20T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "local_user_viewer".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_beta".into(),
+                    user_id: user_id.into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-22T00:00:00Z".into(),
+                },
+                OrganizationMembership {
+                    organization_id: "org_hidden".into(),
+                    user_id: "local_user_hidden".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-23T00:00:00Z".into(),
+                },
+            ],
+            accounts: vec![
+                LocalAccount {
+                    id: user_id.into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    created_at: "2026-04-18T00:00:00Z".into(),
+                },
+                LocalAccount {
+                    id: "local_user_viewer".into(),
+                    email: "viewer@example.com".into(),
+                    name: "Viewer User".into(),
+                    created_at: "2026-04-19T00:00:00Z".into(),
+                },
+                LocalAccount {
+                    id: "local_user_hidden".into(),
+                    email: "hidden@example.com".into(),
+                    name: "Hidden User".into(),
+                    created_at: "2026-04-19T01:00:00Z".into(),
+                },
+            ],
+            invites: vec![
+                OrganizationInvite {
+                    id: "invite_pending_visible".into(),
+                    organization_id: "org_acme".into(),
+                    email: "pending@example.com".into(),
+                    role: OrganizationRole::Viewer,
+                    invited_by_user_id: user_id.into(),
+                    created_at: "2026-04-24T00:00:00Z".into(),
+                    expires_at: "2026-05-01T00:00:00Z".into(),
+                    accepted_by_user_id: None,
+                    accepted_at: None,
+                },
+                OrganizationInvite {
+                    id: "invite_accepted_visible".into(),
+                    organization_id: "org_acme".into(),
+                    email: "accepted@example.com".into(),
+                    role: OrganizationRole::Admin,
+                    invited_by_user_id: user_id.into(),
+                    created_at: "2026-04-25T00:00:00Z".into(),
+                    expires_at: "2026-05-02T00:00:00Z".into(),
+                    accepted_by_user_id: Some("local_user_viewer".into()),
+                    accepted_at: Some("2026-04-25T12:00:00Z".into()),
+                },
+                OrganizationInvite {
+                    id: "invite_hidden".into(),
+                    organization_id: "org_hidden".into(),
+                    email: "hidden-invite@example.com".into(),
+                    role: OrganizationRole::Viewer,
+                    invited_by_user_id: "local_user_hidden".into(),
+                    created_at: "2026-04-26T00:00:00Z".into(),
+                    expires_at: "2026-05-03T00:00:00Z".into(),
+                    accepted_by_user_id: None,
+                    accepted_at: None,
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/members")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: Vec<MembersOrganizationResponseBody> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload.len(), 1);
+        assert_eq!(payload[0].organization.id, "org_acme");
+        assert_eq!(payload[0].organization.slug, "acme");
+        assert_eq!(payload[0].organization.name, "Acme");
+        assert_eq!(payload[0].members.len(), 2);
+        assert_eq!(payload[0].members[0].user_id, user_id);
+        assert_eq!(payload[0].members[0].role, "admin");
+        assert_eq!(payload[0].members[0].joined_at, "2026-04-20T00:00:00Z");
+        assert_eq!(payload[0].members[0].account.id, user_id);
+        assert_eq!(payload[0].members[0].account.email, "admin@example.com");
+        assert_eq!(payload[0].members[0].account.name, "Admin User");
+        assert_eq!(payload[0].members[0].account.created_at, "2026-04-18T00:00:00Z");
+        assert_eq!(payload[0].members[1].user_id, "local_user_viewer");
+        assert_eq!(payload[0].members[1].role, "viewer");
+        assert_eq!(payload[0].invites.len(), 2);
+        assert_eq!(payload[0].invites[0].id, "invite_pending_visible");
+        assert_eq!(payload[0].invites[0].email, "pending@example.com");
+        assert_eq!(payload[0].invites[0].role, "viewer");
+        assert_eq!(payload[0].invites[0].created_at, "2026-04-24T00:00:00Z");
+        assert_eq!(payload[0].invites[0].expires_at, "2026-05-01T00:00:00Z");
+        let invited_by = payload[0].invites[0]
+            .invited_by
+            .as_ref()
+            .expect("pending invite should include invited_by account summary");
+        assert_eq!(invited_by.id, user_id);
+        assert_eq!(invited_by.email, "admin@example.com");
+        assert_eq!(invited_by.name, "Admin User");
+        assert!(payload[0].invites[0].accepted_by.is_none());
+        assert_eq!(payload[0].invites[0].accepted_at, None);
+        assert_eq!(payload[0].invites[0].status, "pending");
+        assert_eq!(payload[0].invites[1].id, "invite_accepted_visible");
+        assert_eq!(payload[0].invites[1].status, "accepted");
+        assert_eq!(
+            payload[0].invites[1].accepted_at.as_deref(),
+            Some("2026-04-25T12:00:00Z")
+        );
+        let accepted_by = payload[0].invites[1]
+            .accepted_by
+            .as_ref()
+            .expect("accepted invite should include accepted_by account summary");
+        assert_eq!(accepted_by.id, "local_user_viewer");
+        assert_eq!(accepted_by.email, "viewer@example.com");
+        assert_eq!(accepted_by.name, "Viewer User");
+
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let serialized = serde_json::to_string(&json).unwrap();
+        assert!(!serialized.contains("org_hidden"));
+        assert!(!serialized.contains("hidden@example.com"));
+        assert!(!serialized.contains("invite_hidden"));
+        assert!(!serialized.contains("org_beta"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();

@@ -762,9 +762,132 @@ describe('App', () => {
     expect(screen.getByText('Choose an authenticated admin surface to inspect.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Connections' })).toHaveAttribute('href', '#/settings/connections');
     expect(screen.getByRole('link', { name: 'API keys' })).toHaveAttribute('href', '#/settings/api-keys');
+    expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute('href', '#/settings/members');
     expect(screen.getByRole('link', { name: 'OAuth clients' })).toHaveAttribute('href', '#/settings/oauth-clients');
     expect(screen.getByRole('link', { name: 'Audit & analytics' })).toHaveAttribute('href', '#/settings/observability');
     expect(screen.getByRole('link', { name: 'Review automation' })).toHaveAttribute('href', '#/settings/review-automation');
+  });
+
+  it('renders members inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/members';
+
+    const membersResponse = deferredResponse();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockReturnValueOnce(membersResponse.promise);
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Members' })).toBeInTheDocument();
+    expect(screen.getByText('Loading members…')).toBeInTheDocument();
+
+    membersResponse.resolve(
+      jsonResponse([
+        {
+          organization: {
+            id: 'org-acme',
+            slug: 'acme',
+            name: 'Acme, Inc.',
+          },
+          members: [
+            {
+              user_id: 'local-user-admin',
+              role: 'admin',
+              joined_at: '2026-04-20T09:00:00Z',
+              account: {
+                id: 'local-user-admin',
+                email: 'admin@acme.test',
+                name: 'Acme Admin',
+                created_at: '2026-04-18T09:00:00Z',
+              },
+            },
+            {
+              user_id: 'local-user-viewer',
+              role: 'viewer',
+              joined_at: '2026-04-21T09:00:00Z',
+              account: {
+                id: 'local-user-viewer',
+                email: 'viewer@acme.test',
+                name: 'Viewer User',
+                created_at: '2026-04-19T09:00:00Z',
+              },
+            },
+          ],
+          invites: [
+            {
+              id: 'invite-pending',
+              email: 'pending@acme.test',
+              role: 'viewer',
+              created_at: '2026-04-22T09:00:00Z',
+              expires_at: '2026-05-01T09:00:00Z',
+              invited_by: {
+                id: 'local-user-admin',
+                email: 'admin@acme.test',
+                name: 'Acme Admin',
+              },
+              accepted_by: null,
+              accepted_at: null,
+              status: 'pending',
+            },
+            {
+              id: 'invite-accepted',
+              email: 'accepted@acme.test',
+              role: 'admin',
+              created_at: '2026-04-20T10:00:00Z',
+              expires_at: '2026-05-02T10:00:00Z',
+              invited_by: {
+                id: 'local-user-admin',
+                email: 'admin@acme.test',
+                name: 'Acme Admin',
+              },
+              accepted_by: {
+                id: 'local-user-viewer',
+                email: 'viewer@acme.test',
+                name: 'Viewer User',
+              },
+              accepted_at: '2026-04-21T12:00:00Z',
+              status: 'accepted',
+            },
+          ],
+        },
+      ])
+    );
+
+    const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/members');
+    expect(within(organizationCard).getByText('Organization id: org-acme')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Slug: acme')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Acme Admin')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('admin@acme.test')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('viewer@acme.test')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('pending')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('accepted')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Accepted by Viewer User')).toBeInTheDocument();
+    expect(within(organizationCard).getAllByText('Invited by Acme Admin')).toHaveLength(2);
+  });
+
+  it('shows a members empty state inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/members';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse([]));
+
+    render(<App />);
+
+    expect(screen.getByText('Loading members…')).toBeInTheDocument();
+    expect(await screen.findByText('No administered organizations found')).toBeInTheDocument();
+    expect(
+      screen.getByText('No member inventory is currently available for your authenticated admin scope.')
+    ).toBeInTheDocument();
+  });
+
+  it('shows a members loading failure inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/members';
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Request failed: 500'));
+
+    render(<App />);
+
+    expect(screen.getByText('Loading members…')).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load members: Request failed: 500')).toBeInTheDocument();
   });
 
   it('renders api keys inventory inside the shared settings shell', async () => {
