@@ -5,50 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6acf16b1d80463251df920394a8f29199dc90a4d
+  head: de44c6e2ecd03e8c19e3e3988f6e5167d1612bbf
 last_completed_task:
-  id: task77c
-  title: Add read-only linked accounts inventory to the shared settings shell
+  id: task78a
+  title: Add frontend auth onboarding, local login, and session restore baseline
   status: done
   summary: >-
-    Chose a Task 77 user-visible linked-accounts closure instead of splitting settings
-    parity into separate route, auth fail-closed behavior, frontend shell, and docs
-    paperwork fragments. `crates/api/src/main.rs` now exposes authenticated
-    `GET /api/v1/auth/linked-accounts`, which returns only the current local account
-    identity plus memberships visible to that identity and fails closed when the local
-    session lacks a real `LocalAccount` record. `web/src/App.tsx` now exposes a
-    discoverable `#/settings/linked-accounts` destination inside the shared settings
-    shell with truthful loading, error, empty, and populated read-only states, while
-    `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
-    `specs/acceptance/settings-navigation.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly without
-    claiming external provider linking, SSO, or account-merge parity.
+    Chose a Task 78 user-visible auth closure instead of splitting onboarding, login,
+    session restoration, bearer reuse, and docs into separate paperwork slices.
+    `web/src/App.tsx` now exposes a discoverable `#/auth` route that checks bootstrap
+    status, renders either first-run onboarding or local login, persists the returned
+    local session token client-side, restores identity via `/api/v1/auth/me`, and
+    exposes logout plus restored bearer reuse for later protected `/api/v1/auth/...`
+    requests. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+    `specs/acceptance/index.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` ground that baseline honestly
+    without claiming invite redemption, SSO, or broader account-management parity.
   tests:
-    - cargo test -p sourcebot-api auth_linked_accounts -- --nocapture: passed (3 passed)
-    - npx vitest run src/App.test.tsx -t 'linked accounts': passed (2 passed | 134 skipped)
-    - cargo test -p sourcebot-api: passed (302 passed)
-    - npx vitest run src/App.test.tsx: passed (136 passed)
+    - npx vitest run src/App.test.tsx -t "auth route": passed (3 passed | 136 skipped)
+    - npx vitest run src/App.test.tsx: passed (139 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+    - python3 raw-content auth docs/report checks: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    - browser smoke against http://127.0.0.1:4173/#/auth: passed (route rendered without crashing)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77c slice adds a discoverable linked-accounts subsection, exposes the intended authenticated read-only identity-plus-membership payload, fails closed for missing auth or missing local-account records, and keeps the UI/docs wording narrow about follow-up external-provider work
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the linked-accounts route, hidden-data boundaries, shared-shell wiring, or focused docs/report updates
-  commit: 6acf16b1d80463251df920394a8f29199dc90a4d
-  next_task: task78
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 78a slice adds the intended `#/auth` onboarding/login/session-restore/logout baseline, reuses the restored bearer token on protected `/api/v1/auth/...` requests, and keeps the docs/report wording narrow about follow-up invite and SSO work
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the auth route, local-session persistence, protected auth request wiring, or focused acceptance/report updates
+  commit: de44c6e2ecd03e8c19e3e3988f6e5167d1612bbf
+  next_task: task78b
 current_task:
-  id: task78
+  id: task78b
   parent_task: task78
-  title: Complete auth and onboarding route parity after settings-shell completion
+  title: Extend auth route parity with the next real invite or OAuth-facing auth screen
   status: pending
   summary: >-
-    Task 77 now includes truthful settings-shell closures for connections, API keys,
-    members, access visibility, linked accounts, OAuth clients, observability, and
-    review automation. The next smallest meaningful closure should move to Task 78 and
-    land one user-visible auth/onboarding route baseline — such as login, invite
-    redemption, or another real auth screen — instead of returning to docs-only cleanup
-    inside the now-broader settings domain.
+    Task 78 now has a real local onboarding/login/session baseline at `#/auth`.
+    The next smallest meaningful closure should stay in the auth domain but advance a
+    new user-visible flow with broader parity value — most likely invite redemption or
+    another concrete OAuth-facing auth screen — instead of returning to docs-only
+    cleanup or splitting the local-auth baseline into smaller wording/evidence tasks.
 history:
+  - id: task78a
+    status: done
+    summary: >-
+      Chose a Task 78 user-visible auth closure instead of splitting onboarding,
+      login, session restoration, bearer reuse, and docs into separate paperwork
+      slices. `web/src/App.tsx` now exposes a discoverable `#/auth` route that checks
+      bootstrap status, renders either first-run onboarding or local login, persists
+      the returned local session token client-side, restores identity via
+      `/api/v1/auth/me`, and exposes logout plus restored bearer reuse for later
+      protected `/api/v1/auth/...` requests. `web/src/App.test.tsx`,
+      `specs/acceptance/auth.md`, `specs/acceptance/index.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` ground that baseline honestly
+      without claiming invite redemption, SSO, or broader account-management parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t "auth route": passed (3 passed | 136 skipped)
+      - npx vitest run src/App.test.tsx: passed (139 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - python3 raw-content auth docs/report checks: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+      - browser smoke against http://127.0.0.1:4173/#/auth: passed (route rendered without crashing)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 78a slice adds the intended `#/auth` onboarding/login/session-restore/logout baseline, reuses the restored bearer token on protected `/api/v1/auth/...` requests, and keeps the docs/report wording narrow about follow-up invite and SSO work
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the auth route, local-session persistence, protected auth request wiring, or focused acceptance/report updates
+    commit: de44c6e2ecd03e8c19e3e3988f6e5167d1612bbf
+    next_task: task78b
   - id: task77c
     status: done
     summary: >-
