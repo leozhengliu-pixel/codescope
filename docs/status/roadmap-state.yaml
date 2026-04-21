@@ -5,71 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: bd704b94f4becc7587df214a93c030c3f8a02e5d
+  head: 5a60dc5be3870e71fcf22d8487be1366f51f4df2
 last_completed_task:
-  id: task75a
-  title: Add a dedicated `#/search` route that reuses the existing API-backed search flow and top-level navigation
+  id: task76a
+  title: Add dedicated-search deep links into repository detail/source with canonical back-link restoration
   status: done
   summary: >-
-    Landed one user-visible Task 75 closure instead of another paperwork-only
-    parity slice. `web/src/App.tsx` now gives the frontend a dedicated `#/search`
-    route with top-level navigation, reuses the existing `/api/v1/search` query,
-    repo filter, and result rendering inside a standalone `SearchPage`, and keeps
-    `#/` focused on repository inventory plus a dedicated-search call-to-action.
-    `web/src/App.test.tsx`, `specs/acceptance/search.md`,
-    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` now all truthfully ground that
-    dedicated-route baseline without overstating richer chat/search-product parity
-    that remains follow-up work.
+    Chose one more Task 76 user-visible navigation closure instead of dropping
+    back into another docs-only parity tweak. `web/src/App.tsx` now lets the
+    dedicated `#/search` page open repository detail or a preselected source file
+    directly from search results, preserves a canonical `#/search?q=...&repo_id=...`
+    hash for user-initiated searches, restores that exact search context from the
+    repo-detail back link, and preselects the requested file path inside
+    `BrowsePanel`. `web/src/App.test.tsx`, `specs/acceptance/search.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` now ground that search-to-repo
+    navigation baseline truthfully without claiming broader browse/revision parity.
   tests:
-    - npx vitest run src/App.test.tsx -t 'dedicated search route|repository home focused on repository inventory|filters results by repository from the dedicated search page|empty search state when no matches are returned on the dedicated search page': passed (4 passed | 120 skipped)
-    - npx vitest run src/App.test.tsx: passed (124 passed)
+    - npx vitest run src/App.test.tsx -t 'opens repository source from dedicated search results': passed (1 passed | 125 skipped)
+    - npx vitest run src/App.test.tsx -t 'keeps dedicated search deep links pinned to the last submitted search context': passed (1 passed | 125 skipped)
+    - npx vitest run src/App.test.tsx: passed (126 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live changes add a real `#/search` page wired through the existing `/api/v1/search` flow, keep `#/` focused on repository inventory with dedicated-search navigation, include focused route/home/search coverage, and update docs/reporting truthfully without claiming full search parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the dedicated search-route split and suggested only optional future normalization for variant `#/search` hash forms
-  commit: bd704b94f4becc7587df214a93c030c3f8a02e5d
-  next_task: task76a
+    spec: passed one independent post-implementation review; reviewer confirmed the diff matches the Task 76a slice by wiring dedicated-search results into repo detail/source with preserved canonical search context, preselected file browsing, and aligned frontend/docs updates
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the hash-route deep-link flow, back-link restoration, or focused docs/test updates
+  commit: 5a60dc5be3870e71fcf22d8487be1366f51f4df2
+  next_task: task76b
 current_task:
-  id: task76a
+  id: task76b
   parent_task: task76
-  title: Polish repo list/detail navigation and empty-state UX after the dedicated search-route split
+  title: Polish repository detail and browse empty/error states now that search can deep-link into source
   status: pending
   summary: >-
-    Task 75 now has a meaningful user-visible route-level closure, so the next
-    run should stay on product-surface work instead of drifting back into tiny
-    docs-only slices. The next smallest meaningful closure is to take one Task 76
-    frontend-polish slice that improves repository list/detail navigation or
-    empty-state behavior now that search has moved to its own route, while
-    keeping scope smaller than the full repo/browse UX backlog.
+    Task 76 now has a real search-to-repo navigation baseline, so the next run
+    should stay on meaningful repo/browse UX polish instead of fragmenting into
+    paperwork-only follow-ups. The next smallest meaningful closure is one more
+    Task 76 frontend slice focused on truthful repository-detail and browse
+    empty/error states for route-stable repo navigation, while keeping scope
+    smaller than the broader branch/revision and full browse-parity backlog.
 history:
-  - id: task75a
+  - id: task76a
     status: done
     summary: >-
-      Landed one user-visible Task 75 closure instead of another paperwork-only
-      parity slice. `web/src/App.tsx` now gives the frontend a dedicated
-      `#/search` route with top-level navigation, reuses the existing
-      `/api/v1/search` query, repo filter, and result rendering inside a
-      standalone `SearchPage`, and keeps `#/` focused on repository inventory
-      plus a dedicated-search call-to-action. `web/src/App.test.tsx`,
-      `specs/acceptance/search.md`, `specs/acceptance/index.md`,
-      `specs/acceptance/journeys.md`, and
-      `docs/reports/2026-04-18-parity-gap-report.md` now all truthfully ground
-      that dedicated-route baseline without overstating richer chat/search-
-      product parity that remains follow-up work.
+      Chose one more Task 76 user-visible navigation closure instead of dropping
+      back into another docs-only parity tweak. `web/src/App.tsx` now lets the
+      dedicated `#/search` page open repository detail or a preselected source file
+      directly from search results, preserves a canonical
+      `#/search?q=...&repo_id=...` hash for user-initiated searches, restores that
+      exact search context from the repo-detail back link, and preselects the
+      requested file path inside `BrowsePanel`. `web/src/App.test.tsx`,
+      `specs/acceptance/search.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now ground that search-to-repo
+      navigation baseline truthfully without claiming broader browse/revision parity.
     tests:
-      - npx vitest run src/App.test.tsx -t 'dedicated search route|repository home focused on repository inventory|filters results by repository from the dedicated search page|empty search state when no matches are returned on the dedicated search page': passed (4 passed | 120 skipped)
-      - npx vitest run src/App.test.tsx: passed (124 passed)
+      - npx vitest run src/App.test.tsx -t 'opens repository source from dedicated search results': passed (1 passed | 125 skipped)
+      - npx vitest run src/App.test.tsx -t 'keeps dedicated search deep links pinned to the last submitted search context': passed (1 passed | 125 skipped)
+      - npx vitest run src/App.test.tsx: passed (126 passed)
       - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
       - git diff --check: passed
       - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
     review:
-      spec: passed one independent post-implementation review; reviewer confirmed the live changes add a real `#/search` page wired through the existing `/api/v1/search` flow, keep `#/` focused on repository inventory with dedicated-search navigation, include focused route/home/search coverage, and update docs/reporting truthfully without claiming full search parity
-      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the dedicated search-route split and suggested only optional future normalization for variant `#/search` hash forms
-    commit: bd704b94f4becc7587df214a93c030c3f8a02e5d
-    next_task: task76a
+      spec: passed one independent post-implementation review; reviewer confirmed the diff matches the Task 76a slice by wiring dedicated-search results into repo detail/source with preserved canonical search context, preselected file browsing, and aligned frontend/docs updates
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the hash-route deep-link flow, back-link restoration, or focused docs/test updates
+    commit: 5a60dc5be3870e71fcf22d8487be1366f51f4df2
+    next_task: task76b
   - id: task20q2am63b
     status: done
     summary: >-
