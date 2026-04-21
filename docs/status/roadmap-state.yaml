@@ -5,61 +5,78 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 79fb964c7fd29df1694e705f5b98b25353acfcd7
+  head: d78fb12e9d0c528155ebf8b24a8ad557ef45f4af
 last_completed_task:
-  id: task55d
-  title: Add an authenticated OAuth-clients inventory panel within the shared settings shell
+  id: task55e
+  title: Add an authenticated review-automation visibility panel within the shared settings shell
   status: done
   summary: >-
     Chose another Task 55 product-surface closure instead of returning to the
     deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx` now
-    turns `#/settings/oauth-clients` from a dead placeholder into a real
-    authenticated read-only inventory panel backed by
-    `/api/v1/auth/oauth-clients`: it shows truthful loading/error/empty/
-    populated states, renders membership-visible client metadata and redirect
-    URIs, and explicitly keeps OAuth authorization, token, and broader client
-    management workflows out of scope. `web/src/App.test.tsx`,
+    turns `#/settings/review-automation` from a dead placeholder into a real
+    authenticated visibility panel backed by
+    `/api/v1/auth/review-webhooks`,
+    `/api/v1/auth/review-webhook-delivery-attempts`, and
+    `/api/v1/auth/review-agent-runs`: it shows truthful loading/error/empty/
+    populated states for each dataset, renders visible webhook, delivery-attempt,
+    and review-agent-run metadata, and explicitly keeps webhook management,
+    retry, and run-control UX out of scope. `web/src/App.test.tsx`,
     `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
     `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
-    OAuth-client baseline without overstating broader OAuth parity or exposing
-    secret material.
+    review-automation baseline without exposing secret hashes or overstating
+    broader automation parity.
   tests:
-    - npx vitest run src/App.test.tsx -t 'oauth client inventory inside the shared settings shell': passed (1 passed | 119 skipped)
-    - npx vitest run src/App.test.tsx: passed (120 passed)
+    - npx vitest run src/App.test.tsx -t 'review automation inventory inside the shared settings shell|review automation loading failures per endpoint': passed (2 passed | 120 skipped)
+    - npx vitest run src/App.test.tsx: passed (122 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the OAuth-clients placeholder with a truthful authenticated inventory panel inside the shared shell, keeps the slice read-only, and leaves the docs/report wording narrowly aligned with the shipped baseline
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and confirmed the panel does not render secret hashes or secret material from the OAuth-client payload
-  commit: 79fb964c7fd29df1694e705f5b98b25353acfcd7
-  next_task: task55e
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the review-automation placeholder with a truthful authenticated visibility panel inside the shared shell, keeps the slice read-only, and leaves the docs/report wording narrowly aligned with the shipped baseline
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and confirmed the panel does not render webhook secret hashes or secret material
+  commit: d78fb12e9d0c528155ebf8b24a8ad557ef45f4af
+  next_task: task20q2am63b
 current_task:
-  id: task55e
-  parent_task: task55
-  title: Add an authenticated review-automation visibility panel within the shared settings shell
+  id: task20q2am63b
+  parent_task: task20q2am63
+  title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
   status: pending
   summary: >-
-    Task55a restored shared settings discoverability, task55b shipped a minimal
-    API-key inventory/revoke workflow, task55c shipped an operator-visible
-    observability panel, and task55d shipped a truthful OAuth-client inventory.
-    The next meaningful Task 55 closure should keep that product-surface
-    momentum by replacing the `#/settings/review-automation` placeholder with a
-    real authenticated visibility panel grounded in the existing review webhook,
-    delivery-attempt, and review-agent-run APIs, rather than dropping back into
-    the deferred paperwork-only Public REST API parity-row cleanup.
-deferred_tasks:
-  - id: task20q2am63b
-    parent_task: task20q2am63
-    title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
-    status: pending
-    reason: >-
-      Deferred deliberately this run to correct an anti-microslice imbalance
-      after more than five consecutive docs/state-only slices in the same
-      roadmap stream. The row update remains truthful but lower value than the
-      shipped settings-navigation closure and can resume once product-surface
-      balance recovers.
+    Task55a through task55e restored product-surface balance by landing five
+    consecutive meaningful settings-shell closures with implementation-file
+    changes. With that anti-microslice correction complete, the next truthful
+    smallest closure can resume the deferred docs-only Public REST API parity-row
+    update grounded by `task20q2am63a`.
 history:
+  - id: task55e
+    status: done
+    summary: >-
+      Chose another Task 55 product-surface closure instead of returning to the
+      deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx` now
+      turns `#/settings/review-automation` from a dead placeholder into a real
+      authenticated visibility panel backed by
+      `/api/v1/auth/review-webhooks`,
+      `/api/v1/auth/review-webhook-delivery-attempts`, and
+      `/api/v1/auth/review-agent-runs`: it shows truthful loading/error/empty/
+      populated states for each dataset, renders visible webhook,
+      delivery-attempt, and review-agent-run metadata, and explicitly keeps
+      webhook management, retry, and run-control UX out of scope.
+      `web/src/App.test.tsx`, `specs/acceptance/settings-navigation.md`,
+      `specs/acceptance/auth.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
+      review-automation baseline without exposing secret hashes or overstating
+      broader automation parity.
+    tests:
+      - npx vitest run src/App.test.tsx -t 'review automation inventory inside the shared settings shell|review automation loading failures per endpoint': passed (2 passed | 120 skipped)
+      - npx vitest run src/App.test.tsx: passed (122 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the review-automation placeholder with a truthful authenticated visibility panel inside the shared shell, keeps the slice read-only, and leaves the docs/report wording narrowly aligned with the shipped baseline
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and confirmed the panel does not render webhook secret hashes or secret material
+    commit: d78fb12e9d0c528155ebf8b24a8ad557ef45f4af
+    next_task: task20q2am63b
   - id: task55d
     status: done
     summary: >-
