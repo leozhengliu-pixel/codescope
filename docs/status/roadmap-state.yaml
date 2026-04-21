@@ -5,52 +5,84 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 441ae1b44c74eb6939cf5701b89f1b1a11d54ec1
+  head: e086045dc6e63135698db22dc1d50258ad7ca14a
 last_completed_task:
-  id: task77d
-  title: Add minimal OAuth-client create workflow in the settings shell
+  id: task78b
+  title: Add invite redemption to the auth route baseline
   status: done
   summary: >-
-    Pivoted away from the pending Task 78 auth-route follow-up because invite
-    redemption or a true OAuth-facing auth screen would not close truthfully in one
-    bounded run, while the adjacent OAuth-client create path already had a real
-    backend POST surface and could land as one meaningful operator-visible closure.
-    `web/src/App.tsx` now turns `#/settings/oauth-clients` from read-only inventory
-    into a minimal inventory-plus-create workflow that submits organization, name,
-    and redirect URIs to `/api/v1/auth/oauth-clients`, appends the new client to the
-    visible inventory, and reveals the returned plaintext `client_secret` exactly
-    once in a focused success area without persisting secret material into inventory
-    rows. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
-    `specs/acceptance/settings-navigation.md`, and
-    `docs/reports/2026-04-18-parity-gap-report.md` now ground that narrower
-    OAuth/admin baseline honestly while keeping richer OAuth
-    authorization/token/revocation and broader manage UX out of scope.
+    Chose one Task 78 user-visible auth closure instead of splitting invite
+    redemption into separate backend, frontend, login-follow-up, and docs slices.
+    `crates/api/src/main.rs` now exposes `POST /api/v1/auth/invite-redeem`, which
+    consumes a pending non-expired invite plus invited email, reuses or creates only
+    the invited passwordless local account, adds the missing membership, marks the
+    invite accepted, rejects already-credentialed existing accounts, and issues a
+    local session. `web/src/App.tsx` now turns `#/auth?invite=...&email=...` into a
+    real invite-redemption flow that submits the invite payload, stores the returned
+    session, restores identity via `/api/v1/auth/me`, and still supports standard
+    local login afterward for the redeemed account. `web/src/App.test.tsx`,
+    `specs/acceptance/auth.md`, `specs/acceptance/index.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` now ground that narrower auth
+    baseline honestly without claiming invite creation/admin management or broader
+    external-provider parity.
   tests:
-    - npm test -- App.test.tsx -t "creates an oauth client, refreshes the inventory, and reveals the plaintext secret only in the immediate success area": passed (1 passed | 139 skipped)
-    - npm test -- App.test.tsx: passed (140 passed)
-    - npm run build: passed
+    - cargo test -p sourcebot-api invite_redeem -- --nocapture: passed (4 passed)
+    - npx vitest run src/App.test.tsx -t "invite redemption": passed (3 passed | 140 skipped)
+    - cargo test -p sourcebot-api: passed (281 passed)
+    - npx vitest run src/App.test.tsx: passed (143 passed)
+    - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
-    - python3 added-lines security scan over the substantive diff: passed (0 findings)
+    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    - python3 live API smoke against http://127.0.0.1:3000/api/v1/auth/invite-redeem: passed (422 for missing required fields, confirming the route is live instead of 404)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice advances `#/settings/oauth-clients` from read-only inventory to the intended minimal authenticated create workflow without overclaiming invite, SSO, or broader OAuth parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the create-flow state handling, one-time secret reveal boundary, inventory rendering, or focused docs/report updates
-  commit: 441ae1b44c74eb6939cf5701b89f1b1a11d54ec1
-  next_task: task78b
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice closes the intended `#/auth` invite-redemption baseline, includes the required fail-closed cases, and keeps the acceptance/report wording narrow about broader invite-management and external-provider auth follow-up
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the invite-redeem validation, account/membership/session handling, local-login follow-through, or focused docs/report updates
+  commit: e086045dc6e63135698db22dc1d50258ad7ca14a
+  next_task: task78c
 current_task:
-  id: task78b
+  id: task78c
   parent_task: task78
-  title: Extend auth route parity with the next real invite or OAuth-facing auth screen
+  title: Extend auth route parity with the next real OAuth-facing auth screen
   status: pending
   summary: >-
-    Task 78 still needs a true auth-route extension beyond local onboarding/login.
-    The controller deliberately pivoted this run to the adjacent Task 77d
-    OAuth-client create closure because it was the smallest meaningful slice that
-    could fully close with implementation, tests, docs, review, commit, and push,
-    whereas invite redemption or an OAuth-facing auth screen still require larger
-    multi-surface work. The next closure should return to `#/auth` itself and land
-    either invite redemption or another concrete OAuth-facing auth flow, not another
-    paperwork-only update.
+    Task 78 still needs a concrete OAuth-facing auth extension beyond the shipped
+    onboarding, local login/session restoration, and invite-redemption baseline.
+    The next closure should stay on `#/auth` and land one real OAuth-facing auth
+    screen or callback flow in a single bounded run with implementation, focused
+    tests, truthful docs, review, commit, and push, rather than drifting back into
+    another paperwork-only auth slice.
 history:
+  - id: task78b
+    status: done
+    summary: >-
+      Chose one Task 78 user-visible auth closure instead of splitting invite
+      redemption into separate backend, frontend, login-follow-up, and docs slices.
+      `crates/api/src/main.rs` now exposes `POST /api/v1/auth/invite-redeem`, which
+      consumes a pending non-expired invite plus invited email, reuses or creates
+      only the invited passwordless local account, adds the missing membership,
+      marks the invite accepted, rejects already-credentialed existing accounts,
+      and issues a local session. `web/src/App.tsx` now turns
+      `#/auth?invite=...&email=...` into a real invite-redemption flow that submits
+      the invite payload, stores the returned session, restores identity via
+      `/api/v1/auth/me`, and still supports standard local login afterward for the
+      redeemed account. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+      `specs/acceptance/index.md`, and `docs/reports/2026-04-18-parity-gap-report.md`
+      now ground that narrower auth baseline honestly without claiming invite
+      creation/admin management or broader external-provider parity.
+    tests:
+      - cargo test -p sourcebot-api invite_redeem -- --nocapture: passed (4 passed)
+      - npx vitest run src/App.test.tsx -t "invite redemption": passed (3 passed | 140 skipped)
+      - cargo test -p sourcebot-api: passed (281 passed)
+      - npx vitest run src/App.test.tsx: passed (143 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+      - python3 live API smoke against http://127.0.0.1:3000/api/v1/auth/invite-redeem: passed (422 for missing required fields, confirming the route is live instead of 404)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice closes the intended `#/auth` invite-redemption baseline, includes the required fail-closed cases, and keeps the acceptance/report wording narrow about broader invite-management and external-provider auth follow-up
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the invite-redeem validation, account/membership/session handling, local-login follow-through, or focused docs/report updates
+    commit: e086045dc6e63135698db22dc1d50258ad7ca14a
+    next_task: task78c
   - id: task77d
     status: done
     summary: >-
