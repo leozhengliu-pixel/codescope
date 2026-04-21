@@ -365,6 +365,30 @@ type LocalImportState = {
   result: RepoDetail | null;
 };
 
+type BootstrapStatusResponse = {
+  bootstrap_required: boolean;
+};
+
+type LocalSessionToken = {
+  sessionId: string;
+  sessionSecret: string;
+};
+
+type LocalLoginResponse = {
+  session_id: string;
+  session_secret: string;
+  user_id: string;
+  created_at: string;
+};
+
+type AuthMeResponse = {
+  user_id: string;
+  email: string;
+  name: string;
+  session_id: string;
+  created_at: string;
+};
+
 const authConnectionKindOptions: AuthConnectionKind[] = [
   'github',
   'gitlab',
@@ -388,8 +412,94 @@ function useHashLocation() {
   return hash;
 }
 
+const localSessionStorageKey = 'sourcebot-local-session';
+
+function readStoredLocalSession(): LocalSessionToken | null {
+  const rawValue = window.localStorage.getItem(localSessionStorageKey);
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<LocalSessionToken>;
+    if (typeof parsed.sessionId === 'string' && typeof parsed.sessionSecret === 'string') {
+      return {
+        sessionId: parsed.sessionId,
+        sessionSecret: parsed.sessionSecret,
+      };
+    }
+  } catch {
+    // Ignore malformed persisted state and treat it as absent.
+  }
+
+  window.localStorage.removeItem(localSessionStorageKey);
+  return null;
+}
+
+function storeLocalSession(session: LocalSessionToken) {
+  window.localStorage.setItem(localSessionStorageKey, JSON.stringify(session));
+}
+
+function clearStoredLocalSession() {
+  window.localStorage.removeItem(localSessionStorageKey);
+}
+
+function mergeRequestHeaders(headers?: HeadersInit, additionalHeaders?: Record<string, string>): HeadersInit | undefined {
+  if (!additionalHeaders || Object.keys(additionalHeaders).length === 0) {
+    return headers;
+  }
+
+  const mergedEntries = new Map<string, string>();
+
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      mergedEntries.set(key, value);
+    });
+  } else if (Array.isArray(headers)) {
+    headers.forEach(([key, value]) => {
+      mergedEntries.set(key, value);
+    });
+  } else if (headers) {
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value !== undefined) {
+        mergedEntries.set(key, String(value));
+      }
+    });
+  }
+
+  Object.entries(additionalHeaders).forEach(([key, value]) => {
+    mergedEntries.set(key, value);
+  });
+
+  return Object.fromEntries(mergedEntries.entries());
+}
+
+function buildAuthenticatedRequestInit(path: string, init?: RequestInit): RequestInit | undefined {
+  const needsAuthHeader = path.startsWith('/api/v1/auth/');
+  if (!needsAuthHeader) {
+    return init;
+  }
+
+  const session = readStoredLocalSession();
+  if (!session) {
+    return init;
+  }
+
+  return {
+    ...init,
+    headers: mergeRequestHeaders(init?.headers, {
+      Authorization: `Bearer ${session.sessionId}:${session.sessionSecret}`,
+    }),
+  };
+}
+
+async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  const requestInit = buildAuthenticatedRequestInit(path, init);
+  return requestInit ? fetch(path, requestInit) : fetch(path);
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = init ? await fetch(path, init) : await fetch(path);
+  const response = await authFetch(path, init);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
@@ -745,6 +855,226 @@ function RepoListPage() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+function AuthPage() {
+  const [bootstrapStatus, setBootstrapStatus] = useState<BootstrapStatusResponse | null>(null);
+  const [identity, setIdentity] = useState<AuthMeResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [bootstrapSubmitting, setBootstrapSubmitting] = useState(false);
+  const [loginSubmitting, setLoginSubmitting] = useState(false);
+  const [logoutSubmitting, setLogoutSubmitting] = useState(false);
+  const [bootstrapName, setBootstrapName] = useState('');
+  const [bootstrapEmail, setBootstrapEmail] = useState('');
+  const [bootstrapPassword, setBootstrapPassword] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  const loadBootstrapStatus = async () => {
+    const status = await fetchJson<BootstrapStatusResponse>('/api/v1/auth/bootstrap');
+    setBootstrapStatus(status);
+    return status;
+  };
+
+  const restoreExistingSession = async () => {
+    const session = readStoredLocalSession();
+    if (!session) {
+      return false;
+    }
+
+    try {
+      const restoredIdentity = await fetchJson<AuthMeResponse>('/api/v1/auth/me');
+      setIdentity(restoredIdentity);
+      return true;
+    } catch {
+      clearStoredLocalSession();
+      return false;
+    }
+  };
+
+  const refreshAuthPage = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const restored = await restoreExistingSession();
+      if (!restored) {
+        setIdentity(null);
+        await loadBootstrapStatus();
+      }
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unknown auth error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshAuthPage();
+  }, []);
+
+  const handleBootstrapSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBootstrapSubmitting(true);
+    setError(null);
+
+    try {
+      await fetchJson<BootstrapStatusResponse>('/api/v1/auth/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: bootstrapName,
+          email: bootstrapEmail,
+          password: bootstrapPassword,
+        }),
+      });
+
+      setBootstrapStatus({ bootstrap_required: false });
+      setLoginEmail(bootstrapEmail);
+      setLoginPassword(bootstrapPassword);
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unknown auth error');
+    } finally {
+      setBootstrapSubmitting(false);
+    }
+  };
+
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginSubmitting(true);
+    setError(null);
+
+    try {
+      const loginResponse = await fetchJson<LocalLoginResponse>('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: loginEmail,
+          password: loginPassword,
+        }),
+      });
+
+      storeLocalSession({
+        sessionId: loginResponse.session_id,
+        sessionSecret: loginResponse.session_secret,
+      });
+
+      const restoredIdentity = await fetchJson<AuthMeResponse>('/api/v1/auth/me');
+      setIdentity(restoredIdentity);
+      setBootstrapStatus({ bootstrap_required: false });
+    } catch (authError) {
+      clearStoredLocalSession();
+      setError(authError instanceof Error ? authError.message : 'Unknown auth error');
+    } finally {
+      setLoginSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setLogoutSubmitting(true);
+    setError(null);
+
+    try {
+      const response = await authFetch('/api/v1/auth/logout', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+      clearStoredLocalSession();
+      setIdentity(null);
+      await refreshAuthPage();
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unknown auth error');
+    } finally {
+      setLogoutSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">Checking auth state…</Panel>;
+  }
+
+  if (identity) {
+    return (
+      <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Signed in as {identity.name}</div>
+          <div style={{ color: '#57606a' }}>{identity.email}</div>
+          <div style={{ color: '#57606a' }}>Session id: {identity.session_id}</div>
+          <div>
+            <button type="button" onClick={() => void handleLogout()} style={secondaryButtonStyle} disabled={logoutSubmitting}>
+              {logoutSubmitting ? 'Logging out…' : 'Log out'}
+            </button>
+          </div>
+          {error ? <div style={{ color: '#cf222e' }}>Authentication error: {error}</div> : null}
+        </div>
+      </Panel>
+    );
+  }
+
+  if (bootstrapStatus?.bootstrap_required) {
+    return (
+      <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 24 }}>First-run onboarding</h2>
+            <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
+              Create the first local admin for this self-hosted rewrite instance.
+            </p>
+          </div>
+          <form onSubmit={handleBootstrapSubmit} style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Name</span>
+              <input value={bootstrapName} onChange={(event) => setBootstrapName(event.target.value)} required />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Email address</span>
+              <input type="email" value={bootstrapEmail} onChange={(event) => setBootstrapEmail(event.target.value)} required />
+            </label>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span>Password</span>
+              <input type="password" value={bootstrapPassword} onChange={(event) => setBootstrapPassword(event.target.value)} required />
+            </label>
+            <div>
+              <button type="submit" style={primaryButtonStyle} disabled={bootstrapSubmitting}>
+                {bootstrapSubmitting ? 'Creating first admin account…' : 'Create first admin account'}
+              </button>
+            </div>
+          </form>
+          {error ? <div style={{ color: '#cf222e' }}>Authentication error: {error}</div> : null}
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel title="Authentication" subtitle="First-run onboarding, local login, and session restoration.">
+      <div style={{ display: 'grid', gap: 16 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 24 }}>Local login</h2>
+          <p style={{ color: '#57606a', marginTop: 8, marginBottom: 0 }}>
+            Sign in with the restored local-admin baseline. Invites, SSO, and broader account management remain follow-up work.
+          </p>
+        </div>
+        <form onSubmit={handleLoginSubmit} style={{ display: 'grid', gap: 12, maxWidth: 420 }}>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span>Email address</span>
+            <input type="email" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
+          </label>
+          <label style={{ display: 'grid', gap: 6 }}>
+            <span>Password</span>
+            <input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required />
+          </label>
+          <div>
+            <button type="submit" style={primaryButtonStyle} disabled={loginSubmitting}>
+              {loginSubmitting ? 'Signing in locally…' : 'Sign in locally'}
+            </button>
+          </div>
+        </form>
+        {error ? <div style={{ color: '#cf222e' }}>Authentication error: {error}</div> : null}
+      </div>
+    </Panel>
   );
 }
 
@@ -1945,7 +2275,7 @@ function SettingsConnectionsPage() {
     setDeletingConnectionId(connectionId);
 
     try {
-      const response = await fetch(`/api/v1/auth/connections/${connectionId}`, {
+      const response = await authFetch(`/api/v1/auth/connections/${connectionId}`, {
         method: 'DELETE',
       });
 
@@ -2958,7 +3288,7 @@ function SettingsApiKeysPage() {
     setRevokingKeyId(apiKeyId);
 
     try {
-      const response = await fetch(`/api/v1/auth/api-keys/${apiKeyId}/revoke`, {
+      const response = await authFetch(`/api/v1/auth/api-keys/${apiKeyId}/revoke`, {
         method: 'POST',
       });
 
@@ -3907,6 +4237,10 @@ export function App() {
   const route = useMemo(() => {
     const [hashPath, hashQuery = ''] = hash.split('?');
 
+    if (hashPath === '#/auth') {
+      return { kind: 'auth' as const };
+    }
+
     if (hashPath === '#/search') {
       const params = new URLSearchParams(hashQuery);
       return {
@@ -3961,7 +4295,7 @@ export function App() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 32 }}>sourcebot-rewrite</h1>
         <p style={{ color: '#57606a', marginTop: 8 }}>
-          Clean-room code intelligence workspace: repository inventory, dedicated search, sync state, and API-backed detail views.
+          Clean-room code intelligence workspace: repository inventory, search, first-run onboarding/local auth, sync state, and API-backed detail views.
         </p>
         <nav style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
@@ -3969,6 +4303,9 @@ export function App() {
           </a>
           <a href="#/search" style={{ color: '#0969da', fontWeight: 600 }}>
             Search
+          </a>
+          <a href="#/auth" style={{ color: '#0969da', fontWeight: 600 }}>
+            Auth
           </a>
           <a href="#/settings" style={{ color: '#0969da', fontWeight: 600 }}>
             Settings
@@ -3986,6 +4323,7 @@ export function App() {
           searchHash={route.searchHash}
         />
       ) : null}
+      {route.kind === 'auth' ? <AuthPage /> : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>

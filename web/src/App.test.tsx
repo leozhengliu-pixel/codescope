@@ -22,6 +22,7 @@ function deferredResponse() {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.localStorage.clear();
   window.location.hash = '#/';
 });
 
@@ -63,6 +64,178 @@ describe('App', () => {
     expect(screen.getByText('Run API-backed code search across repositories from a dedicated route.')).toBeInTheDocument();
     expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Repositories' })).not.toBeInTheDocument();
+  });
+
+  it('renders an auth route that supports first-run onboarding and then local login', async () => {
+    window.location.hash = '#/auth';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/bootstrap' && !init?.method) {
+        return jsonResponse({ bootstrap_required: true });
+      }
+
+      if (url === '/api/v1/auth/bootstrap' && init?.method === 'POST') {
+        expect(init.body).toBe(JSON.stringify({
+          name: 'First Admin',
+          email: 'admin@example.com',
+          password: 'super-secret',
+        }));
+
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      if (url === '/api/v1/auth/login') {
+        expect(init?.method).toBe('POST');
+        expect(init?.body).toBe(JSON.stringify({
+          email: 'admin@example.com',
+          password: 'super-secret',
+        }));
+
+        return jsonResponse({
+          session_id: 'session-1',
+          session_secret: 'secret-1',
+          user_id: 'user-1',
+          created_at: '2026-04-18T12:00:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/me') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+        });
+
+        return jsonResponse({
+          user_id: 'user-1',
+          email: 'admin@example.com',
+          name: 'First Admin',
+          session_id: 'session-1',
+          created_at: '2026-04-18T12:00:00Z',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'First-run onboarding' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'First Admin' } });
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'admin@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'super-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create first admin account' }));
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'admin@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'super-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in locally' }));
+
+    expect(await screen.findByText('Signed in as First Admin')).toBeInTheDocument();
+    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
+    expect(window.localStorage.getItem('sourcebot-local-session')).toBe(
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/bootstrap');
+  });
+
+  it('restores an existing local session on the auth route and sends it to protected auth endpoints', async () => {
+    window.location.hash = '#/auth';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-9', sessionSecret: 'secret-9' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/me') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-9:secret-9',
+        });
+
+        return jsonResponse({
+          user_id: 'user-9',
+          email: 'admin@example.com',
+          name: 'Restored Admin',
+          session_id: 'session-9',
+          created_at: '2026-04-18T12:00:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/api-keys') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-9:secret-9',
+        });
+
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Signed in as Restored Admin')).toBeInTheDocument();
+
+    window.location.hash = '#/settings/api-keys';
+
+    expect(await screen.findByText('No API keys found')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/auth/api-keys',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer session-9:secret-9',
+        }),
+      })
+    );
+  });
+
+  it('logs out from the auth route, clears the stored session, and returns to local login', async () => {
+    window.location.hash = '#/auth';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-3', sessionSecret: 'secret-3' })
+    );
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/me') {
+        return jsonResponse({
+          user_id: 'user-3',
+          email: 'admin@example.com',
+          name: 'Logged In Admin',
+          session_id: 'session-3',
+          created_at: '2026-04-18T12:00:00Z',
+        });
+      }
+
+      if (url === '/api/v1/auth/logout') {
+        expect(init?.method).toBe('POST');
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-3:secret-3',
+        });
+        return jsonResponse({ success: true });
+      }
+
+      if (url === '/api/v1/auth/bootstrap') {
+        return jsonResponse({ bootstrap_required: false });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Signed in as Logged In Admin')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+
+    expect(await screen.findByRole('heading', { name: 'Local login' })).toBeInTheDocument();
+    expect(window.localStorage.getItem('sourcebot-local-session')).toBeNull();
   });
 
   it('keeps the repository home focused on repository inventory while linking to the dedicated search route', async () => {

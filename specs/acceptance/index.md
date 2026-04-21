@@ -65,7 +65,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Commit panel | `web/src/App.tsx` → `CommitsPanel` | Commit list/detail/diff UX parity | `specs/acceptance/browse.md` until commit/front-end expansion lands |
 | Browse/source panel | `web/src/App.tsx` → `BrowsePanel` | Tree browsing, file rendering, symbol-click navigation parity | `specs/acceptance/browse.md` and `specs/acceptance/code-nav.md` |
 | Ask/chat frontend | _No dedicated page/component yet_ | Ask/chat thread history, citations, repo-scope controls, and chat UX parity | `specs/acceptance/ask.md` |
-| Auth/admin/settings frontend | `web/src/App.tsx` now includes `#/settings`, `#/settings/connections`, `#/settings/api-keys`, `#/settings/oauth-clients`, `#/settings/observability`, and `#/settings/review-automation` through a shared settings shell, while onboarding/login/admin flows remain otherwise limited | Onboarding, login, org/admin/settings discoverability parity | `specs/acceptance/settings-navigation.md` for the route-shell baseline, plus `specs/acceptance/auth.md` for the broader auth domain |
+| Auth/admin/settings frontend | `web/src/App.tsx` now includes `#/auth`, `#/settings`, `#/settings/connections`, `#/settings/api-keys`, `#/settings/oauth-clients`, `#/settings/observability`, and `#/settings/review-automation` through a shared shell, while org/invite/account-management flows remain otherwise limited | Onboarding, local login/session restoration, and admin/settings discoverability parity | `specs/acceptance/auth.md` for the auth baseline plus `specs/acceptance/settings-navigation.md` for the shared settings shell |
 
 ### 3. Worker and background-execution surface families
 
