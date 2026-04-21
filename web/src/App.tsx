@@ -191,6 +191,31 @@ type ApiKeyListItem = {
   repo_scope: string[];
 };
 
+type AuditActor = {
+  user_id?: string;
+  api_key_id?: string;
+};
+
+type AuditEventListItem = {
+  id: string;
+  organization_id: string;
+  actor: AuditActor;
+  action: string;
+  target_type: string;
+  target_id: string;
+  occurred_at: string;
+  metadata: unknown;
+};
+
+type AnalyticsRecordListItem = {
+  id: string;
+  organization_id: string;
+  metric: string;
+  recorded_at: string;
+  value: unknown;
+  dimensions: unknown;
+};
+
 type RepositorySyncJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 type RepositorySyncJob = {
@@ -287,6 +312,23 @@ function RepositorySyncJobStatusBadge({ status }: { status: RepositorySyncJobSta
   };
 
   return <span style={sharedStatusBadgeStyle(colors[status])}>{status}</span>;
+}
+
+function formatJsonValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'None';
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? 'None' : serialized;
+  } catch {
+    return 'Unserializable value';
+  }
 }
 
 function RepoListPage() {
@@ -2228,19 +2270,203 @@ function SettingsApiKeysPage() {
   );
 }
 
-function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys'> }) {
+function SettingsObservabilityPage() {
+  const section = settingsSectionById('observability');
+  const [auditEvents, setAuditEvents] = useState<AuditEventListItem[]>([]);
+  const [analyticsRecords, setAnalyticsRecords] = useState<AnalyticsRecordListItem[]>([]);
+  const [auditLoading, setAuditLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<AuditEventListItem[]>('/api/v1/auth/audit-events')
+      .then((data) => {
+        if (!cancelled) {
+          setAuditEvents(data);
+          setAuditError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setAuditEvents([]);
+          setAuditError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuditLoading(false);
+        }
+      });
+
+    fetchJson<AnalyticsRecordListItem[]>('/api/v1/auth/analytics')
+      .then((data) => {
+        if (!cancelled) {
+          setAnalyticsRecords(data);
+          setAnalyticsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setAnalyticsRecords([]);
+          setAnalyticsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnalyticsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Panel title="Observability" subtitle={section.description}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        <p style={{ margin: 0, color: '#57606a' }}>
+          This minimal panel turns the observability route into a real authenticated operator surface by loading visible audit
+          events and analytics records side by side. Richer filtering, drill-down, and export workflows remain follow-up work.
+        </p>
+
+        <div style={detailGridStyle}>
+          <Detail
+            label="Visible audit events"
+            value={auditLoading ? 'Loading…' : auditError ? 'Unavailable' : String(auditEvents.length)}
+          />
+          <Detail
+            label="Visible analytics metrics"
+            value={analyticsLoading ? 'Loading…' : analyticsError ? 'Unavailable' : String(analyticsRecords.length)}
+          />
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Audit events</div>
+          {auditLoading ? <div>Loading audit events…</div> : null}
+          {!auditLoading && auditError ? <div>Unable to load audit events: {auditError}</div> : null}
+          {!auditLoading && !auditError && auditEvents.length === 0 ? (
+            <div style={detailCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No audit events found</div>
+              <div style={{ color: '#57606a' }}>
+                No visible audit events are currently available for your authenticated organizations.
+              </div>
+            </div>
+          ) : null}
+          {!auditLoading && !auditError && auditEvents.length > 0 ? (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+              {auditEvents.map((auditEvent) => (
+                <li
+                  key={auditEvent.id}
+                  aria-label={`Audit event ${auditEvent.action}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{auditEvent.action}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>
+                        {auditEvent.target_type}: {auditEvent.target_id}
+                      </div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#0969da')}>{auditEvent.target_type}</span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={auditEvent.organization_id} />
+                    <Detail label="Occurred at" value={auditEvent.occurred_at} />
+                    <Detail label="User actor" value={auditEvent.actor.user_id ?? 'System / unknown'} />
+                    <Detail label="API key actor" value={auditEvent.actor.api_key_id ?? 'None'} />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Metadata</div>
+                    <pre style={diffPatchStyle}>{formatJsonValue(auditEvent.metadata)}</pre>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Analytics</div>
+          {analyticsLoading ? <div>Loading analytics…</div> : null}
+          {!analyticsLoading && analyticsError ? <div>Unable to load analytics: {analyticsError}</div> : null}
+          {!analyticsLoading && !analyticsError && analyticsRecords.length === 0 ? (
+            <div style={detailCardStyle}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>No analytics records found</div>
+              <div style={{ color: '#57606a' }}>
+                No visible analytics metrics are currently available for your authenticated organizations.
+              </div>
+            </div>
+          ) : null}
+          {!analyticsLoading && !analyticsError && analyticsRecords.length > 0 ? (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
+              {analyticsRecords.map((record) => (
+                <li
+                  key={record.id}
+                  aria-label={`Analytics metric ${record.metric}`}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'flex-start',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 18, fontWeight: 700 }}>{record.metric}</div>
+                      <div style={{ color: '#57606a', marginTop: 4 }}>Record id: {record.id}</div>
+                    </div>
+                    <span style={sharedStatusBadgeStyle('#1a7f37')}>metric</span>
+                  </div>
+
+                  <div style={detailGridStyle}>
+                    <Detail label="Organization id" value={record.organization_id} />
+                    <Detail label="Recorded at" value={record.recorded_at} />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Value</div>
+                    <pre style={diffPatchStyle}>{formatJsonValue(record.value)}</pre>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700 }}>Dimensions</div>
+                    <pre style={diffPatchStyle}>{formatJsonValue(record.dimensions)}</pre>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function SettingsPlaceholderPage({ sectionId }: { sectionId: Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'observability'> }) {
   const section = settingsSectionById(sectionId);
 
-  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys'>, { title: string; body: string; followUp: string }> = {
+  const content: Record<Exclude<SettingsSectionId, 'connections' | 'api-keys' | 'observability'>, { title: string; body: string; followUp: string }> = {
     'oauth-clients': {
       title: 'OAuth clients',
       body: 'The authenticated API already exposes /api/v1/auth/oauth-clients for client administration records.',
       followUp: 'Richer OAuth authorization, token, and client-management UX is follow-up work.',
-    },
-    observability: {
-      title: 'Observability',
-      body: 'The authenticated API already exposes /api/v1/auth/audit-events and /api/v1/auth/analytics for audit and analytics visibility.',
-      followUp: 'Richer filtering, drill-down, and operator-facing observability UX is follow-up work.',
     },
     'review-automation': {
       title: 'Review automation',
@@ -2543,7 +2769,8 @@ export function App() {
         <SettingsShell activeSection={route.section}>
           {route.section === 'connections' ? <SettingsConnectionsPage /> : null}
           {route.section === 'api-keys' ? <SettingsApiKeysPage /> : null}
-          {route.section !== 'connections' && route.section !== 'api-keys' ? (
+          {route.section === 'observability' ? <SettingsObservabilityPage /> : null}
+          {route.section !== 'connections' && route.section !== 'api-keys' && route.section !== 'observability' ? (
             <SettingsPlaceholderPage sectionId={route.section} />
           ) : null}
         </SettingsShell>

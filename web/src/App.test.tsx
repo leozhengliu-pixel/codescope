@@ -492,6 +492,102 @@ describe('App', () => {
     expect(await screen.findByText('Unable to load API keys: Request failed: 503')).toBeInTheDocument();
   });
 
+  it('renders audit and analytics inventory inside the shared settings shell', async () => {
+    window.location.hash = '#/settings/observability';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/audit-events' && !init) {
+        return jsonResponse([
+          {
+            id: 'audit-visible',
+            organization_id: 'org-acme',
+            actor: {
+              user_id: 'local-user-1',
+              api_key_id: 'key-123',
+            },
+            action: 'auth.api_key.created',
+            target_type: 'api_key',
+            target_id: 'key-123',
+            occurred_at: '2026-04-23T10:15:00Z',
+            metadata: {
+              name: 'CI automation',
+              repo_scope: ['repo-alpha'],
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/analytics' && !init) {
+        return jsonResponse([
+          {
+            id: 'analytics-visible',
+            organization_id: 'org-acme',
+            metric: 'search.repo.count',
+            recorded_at: '2026-04-23T10:20:00Z',
+            value: {
+              count: 7,
+            },
+            dimensions: {
+              repo_id: 'repo-alpha',
+            },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Audit & analytics' })).toHaveAttribute('href', '#/settings/observability');
+    expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument();
+
+    const auditEvent = await screen.findByLabelText('Audit event auth.api_key.created');
+    const analyticsRecord = await screen.findByLabelText('Analytics metric search.repo.count');
+
+    expect(within(auditEvent).getByText('org-acme')).toBeInTheDocument();
+    expect(within(auditEvent).getByText('key-123')).toBeInTheDocument();
+    expect(within(auditEvent).getByText('2026-04-23T10:15:00Z')).toBeInTheDocument();
+    expect(within(auditEvent).getByText('{"name":"CI automation","repo_scope":["repo-alpha"]}')).toBeInTheDocument();
+
+    expect(within(analyticsRecord).getByText('org-acme')).toBeInTheDocument();
+    expect(within(analyticsRecord).getByText('2026-04-23T10:20:00Z')).toBeInTheDocument();
+    expect(within(analyticsRecord).getByText('{"count":7}')).toBeInTheDocument();
+    expect(within(analyticsRecord).getByText('{"repo_id":"repo-alpha"}')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/audit-events');
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/analytics');
+    });
+  });
+
+  it('shows observability loading failures per endpoint', async () => {
+    window.location.hash = '#/settings/observability';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/audit-events' && !init) {
+        return jsonResponse({}, false, 503);
+      }
+
+      if (url === '/api/v1/auth/analytics' && !init) {
+        return jsonResponse({}, false, 502);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('heading', { name: 'Observability' })).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load audit events: Request failed: 503')).toBeInTheDocument();
+    expect(screen.getByText('Unable to load analytics: Request failed: 502')).toBeInTheDocument();
+  });
+
   it('renders the Authenticated connections route inside the shared settings shell', async () => {
     window.location.hash = '#/settings/connections';
 

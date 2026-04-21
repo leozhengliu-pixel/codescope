@@ -13,9 +13,9 @@
 - API key creation requests
 
 ## Current rewrite grounding
-- Backend auth/API-key surface: `crates/api/src/main.rs`
+- Backend auth/API-key/admin surface: `crates/api/src/main.rs`
 - Persisted auth/org models: `crates/models/src/lib.rs`
-- Frontend API-key inventory/revoke panel: `web/src/App.tsx`
+- Frontend API-key inventory/revoke and observability panels: `web/src/App.tsx`
 - Focused frontend verification: `web/src/App.test.tsx`
 - Related settings-shell contract: `specs/acceptance/settings-navigation.md`
 
@@ -42,4 +42,5 @@
 - A viewer can search and browse allowed repos but cannot manage connections.
 - An authenticated user can open `#/settings/api-keys`, load their current API-key inventory, distinguish active vs revoked keys, and see repo-scope wording that stays truthful when a key is not repo-bound.
 - An authenticated user can revoke an active key from that minimal inventory panel, after which the key is no longer shown as active even though richer creation/scoping UX remains follow-up work.
+- An authenticated user can open `#/settings/observability`, load visible audit-event and analytics inventories from `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`, and see truthful per-endpoint loading/failure states without claiming filtering/export workflows that do not exist yet.
 - Revoking a user's org membership removes search results from previously visible repos.
