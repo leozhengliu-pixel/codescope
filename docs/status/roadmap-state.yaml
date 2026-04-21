@@ -5,53 +5,81 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fe61bed577fd2cab44e800b6e760b37a3b5ffe6e
+  head: d177ba67e408d513e288b5bee28f97c860d6d423
 last_completed_task:
-  id: task79a
-  title: Add ask route baseline with restored thread continuity
+  id: task79b
+  title: Add dedicated `#/chat` thread-history baseline on top of ask threads
   status: done
   summary: >-
-    Chose one meaningful Task 79 ask-route closure instead of splitting backend
-    thread identity, frontend route/nav/state work, stale restored-thread handling,
-    citation hardening, and docs into separate paperwork slices. `crates/api/src/ask.rs`,
-    `crates/api/src/main.rs`, and `crates/core/src/lib.rs` now return persisted
-    `thread_id`/`session_id`, canonicalize repo scope for restored-thread appends,
-    and filter provider citations back to safe in-scope repo/path/revision values.
-    `web/src/App.tsx` and `web/src/App.test.tsx` now ship a dedicated `#/ask` route
-    with top-level navigation, repo-scoped ask submission, provider/model metadata,
-    inline rendered citations, hash-restored active-thread continuity, and fail-closed
-    recovery when a restored thread returns 404. `specs/acceptance/ask.md`,
+    Chose one meaningful Task 79 closure instead of splitting thread-read APIs,
+    chat-route UI, stale-thread recovery, docs, and review into separate paperwork
+    slices. `crates/api/src/main.rs` now ships authenticated
+    `/api/v1/ask/threads` plus `/api/v1/ask/threads/{thread_id}` reads that fail
+    closed on auth/visibility boundaries and re-filter persisted citations to the
+    visible repo scope. `web/src/App.tsx` and `web/src/App.test.tsx` now add a
+    dedicated `#/chat` route with top-level navigation, thread-list/detail reopen,
+    repo-scoped follow-up asks, fresh-chat reset, canonical hash restoration, and
+    in-flight invalidation so stale responses cannot repopulate the wrong thread
+    after switching scope. `specs/acceptance/ask.md`,
     `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
-    and `docs/plans/2026-04-21-task79a-ask-route-baseline-plan.md` ground that
-    baseline truthfully without overclaiming full thread lifecycle/history or agents
-    parity.
+    and `docs/plans/2026-04-21-task79b-chat-route-thread-history-plan.md` now
+    ground the shipped ask+chat baseline truthfully while explicitly deferring
+    rename/delete/visibility lifecycle work and dedicated agents-route parity.
   tests:
-    - cargo test -p sourcebot-api ask_completions_accepts_existing_thread_when_repo_scope_order_differs -- --nocapture: passed (1 passed)
-    - cargo test -p sourcebot-api filter_ask_citations_to_repo_scope_excludes_unsafe_paths_and_blank_revisions -- --nocapture: passed (1 passed)
-    - cargo test -p sourcebot-api canonicalize_repo_scope_sorts_and_deduplicates_trimmed_entries -- --nocapture: passed (1 passed)
-    - npx vitest run src/App.test.tsx -t "restores the ask thread from the hash route for follow-up asks|clears a stale restored ask thread after a 404 follow-up and resets the hash to a fresh thread baseline": passed (2 passed | 155 skipped)
-    - cargo test -p sourcebot-api: passed (315 passed)
-    - npx vitest run src/App.test.tsx: passed (157 passed)
+    - cargo test -p sourcebot-api ask_threads_ -- --nocapture: passed (3 passed)
+    - npx vitest run src/App.test.tsx -t "dedicated chat route|stale restored thread|in-flight ask": passed (4 passed | 157 skipped)
+    - cargo test -p sourcebot-api: passed (317 passed)
+    - npx vitest run src/App.test.tsx: passed (161 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the Task 79a plan by returning persisted ask thread/session identifiers, shipping a dedicated `#/ask` route with repo-scoped ask continuity and truthful states, and keeping docs narrow about deferred history/agents work
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the ask-thread scope validation, stale restored-thread recovery, citation filtering hardening, focused tests, or scoped docs/report updates
-  commit: fe61bed577fd2cab44e800b6e760b37a3b5ffe6e
-  next_task: task79b
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice closes one bounded Task 79 chat-route baseline with backend thread reads, dedicated `#/chat` navigation and restored-thread behavior, and truthful docs that keep rename/delete/visibility plus agents follow-up explicitly deferred
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the ask-thread auth/visibility checks, citation refiltering, chat-route hash restoration, stale in-flight invalidation, focused tests, or scoped docs/report updates
+  commit: d177ba67e408d513e288b5bee28f97c860d6d423
+  next_task: task79c
 current_task:
-  id: task79b
+  id: task79c
   parent_task: task79
-  title: Expand Task 79 beyond the shipped ask baseline into the next chat or agents closure
+  title: Add a dedicated `#/agents` route baseline on top of existing review-agent visibility APIs
   status: pending
   summary: >-
-    Task 79 is no longer a pure placeholder: the rewrite now has a real dedicated
-    `#/ask` surface with restored-thread continuity. The next meaningful closure
-    should build on that baseline by shipping one bounded user-visible chat or
-    agents capability, rather than fragmenting the remaining Task 79 work into more
-    docs-only or audit-only ask paperwork.
+    Task 79 now has real dedicated `#/ask` and `#/chat` pages with restored
+    thread continuity/history. The next meaningful closure should pivot to the
+    still-missing dedicated `#/agents` page and top-level navigation over the
+    already shipped review-agent visibility APIs, rather than micro-slicing chat
+    follow-up paperwork into rename/delete/doc-only fragments.
 history:
+  - id: task79b
+    status: done
+    summary: >-
+      Chose one meaningful Task 79 closure instead of splitting thread-read APIs,
+      chat-route UI, stale-thread recovery, docs, and review into separate paperwork
+      slices. `crates/api/src/main.rs` now ships authenticated
+      `/api/v1/ask/threads` plus `/api/v1/ask/threads/{thread_id}` reads that fail
+      closed on auth/visibility boundaries and re-filter persisted citations to the
+      visible repo scope. `web/src/App.tsx` and `web/src/App.test.tsx` now add a
+      dedicated `#/chat` route with top-level navigation, thread-list/detail reopen,
+      repo-scoped follow-up asks, fresh-chat reset, canonical hash restoration, and
+      in-flight invalidation so stale responses cannot repopulate the wrong thread
+      after switching scope. `specs/acceptance/ask.md`,
+      `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+      and `docs/plans/2026-04-21-task79b-chat-route-thread-history-plan.md` now
+      ground the shipped ask+chat baseline truthfully while explicitly deferring
+      rename/delete/visibility lifecycle work and dedicated agents-route parity.
+    tests:
+      - cargo test -p sourcebot-api ask_threads_ -- --nocapture: passed (3 passed)
+      - npx vitest run src/App.test.tsx -t "dedicated chat route|stale restored thread|in-flight ask": passed (4 passed | 157 skipped)
+      - cargo test -p sourcebot-api: passed (317 passed)
+      - npx vitest run src/App.test.tsx: passed (161 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice closes one bounded Task 79 chat-route baseline with backend thread reads, dedicated `#/chat` navigation and restored-thread behavior, and truthful docs that keep rename/delete/visibility plus agents follow-up explicitly deferred
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the ask-thread auth/visibility checks, citation refiltering, chat-route hash restoration, stale in-flight invalidation, focused tests, or scoped docs/report updates
+    commit: d177ba67e408d513e288b5bee28f97c860d6d423
+    next_task: task79c
   - id: task79a
     status: done
     summary: >-
