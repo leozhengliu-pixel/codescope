@@ -5,44 +5,50 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6669193fd0b9b4060e86b63e6d00ed6c733d8f7c
+  head: f6d1e290a8f9349c6821ee2049ddb4fc9d940541
 last_completed_task:
-  id: task55a
-  title: Add a shared settings navigation shell around the existing authenticated admin surfaces
+  id: task55b
+  title: Add an authenticated API-keys inventory panel within the shared settings shell
   status: done
   summary: >-
-    Corrected the roadmap controller's anti-microslice imbalance instead of
-    continuing the pending docs-only `task20q2am63b` row tweak. Landed one
-    user-visible Task 55 slice: `web/src/App.tsx` now exposes a shared
-    `#/settings` route family with a landing page plus discoverable
-    `connections`, `api-keys`, `oauth-clients`, `observability`, and
-    `review-automation` sections, while the existing connections flow keeps
-    working inside that shell. `specs/acceptance/settings-navigation.md`, the
-    acceptance index/journey map, and the parity gap report now ground the
-    auth/admin/settings frontend surface as `Partial` instead of `Missing`
-    without overstating richer management UX that is still follow-up work.
+    Chose another user-visible Task 55 vertical slice instead of falling back
+    to the deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx`
+    now turns `#/settings/api-keys` from a dead placeholder into a real
+    authenticated inventory panel: it fetches `/api/v1/auth/api-keys`, shows
+    loading/error/empty/populated states, renders truthful active-vs-revoked
+    status plus repo-scope wording, and lets users revoke active keys in place
+    through `/api/v1/auth/api-keys/{api_key_id}/revoke` while keeping key
+    creation/scoping UX explicitly out of scope. `web/src/App.test.tsx`,
+    `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
+    inventory-plus-revoke baseline without overstating full API-key parity.
   tests:
-    - npx vitest run src/App.test.tsx -t 'settings landing|api keys settings section|Authenticated connections': passed (3 passed | 110 skipped)
-    - npx vitest run src/App.test.tsx: passed (113 passed)
+    - npm test -- src/App.test.tsx -t 'renders api keys inventory inside the shared settings shell': passed (1 passed | 114 skipped)
+    - npm test -- src/App.test.tsx -t 'revokes an active api key from the inventory': passed (1 passed | 114 skipped)
+    - npm test -- src/App.test.tsx -t 'shows an api keys loading failure': passed (1 passed | 114 skipped)
+    - npm test -- src/App.test.tsx: passed (115 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the broader settings route family, shared shell, honest placeholder sections, and acceptance/report grounding all match the intended slice
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for malformed `#/settings/...` routes
-  commit: 6669193fd0b9b4060e86b63e6d00ed6c733d8f7c
-  next_task: task55b
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the API-keys placeholder with a real authenticated inventory/revoke panel inside the shared shell and that the focused docs/report updates match the intended task55b slice
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for revoke-failure handling and more granular per-key in-flight UI state
+  commit: f6d1e290a8f9349c6821ee2049ddb4fc9d940541
+  next_task: task55c
 current_task:
-  id: task55b
+  id: task55c
   parent_task: task55
-  title: Add an authenticated API-keys inventory panel within the shared settings shell
+  title: Add an authenticated observability panel within the shared settings shell
   status: pending
   summary: >-
-    The new `#/settings` route family makes settings/admin navigation
-    discoverable and creates a dedicated acceptance home for that surface. The
-    next meaningful closure is to wire one real subsection — preferably API
-    keys via `/api/v1/auth/api-keys` — so the shell advances from navigation
-    parity toward a concrete authenticated admin workflow.
+    Task55a gave the shared settings route family one discoverable shell and
+    task55b turned the API-keys subsection into a real authenticated workflow,
+    which restores product-surface balance after the earlier docs-only streak.
+    The next meaningful closure should bias toward operator-visible value by
+    replacing the `#/settings/observability` placeholder with a truthful audit /
+    analytics panel backed by `/api/v1/auth/audit-events` and
+    `/api/v1/auth/analytics`, rather than returning immediately to deferred
+    paperwork-only parity-row cleanup.
 deferred_tasks:
   - id: task20q2am63b
     parent_task: task20q2am63
@@ -55,6 +61,34 @@ deferred_tasks:
       shipped settings-navigation closure and can resume once product-surface
       balance recovers.
 history:
+  - id: task55b
+    status: done
+    summary: >-
+      Chose another user-visible Task 55 vertical slice instead of falling back
+      to the deferred docs-only `task20q2am63b` parity-row tweak.
+      `web/src/App.tsx` now turns `#/settings/api-keys` from a dead placeholder
+      into a real authenticated inventory panel that fetches
+      `/api/v1/auth/api-keys`, shows loading/error/empty/populated states,
+      renders truthful active-vs-revoked status plus repo-scope wording, and
+      lets users revoke active keys in place through
+      `/api/v1/auth/api-keys/{api_key_id}/revoke` while keeping key
+      creation/scoping UX explicitly out of scope. `web/src/App.test.tsx`,
+      `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
+      inventory-plus-revoke baseline without overstating full API-key parity.
+    tests:
+      - npm test -- src/App.test.tsx -t 'renders api keys inventory inside the shared settings shell': passed (1 passed | 114 skipped)
+      - npm test -- src/App.test.tsx -t 'revokes an active api key from the inventory': passed (1 passed | 114 skipped)
+      - npm test -- src/App.test.tsx -t 'shows an api keys loading failure': passed (1 passed | 114 skipped)
+      - npm test -- src/App.test.tsx: passed (115 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the API-keys placeholder with a real authenticated inventory/revoke panel inside the shared shell and that the focused docs/report updates match the intended task55b slice
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for revoke-failure handling and more granular per-key in-flight UI state
+    commit: f6d1e290a8f9349c6821ee2049ddb4fc9d940541
+    next_task: task55c
   - id: task55a
     status: done
     summary: >-
