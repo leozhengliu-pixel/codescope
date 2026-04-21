@@ -16,7 +16,7 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 
 | Journey family | Concrete journey | Indexed rewrite surfaces | Current acceptance-spec home | Required dedicated follow-up before broad implementation proceeds |
 | --- | --- | --- | --- | --- |
-| User | Search accessible code across visible repositories | `/api/v1/search`; repo list/detail shells as navigation anchors | `specs/acceptance/search.md` | None for the base search journey; later parity work can extend the existing spec |
+| User | Search accessible code across visible repositories | `#/search`; `SearchPage`; `/api/v1/search`; repo list/detail shells as navigation anchors | `specs/acceptance/search.md` | None for the base search journey; later parity work can extend the existing spec |
 | User | Open a repository, browse the tree, and read source | `#/`; `#/repos/:repoId`; `RepoListPage`; `RepoDetailPage`; `BrowsePanel`; `/api/v1/repos`; `/api/v1/repos/{repo_id}`; `/api/v1/repos/{repo_id}/tree`; `/api/v1/repos/{repo_id}/blob` | `specs/acceptance/browse.md` | None for the base browse journey; later parity work can extend the existing spec |
 | User | Inspect commits and diffs for one repository | `CommitsPanel`; `/api/v1/repos/{repo_id}/commits`; `/api/v1/repos/{repo_id}/commits/{commit_id}`; `/api/v1/repos/{repo_id}/commits/{commit_id}/diff` | `specs/acceptance/browse.md` | None immediately; a dedicated commit spec may still be useful later if commit parity outgrows the current browse acceptance home |
 | User | Navigate by symbol definitions and references from source views | `BrowsePanel`; `/api/v1/repos/{repo_id}/definitions`; `/api/v1/repos/{repo_id}/references` | `specs/acceptance/code-nav.md` | None for the base code-navigation journey; later parity work can extend the existing spec |
@@ -38,7 +38,7 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 ## Journey details
 
 ### User journeys
-1. **Search journey** already has a clear acceptance home in `specs/acceptance/search.md`, anchored by the current `/api/v1/search` route.
+1. **Search journey** already has a clear acceptance home in `specs/acceptance/search.md`, now anchored by both the dedicated `#/search` page shell and the current `/api/v1/search` route.
 2. **Browse/source journey** already has a clear acceptance home in `specs/acceptance/browse.md`, anchored by the repo list/detail routes and `RepoListPage`/`RepoDetailPage`/`BrowsePanel` shells.
 3. **Commit journey** is already covered at a black-box level inside `specs/acceptance/browse.md`; a dedicated commit spec may still become useful later if commit parity work outgrows that shared acceptance home.
 4. **Code-navigation journey** already has a dedicated home in `specs/acceptance/code-nav.md`.

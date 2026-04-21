@@ -59,7 +59,8 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 | Surface family | Rewrite evidence | Parity intent | Current acceptance home |
 | --- | --- | --- | --- |
-| Repository home/list page | `web/src/App.tsx` → `RepoListPage`, route `#/` | Repo inventory, sync-state visibility, search entry, and top-level navigation parity | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
+| Repository home/list page | `web/src/App.tsx` → `RepoListPage`, route `#/` | Repo inventory, sync-state visibility, and top-level navigation parity while the dedicated search flow moves to `#/search` | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
+| Dedicated search page | `web/src/App.tsx` → `SearchPage`, route `#/search` | User-facing route parity for API-backed code search without overloading the repository inventory page | `specs/acceptance/search.md` |
 | Repository detail page shell | `web/src/App.tsx` → `RepoDetailPage`, route `#/repos/:repoId` | Repo-scoped metadata, browse/source, code-navigation, commit-view, and sync-state parity shell | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
 | Commit panel | `web/src/App.tsx` → `CommitsPanel` | Commit list/detail/diff UX parity | `specs/acceptance/browse.md` until commit/front-end expansion lands |
 | Browse/source panel | `web/src/App.tsx` → `BrowsePanel` | Tree browsing, file rendering, symbol-click navigation parity | `specs/acceptance/browse.md` and `specs/acceptance/code-nav.md` |

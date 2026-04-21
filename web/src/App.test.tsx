@@ -43,6 +43,48 @@ describe('App', () => {
     expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
   });
 
+  it('renders a dedicated search route with top-level navigation instead of falling back to the repository home shell', async () => {
+    window.location.hash = '#/search';
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse([
+        {
+          id: 'repo-1',
+          name: 'alpha-repo',
+          default_branch: 'main',
+          sync_state: 'ready',
+        },
+      ])
+    );
+
+    render(<App />);
+
+    expect(screen.getByRole('link', { name: 'Search' })).toHaveAttribute('href', '#/search');
+    expect(screen.getByText('Run API-backed code search across repositories from a dedicated route.')).toBeInTheDocument();
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Repositories' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the repository home focused on repository inventory while linking to the dedicated search route', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      jsonResponse([
+        {
+          id: 'repo-1',
+          name: 'alpha-repo',
+          default_branch: 'main',
+          sync_state: 'ready',
+        },
+      ])
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Search' })).toHaveAttribute('href', '#/search');
+    expect(screen.getByRole('link', { name: 'Open dedicated search page' })).toHaveAttribute('href', '#/search');
+    expect(screen.queryByLabelText('Search query')).not.toBeInTheDocument();
+  });
+
   it('loads repository detail and browses directories and files from the browse api', async () => {
     window.location.hash = '#/repos/repo-42';
 
@@ -10647,7 +10689,9 @@ describe('App', () => {
     expect(screen.getByText('Revision: rev-empty-789')).toBeInTheDocument();
   });
 
-  it('searches code and filters results by repository from the home page', async () => {
+  it('searches code and filters results by repository from the dedicated search page', async () => {
+    window.location.hash = '#/search';
+
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
 
@@ -10688,7 +10732,8 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
+    expect(screen.getByText('Run API-backed code search across repositories from a dedicated route.')).toBeInTheDocument();
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
     fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-2' } });
@@ -10701,7 +10746,9 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=repo-2');
   });
 
-  it('shows an empty search state when no matches are returned', async () => {
+  it('shows an empty search state when no matches are returned on the dedicated search page', async () => {
+    window.location.hash = '#/search';
+
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
 
@@ -10729,7 +10776,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByText('Default branch: main')).toBeInTheDocument();
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'missing' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));

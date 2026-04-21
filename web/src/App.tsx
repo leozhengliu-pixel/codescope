@@ -377,16 +377,10 @@ function formatJsonValue(value: unknown): string {
   }
 }
 
-function RepoListPage() {
+function useRepoSummaries() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [selectedRepoId, setSelectedRepoId] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,6 +407,17 @@ function RepoListPage() {
       cancelled = true;
     };
   }, []);
+
+  return { repos, loading, error };
+}
+
+function SearchExperience({ repos, subtitle }: { repos: RepoSummary[]; subtitle: string }) {
+  const [query, setQuery] = useState('');
+  const [selectedRepoId, setSelectedRepoId] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
 
   const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
 
@@ -442,79 +447,99 @@ function RepoListPage() {
     }
   };
 
+  return (
+    <Panel title="Search" subtitle={subtitle}>
+      <form
+        style={{ display: 'grid', gap: 12 }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void runSearch();
+        }}
+      >
+        <div style={searchFormGridStyle}>
+          <label style={fieldLabelStyle}>
+            <span>Search query</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search for symbols, strings, or snippets"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={fieldLabelStyle}>
+            <span>Repository filter</span>
+            <select value={selectedRepoId} onChange={(event) => setSelectedRepoId(event.target.value)} style={inputStyle}>
+              <option value="">All repositories</option>
+              {repos.map((repo) => (
+                <option key={repo.id} value={repo.id}>
+                  {repo.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div>
+          <button type="submit" style={primaryButtonStyle} disabled={searchLoading || query.trim().length === 0}>
+            {searchLoading ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+      </form>
+
+      <div style={{ marginTop: 20 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Results</div>
+        {searchLoading ? <div>Searching code…</div> : null}
+        {!searchLoading && searchError ? <div>Search failed: {searchError}</div> : null}
+        {!searchLoading && !searchError && submittedQuery && searchResults.length === 0 ? (
+          <div>No matches found for “{submittedQuery}”.</div>
+        ) : null}
+        {!searchLoading && !searchError && searchResults.length > 0 ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {searchResults.map((result, index) => (
+              <div key={`${result.repo_id}:${result.path}:${result.line_number}:${index}`} style={searchResultCardStyle}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                  <span style={searchMetaBadgeStyle}>{repoNamesById.get(result.repo_id) ?? result.repo_id}</span>
+                  <span style={searchMetaBadgeStyle}>{result.path}</span>
+                  <span style={searchMetaBadgeStyle}>Line {result.line_number}</span>
+                </div>
+                <pre style={searchLineStyle}>{result.line}</pre>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {!searchLoading && !searchError && !submittedQuery ? (
+          <div style={{ color: '#57606a' }}>Enter a query to search indexed code.</div>
+        ) : null}
+      </div>
+    </Panel>
+  );
+}
+
+function SearchPage() {
+  const { repos, loading, error } = useRepoSummaries();
+
+  if (loading) return <Panel title="Search" subtitle="Run API-backed code search across repositories from a dedicated route.">Loading repositories…</Panel>;
+  if (error) return <Panel title="Search" subtitle="Run API-backed code search across repositories from a dedicated route.">Failed to load: {error}</Panel>;
+
+  return <SearchExperience repos={repos} subtitle="Run API-backed code search across repositories from a dedicated route." />;
+}
+
+function RepoListPage() {
+  const { repos, loading, error } = useRepoSummaries();
+
   if (loading) return <Panel title="Repositories">Loading repositories…</Panel>;
   if (error) return <Panel title="Repositories">Failed to load: {error}</Panel>;
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
-      <Panel title="Search" subtitle="Search indexed code across repositories using the clean-room API.">
-        <form
-          style={{ display: 'grid', gap: 12 }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void runSearch();
-          }}
-        >
-          <div style={searchFormGridStyle}>
-            <label style={fieldLabelStyle}>
-              <span>Search query</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search for symbols, strings, or snippets"
-                style={inputStyle}
-              />
-            </label>
-
-            <label style={fieldLabelStyle}>
-              <span>Repository filter</span>
-              <select
-                value={selectedRepoId}
-                onChange={(event) => setSelectedRepoId(event.target.value)}
-                style={inputStyle}
-              >
-                <option value="">All repositories</option>
-                {repos.map((repo) => (
-                  <option key={repo.id} value={repo.id}>
-                    {repo.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div>
-            <button type="submit" style={primaryButtonStyle} disabled={searchLoading || query.trim().length === 0}>
-              {searchLoading ? 'Searching…' : 'Search'}
-            </button>
-          </div>
-        </form>
-
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Results</div>
-          {searchLoading ? <div>Searching code…</div> : null}
-          {!searchLoading && searchError ? <div>Search failed: {searchError}</div> : null}
-          {!searchLoading && !searchError && submittedQuery && searchResults.length === 0 ? (
-            <div>No matches found for “{submittedQuery}”.</div>
-          ) : null}
-          {!searchLoading && !searchError && searchResults.length > 0 ? (
-            <div style={{ display: 'grid', gap: 12 }}>
-              {searchResults.map((result, index) => (
-                <div key={`${result.repo_id}:${result.path}:${result.line_number}:${index}`} style={searchResultCardStyle}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                    <span style={searchMetaBadgeStyle}>{repoNamesById.get(result.repo_id) ?? result.repo_id}</span>
-                    <span style={searchMetaBadgeStyle}>{result.path}</span>
-                    <span style={searchMetaBadgeStyle}>Line {result.line_number}</span>
-                  </div>
-                  <pre style={searchLineStyle}>{result.line}</pre>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {!searchLoading && !searchError && !submittedQuery ? (
-            <div style={{ color: '#57606a' }}>Enter a query to search indexed code.</div>
-          ) : null}
-        </div>
+      <Panel
+        title="Search"
+        subtitle="Use the dedicated search page for the current API-backed code-search flow while the repository home stays focused on inventory and navigation."
+      >
+        <a href="#/search" style={{ ...primaryButtonStyle, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+          Open dedicated search page
+        </a>
       </Panel>
 
       <Panel title="Repositories" subtitle="Seeded repository inventory from the clean-room API.">
@@ -3132,6 +3157,10 @@ export function App() {
   const hash = useHashLocation();
 
   const route = useMemo(() => {
+    if (hash === '#/search') {
+      return { kind: 'search' as const };
+    }
+
     const settingsMatch = hash.match(/^#\/settings(?:\/([a-z-]+))?$/);
     if (settingsMatch) {
       const section = settingsMatch[1] as SettingsSectionId | undefined;
@@ -3164,11 +3193,14 @@ export function App() {
       <header style={{ marginBottom: 24 }}>
         <h1 style={{ margin: 0, fontSize: 32 }}>sourcebot-rewrite</h1>
         <p style={{ color: '#57606a', marginTop: 8 }}>
-          Clean-room code intelligence workspace: repository inventory, sync state, and API-backed detail views.
+          Clean-room code intelligence workspace: repository inventory, dedicated search, sync state, and API-backed detail views.
         </p>
         <nav style={{ display: 'flex', gap: 12, marginTop: 16 }}>
           <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
             Repositories
+          </a>
+          <a href="#/search" style={{ color: '#0969da', fontWeight: 600 }}>
+            Search
           </a>
           <a href="#/settings" style={{ color: '#0969da', fontWeight: 600 }}>
             Settings
@@ -3177,6 +3209,7 @@ export function App() {
       </header>
 
       {route.kind === 'repo' ? <RepoDetailPage repoId={route.repoId} /> : null}
+      {route.kind === 'search' ? <SearchPage /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>
           <SettingsLandingPage />
