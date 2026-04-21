@@ -5,50 +5,83 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5ee23967d07de1000f6c09ee2d6fcd8bd4ee07d0
+  head: 1e7e47511371b7c9d60f8108741537980cbbc6f4
 last_completed_task:
-  id: task77a
-  title: Add read-only members inventory to the shared settings shell
+  id: task77b
+  title: Add read-only access visibility inventory to the shared settings shell
   status: done
   summary: >-
-    Chose a Task 77 user-visible members closure instead of splitting settings parity
-    into separate route, API, privacy-fix, and docs fragments. `web/src/App.tsx` now
-    exposes a discoverable `#/settings/members` destination inside the shared settings
-    shell with truthful loading, error, empty, and populated read-only inventory states.
-    `crates/api/src/main.rs` now backs that panel with authenticated
-    `GET /api/v1/auth/members` results limited to organizations the local-session user
-    administers, returns an empty inventory for authenticated non-admin users instead of
-    leaking hidden organizations, and redacts cross-org invite identities while only
-    marking invites accepted when complete acceptance evidence is present.
-    `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+    Chose a Task 77 user-visible access closure instead of splitting settings parity
+    into separate route, authz-filtering, docs, and audit fragments. `web/src/App.tsx`
+    now exposes a discoverable `#/settings/access` destination inside the shared
+    settings shell with truthful loading, empty, and populated read-only repository
+    visibility states. `crates/api/src/main.rs` now filters `GET /api/v1/repos` to the
+    caller's currently visible repositories when authentication succeeds, while keeping
+    the pre-existing public repository inventory baseline for unauthenticated or invalid
+    authorization requests. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
     `specs/acceptance/settings-navigation.md`, and
     `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly as a
-    read-only inventory baseline without claiming full org or invite management parity.
+    read-only access-visibility baseline without claiming permission-sync management or
+    role-edit parity.
   tests:
-    - cargo test -p sourcebot-api auth_members_hides_cross_org_invite_accounts_and_incomplete_acceptance_details -- --nocapture: passed
-    - npx vitest run src/App.test.tsx -t 'shows a members loading failure inside the shared settings shell': passed (1 passed | 131 skipped)
-    - npx vitest run src/App.test.tsx: passed (132 passed)
+    - cargo test -p sourcebot-api repo_list_filters_to_visible_repositories_for_authenticated_sessions -- --nocapture: passed
+    - cargo test -p sourcebot-api repo_list_preserves_public_inventory_for_invalid_authorization_headers -- --nocapture: passed
+    - cargo test -p sourcebot-api repo_list_returns_seeded_repositories -- --nocapture: passed
+    - npx vitest run src/App.test.tsx -t 'renders access inventory inside the shared settings shell|shows an access empty state inside the shared settings shell': passed (2 passed | 132 skipped)
+    - npx vitest run src/App.test.tsx: passed (134 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - cargo test -p sourcebot-api: passed (297 passed)
+    - cargo test -p sourcebot-api: passed (272 passed)
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77a slice stays narrowly scoped to a discoverable read-only members inventory, uses `/api/v1/auth/members`, keeps empty-state behavior fail-closed for hidden organizations, and updates acceptance/report wording without overstating broader org/invite management parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the auth-members privacy boundaries, invite redaction/status handling, frontend shared-shell states, or focused docs/report updates
-  commit: 5ee23967d07de1000f6c09ee2d6fcd8bd4ee07d0
-  next_task: task77b
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77b slice adds a discoverable read-only access panel, filters authenticated `/api/v1/repos` results to visible repositories, preserves the public repo inventory baseline for unauthenticated or invalid-authorization requests, and keeps the docs/report wording narrow
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the access panel, repository visibility filtering, or focused acceptance/report updates
+  commit: 1e7e47511371b7c9d60f8108741537980cbbc6f4
+  next_task: task77c
 current_task:
-  id: task77b
+  id: task77c
   parent_task: task77
-  title: Complete the next user-visible settings subsection after members inventory
+  title: Complete the next still-missing settings subsection after access visibility
   status: pending
   summary: >-
-    Task 77 now includes a truthful shared-shell members destination with read-only
-    admin-visible roster and invite inventory. The next smallest meaningful closure
-    should advance another still-missing settings subsection with real user-visible
-    value instead of returning to docs-only polish or further micro-splitting the
-    members slice.
+    Task 77 now includes truthful settings-shell closures for connections, API keys,
+    members, access visibility, OAuth clients, observability, and review automation.
+    The next smallest meaningful closure should advance another still-missing
+    user-visible settings/admin surface with real product value — most likely linked
+    accounts or another currently absent settings subsection — instead of returning to
+    docs-only cleanup or further micro-splitting the access slice.
 history:
+  - id: task77b
+    status: done
+    summary: >-
+      Chose a Task 77 user-visible access closure instead of splitting settings parity
+      into separate route, authz-filtering, docs, and audit fragments.
+      `web/src/App.tsx` now exposes a discoverable `#/settings/access` destination
+      inside the shared settings shell with truthful loading, empty, and populated
+      read-only repository visibility states. `crates/api/src/main.rs` now filters
+      `GET /api/v1/repos` to the caller's currently visible repositories when
+      authentication succeeds, while keeping the pre-existing public repository
+      inventory baseline for unauthenticated or invalid authorization requests.
+      `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+      `specs/acceptance/settings-navigation.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly as a
+      read-only access-visibility baseline without claiming permission-sync
+      management or role-edit parity.
+    tests:
+      - cargo test -p sourcebot-api repo_list_filters_to_visible_repositories_for_authenticated_sessions -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_list_preserves_public_inventory_for_invalid_authorization_headers -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_list_returns_seeded_repositories -- --nocapture: passed
+      - npx vitest run src/App.test.tsx -t 'renders access inventory inside the shared settings shell|shows an access empty state inside the shared settings shell': passed (2 passed | 132 skipped)
+      - npx vitest run src/App.test.tsx: passed (134 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - cargo test -p sourcebot-api: passed (272 passed)
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 77b slice adds a discoverable read-only access panel, filters authenticated `/api/v1/repos` results to visible repositories, preserves the public repo inventory baseline for unauthenticated or invalid-authorization requests, and keeps the docs/report wording narrow
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the access panel, repository visibility filtering, or focused acceptance/report updates
+    commit: 1e7e47511371b7c9d60f8108741537980cbbc6f4
+    next_task: task77c
   - id: task77a
     status: done
     summary: >-
