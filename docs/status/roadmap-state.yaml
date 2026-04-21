@@ -5,39 +5,70 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cd86871c40be161f1aa03b91f0aab4c5f93f3b91
+  head: 00318f345bc17a116764bd4c4af839e1dc495d5a
 last_completed_task:
-  id: task20q2am62b
-  title: Tighten the MCP server parity-matrix row to record the already-grounded partial status and evidence
+  id: task20q2am63a
+  title: Audit the Public REST API parity-matrix row against the current integrations acceptance evidence and gap report
   status: done
   summary: >-
-    Closed the one-hundred-ninth split task20q2 settings-shell follow-up slice
-    by tightening the `specs/FEATURE_PARITY.md` `MCP server` row so it now records
-    the already-grounded `Partial` status and cites the current integrations
-    acceptance/gap-report evidence without changing product behavior or broadening
-    other integration rows.
+    Closed the one-hundred-tenth split task20q2 settings-shell follow-up slice by
+    grounding the next Public REST API documentation drift in
+    `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`. The
+    audit confirmed `specs/acceptance/integrations.md` and
+    `docs/reports/2026-04-18-parity-gap-report.md` already agree that Public REST
+    API parity is only partial: the rewrite ships a real versioned `/api/v1/...`
+    JSON surface across repo, search, auth, OAuth-client, and review-webhook
+    routes, while broader endpoint completeness and durable connector/repository
+    operations remain open. The next smallest truthful slice is to tighten only
+    the `specs/FEATURE_PARITY.md` `Public REST API` row without changing product
+    behavior.
   tests:
-    - python3 raw-content postcheck confirmed the `MCP server` row now records `Partial`, cites the existing integrations acceptance/gap-report evidence, lists the shipped `crates/mcp/src/lib.rs` manifest/tool-execution baseline, and keeps the remaining transport/runtime/auth plus permission-scoped evidence gaps explicit: passed
+    - python3 raw-content precheck confirmed `specs/FEATURE_PARITY.md` still leaves the `Public REST API` row at `Needs audit | _TBD_ |` while `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground versioned machine-readable Public REST API parity as `Partial`: passed
+    - python3 raw-content audit-note presence check confirmed the note records the Public REST API parity-matrix drift, the versioned `/api/v1/...` evidence in `crates/api/src/main.rs` and `web/src/App.tsx`, and queues `task20q2am63b`: passed
     - git diff --check: passed
-    - python3 added-lines security scan for `specs/FEATURE_PARITY.md`: passed
+    - python3 added-lines security scan for `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`: passed
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only diff exactly closes `task20q2am62b`, updates only the `MCP server` parity-matrix row, and stays within the already-grounded partial-parity evidence
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `specs/FEATURE_PARITY.md` diff
-  commit: cd86871c40be161f1aa03b91f0aab4c5f93f3b91
-  next_task: task20q2am63a
+    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am63a`, stays within the Public REST API parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md` diff
+  commit: 00318f345bc17a116764bd4c4af839e1dc495d5a
+  next_task: task20q2am63b
 current_task:
-  id: task20q2am63a
+  id: task20q2am63b
   parent_task: task20q2am63
-  title: Audit the Public REST API parity-matrix row against the current integrations acceptance evidence and gap report
+  title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
   status: pending
   summary: >-
-    `specs/FEATURE_PARITY.md` now truthfully records the MCP server row as
-    `Partial`. The next smallest documentation drift is the still-unaudited
-    `Public REST API` row, which should be audited against
-    `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` before tightening any
-    parity-matrix wording.
+    `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`
+    now grounds the current Public REST API parity-matrix drift. The next
+    smallest documentation slice is to tighten only the `specs/FEATURE_PARITY.md`
+    `Public REST API` row so it records the already-grounded `Partial` status and
+    cites the existing integrations acceptance/gap-report evidence without
+    changing product behavior or broadening other integration rows.
 history:
+  - id: task20q2am63a
+    status: done
+    summary: >-
+      Closed the one-hundred-tenth split task20q2 settings-shell follow-up slice by
+      grounding the next Public REST API documentation drift in
+      `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`. The
+      audit confirmed `specs/acceptance/integrations.md` and
+      `docs/reports/2026-04-18-parity-gap-report.md` already agree that Public REST
+      API parity is only partial: the rewrite ships a real versioned `/api/v1/...`
+      JSON surface across repo, search, auth, OAuth-client, and review-webhook
+      routes, while broader endpoint completeness and durable connector/repository
+      operations remain open. The next smallest truthful slice is to tighten only
+      the `specs/FEATURE_PARITY.md` `Public REST API` row without changing product
+      behavior.
+    tests:
+      - python3 raw-content precheck confirmed `specs/FEATURE_PARITY.md` still leaves the `Public REST API` row at `Needs audit | _TBD_ |` while `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground versioned machine-readable Public REST API parity as `Partial`: passed
+      - python3 raw-content audit-note presence check confirmed the note records the Public REST API parity-matrix drift, the versioned `/api/v1/...` evidence in `crates/api/src/main.rs` and `web/src/App.tsx`, and queues `task20q2am63b`: passed
+      - git diff --check: passed
+      - python3 added-lines security scan for `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am63a`, stays within the Public REST API parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md` diff
+    commit: 00318f345bc17a116764bd4c4af839e1dc495d5a
+    next_task: task20q2am63b
   - id: task20q2am62b
     status: done
     summary: >-
