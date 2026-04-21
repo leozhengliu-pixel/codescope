@@ -625,6 +625,7 @@ enum ReferencesResponse {
 struct CommitListQuery {
     #[serde(default = "default_commit_limit")]
     limit: usize,
+    revision: Option<String>,
 }
 
 fn default_commit_limit() -> usize {
@@ -2549,9 +2550,15 @@ async fn get_repository_tree(
 ) -> Result<Json<TreeResponse>, StatusCode> {
     ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
 
+    let revision = query
+        .revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
     let tree = state
         .browse
-        .get_tree(&repo_id, &query.path)
+        .get_tree_at_revision(&repo_id, &query.path, revision)
         .map_err(|_| StatusCode::NOT_FOUND)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -2811,9 +2818,15 @@ async fn list_repository_commits(
     Path(repo_id): Path<String>,
     Query(query): Query<CommitListQuery>,
 ) -> Result<Json<CommitListResponse>, StatusCode> {
+    let revision = query
+        .revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
     let commits = state
         .commits
-        .list_commits(&repo_id, query.limit)
+        .list_commits(&repo_id, query.limit, revision)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -14752,6 +14765,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repo_tree_returns_not_found_for_invalid_revision() {
+        let organization_state_path = unique_test_path("repo-tree-invalid-revision-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-tree-invalid-revision-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-tree-invalid-revision-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/tree?revision=definitely-missing-revision")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn repo_blob_requires_authenticated_visible_repository_access() {
         let organization_state_path = unique_test_path("repo-blob-auth-orgs");
         write_organization_state_fixture(
@@ -15056,7 +15103,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_tree_rejects_parent_directory_traversal() {
+    async fn repo_tree_rejects_parent_directory_traversal_with_not_found() {
         let organization_state_path = unique_test_path("repo-tree-traversal-orgs");
         write_organization_state_fixture(
             &organization_state_path,
@@ -15194,7 +15241,7 @@ mod tests {
     #[tokio::test]
     async fn repo_commits_returns_real_git_history() {
         let expected = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 2)
+            .list_commits("repo_sourcebot_rewrite", 2, None)
             .unwrap()
             .unwrap();
 
@@ -15223,9 +15270,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn repo_commits_returns_not_found_for_invalid_revision() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits?limit=2&revision=definitely-missing-revision")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commits_returns_not_found_for_option_like_revision() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_sourcebot_rewrite/commits?limit=2&revision=--all")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn repo_commit_detail_returns_real_git_commit() {
         let commit_id = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 2)
+            .list_commits("repo_sourcebot_rewrite", 2, None)
             .unwrap()
             .unwrap()
             .commits
@@ -15316,7 +15393,7 @@ mod tests {
     #[tokio::test]
     async fn repo_commit_diff_returns_real_git_files() {
         let commit_id = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 1)
+            .list_commits("repo_sourcebot_rewrite", 1, None)
             .unwrap()
             .unwrap()
             .commits

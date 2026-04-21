@@ -15,7 +15,7 @@
 
 ## Expected behavior
 1. Repository list returns only repositories visible to the caller.
-2. Repository detail shows key metadata, default branch, and sync/index status; richer branch/revision selection parity remains follow-up work.
+2. Repository detail shows key metadata, default branch, sync/index status, and a branch/tag/revision control that can keep the repo route stable while reloading browse and commit panels for the selected revision.
 3. Repository detail loading failures keep the route stable with a clear retry affordance and a contextual way back to the repository list or dedicated search results.
 4. File tree browsing supports nested directories without requiring a full repository clone in the browser.
 5. Browse loading failures keep repository detail visible and offer a focused retry affordance instead of collapsing the page.
@@ -36,6 +36,6 @@
 - Huge diffs may be truncated with an explicit truncation indicator.
 
 ## Black-box examples
-- Opening a repo page shows repository metadata, default branch, latest sync state, and browse/commit panels while richer branch-revision switching remains follow-up work.
+- Opening a repo page shows repository metadata, default branch, latest sync state, and browse/commit panels, and applying a branch/tag/revision updates the route plus reloads tree/blob and commit data for that selected revision without losing the surrounding repo shell.
 - Selecting a file in a nested folder opens its highlighted source view.
 - Opening a commit detail page shows author, timestamp, message, and changed files.

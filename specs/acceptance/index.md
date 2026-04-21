@@ -23,7 +23,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Surface family | Acceptance spec | Status | Notes |
 | --- | --- | --- | --- |
 | Search | `specs/acceptance/search.md` | Present | Covers query/filter/result behavior, but parity matrix expansion still needs evidence placeholders. |
-| Browse and source view | `specs/acceptance/browse.md` | Present | Covers tree/blob behavior; later parity tasks still need richer branch/revision and UI parity coverage. |
+| Browse and source view | `specs/acceptance/browse.md` | Present | Covers tree/blob behavior plus the current repo-route revision control baseline; later parity tasks still need richer branch/revision UX and broader UI parity coverage. |
 | Code navigation | `specs/acceptance/code-nav.md` | Present | Covers definitions/references behavior; later parity tasks will extend multi-language and UI parity details. |
 | Ask and chat | `specs/acceptance/ask.md` | Present | Covers ask behavior at a high level; later parity tasks still need thread lifecycle and citation/UI parity details. |
 | Auth and permissions | `specs/acceptance/auth.md` | Present | Covers local auth + permission boundaries; later parity tasks must expand onboarding/orgs/invites/API keys/OAuth details. |

@@ -16,7 +16,12 @@ const FIELD_SEPARATOR: char = '\u{1f}';
 const RECORD_SEPARATOR: char = '\u{1e}';
 
 pub trait CommitStore: Send + Sync {
-    fn list_commits(&self, repo_id: &str, limit: usize) -> Result<Option<CommitListResponse>>;
+    fn list_commits(
+        &self,
+        repo_id: &str,
+        limit: usize,
+        revision: Option<&str>,
+    ) -> Result<Option<CommitListResponse>>;
     fn get_commit(&self, repo_id: &str, commit_id: &str) -> Result<Option<CommitDetailResponse>>;
     fn get_commit_diff(&self, repo_id: &str, commit_id: &str)
         -> Result<Option<CommitDiffResponse>>;
@@ -150,7 +155,12 @@ impl LocalCommitStore {
 }
 
 impl CommitStore for LocalCommitStore {
-    fn list_commits(&self, repo_id: &str, limit: usize) -> Result<Option<CommitListResponse>> {
+    fn list_commits(
+        &self,
+        repo_id: &str,
+        limit: usize,
+        revision: Option<&str>,
+    ) -> Result<Option<CommitListResponse>> {
         let Some(repo_root) = self.repo_root(repo_id) else {
             if self.supports_empty_history(repo_id) {
                 return Ok(Some(CommitListResponse {
@@ -161,14 +171,24 @@ impl CommitStore for LocalCommitStore {
             return Ok(None);
         };
 
-        let output = run_git(
-            repo_root,
-            &[
-                "log",
-                &format!("--max-count={}", limit.max(1)),
-                &format!("--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e"),
-            ],
-        )?;
+        let resolved_revision = match revision {
+            Some(revision) => match resolve_single_commit(repo_root, revision)? {
+                Some(resolved) => Some(resolved),
+                None => return Ok(None),
+            },
+            None => None,
+        };
+
+        let mut args = vec![
+            "log".to_string(),
+            format!("--max-count={}", limit.max(1)),
+            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e".to_string(),
+        ];
+        if let Some(revision) = resolved_revision.as_deref() {
+            args.push(revision.to_string());
+        }
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let output = run_git(repo_root, &arg_refs)?;
 
         let commits = parse_records(&output)
             .into_iter()
@@ -586,7 +606,7 @@ mod tests {
         let store = LocalCommitStore::seeded();
 
         let response = store
-            .list_commits("repo_sourcebot_rewrite", 2)
+            .list_commits("repo_sourcebot_rewrite", 2, None)
             .unwrap()
             .unwrap();
 
@@ -615,7 +635,7 @@ mod tests {
     fn local_commit_store_reads_real_commit_detail() {
         let store = LocalCommitStore::seeded();
         let commit_id = store
-            .list_commits("repo_sourcebot_rewrite", 2)
+            .list_commits("repo_sourcebot_rewrite", 2, None)
             .unwrap()
             .unwrap()
             .commits
@@ -637,13 +657,45 @@ mod tests {
     }
 
     #[test]
+    fn local_commit_store_lists_commits_from_requested_revision() {
+        let repo_root = create_temp_git_repo("revision-list");
+        write_text_file(&repo_root.join("demo.txt"), "base\n");
+        git_in(&repo_root, &["add", "demo.txt"]);
+        git_in(&repo_root, &["commit", "-m", "base"]);
+
+        git_in(&repo_root, &["checkout", "-b", "feature/revision-list"]);
+        write_text_file(&repo_root.join("demo.txt"), "feature\n");
+        git_in(&repo_root, &["commit", "-am", "feature"]);
+
+        git_in(&repo_root, &["checkout", "master"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let feature_commits = store
+            .list_commits("repo_temp", 5, Some("feature/revision-list"))
+            .unwrap()
+            .unwrap();
+        let master_commits = store
+            .list_commits("repo_temp", 5, Some("master"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(feature_commits.commits[0].summary, "feature");
+        assert_eq!(master_commits.commits[0].summary, "base");
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
     fn local_commit_store_returns_none_for_unknown_repo_or_commit() {
         let store = LocalCommitStore::seeded();
 
-        assert!(store.list_commits("missing", 20).unwrap().is_none());
+        assert!(store.list_commits("missing", 20, None).unwrap().is_none());
         assert_eq!(
             store
-                .list_commits("repo_demo_docs", 20)
+                .list_commits("repo_demo_docs", 20, None)
                 .unwrap()
                 .unwrap()
                 .commits,
@@ -742,7 +794,7 @@ mod tests {
     fn local_commit_store_reads_real_commit_diff() {
         let store = LocalCommitStore::seeded();
         let commit_id = store
-            .list_commits("repo_sourcebot_rewrite", 1)
+            .list_commits("repo_sourcebot_rewrite", 1, None)
             .unwrap()
             .unwrap()
             .commits

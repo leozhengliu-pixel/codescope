@@ -21,6 +21,12 @@ const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 
 pub trait BrowseStore: Send + Sync {
     fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<TreeResponse>>;
+    fn get_tree_at_revision(
+        &self,
+        repo_id: &str,
+        path: &str,
+        revision: Option<&str>,
+    ) -> Result<Option<TreeResponse>>;
     #[allow(dead_code)]
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>>;
     #[allow(dead_code)]
@@ -329,6 +335,31 @@ impl BrowseStore for LocalBrowseStore {
         }))
     }
 
+    fn get_tree_at_revision(
+        &self,
+        repo_id: &str,
+        path: &str,
+        revision: Option<&str>,
+    ) -> Result<Option<TreeResponse>> {
+        let Some(revision) = revision else {
+            return self.get_tree(repo_id, path);
+        };
+
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let Some(entries) = run_git_list_tree_entries_at_revision(repo_root, revision, path)? else {
+            return Ok(None);
+        };
+
+        Ok(Some(TreeResponse {
+            repo_id: repo_id.to_string(),
+            path: path.to_string(),
+            entries,
+        }))
+    }
+
     fn get_blob(&self, repo_id: &str, path: &str) -> Result<Option<BlobResponse>> {
         self.get_blob_at_revision(repo_id, path, None)
     }
@@ -554,6 +585,63 @@ fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<
     ))
 }
 
+fn run_git_list_tree_entries_at_revision(
+    repo_root: &PathBuf,
+    revision: &str,
+    path: &str,
+) -> Result<Option<Vec<TreeEntry>>> {
+    let normalized_path = normalize_relative_path(path)?;
+    let treeish = if normalized_path.as_os_str().is_empty() {
+        revision.to_string()
+    } else {
+        format!("{revision}:{}", normalized_path.to_string_lossy().replace('\\', "/"))
+    };
+    let output = Command::new("git")
+        .args(["ls-tree", &treeish])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let mut entries = stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| parse_git_tree_entry(&normalized_path, line))
+            .collect::<Result<Vec<_>>>()?;
+        entries.sort_by(|left, right| left.path.cmp(&right.path));
+        return Ok(Some(entries));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["ls-tree", "<revision>[:<path>]"],
+        &output,
+    ))
+}
+
+fn parse_git_tree_entry(parent_path: &Path, line: &str) -> Result<TreeEntry> {
+    let Some((metadata, name)) = line.split_once('\t') else {
+        anyhow::bail!("unexpected git ls-tree output: {line}");
+    };
+    let kind = if metadata.split_whitespace().nth(1) == Some("tree") {
+        EntryKind::Dir
+    } else {
+        EntryKind::File
+    };
+    let path = join_relative_path(&parent_path.to_string_lossy(), name);
+
+    Ok(TreeEntry {
+        name: name.to_string(),
+        path,
+        kind,
+    })
+}
+
 fn run_git_list_files_at_revision(
     repo_root: &PathBuf,
     revision: &str,
@@ -661,6 +749,28 @@ mod tests {
         (store, root)
     }
 
+    fn git_in(repo_root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn initialize_git_repo(repo_root: &Path) {
+        git_in(repo_root, &["init"]);
+        git_in(repo_root, &["config", "user.name", "Hermes Test"]);
+        git_in(repo_root, &["config", "user.email", "hermes-test@example.com"]);
+        git_in(repo_root, &["add", "-A"]);
+        git_in(repo_root, &["commit", "-m", "base"]);
+    }
+
     #[test]
     fn shared_repo_tree_fixture_exposes_browse_common_layout() {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
@@ -712,6 +822,61 @@ mod tests {
         assert!(tree.entries.iter().any(|entry| {
             entry.name == "src" && entry.path == "src" && entry.kind == EntryKind::Dir
         }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_lists_tree_entries_from_requested_revision() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-tree",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+        git_in(&root, &["checkout", "-b", "feature/revision-tree"]);
+        fs::remove_file(root.join("README.md")).unwrap();
+        fs::write(root.join("FEATURE.md"), "feature branch\n").unwrap();
+        git_in(&root, &["add", "-A"]);
+        git_in(&root, &["commit", "-m", "feature"]);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let tree = store
+            .get_tree_at_revision("repo_test", "", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert!(tree.entries.iter().any(|entry| entry.path == "FEATURE.md"));
+        assert!(!tree.entries.iter().any(|entry| entry.path == "README.md"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_keeps_repo_relative_paths_for_nested_revision_tree_entries() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-nested-tree",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+        git_in(&root, &["checkout", "-b", "feature/nested-revision-tree"]);
+        fs::write(root.join("src").join("revision.rs"), "pub fn revision() {}\n").unwrap();
+        git_in(&root, &["add", "-A"]);
+        git_in(&root, &["commit", "-m", "nested feature"]);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let tree = store
+            .get_tree_at_revision("repo_test", "src", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert!(tree.entries.iter().any(|entry| entry.path == "src/revision.rs"));
+        assert!(tree.entries.iter().all(|entry| entry.path.starts_with("src/")));
 
         fs::remove_dir_all(root).unwrap();
     }

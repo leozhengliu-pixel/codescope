@@ -138,6 +138,15 @@ type CommitsResponse = {
   commits: CommitSummary[];
 };
 
+type RepoRouteState = {
+  repoId: string;
+  initialPath: string | null;
+  initialTreePath: string | null;
+  initialRevision: string | null;
+  from: 'search' | null;
+  searchHash: string | null;
+};
+
 type CommitDetail = CommitSummary & {
   body?: string;
   parents: string[];
@@ -416,6 +425,44 @@ function buildSearchHash(query: string, repoId: string) {
   return `#/search?${params.toString()}`;
 }
 
+function buildRepoHash(
+  repoId: string,
+  options: {
+    path: string | null;
+    treePath: string | null;
+    revision: string | null;
+    from: 'search' | null;
+    searchHash: string | null;
+  }
+) {
+  const params = new URLSearchParams();
+  const normalizedTreePath = options.treePath && options.treePath.length > 0 ? options.treePath : null;
+  const canonicalTreePath = options.path ? pathDirectory(options.path) : null;
+
+  if (options.path) {
+    params.set('path', options.path);
+  }
+
+  if (normalizedTreePath && normalizedTreePath !== canonicalTreePath) {
+    params.set('tree_path', normalizedTreePath);
+  }
+
+  if (options.from === 'search') {
+    params.set('from', 'search');
+    const [, searchQuery = ''] = (options.searchHash ?? '#/search').split('?');
+    const searchParams = new URLSearchParams(searchQuery);
+    params.set('q', searchParams.get('q') ?? '');
+    params.set('repo_id', searchParams.get('repo_id') ?? '');
+  }
+
+  if (options.revision) {
+    params.set('revision', options.revision);
+  }
+
+  const query = params.toString();
+  return `#/repos/${encodeURIComponent(repoId)}${query ? `?${query}` : ''}`;
+}
+
 function navigateToHash(event: MouseEvent<HTMLAnchorElement>, targetHash: string) {
   event.preventDefault();
   window.location.hash = targetHash;
@@ -640,11 +687,26 @@ function RepoListPage() {
   );
 }
 
-function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: string; initialPath: string | null; from: 'search' | null; searchHash: string | null }) {
+function RepoDetailPage({
+  repoId,
+  initialPath,
+  initialTreePath,
+  initialRevision,
+  from,
+  searchHash,
+}: {
+  repoId: string;
+  initialPath: string | null;
+  initialTreePath: string | null;
+  initialRevision: string | null;
+  from: 'search' | null;
+  searchHash: string | null;
+}) {
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailRequestKey, setDetailRequestKey] = useState(0);
+  const [revisionInput, setRevisionInput] = useState(initialRevision ?? '');
   const backHref = from === 'search' ? searchHash ?? '#/search' : '#/';
   const backLabel = from === 'search' ? '← Back to search results' : '← Back to repositories';
 
@@ -675,6 +737,17 @@ function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: str
       cancelled = true;
     };
   }, [repoId, detailRequestKey]);
+
+  useEffect(() => {
+    setRevisionInput(initialRevision ?? '');
+  }, [initialRevision]);
+
+  const updateRepoHash = (path: string | null, treePath: string | null, revision: string | null) => {
+    const targetHash = buildRepoHash(repoId, { path, treePath, revision, from, searchHash });
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  };
 
   const backLink = (
     <div style={{ marginTop: 16 }}>
@@ -726,18 +799,50 @@ function RepoDetailPage({ repoId, initialPath, from, searchHash }: { repoId: str
         <Detail label="Connection" value={repo.connection.name} />
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
-      <div style={{ marginTop: 20 }}>
-        <CommitsPanel repoId={repoId} />
+      <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <label style={fieldLabelStyle}>
+            <span>Branch, tag, or revision</span>
+            <input value={revisionInput} onChange={(event) => setRevisionInput(event.target.value)} style={inputStyle} />
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              style={primaryButtonStyle}
+              onClick={() => updateRepoHash(initialPath, initialTreePath, revisionInput.trim() || null)}
+            >
+              Apply revision
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => updateRepoHash(initialPath, initialTreePath, repo.repository.default_branch || null)}
+              disabled={!initialRevision && revisionInput.trim().length === 0}
+            >
+              Reset to default branch
+            </button>
+          </div>
+        </div>
       </div>
       <div style={{ marginTop: 20 }}>
-        <BrowsePanel repoId={repoId} initialPath={initialPath} />
+        <CommitsPanel repoId={repoId} revision={initialRevision} />
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <BrowsePanel
+          key={repoId}
+          repoId={repoId}
+          initialPath={initialPath}
+          initialTreePath={initialTreePath}
+          initialRevision={initialRevision}
+          onRouteChange={updateRepoHash}
+        />
       </div>
       {backLink}
     </Panel>
   );
 }
 
-function CommitsPanel({ repoId }: { repoId: string }) {
+function CommitsPanel({ repoId, revision }: { repoId: string; revision: string | null }) {
   const [commits, setCommits] = useState<CommitSummary[]>([]);
   const [commitsLoading, setCommitsLoading] = useState(true);
   const [commitsError, setCommitsError] = useState<string | null>(null);
@@ -760,7 +865,12 @@ function CommitsPanel({ repoId }: { repoId: string }) {
     setCommitDiffError(null);
     setCommitDiffLoading(false);
 
-    fetchJson<CommitsResponse>(`/api/v1/repos/${repoId}/commits?limit=20`)
+    const params = new URLSearchParams({ limit: '20' });
+    if (revision) {
+      params.set('revision', revision);
+    }
+
+    fetchJson<CommitsResponse>(`/api/v1/repos/${repoId}/commits?${params.toString()}`)
       .then((data) => {
         if (!cancelled) {
           setCommits(data.commits);
@@ -782,7 +892,7 @@ function CommitsPanel({ repoId }: { repoId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [repoId]);
+  }, [repoId, revision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -999,14 +1109,26 @@ function parseBrowseUrl(browseUrl: string) {
   };
 }
 
-function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: string | null }) {
-  const [treePath, setTreePath] = useState(() => (initialPath ? pathDirectory(initialPath) : ''));
+function BrowsePanel({
+  repoId,
+  initialPath,
+  initialTreePath,
+  initialRevision,
+  onRouteChange,
+}: {
+  repoId: string;
+  initialPath: string | null;
+  initialTreePath: string | null;
+  initialRevision: string | null;
+  onRouteChange: (path: string | null, treePath: string | null, revision: string | null) => void;
+}) {
+  const [treePath, setTreePath] = useState(() => (initialTreePath ?? (initialPath ? pathDirectory(initialPath) : '')));
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [treeLoading, setTreeLoading] = useState(true);
   const [treeError, setTreeError] = useState<string | null>(null);
   const [treeRequestKey, setTreeRequestKey] = useState(0);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(initialPath);
-  const [selectedRevision, setSelectedRevision] = useState<string | null>(null);
+  const [selectedRevision, setSelectedRevision] = useState<string | null>(initialRevision);
   const [blob, setBlob] = useState<BlobResponse | null>(null);
   const [blobLoading, setBlobLoading] = useState(false);
   const [blobError, setBlobError] = useState<string | null>(null);
@@ -1020,7 +1142,12 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
     let cancelled = false;
     setTreeLoading(true);
 
-    fetchJson<TreeResponse>(`/api/v1/repos/${repoId}/tree?path=${encodeURIComponent(treePath)}`)
+    const params = new URLSearchParams({ path: treePath });
+    if (selectedRevision) {
+      params.set('revision', selectedRevision);
+    }
+
+    fetchJson<TreeResponse>(`/api/v1/repos/${repoId}/tree?${params.toString()}`)
       .then((data) => {
         if (!cancelled) {
           setTree(data);
@@ -1042,7 +1169,7 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
     return () => {
       cancelled = true;
     };
-  }, [repoId, treePath, treeRequestKey]);
+  }, [repoId, treePath, treeRequestKey, selectedRevision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1088,18 +1215,65 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
   }, [repoId, selectedFilePath, selectedRevision]);
 
   useEffect(() => {
+    const nextTreePath = initialTreePath ?? (initialPath ? pathDirectory(initialPath) : '');
+    const pathChanged = selectedFilePath !== initialPath;
+    const revisionChanged = selectedRevision !== initialRevision;
+    const treeChanged = treePath !== nextTreePath;
+
+    if (!pathChanged && !revisionChanged && !treeChanged) {
+      return;
+    }
+
     navigationRequestId.current += 1;
-    setTreePath(initialPath ? pathDirectory(initialPath) : '');
-    setSelectedFilePath(initialPath);
-    setBlob(null);
-    setBlobError(null);
-    setBlobLoading(false);
-    setSelectedRevision(null);
-    setSymbol('');
-    setNavigationLoading(false);
-    setNavigationError(null);
-    setNavigationState(null);
-  }, [repoId, initialPath]);
+    setTreePath(nextTreePath);
+    if (pathChanged) {
+      setSelectedFilePath(initialPath);
+      setBlob(null);
+      setBlobError(null);
+      setBlobLoading(false);
+      setSymbol('');
+      setNavigationLoading(false);
+      setNavigationError(null);
+      setNavigationState(null);
+    }
+    if (revisionChanged) {
+      setSelectedRevision(initialRevision);
+      setSelectedFilePath(null);
+      setBlob(null);
+      setBlobError(null);
+      setBlobLoading(false);
+      setSymbol('');
+      setNavigationLoading(false);
+      setNavigationError(null);
+      setNavigationState(null);
+    }
+  }, [repoId, initialPath, initialTreePath, initialRevision]);
+
+  useEffect(() => {
+    if (treeLoading || treeError || !tree) {
+      return;
+    }
+
+    const isVisibleFile = (candidate: string | null) =>
+      Boolean(candidate) && tree.entries.some((entry) => entry.kind === 'file' && entry.path === candidate);
+
+    if (isVisibleFile(selectedFilePath)) {
+      return;
+    }
+
+    if (initialPath && isVisibleFile(initialPath)) {
+      setSelectedFilePath(initialPath);
+      return;
+    }
+
+    if (initialPath && pathDirectory(initialPath) === tree.path) {
+      const fallbackFile = tree.entries.find((entry) => entry.kind === 'file')?.path ?? null;
+      setSelectedFilePath(fallbackFile);
+      if (fallbackFile && fallbackFile !== initialPath) {
+        onRouteChange(fallbackFile, tree.path, selectedRevision);
+      }
+    }
+  }, [initialPath, onRouteChange, selectedFilePath, selectedRevision, tree, treeError, treeLoading]);
 
   const parentPath = useMemo(() => {
     if (!treePath) return null;
@@ -1112,20 +1286,20 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
     if (entry.kind === 'dir') {
       setTreePath(entry.path);
       setSelectedFilePath(null);
-      setSelectedRevision(null);
       setBlob(null);
       setBlobError(null);
       setSymbol('');
       setNavigationError(null);
       setNavigationState(null);
+      onRouteChange(null, entry.path, selectedRevision);
       return;
     }
 
     setSelectedFilePath(entry.path);
-    setSelectedRevision(null);
     setSymbol('');
     setNavigationError(null);
     setNavigationState(null);
+    onRouteChange(entry.path, pathDirectory(entry.path), selectedRevision);
   };
 
   const openBrowseTarget = (browseUrl: string) => {
@@ -1140,6 +1314,7 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
     setSelectedFilePath(target.path);
     setSelectedRevision(target.revision);
     setNavigationError(null);
+    onRouteChange(target.path, pathDirectory(target.path), target.revision);
   };
 
   const runNavigation = async (mode: NavigationMode) => {
@@ -1211,7 +1386,20 @@ function BrowsePanel({ repoId, initialPath }: { repoId: string; initialPath: str
             <div style={browseSectionMetaStyle}>Current path: {treePath || '/'}</div>
           </div>
           {parentPath !== null ? (
-            <button type="button" style={secondaryButtonStyle} onClick={() => setTreePath(parentPath)}>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              onClick={() => {
+                setTreePath(parentPath);
+                setSelectedFilePath(null);
+                setBlob(null);
+                setBlobError(null);
+                setSymbol('');
+                setNavigationError(null);
+                setNavigationState(null);
+                onRouteChange(null, parentPath, selectedRevision);
+              }}
+            >
               Up
             </button>
           ) : null}
@@ -3304,12 +3492,15 @@ export function App() {
     if (match) {
       const params = new URLSearchParams(hashQuery);
       const initialPath = params.get('path');
+      const initialTreePath = params.get('tree_path');
       const searchQuery = params.get('q') ?? '';
       const searchRepoId = params.get('repo_id') ?? '';
       return {
         kind: 'repo' as const,
         repoId: decodeURIComponent(match[1]),
         initialPath: initialPath && initialPath.length > 0 ? initialPath : null,
+        initialTreePath: initialTreePath && initialTreePath.length > 0 ? initialTreePath : null,
+        initialRevision: params.get('revision')?.trim() ? params.get('revision') : null,
         from: params.get('from') === 'search' ? ('search' as const) : null,
         searchHash: buildSearchHash(searchQuery, searchRepoId),
       };
@@ -3347,9 +3538,10 @@ export function App() {
 
       {route.kind === 'repo' ? (
         <RepoDetailPage
-          key={hash}
           repoId={route.repoId}
           initialPath={route.initialPath}
+          initialTreePath={route.initialTreePath}
+          initialRevision={route.initialRevision}
           from={route.from}
           searchHash={route.searchHash}
         />

@@ -167,6 +167,265 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2FApp.tsx');
   });
 
+  it('keeps branch or revision controls in the repo route and reloads browse plus commits for the selected revision', async () => {
+    window.location.hash = '#/repos/repo-42?path=src%2Ffeature.ts&from=search&q=router&repo_id=repo-42&revision=feature%2Fdemo';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src&revision=feature%2Fdemo') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [{ name: 'feature.ts', path: 'src/feature.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Ffeature.ts&revision=feature%2Fdemo') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/feature.ts',
+          size_bytes: 18,
+          content: 'feature revision\n',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20&revision=feature%2Fdemo') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'feature123',
+              short_id: 'feature1',
+              summary: 'Feature branch commit',
+              author_name: 'Hermes Agent',
+              authored_at: '2026-04-18T12:00:00Z',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src&revision=release%2F1.2') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [{ name: 'release.ts', path: 'src/release.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Frelease.ts&revision=release%2F1.2') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/release.ts',
+          size_bytes: 18,
+          content: 'release revision\n',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20&revision=release%2F1.2') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'release123',
+              short_id: 'release',
+              summary: 'Release branch commit',
+              author_name: 'Hermes Agent',
+              authored_at: '2026-04-18T13:00:00Z',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src&revision=develop') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [{ name: 'default.ts', path: 'src/default.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fdefault.ts&revision=develop') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/default.ts',
+          size_bytes: 17,
+          content: 'default branch\n',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20&revision=develop') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByDisplayValue('feature/demo')).toBeInTheDocument();
+    expect(screen.getByText('Current path: src')).toBeInTheDocument();
+    expect(screen.getByText('Viewing revision: feature/demo')).toBeInTheDocument();
+    expect(await screen.findByText('Feature branch commit')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '← Back to search results' })).toHaveAttribute('href', '#/search?q=router&repo_id=repo-42');
+
+    fireEvent.change(screen.getByLabelText('Branch, tag, or revision'), { target: { value: 'release/1.2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply revision' }));
+
+    await screen.findByDisplayValue('release/1.2');
+    expect(screen.getByDisplayValue('release/1.2')).toBeInTheDocument();
+    await screen.findByText('Release branch commit');
+    expect(screen.getByText('Release branch commit')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/repos/repo-42?path=src%2Frelease.ts&from=search&q=router&repo_id=repo-42&revision=release%2F1.2');
+    }, { timeout: 4000 });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Frelease.ts&revision=release%2F1.2');
+    }, { timeout: 4000 });
+    expect(await screen.findByText('release revision', undefined, { timeout: 4000 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default branch' }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/repos/repo-42?path=src%2Fdefault.ts&from=search&q=router&repo_id=repo-42&revision=develop');
+    }, { timeout: 4000 });
+
+    expect(await screen.findByText('src/default.ts', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText('default branch', undefined, { timeout: 4000 })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/repos/repo-42?path=src%2Fdefault.ts&from=search&q=router&repo_id=repo-42&revision=develop');
+    }, { timeout: 4000 });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/tree?path=src&revision=feature%2Fdemo');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Ffeature.ts&revision=feature%2Fdemo');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20&revision=feature%2Fdemo');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/tree?path=src&revision=release%2F1.2');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Frelease.ts&revision=release%2F1.2');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20&revision=release%2F1.2');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/tree?path=src&revision=develop');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Fdefault.ts&revision=develop');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20&revision=develop');
+  });
+
+  it('clears repo-scoped browse state when navigating to a different repository detail route', async () => {
+    window.location.hash = '#/repos/repo-a?path=src%2Falpha.ts';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-a') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-a',
+            name: 'repo-a',
+            default_branch: 'main',
+            connection_id: 'conn-a',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-a',
+            name: 'Connection A',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-a/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-a',
+          path: 'src',
+          entries: [{ name: 'alpha.ts', path: 'src/alpha.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-a/blob?path=src%2Falpha.ts') {
+        return jsonResponse({
+          repo_id: 'repo-a',
+          path: 'src/alpha.ts',
+          size_bytes: 8,
+          content: 'alpha A\n',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-a/commits?limit=20') {
+        return jsonResponse({ repo_id: 'repo-a', commits: [] });
+      }
+
+      if (url === '/api/v1/repos/repo-b') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-b',
+            name: 'repo-b',
+            default_branch: 'main',
+            connection_id: 'conn-b',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-b',
+            name: 'Connection B',
+            kind: 'gitlab',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-b/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-b',
+          path: '',
+          entries: [{ name: 'README.md', path: 'README.md', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-b/blob?path=README.md') {
+        return jsonResponse({
+          repo_id: 'repo-b',
+          path: 'README.md',
+          size_bytes: 7,
+          content: 'repo B\n',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-b/commits?limit=20') {
+        return jsonResponse({ repo_id: 'repo-b', commits: [] });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('alpha A')).toBeInTheDocument();
+
+    window.location.hash = '#/repos/repo-b';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+
+    expect(await screen.findByText('repo-b')).toBeInTheDocument();
+    expect(await screen.findByText('README.md')).toBeInTheDocument();
+    expect(screen.getAllByText('Select a file to inspect its contents.').length).toBeGreaterThan(0);
+    expect(screen.queryByText('alpha A')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/v1/repos/repo-b/tree?path=src');
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/v1/repos/repo-b/blob?path=src%2Falpha.ts');
+  });
+
   it('preserves the search back link and can retry repository detail loading after an error', async () => {
     window.location.hash = '#/repos/repo-42?from=search&q=router&repo_id=repo-42';
 
