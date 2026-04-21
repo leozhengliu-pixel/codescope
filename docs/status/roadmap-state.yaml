@@ -5,51 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 72e4317f4c2a188402c05cd338c541eceecb77aa
+  head: 5ee23967d07de1000f6c09ee2d6fcd8bd4ee07d0
 last_completed_task:
-  id: task76c
-  title: Add branch/revision-aware repository detail, browse, and commit controls
+  id: task77a
+  title: Add read-only members inventory to the shared settings shell
   status: done
   summary: >-
-    Chose one more Task 76 user-visible repo/browse closure instead of splitting
-    revision plumbing into separate route, test, and docs fragments. `web/src/App.tsx`
-    now keeps repo-detail hashes revision-aware and canonical, reloads browse tree/blob
-    and commit history for the selected branch/tag/revision, resets truthfully to the
-    repository default branch, and clears stale repo-scoped browse state when switching
-    to a different repository route. `crates/api/src/browse.rs`,
-    `crates/api/src/commits.rs`, and `crates/api/src/main.rs` now accept revision-aware
-    tree and commit-list requests and fail closed with `404` for invalid or option-like
-    revision inputs. `web/src/App.test.tsx`, `specs/acceptance/browse.md`,
-    `specs/acceptance/index.md`, and `docs/reports/2026-04-18-parity-gap-report.md`
-    ground that narrower revision-control baseline without claiming broader ref-discovery
-    or full browse/commit parity.
+    Chose a Task 77 user-visible members closure instead of splitting settings parity
+    into separate route, API, privacy-fix, and docs fragments. `web/src/App.tsx` now
+    exposes a discoverable `#/settings/members` destination inside the shared settings
+    shell with truthful loading, error, empty, and populated read-only inventory states.
+    `crates/api/src/main.rs` now backs that panel with authenticated
+    `GET /api/v1/auth/members` results limited to organizations the local-session user
+    administers, returns an empty inventory for authenticated non-admin users instead of
+    leaking hidden organizations, and redacts cross-org invite identities while only
+    marking invites accepted when complete acceptance evidence is present.
+    `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+    `specs/acceptance/settings-navigation.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly as a
+    read-only inventory baseline without claiming full org or invite management parity.
   tests:
-    - npx vitest run src/App.test.tsx -t 'clears repo-scoped browse state when navigating to a different repository detail route': passed (1 passed | 128 skipped)
-    - npx vitest run src/App.test.tsx -t 'keeps branch or revision controls in the repo route and reloads browse plus commits for the selected revision': passed (1 passed | 128 skipped)
-    - cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_not_found -- --nocapture: passed
-    - cargo test -p sourcebot-api repo_commits_returns_not_found_for_option_like_revision -- --nocapture: passed
-    - npx vitest run src/App.test.tsx: passed (129 passed)
+    - cargo test -p sourcebot-api auth_members_hides_cross_org_invite_accounts_and_incomplete_acceptance_details -- --nocapture: passed
+    - npx vitest run src/App.test.tsx -t 'shows a members loading failure inside the shared settings shell': passed (1 passed | 131 skipped)
+    - npx vitest run src/App.test.tsx: passed (132 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
-    - cargo test -p sourcebot-api: passed (294 passed)
+    - cargo test -p sourcebot-api: passed (297 passed)
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 76c slice stays narrowly scoped to repo-route revision control, browse/commit reloads, cross-repo stale-state clearing, backend 404 behavior for invalid revision inputs, and truthful docs/report wording without overclaiming broader branch/ref parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the revision-aware repo routing, browse/commit API wiring, or focused acceptance/report updates
-  commit: 72e4317f4c2a188402c05cd338c541eceecb77aa
-  next_task: task77
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 77a slice stays narrowly scoped to a discoverable read-only members inventory, uses `/api/v1/auth/members`, keeps empty-state behavior fail-closed for hidden organizations, and updates acceptance/report wording without overstating broader org/invite management parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the auth-members privacy boundaries, invite redaction/status handling, frontend shared-shell states, or focused docs/report updates
+  commit: 5ee23967d07de1000f6c09ee2d6fcd8bd4ee07d0
+  next_task: task77b
 current_task:
-  id: task77
+  id: task77b
   parent_task: task77
-  title: Settings section parity completion
+  title: Complete the next user-visible settings subsection after members inventory
   status: pending
   summary: >-
-    Task 76 now covers dedicated-search deep links, repo-detail/browse recovery states,
-    and a truthful repo-route revision-control baseline. The next smallest meaningful
-    closure should move to the next roadmap task with new user-visible settings value
-    instead of continuing to micro-slice repo/browse paperwork after this revision
-    baseline shipped.
+    Task 77 now includes a truthful shared-shell members destination with read-only
+    admin-visible roster and invite inventory. The next smallest meaningful closure
+    should advance another still-missing settings subsection with real user-visible
+    value instead of returning to docs-only polish or further micro-splitting the
+    members slice.
 history:
+  - id: task77a
+    status: done
+    summary: >-
+      Chose a Task 77 user-visible members closure instead of splitting settings parity
+      into separate route, API, privacy-fix, and docs fragments. `web/src/App.tsx`
+      now exposes a discoverable `#/settings/members` destination inside the shared
+      settings shell with truthful loading, error, empty, and populated read-only
+      inventory states. `crates/api/src/main.rs` now backs that panel with
+      authenticated `GET /api/v1/auth/members` results limited to organizations the
+      local-session user administers, returns an empty inventory for authenticated
+      non-admin users instead of leaking hidden organizations, and redacts cross-org
+      invite identities while only marking invites accepted when complete acceptance
+      evidence is present. `web/src/App.test.tsx`, `specs/acceptance/auth.md`,
+      `specs/acceptance/settings-navigation.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` ground the slice honestly as a
+      read-only inventory baseline without claiming full org or invite management
+      parity.
+    tests:
+      - cargo test -p sourcebot-api auth_members_hides_cross_org_invite_accounts_and_incomplete_acceptance_details -- --nocapture: passed
+      - npx vitest run src/App.test.tsx -t 'shows a members loading failure inside the shared settings shell': passed (1 passed | 131 skipped)
+      - npx vitest run src/App.test.tsx: passed (132 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - cargo test -p sourcebot-api: passed (297 passed)
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 77a slice stays narrowly scoped to a discoverable read-only members inventory, uses `/api/v1/auth/members`, keeps empty-state behavior fail-closed for hidden organizations, and updates acceptance/report wording without overstating broader org/invite management parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the auth-members privacy boundaries, invite redaction/status handling, frontend shared-shell states, or focused docs/report updates
+    commit: 5ee23967d07de1000f6c09ee2d6fcd8bd4ee07d0
+    next_task: task77b
   - id: task76c
     status: done
     summary: >-
