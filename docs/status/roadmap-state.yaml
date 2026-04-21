@@ -5,52 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0b3eebcc1da3e0f3fb5095fc90f258272b0d188d
+  head: bd704b94f4becc7587df214a93c030c3f8a02e5d
 last_completed_task:
-  id: task20q2am63b
-  title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
+  id: task75a
+  title: Add a dedicated `#/search` route that reuses the existing API-backed search flow and top-level navigation
   status: done
   summary: >-
-    Closed the deferred docs-only Public REST API parity-row follow-up by
-    updating only `specs/FEATURE_PARITY.md` so the row now truthfully records the
-    already-grounded `Partial` status. The matrix now matches
-    `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md`: the rewrite already ships a
-    versioned `/api/v1/...` JSON surface across config, repo browse/search,
-    auth, OAuth-client, and review-webhook routes, while endpoint completeness,
-    integration-specific acceptance evidence, and durable
-    connection/repository-operation parity remain open. This was kept as one
-    minimal docs-only closure because the behavior and focused evidence already
-    existed, and the run fully removed the stale parity-matrix drift instead of
-    producing another audit-only micro-slice.
+    Landed one user-visible Task 75 closure instead of another paperwork-only
+    parity slice. `web/src/App.tsx` now gives the frontend a dedicated `#/search`
+    route with top-level navigation, reuses the existing `/api/v1/search` query,
+    repo filter, and result rendering inside a standalone `SearchPage`, and keeps
+    `#/` focused on repository inventory plus a dedicated-search call-to-action.
+    `web/src/App.test.tsx`, `specs/acceptance/search.md`,
+    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`, and
+    `docs/reports/2026-04-18-parity-gap-report.md` now all truthfully ground that
+    dedicated-route baseline without overstating richer chat/search-product parity
+    that remains follow-up work.
   tests:
-    - python3 raw-content postcheck confirmed the `Public REST API` row now records grounded `Partial` evidence and remains aligned with `specs/acceptance/integrations.md` plus `docs/reports/2026-04-18-parity-gap-report.md`: passed
-    - npx vitest run src/App.test.tsx -t 'renders repository names after the list request succeeds|loads repository detail and browses directories and files from the browse api': passed (2 passed | 120 skipped)
-    - npx vitest run src/App.test.tsx: passed (122 passed)
+    - npx vitest run src/App.test.tsx -t 'dedicated search route|repository home focused on repository inventory|filters results by repository from the dedicated search page|empty search state when no matches are returned on the dedicated search page': passed (4 passed | 120 skipped)
+    - npx vitest run src/App.test.tsx: passed (124 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the diff updates only the `Public REST API` parity row, matches the already-grounded `Partial` evidence, and remains truthful/minimal without broadening other integration rows
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects and confirmed the wording does not overclaim beyond the shipped `/api/v1/...` surface
-  commit: 0b3eebcc1da3e0f3fb5095fc90f258272b0d188d
-  next_task: task75a
+    spec: passed one independent post-implementation review; reviewer confirmed the live changes add a real `#/search` page wired through the existing `/api/v1/search` flow, keep `#/` focused on repository inventory with dedicated-search navigation, include focused route/home/search coverage, and update docs/reporting truthfully without claiming full search parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the dedicated search-route split and suggested only optional future normalization for variant `#/search` hash forms
+  commit: bd704b94f4becc7587df214a93c030c3f8a02e5d
+  next_task: task76a
 current_task:
-  id: task75a
-  parent_task: task75
-  title: Add a dedicated `#/search` route that reuses the existing API-backed search flow and top-level navigation
+  id: task76a
+  parent_task: task76
+  title: Polish repo list/detail navigation and empty-state UX after the dedicated search-route split
   status: pending
   summary: >-
-    With the deferred Public REST API parity-row drift now fully closed in one
-    truthful docs-only run, the next slice should pivot back to user-visible
-    progress instead of continuing paperwork atoms. `web/src/App.tsx` still only
-    routes `#/`, `#/repos/:repoId`, and `#/settings...`, while the roadmap's
-    search-page parity work remains open. The next meaningful closure is to
-    split Task 75 into a first route-level slice that introduces a dedicated
-    `#/search` page reusing the current search form/results and navigation
-    affordances without trying to solve the whole frontend parity backlog at
-    once.
+    Task 75 now has a meaningful user-visible route-level closure, so the next
+    run should stay on product-surface work instead of drifting back into tiny
+    docs-only slices. The next smallest meaningful closure is to take one Task 76
+    frontend-polish slice that improves repository list/detail navigation or
+    empty-state behavior now that search has moved to its own route, while
+    keeping scope smaller than the full repo/browse UX backlog.
 history:
+  - id: task75a
+    status: done
+    summary: >-
+      Landed one user-visible Task 75 closure instead of another paperwork-only
+      parity slice. `web/src/App.tsx` now gives the frontend a dedicated
+      `#/search` route with top-level navigation, reuses the existing
+      `/api/v1/search` query, repo filter, and result rendering inside a
+      standalone `SearchPage`, and keeps `#/` focused on repository inventory
+      plus a dedicated-search call-to-action. `web/src/App.test.tsx`,
+      `specs/acceptance/search.md`, `specs/acceptance/index.md`,
+      `specs/acceptance/journeys.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now all truthfully ground
+      that dedicated-route baseline without overstating richer chat/search-
+      product parity that remains follow-up work.
+    tests:
+      - npx vitest run src/App.test.tsx -t 'dedicated search route|repository home focused on repository inventory|filters results by repository from the dedicated search page|empty search state when no matches are returned on the dedicated search page': passed (4 passed | 120 skipped)
+      - npx vitest run src/App.test.tsx: passed (124 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live changes add a real `#/search` page wired through the existing `/api/v1/search` flow, keep `#/` focused on repository inventory with dedicated-search navigation, include focused route/home/search coverage, and update docs/reporting truthfully without claiming full search parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the dedicated search-route split and suggested only optional future normalization for variant `#/search` hash forms
+    commit: bd704b94f4becc7587df214a93c030c3f8a02e5d
+    next_task: task76a
   - id: task20q2am63b
     status: done
     summary: >-
