@@ -5,46 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 00318f345bc17a116764bd4c4af839e1dc495d5a
+  head: 6669193fd0b9b4060e86b63e6d00ed6c733d8f7c
 last_completed_task:
-  id: task20q2am63a
-  title: Audit the Public REST API parity-matrix row against the current integrations acceptance evidence and gap report
+  id: task55a
+  title: Add a shared settings navigation shell around the existing authenticated admin surfaces
   status: done
   summary: >-
-    Closed the one-hundred-tenth split task20q2 settings-shell follow-up slice by
-    grounding the next Public REST API documentation drift in
-    `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`. The
-    audit confirmed `specs/acceptance/integrations.md` and
-    `docs/reports/2026-04-18-parity-gap-report.md` already agree that Public REST
-    API parity is only partial: the rewrite ships a real versioned `/api/v1/...`
-    JSON surface across repo, search, auth, OAuth-client, and review-webhook
-    routes, while broader endpoint completeness and durable connector/repository
-    operations remain open. The next smallest truthful slice is to tighten only
-    the `specs/FEATURE_PARITY.md` `Public REST API` row without changing product
-    behavior.
+    Corrected the roadmap controller's anti-microslice imbalance instead of
+    continuing the pending docs-only `task20q2am63b` row tweak. Landed one
+    user-visible Task 55 slice: `web/src/App.tsx` now exposes a shared
+    `#/settings` route family with a landing page plus discoverable
+    `connections`, `api-keys`, `oauth-clients`, `observability`, and
+    `review-automation` sections, while the existing connections flow keeps
+    working inside that shell. `specs/acceptance/settings-navigation.md`, the
+    acceptance index/journey map, and the parity gap report now ground the
+    auth/admin/settings frontend surface as `Partial` instead of `Missing`
+    without overstating richer management UX that is still follow-up work.
   tests:
-    - python3 raw-content precheck confirmed `specs/FEATURE_PARITY.md` still leaves the `Public REST API` row at `Needs audit | _TBD_ |` while `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground versioned machine-readable Public REST API parity as `Partial`: passed
-    - python3 raw-content audit-note presence check confirmed the note records the Public REST API parity-matrix drift, the versioned `/api/v1/...` evidence in `crates/api/src/main.rs` and `web/src/App.tsx`, and queues `task20q2am63b`: passed
+    - npx vitest run src/App.test.tsx -t 'settings landing|api keys settings section|Authenticated connections': passed (3 passed | 110 skipped)
+    - npx vitest run src/App.test.tsx: passed (113 passed)
+    - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
-    - python3 added-lines security scan for `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`: passed
+    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the docs-only audit exactly closes `task20q2am63a`, stays within the Public REST API parity-matrix audit scope, and queues exactly one parity-matrix-only follow-up slice without product-behavior changes
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md` diff
-  commit: 00318f345bc17a116764bd4c4af839e1dc495d5a
-  next_task: task20q2am63b
+    spec: passed one independent post-implementation review; reviewer confirmed the broader settings route family, shared shell, honest placeholder sections, and acceptance/report grounding all match the intended slice
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for malformed `#/settings/...` routes
+  commit: 6669193fd0b9b4060e86b63e6d00ed6c733d8f7c
+  next_task: task55b
 current_task:
-  id: task20q2am63b
-  parent_task: task20q2am63
-  title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
+  id: task55b
+  parent_task: task55
+  title: Add an authenticated API-keys inventory panel within the shared settings shell
   status: pending
   summary: >-
-    `docs/status/task20q2am63a-public-rest-api-parity-matrix-gap-audit.md`
-    now grounds the current Public REST API parity-matrix drift. The next
-    smallest documentation slice is to tighten only the `specs/FEATURE_PARITY.md`
-    `Public REST API` row so it records the already-grounded `Partial` status and
-    cites the existing integrations acceptance/gap-report evidence without
-    changing product behavior or broadening other integration rows.
+    The new `#/settings` route family makes settings/admin navigation
+    discoverable and creates a dedicated acceptance home for that surface. The
+    next meaningful closure is to wire one real subsection — preferably API
+    keys via `/api/v1/auth/api-keys` — so the shell advances from navigation
+    parity toward a concrete authenticated admin workflow.
+deferred_tasks:
+  - id: task20q2am63b
+    parent_task: task20q2am63
+    title: Tighten the Public REST API parity-matrix row to record the already-grounded partial status and evidence
+    status: pending
+    reason: >-
+      Deferred deliberately this run to correct an anti-microslice imbalance
+      after more than five consecutive docs/state-only slices in the same
+      roadmap stream. The row update remains truthful but lower value than the
+      shipped settings-navigation closure and can resume once product-surface
+      balance recovers.
 history:
+  - id: task55a
+    status: done
+    summary: >-
+      Corrected the roadmap controller's anti-microslice imbalance instead of
+      continuing the pending docs-only `task20q2am63b` row tweak. Landed one
+      user-visible Task 55 slice: `web/src/App.tsx` now exposes a shared
+      `#/settings` route family with a landing page plus discoverable
+      `connections`, `api-keys`, `oauth-clients`, `observability`, and
+      `review-automation` sections, while the existing connections flow keeps
+      working inside that shell. `specs/acceptance/settings-navigation.md`, the
+      acceptance index/journey map, and the parity gap report now ground the
+      auth/admin/settings frontend surface as `Partial` instead of `Missing`
+      without overstating richer management UX that is still follow-up work.
+    tests:
+      - npx vitest run src/App.test.tsx -t 'settings landing|api keys settings section|Authenticated connections': passed (3 passed | 110 skipped)
+      - npx vitest run src/App.test.tsx: passed (113 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the broader settings route family, shared shell, honest placeholder sections, and acceptance/report grounding all match the intended slice
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up coverage for malformed `#/settings/...` routes
+    commit: 6669193fd0b9b4060e86b63e6d00ed6c733d8f7c
+    next_task: task55b
   - id: task20q2am63a
     status: done
     summary: >-
