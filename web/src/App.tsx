@@ -211,6 +211,10 @@ type OAuthClientListItem = {
   revoked_at: string | null;
 };
 
+type CreateOAuthClientResponse = OAuthClientListItem & {
+  client_secret: string;
+};
+
 type MembersAccount = {
   id: string;
   email: string;
@@ -3424,6 +3428,12 @@ function SettingsOAuthClientsPage() {
   const [oauthClients, setOauthClients] = useState<OAuthClientListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState('');
+  const [clientName, setClientName] = useState('');
+  const [redirectUrisText, setRedirectUrisText] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createdClientResult, setCreatedClientResult] = useState<CreateOAuthClientResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -3452,13 +3462,136 @@ function SettingsOAuthClientsPage() {
     };
   }, []);
 
+  const parsedRedirectUris = redirectUrisText
+    .split('\n')
+    .map((redirectUri) => redirectUri.trim())
+    .filter((redirectUri) => redirectUri.length > 0);
+  const createDisabled =
+    loading ||
+    error !== null ||
+    isCreating ||
+    organizationId.trim().length === 0 ||
+    clientName.trim().length === 0 ||
+    parsedRedirectUris.length === 0;
+
+  const handleCreateOAuthClient = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (createDisabled) {
+      return;
+    }
+
+    setIsCreating(true);
+    setCreateError(null);
+    setCreatedClientResult(null);
+
+    try {
+      const createdClient = await fetchJson<CreateOAuthClientResponse>('/api/v1/auth/oauth-clients', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          organization_id: organizationId.trim(),
+          name: clientName.trim(),
+          redirect_uris: parsedRedirectUris,
+        }),
+      });
+
+      setOauthClients((currentClients) => [
+        {
+          id: createdClient.id,
+          organization_id: createdClient.organization_id,
+          name: createdClient.name,
+          client_id: createdClient.client_id,
+          redirect_uris: createdClient.redirect_uris,
+          created_by_user_id: createdClient.created_by_user_id,
+          created_at: createdClient.created_at,
+          revoked_at: createdClient.revoked_at,
+        },
+        ...currentClients,
+      ]);
+      setCreatedClientResult(createdClient);
+      setOrganizationId('');
+      setClientName('');
+      setRedirectUrisText('');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <Panel title="OAuth clients" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
-          This minimal panel shows the authenticated visible OAuth client inventory only. Richer OAuth authorization, token
-          issuance and revocation, and create/manage UX remain follow-up work.
+          This minimal panel shows the authenticated visible OAuth client inventory plus a focused create form. Richer OAuth
+          authorization, token issuance and revocation, and broader manage UX remain follow-up work.
         </p>
+
+        {!loading && !error ? (
+          <form onSubmit={handleCreateOAuthClient} style={{ ...detailCardStyle, display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Create OAuth client</div>
+            <div style={{ color: '#57606a' }}>
+              Create a client for an organization you can administer. The plaintext client secret is returned only once after a
+              successful create request.
+            </div>
+
+            <div style={detailGridStyle}>
+              <label style={fieldLabelStyle}>
+                <span>Organization id</span>
+                <input
+                  value={organizationId}
+                  onChange={(event) => setOrganizationId(event.target.value)}
+                  style={inputStyle}
+                  disabled={isCreating}
+                />
+              </label>
+
+              <label style={fieldLabelStyle}>
+                <span>Client name</span>
+                <input
+                  value={clientName}
+                  onChange={(event) => setClientName(event.target.value)}
+                  style={inputStyle}
+                  disabled={isCreating}
+                />
+              </label>
+            </div>
+
+            <label style={fieldLabelStyle}>
+              <span>Redirect URIs</span>
+              <textarea
+                value={redirectUrisText}
+                onChange={(event) => setRedirectUrisText(event.target.value)}
+                style={{ ...inputStyle, minHeight: 96, resize: 'vertical' }}
+                disabled={isCreating}
+              />
+            </label>
+
+            <div style={{ color: '#57606a' }}>Enter one redirect URI per line.</div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button type="submit" style={primaryButtonStyle} disabled={createDisabled}>
+                {isCreating ? 'Creating…' : 'Create OAuth client'}
+              </button>
+              {createError ? <div>Unable to create OAuth client: {createError}</div> : null}
+            </div>
+          </form>
+        ) : null}
+
+        {createdClientResult ? (
+          <div style={{ ...detailCardStyle, borderColor: '#1a7f37', background: '#eefbf1', display: 'grid', gap: 8 }}>
+            <div style={{ fontWeight: 700 }}>OAuth client created. Copy the secret now.</div>
+            <div>Client id: {createdClientResult.client_id}</div>
+            <div>Client secret: {createdClientResult.client_secret}</div>
+            <div style={{ color: '#57606a' }}>
+              This secret is shown only for the immediate create result. The inventory below does not retain plaintext secret
+              material.
+            </div>
+          </div>
+        ) : null}
 
         {loading ? <div>Loading OAuth clients…</div> : null}
         {!loading && error ? <div>Unable to load OAuth clients: {error}</div> : null}

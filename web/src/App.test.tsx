@@ -1343,7 +1343,7 @@ describe('App', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/auth/oauth-clients');
     expect(
-      screen.getByText(/Richer OAuth authorization, token issuance and revocation, and create\/manage UX remain follow-up work\./)
+      screen.getByText(/Richer OAuth authorization, token issuance and revocation, and broader manage UX remain follow-up work\./)
     ).toBeInTheDocument();
 
     expect(within(activeClient).getByText('Client id: client-visible-active')).toBeInTheDocument();
@@ -1363,6 +1363,108 @@ describe('App', () => {
 
     expect(screen.queryByText('secret-should-not-render')).not.toBeInTheDocument();
     expect(screen.queryByText('another-secret-that-must-stay-hidden')).not.toBeInTheDocument();
+  });
+
+  it('creates an oauth client, refreshes the inventory, and reveals the plaintext secret only in the immediate success area', async () => {
+    window.location.hash = '#/settings/oauth-clients';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/oauth-clients' && !init?.method) {
+        return jsonResponse([
+          {
+            id: 'oauth-existing',
+            organization_id: 'org-acme',
+            name: 'Existing app',
+            client_id: 'client-existing',
+            created_by_user_id: 'local-user-1',
+            created_at: '2026-04-24T00:05:00Z',
+            revoked_at: null,
+            redirect_uris: ['https://existing.example.com/callback'],
+            client_secret_hash: 'hidden-existing-secret-hash',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/oauth-clients' && init?.method === 'POST') {
+        expect(init.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+          'Content-Type': 'application/json',
+        });
+        expect(init.body).toBe(
+          JSON.stringify({
+            organization_id: 'org-beta',
+            name: 'Beta dashboard',
+            redirect_uris: ['https://beta.example.com/callback', 'http://localhost:4000/callback'],
+          })
+        );
+
+        return jsonResponse(
+          {
+            id: 'oauth-created',
+            organization_id: 'org-beta',
+            name: 'Beta dashboard',
+            client_id: 'client-created',
+            client_secret: 'plaintext-secret-once',
+            created_by_user_id: 'local-user-admin',
+            created_at: '2026-04-26T09:15:00Z',
+            revoked_at: null,
+            redirect_uris: ['https://beta.example.com/callback', 'http://localhost:4000/callback'],
+          },
+          true,
+          201
+        );
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('OAuth client Existing app')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Organization id'), { target: { value: ' org-beta ' } });
+    fireEvent.change(screen.getByLabelText('Client name'), { target: { value: '  Beta dashboard  ' } });
+    fireEvent.change(screen.getByLabelText('Redirect URIs'), {
+      target: { value: ' https://beta.example.com/callback \n\n http://localhost:4000/callback ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create OAuth client' }));
+
+    expect(await screen.findByText('OAuth client created. Copy the secret now.')).toBeInTheDocument();
+    expect(screen.getByText('Client secret: plaintext-secret-once')).toBeInTheDocument();
+    expect(screen.getAllByText('Client id: client-created')).toHaveLength(2);
+
+    const createdClient = screen.getByLabelText('OAuth client Beta dashboard');
+    expect(within(createdClient).getByText('Client id: client-created')).toBeInTheDocument();
+    expect(within(createdClient).queryByText(/plaintext-secret-once/)).not.toBeInTheDocument();
+
+    expect(screen.queryByText('hidden-existing-secret-hash')).not.toBeInTheDocument();
+    expect(screen.queryByText('plaintext-secret-once', { selector: 'span' })).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/auth/oauth-clients', {
+        headers: {
+          Authorization: 'Bearer session-1:secret-1',
+        },
+      });
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/oauth-clients', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer session-1:secret-1',
+        },
+        body: JSON.stringify({
+          organization_id: 'org-beta',
+          name: 'Beta dashboard',
+          redirect_uris: ['https://beta.example.com/callback', 'http://localhost:4000/callback'],
+        }),
+      });
+    });
   });
 
   it('shows an oauth clients empty state', async () => {
