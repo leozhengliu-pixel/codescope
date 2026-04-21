@@ -579,6 +579,424 @@ describe('App', () => {
     });
   });
 
+  it('renders a dedicated chat route, loads thread summaries from the hash-selected thread, and stays on chat route', async () => {
+    window.location.hash = '#/chat?thread_id=thread-2';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          {
+            id: 'thread-1',
+            session_id: 'session-1',
+            title: 'How does alpha work?',
+            repo_scope: ['repo-1'],
+            visibility: 'private',
+            updated_at: '2026-04-21T20:00:00Z',
+            message_count: 2,
+          },
+          {
+            id: 'thread-2',
+            session_id: 'session-2',
+            title: 'Explain the routing flow',
+            repo_scope: ['repo-2'],
+            visibility: 'private',
+            updated_at: '2026-04-21T21:00:00Z',
+            message_count: 4,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2') {
+        return jsonResponse({
+          id: 'thread-2',
+          session_id: 'session-2',
+          user_id: 'user-1',
+          title: 'Explain the routing flow',
+          repo_scope: ['repo-2'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'How does the routing flow work?',
+              citations: [],
+              rendered_citations: [],
+            },
+            {
+              id: 'msg-2',
+              role: 'assistant',
+              content: 'The chat route should restore the selected thread.',
+              citations: [],
+              rendered_citations: [],
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(screen.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '#/chat');
+    expect(screen.getByText('Browse and continue grounded ask threads from a dedicated chat route.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Explain the routing flow/ })).toBeInTheDocument();
+    expect(await screen.findByText('How does the routing flow work?')).toBeInTheDocument();
+    expect(screen.getByText('Current scope: beta-repo')).toBeInTheDocument();
+    expect(screen.queryByText('Ask grounded questions across visible repositories from a dedicated route.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Repositories' })).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-2&thread_id=thread-2');
+  });
+
+  it('submitting from the chat route continues the selected thread, appends the new answer, and keeps the hash pinned', async () => {
+    window.location.hash = '#/chat?thread_id=thread-2';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          {
+            id: 'thread-2',
+            session_id: 'session-2',
+            title: 'Explain the routing flow',
+            repo_scope: ['repo-2'],
+            visibility: 'private',
+            updated_at: '2026-04-21T21:00:00Z',
+            message_count: 2,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2') {
+        return jsonResponse({
+          id: 'thread-2',
+          session_id: 'session-2',
+          user_id: 'user-1',
+          title: 'Explain the routing flow',
+          repo_scope: ['repo-2'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'What keeps the route pinned?',
+              citations: [],
+              rendered_citations: [],
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Continue the chat thread',
+            repo_scope: ['repo-2'],
+            thread_id: 'thread-2',
+          })
+        );
+
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'chat-model',
+          answer: 'The selected thread id remains in the chat hash.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-2',
+          session_id: 'session-2',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('What keeps the route pinned?')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Continue the chat thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('The selected thread id remains in the chat hash.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-2&thread_id=thread-2');
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === '/api/v1/ask/completions')).toHaveLength(1);
+  });
+
+  it('chat route clears a stale restored thread after a 404 follow-up and resets the hash to a fresh chat baseline', async () => {
+    window.location.hash = '#/chat?thread_id=thread-stale';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          {
+            id: 'thread-stale',
+            session_id: 'session-stale',
+            title: 'Stale thread',
+            repo_scope: ['repo-1'],
+            visibility: 'private',
+            updated_at: '2026-04-21T21:00:00Z',
+            message_count: 2,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-stale') {
+        return jsonResponse({
+          id: 'thread-stale',
+          session_id: 'session-stale',
+          user_id: 'user-1',
+          title: 'Stale thread',
+          repo_scope: ['repo-1'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'Stale question',
+              citations: [],
+              rendered_citations: [],
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Resume the stale chat thread',
+            repo_scope: ['repo-1'],
+            thread_id: 'thread-stale',
+          })
+        );
+        return jsonResponse({ error: 'missing thread' }, false, 404);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Active thread: thread-stale')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Resume the stale chat thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText(/The restored chat thread is no longer available for this repository scope\. Start a fresh chat\./)).toBeInTheDocument();
+    expect(screen.queryByText('Active thread: thread-stale')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-1');
+  });
+
+  it('chat route invalidates an in-flight ask when switching to a different thread', async () => {
+    window.location.hash = '#/chat?thread_id=thread-1';
+
+    const delayedFirstThreadAsk = deferredResponse();
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          {
+            id: 'thread-1',
+            session_id: 'session-1',
+            title: 'Alpha thread',
+            repo_scope: ['repo-1'],
+            visibility: 'private',
+            updated_at: '2026-04-21T20:00:00Z',
+            message_count: 2,
+          },
+          {
+            id: 'thread-2',
+            session_id: 'session-2',
+            title: 'Beta thread',
+            repo_scope: ['repo-2'],
+            visibility: 'private',
+            updated_at: '2026-04-21T21:00:00Z',
+            message_count: 2,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-1') {
+        return jsonResponse({
+          id: 'thread-1',
+          session_id: 'session-1',
+          user_id: 'user-1',
+          title: 'Alpha thread',
+          repo_scope: ['repo-1'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:00:00Z',
+          updated_at: '2026-04-21T20:00:00Z',
+          messages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'How does alpha work?',
+              citations: [],
+              rendered_citations: [],
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2') {
+        return jsonResponse({
+          id: 'thread-2',
+          session_id: 'session-2',
+          user_id: 'user-1',
+          title: 'Beta thread',
+          repo_scope: ['repo-2'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [
+            {
+              id: 'msg-2',
+              role: 'user',
+              content: 'How does beta work?',
+              citations: [],
+              rendered_citations: [],
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/ask/completions') {
+        if (String(init?.body).includes('thread-1')) {
+          return delayedFirstThreadAsk.promise;
+        }
+
+        expect(init?.body).toBe(
+          JSON.stringify({
+            prompt: 'Continue the beta thread',
+            repo_scope: ['repo-2'],
+            thread_id: 'thread-2',
+          })
+        );
+        return jsonResponse({
+          provider: 'test-provider',
+          model: 'chat-model',
+          answer: 'The second thread keeps its own repo scope.',
+          citations: [],
+          rendered_citations: [],
+          thread_id: 'thread-2',
+          session_id: 'session-2',
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Active thread: thread-1')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Continue alpha' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Beta thread/ }));
+    expect(await screen.findByText('Current scope: beta-repo')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled();
+    });
+
+    fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Continue the beta thread' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+
+    expect(await screen.findByText('The second thread keeps its own repo scope.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-2&thread_id=thread-2');
+
+    delayedFirstThreadAsk.resolve(
+      jsonResponse({
+        provider: 'test-provider',
+        model: 'chat-model',
+        answer: 'This stale answer should not come back.',
+        citations: [],
+        rendered_citations: [],
+        thread_id: 'thread-1',
+        session_id: 'session-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText('This stale answer should not come back.')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Current scope: beta-repo')).toBeInTheDocument();
+  });
+
   it('renders an auth route that supports first-run onboarding and then local login', async () => {
     window.location.hash = '#/auth';
 

@@ -25,7 +25,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Search | `specs/acceptance/search.md` | Present | Covers query/filter/result behavior, but parity matrix expansion still needs evidence placeholders. |
 | Browse and source view | `specs/acceptance/browse.md` | Present | Covers tree/blob behavior plus the current repo-route revision control baseline; later parity tasks still need richer branch/revision UX and broader UI parity coverage. |
 | Code navigation | `specs/acceptance/code-nav.md` | Present | Covers definitions/references behavior; later parity tasks will extend multi-language and UI parity details. |
-| Ask and chat | `specs/acceptance/ask.md` | Present | Covers the shipped `#/ask` baseline for repo-scoped asks, inline citations, and hash-restored active-thread continuity; later parity tasks still need full thread lifecycle/history, rename/delete/visibility, and agents-management coverage. |
+| Ask and chat | `specs/acceptance/ask.md` | Present | Covers the shipped `#/ask` + `#/chat` baseline for repo-scoped asks, authenticated thread list/detail/reopen, inline citations, and hash-restored active-thread continuity; later parity tasks still need rename/delete/visibility and agents-management coverage. |
 | Auth and permissions | `specs/acceptance/auth.md` | Present | Covers local auth + permission boundaries; later parity tasks must expand onboarding/orgs/invites/API keys/OAuth details. |
 | Integrations | `specs/acceptance/integrations.md` + `specs/acceptance/generic-local-git.md` | Expanded in task20a | Broad integrations coverage now has a dedicated generic/local Git acceptance home; later parity tasks must continue splitting provider-specific and webhook/operator flows. |
 | Repository operations | `specs/acceptance/repository-operations.md` | Present in task18c | Locks the current sync-state and authenticated sync-job visibility contract while recording the remaining persisted-catalog, index-status, recovery, and admin-surface parity gaps. |
@@ -53,7 +53,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Definitions and references | `/api/v1/repos/{repo_id}/definitions`, `/api/v1/repos/{repo_id}/references` | Code-navigation parity | `specs/acceptance/code-nav.md` |
 | Commit history/detail/diff | `/api/v1/repos/{repo_id}/commits`, `/api/v1/repos/{repo_id}/commits/{commit_id}`, `/api/v1/repos/{repo_id}/commits/{commit_id}/diff` | Commit browsing and diff parity | `specs/acceptance/browse.md` until commit-specific expansion lands |
 | Search | `/api/v1/search` | Search parity across accessible repositories | `specs/acceptance/search.md` |
-| Ask completions | `/api/v1/ask/completions` | Ask/chat/citation parity | `specs/acceptance/ask.md` |
+| Ask completions and thread reads | `/api/v1/ask/completions`, `/api/v1/ask/threads`, `/api/v1/ask/threads/{thread_id}` | Ask/chat/citation parity | `specs/acceptance/ask.md` |
 
 ### 2. Frontend page and panel surface families
 
@@ -64,7 +64,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Repository detail page shell | `web/src/App.tsx` → `RepoDetailPage`, route `#/repos/:repoId` | Repo-scoped metadata, browse/source, code-navigation, commit-view, and sync-state parity shell | `specs/acceptance/browse.md` plus `specs/acceptance/repository-operations.md` for sync/index visibility |
 | Commit panel | `web/src/App.tsx` → `CommitsPanel` | Commit list/detail/diff UX parity | `specs/acceptance/browse.md` until commit/front-end expansion lands |
 | Browse/source panel | `web/src/App.tsx` → `BrowsePanel` | Tree browsing, file rendering, symbol-click navigation parity | `specs/acceptance/browse.md` and `specs/acceptance/code-nav.md` |
-| Ask/chat frontend | `web/src/App.tsx` → `AskPage`, route `#/ask` | Dedicated ask-route parity for repo-scoped prompts, inline citations, and active-thread continuity while fuller thread lifecycle and agents UX remain follow-up work | `specs/acceptance/ask.md` |
+| Ask/chat frontend | `web/src/App.tsx` → `AskPage` + `ChatPage`, routes `#/ask` and `#/chat` | Dedicated ask/chat-route parity for repo-scoped prompts, authenticated repo-scoped thread history/reopen, inline citations, and active-thread continuity while rename/delete/visibility and agents UX remain follow-up work | `specs/acceptance/ask.md` |
 | Auth/admin/settings frontend | `web/src/App.tsx` now includes `#/auth`, `#/settings`, `#/settings/connections`, `#/settings/api-keys`, `#/settings/members`, `#/settings/access`, `#/settings/linked-accounts`, `#/settings/oauth-clients`, `#/settings/observability`, and `#/settings/review-automation` through a shared shell; `#/auth` now covers first-run onboarding, local login/session restoration, invite-redemption entry links, and truthful OAuth callback-status notices for provider redirects, while broader invite management, external-provider login/callback exchange, and richer account-management flows remain follow-up work | Onboarding, local login/session restoration, invite-redemption baseline, narrow OAuth-callback-status handling, and admin/settings discoverability parity | `specs/acceptance/auth.md` for the auth baseline plus `specs/acceptance/settings-navigation.md` for the shared settings shell |
 
 ### 3. Worker and background-execution surface families

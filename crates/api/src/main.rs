@@ -10,7 +10,7 @@ use argon2::{
 };
 use ask::{
     build_ask_thread_store, canonicalize_repo_scope, filter_ask_citations_to_repo_scope,
-    AskCompletionRequest, AskCompletionResponse, DynAskThreadStore,
+    AskCompletionRequest, AskCompletionResponse, AskThreadResponse, DynAskThreadStore,
 };
 use auth::{
     build_bootstrap_store, build_local_session_store, build_organization_store, DynBootstrapStore,
@@ -32,12 +32,12 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
-    AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadVisibility, AuditActor,
-    AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig, ConnectionKind,
-    LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
-    OrganizationRole, OrganizationState, RepositoryDetail, RepositorySummary, RepositorySyncJob,
-    ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
-    SearchContext,
+    AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadSummary,
+    AskThreadVisibility, AuditActor, AuditEvent, BootstrapState, BootstrapStatus, Connection,
+    ConnectionConfig, ConnectionKind, LocalAccount, LocalSession, OAuthClient, Organization,
+    OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
+    RepositoryDetail, RepositorySummary, RepositorySyncJob, ReviewAgentRun,
+    ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -279,6 +279,8 @@ fn build_router(
         )
         .route("/api/v1/search", get(search_repository_contents))
         .route("/api/v1/ask/completions", post(create_ask_completion))
+        .route("/api/v1/ask/threads", get(list_ask_threads))
+        .route("/api/v1/ask/threads/{thread_id}", get(get_ask_thread))
         .with_state(build_app_state(
             config,
             catalog,
@@ -3690,6 +3692,73 @@ async fn create_ask_completion(
     }))
 }
 
+fn ask_thread_visible_to_request(thread: &AskThread, visible_repo_ids: &HashSet<String>) -> bool {
+    !thread.repo_scope.is_empty()
+        && thread
+            .repo_scope
+            .iter()
+            .all(|repo_id| visible_repo_ids.contains(repo_id))
+}
+
+fn ask_thread_summary_visible_to_request(
+    thread: &AskThreadSummary,
+    visible_repo_ids: &HashSet<String>,
+) -> bool {
+    !thread.repo_scope.is_empty()
+        && thread
+            .repo_scope
+            .iter()
+            .all(|repo_id| visible_repo_ids.contains(repo_id))
+}
+
+async fn list_ask_threads(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AskThreadSummary>>, StatusCode> {
+    let (ask_user_id, visible_repo_ids) = ask_request_context(&state, &headers).await?;
+    let threads = state
+        .ask_threads
+        .list_threads_for_user(&ask_user_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(
+        threads
+            .into_iter()
+            .filter(|thread| ask_thread_summary_visible_to_request(thread, &visible_repo_ids))
+            .collect(),
+    ))
+}
+
+async fn get_ask_thread(
+    State(state): State<AppState>,
+    Path(thread_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<AskThreadResponse>, StatusCode> {
+    let (ask_user_id, visible_repo_ids) = ask_request_context(&state, &headers).await?;
+    let thread = state
+        .ask_threads
+        .get_thread_for_user(&ask_user_id, &thread_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|thread| ask_thread_visible_to_request(thread, &visible_repo_ids))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut response = AskThreadResponse::from(thread);
+    for message in &mut response.messages {
+        let filtered_citations = filter_ask_citations_to_repo_scope(&message.citations, &response.repo_scope);
+        message.citations = filtered_citations.clone();
+        message.rendered_citations = filtered_citations
+            .iter()
+            .map(|citation| citation.rendered())
+            .collect();
+        for citation in &mut message.rendered_citations {
+            citation.display_label = format!("{}#{}", citation.path, citation.line_fragment);
+        }
+    }
+
+    Ok(Json(response))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3704,9 +3773,10 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
-        AnalyticsRecord, ApiKey, AuditActor, AuditEvent, Connection, ConnectionConfig,
-        ConnectionKind, LocalAccount, LocalSessionState, OAuthClient, Organization,
-        OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
+        AnalyticsRecord, ApiKey, AskMessage, AskMessageRole, AskThread, AskThreadVisibility,
+        AuditActor, AuditEvent, Connection, ConnectionConfig, ConnectionKind, LocalAccount,
+        LocalSessionState, OAuthClient, Organization, OrganizationInvite,
+        OrganizationMembership, OrganizationRole, OrganizationState,
         RepositoryPermissionBinding, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
         SearchContext,
     };
@@ -3847,6 +3917,39 @@ mod tests {
         rendered_citations: Vec<sourcebot_models::AskRenderedCitation>,
         thread_id: String,
         session_id: String,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct AskThreadSummaryResponseBody {
+        id: String,
+        session_id: String,
+        title: String,
+        repo_scope: Vec<String>,
+        visibility: String,
+        updated_at: String,
+        message_count: usize,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct AskMessageResponseBody {
+        id: String,
+        role: String,
+        content: String,
+        citations: Vec<sourcebot_models::AskCitation>,
+        rendered_citations: Vec<sourcebot_models::AskRenderedCitation>,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct AskThreadResponseBody {
+        id: String,
+        session_id: String,
+        user_id: String,
+        title: String,
+        repo_scope: Vec<String>,
+        visibility: String,
+        created_at: String,
+        updated_at: String,
+        messages: Vec<AskMessageResponseBody>,
     }
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -4217,6 +4320,21 @@ mod tests {
             build_commit_store(),
             search,
             build_ask_thread_store(),
+        )
+    }
+
+    fn test_app_with_ask_thread_store(config: AppConfig, ask_threads: DynAskThreadStore) -> Router {
+        let bootstrap_state_path = config.bootstrap_state_path.clone();
+        let local_session_state_path = config.local_session_state_path.clone();
+        build_router(
+            config,
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(bootstrap_state_path),
+            build_local_session_store(local_session_state_path),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            ask_threads,
         )
     }
 
@@ -5346,6 +5464,306 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn ask_threads_list_returns_only_authenticated_thread_summaries() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_visible_newer".into(),
+                session_id: "session_visible_newer".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Newest visible thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-21T12:00:00Z".into(),
+                updated_at: "2026-04-21T12:05:00Z".into(),
+                messages: vec![
+                    AskMessage {
+                        id: "msg_visible_newer_user".into(),
+                        role: AskMessageRole::User,
+                        content: "newest question".into(),
+                        citations: Vec::new(),
+                    },
+                    AskMessage {
+                        id: "msg_visible_newer_assistant".into(),
+                        role: AskMessageRole::Assistant,
+                        content: "newest answer".into(),
+                        citations: Vec::new(),
+                    },
+                ],
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_visible_older".into(),
+                session_id: "session_visible_older".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Older visible thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Shared,
+                created_at: "2026-04-21T11:00:00Z".into(),
+                updated_at: "2026-04-21T11:05:00Z".into(),
+                messages: vec![AskMessage {
+                    id: "msg_visible_older_user".into(),
+                    role: AskMessageRole::User,
+                    content: "older question".into(),
+                    citations: Vec::new(),
+                }],
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_hidden_other_user".into(),
+                session_id: "session_hidden_other_user".into(),
+                user_id: DEFAULT_ASK_USER_ID.into(),
+                title: "Hidden thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-21T10:00:00Z".into(),
+                updated_at: "2026-04-21T10:05:00Z".into(),
+                messages: vec![AskMessage {
+                    id: "msg_hidden_user".into(),
+                    role: AskMessageRole::User,
+                    content: "hidden question".into(),
+                    citations: Vec::new(),
+                }],
+            })
+            .await
+            .unwrap();
+        let organization_state_path = unique_test_path("ask-threads-list-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_ask_thread_store(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("ask-threads-list-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("ask-threads-list-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            ask_threads,
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/ask/threads")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<AskThreadSummaryResponseBody> = read_json(response).await;
+        assert_eq!(
+            payload,
+            vec![
+                AskThreadSummaryResponseBody {
+                    id: "thread_visible_newer".into(),
+                    session_id: "session_visible_newer".into(),
+                    title: "Newest visible thread".into(),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visibility: "private".into(),
+                    updated_at: "2026-04-21T12:05:00Z".into(),
+                    message_count: 2,
+                },
+                AskThreadSummaryResponseBody {
+                    id: "thread_visible_older".into(),
+                    session_id: "session_visible_older".into(),
+                    title: "Older visible thread".into(),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visibility: "shared".into(),
+                    updated_at: "2026-04-21T11:05:00Z".into(),
+                    message_count: 1,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn ask_threads_get_returns_only_the_authenticated_users_thread_details() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_visible_detail".into(),
+                session_id: "session_visible_detail".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Visible detail thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Shared,
+                created_at: "2026-04-21T13:00:00Z".into(),
+                updated_at: "2026-04-21T13:05:00Z".into(),
+                messages: vec![
+                    AskMessage {
+                        id: "msg_visible_detail_user".into(),
+                        role: AskMessageRole::User,
+                        content: "where is build_router?".into(),
+                        citations: Vec::new(),
+                    },
+                    AskMessage {
+                        id: "msg_visible_detail_assistant".into(),
+                        role: AskMessageRole::Assistant,
+                        content: "check crates/api/src/main.rs".into(),
+                        citations: vec![
+                            sourcebot_models::AskCitation {
+                                repo_id: "repo_sourcebot_rewrite".into(),
+                                path: "crates/api/src/main.rs".into(),
+                                revision: "deadbeef".into(),
+                                line_start: 150,
+                                line_end: 180,
+                            },
+                            sourcebot_models::AskCitation {
+                                repo_id: "repo_hidden".into(),
+                                path: "crates/hidden/src/lib.rs".into(),
+                                revision: "deadbeef".into(),
+                                line_start: 5,
+                                line_end: 10,
+                            },
+                            sourcebot_models::AskCitation {
+                                repo_id: "repo_sourcebot_rewrite".into(),
+                                path: "../secrets.txt".into(),
+                                revision: "deadbeef".into(),
+                                line_start: 1,
+                                line_end: 2,
+                            },
+                            sourcebot_models::AskCitation {
+                                repo_id: "repo_sourcebot_rewrite".into(),
+                                path: "src/blank_revision.rs".into(),
+                                revision: "   ".into(),
+                                line_start: 20,
+                                line_end: 22,
+                            },
+                        ],
+                    },
+                ],
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_hidden_detail".into(),
+                session_id: "session_hidden_detail".into(),
+                user_id: DEFAULT_ASK_USER_ID.into(),
+                title: "Hidden detail thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-21T09:00:00Z".into(),
+                updated_at: "2026-04-21T09:05:00Z".into(),
+                messages: vec![AskMessage {
+                    id: "msg_hidden_detail_user".into(),
+                    role: AskMessageRole::User,
+                    content: "hidden thread".into(),
+                    citations: Vec::new(),
+                }],
+            })
+            .await
+            .unwrap();
+        let organization_state_path = unique_test_path("ask-threads-detail-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_ask_thread_store(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("ask-threads-detail-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("ask-threads-detail-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            ask_threads,
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/ask/threads/thread_visible_detail")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskThreadResponseBody = read_json(response).await;
+        assert_eq!(payload.id, "thread_visible_detail");
+        assert_eq!(payload.session_id, "session_visible_detail");
+        assert_eq!(payload.user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+        assert_eq!(payload.title, "Visible detail thread");
+        assert_eq!(payload.repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert_eq!(payload.visibility, "shared");
+        assert_eq!(payload.created_at, "2026-04-21T13:00:00Z");
+        assert_eq!(payload.updated_at, "2026-04-21T13:05:00Z");
+        assert_eq!(payload.messages.len(), 2);
+        assert_eq!(payload.messages[0].id, "msg_visible_detail_user");
+        assert_eq!(payload.messages[0].role, "user");
+        assert_eq!(payload.messages[1].id, "msg_visible_detail_assistant");
+        assert_eq!(payload.messages[1].role, "assistant");
+        assert_eq!(payload.messages[1].citations.len(), 1);
+        assert_eq!(payload.messages[1].citations[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.messages[1].citations[0].path, "crates/api/src/main.rs");
+        assert_eq!(payload.messages[1].rendered_citations.len(), 1);
+        assert_eq!(
+            payload.messages[1].rendered_citations[0].display_label,
+            "crates/api/src/main.rs#L150-L180"
+        );
+        assert_eq!(
+            payload.messages[1].rendered_citations[0].repo_id,
+            "repo_sourcebot_rewrite"
+        );
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/ask/threads/thread_hidden_detail")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        let missing_response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/ask/threads/thread_missing")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

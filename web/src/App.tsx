@@ -149,6 +149,36 @@ type AskCompletionResponse = {
   session_id: string;
 };
 
+type AskThreadSummary = {
+  id: string;
+  session_id: string;
+  title: string;
+  repo_scope: string[];
+  visibility: string;
+  updated_at: string;
+  message_count: number;
+};
+
+type AskMessageResponse = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations: AskCitation[];
+  rendered_citations: AskRenderedCitation[];
+};
+
+type AskThreadDetail = {
+  id: string;
+  session_id: string;
+  user_id: string;
+  title: string;
+  repo_scope: string[];
+  visibility: string;
+  created_at: string;
+  updated_at: string;
+  messages: AskMessageResponse[];
+};
+
 type CommitSummary = {
   id: string;
   short_id: string;
@@ -687,6 +717,21 @@ function buildAskHash(repoId: string | null, threadId: string | null = null) {
   return `#/ask${query ? `?${query}` : ''}`;
 }
 
+function buildChatHash(repoId: string | null, threadId: string | null = null) {
+  const params = new URLSearchParams();
+
+  if (repoId && repoId.length > 0) {
+    params.set('repo_id', repoId);
+  }
+
+  if (threadId && threadId.length > 0) {
+    params.set('thread_id', threadId);
+  }
+
+  const query = params.toString();
+  return `#/chat${query ? `?${query}` : ''}`;
+}
+
 function buildRepoHash(
   repoId: string,
   options: {
@@ -899,6 +944,385 @@ function SearchPage({ initialQuery, initialRepoId }: { initialQuery: string; ini
       initialQuery={initialQuery}
       initialRepoId={initialRepoId}
     />
+  );
+}
+
+function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; initialThreadId: string | null }) {
+  const { repos, loading, error } = useRepoSummaries();
+  const [threadSummaries, setThreadSummaries] = useState<AskThreadSummary[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(true);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
+  const [selectedRepoId, setSelectedRepoId] = useState(initialRepoId);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(initialThreadId);
+  const [threadDetail, setThreadDetail] = useState<AskThreadDetail | null>(null);
+  const [threadDetailLoading, setThreadDetailLoading] = useState(false);
+  const [threadDetailError, setThreadDetailError] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const chatRequestVersionRef = useRef(0);
+  const restoredChatThreadUnavailableMessage = 'The restored chat thread is no longer available for this repository scope. Start a fresh chat.';
+
+  const invalidateInFlightChatRequest = () => {
+    chatRequestVersionRef.current += 1;
+    setSubmitting(false);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchJson<AskThreadSummary[]>('/api/v1/ask/threads')
+      .then((data) => {
+        if (!cancelled) {
+          setThreadSummaries(data.filter((summary) => summary.repo_scope.length === 1));
+          setThreadsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setThreadsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setThreadsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (repos.length === 0) {
+      setSelectedRepoId('');
+      return;
+    }
+
+    const requestedRepoId = initialRepoId.trim();
+    const requestedRepoIsVisible = requestedRepoId.length > 0 && repos.some((repo) => repo.id === requestedRepoId);
+    const nextRepoId = requestedRepoIsVisible
+      ? requestedRepoId
+      : selectedRepoId && repos.some((repo) => repo.id === selectedRepoId)
+        ? selectedRepoId
+        : repos[0].id;
+
+    if (selectedThreadId) {
+      return;
+    }
+
+    setSelectedRepoId(nextRepoId);
+
+    const targetHash = buildChatHash(nextRepoId, null);
+    if (!initialThreadId && window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  }, [initialRepoId, initialThreadId, repos, selectedRepoId, selectedThreadId]);
+
+  useEffect(() => {
+    setSelectedThreadId((currentThreadId) => {
+      if (currentThreadId === initialThreadId) {
+        return currentThreadId;
+      }
+      invalidateInFlightChatRequest();
+      setThreadDetail(null);
+      setThreadDetailError(null);
+      setSubmitError(null);
+      return initialThreadId;
+    });
+  }, [initialThreadId]);
+
+  useEffect(() => {
+    if (!selectedThreadId || repos.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    setThreadDetailLoading(true);
+    setThreadDetailError(null);
+
+    fetchJson<AskThreadDetail>(`/api/v1/ask/threads/${encodeURIComponent(selectedThreadId)}`)
+      .then((detail) => {
+        if (cancelled) {
+          return;
+        }
+
+        const nextRepoId = detail.repo_scope[0] ?? '';
+        const supportsRepoScopedChat = detail.repo_scope.length === 1 && repos.some((repo) => repo.id === nextRepoId);
+        if (!supportsRepoScopedChat) {
+          throw new Error(restoredChatThreadUnavailableMessage);
+        }
+
+        setThreadDetail(detail);
+        setSelectedRepoId(nextRepoId);
+        setSubmitError(null);
+        const targetHash = buildChatHash(nextRepoId, detail.id);
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      })
+      .catch((err: Error) => {
+        if (cancelled) {
+          return;
+        }
+
+        setThreadDetail(null);
+        setThreadDetailError(err.message);
+        setSelectedThreadId(null);
+        setSubmitError(null);
+        const fallbackRepoId = selectedRepoId || initialRepoId || repos[0]?.id || null;
+        if (fallbackRepoId) {
+          setSelectedRepoId(fallbackRepoId);
+        }
+        const targetHash = buildChatHash(fallbackRepoId, null);
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setThreadDetailLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialRepoId, repos, restoredChatThreadUnavailableMessage, selectedRepoId, selectedThreadId]);
+
+  const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
+  const selectedRepoName = selectedRepoId ? (repoNamesById.get(selectedRepoId) ?? selectedRepoId) : 'No repository selected';
+
+  const handleStartFreshChat = () => {
+    invalidateInFlightChatRequest();
+    setSelectedThreadId(null);
+    setThreadDetail(null);
+    setThreadDetailError(null);
+    setSubmitError(null);
+    const fallbackRepoId = selectedRepoId || repos[0]?.id || null;
+    if (fallbackRepoId) {
+      setSelectedRepoId(fallbackRepoId);
+    }
+    const targetHash = buildChatHash(fallbackRepoId, null);
+    if (window.location.hash !== targetHash) {
+      window.location.hash = targetHash;
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (prompt.trim().length === 0 || !selectedRepoId) {
+      return;
+    }
+
+    const requestPrompt = prompt.trim();
+    const requestRepoScope = threadDetail?.repo_scope.length ? threadDetail.repo_scope : [selectedRepoId];
+    if (requestRepoScope.length !== 1) {
+      setSubmitError(restoredChatThreadUnavailableMessage);
+      return;
+    }
+
+    const requestThreadId = selectedThreadId;
+    const requestVersion = chatRequestVersionRef.current + 1;
+    chatRequestVersionRef.current = requestVersion;
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const requestBody: { prompt: string; repo_scope: string[]; thread_id?: string } = {
+        prompt: requestPrompt,
+        repo_scope: requestRepoScope,
+      };
+
+      if (requestThreadId) {
+        requestBody.thread_id = requestThreadId;
+      }
+
+      const response = await fetchJson<AskCompletionResponse>('/api/v1/ask/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (chatRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      const nextThreadId = response.thread_id;
+      const nextRepoId = requestRepoScope[0] ?? selectedRepoId;
+      const nextMessages = [
+        ...(threadDetail?.messages ?? []),
+        {
+          id: `${nextThreadId}-user-${(threadDetail?.messages.length ?? 0) + 1}`,
+          role: 'user' as const,
+          content: requestPrompt,
+          citations: [],
+          rendered_citations: [],
+        },
+        {
+          id: `${nextThreadId}-assistant-${(threadDetail?.messages.length ?? 0) + 2}`,
+          role: 'assistant' as const,
+          content: response.answer,
+          citations: response.citations,
+          rendered_citations: response.rendered_citations,
+        },
+      ];
+
+      setThreadDetail({
+        id: nextThreadId,
+        session_id: response.session_id,
+        user_id: threadDetail?.user_id ?? '',
+        title: threadDetail?.title ?? requestPrompt,
+        repo_scope: requestRepoScope,
+        visibility: threadDetail?.visibility ?? 'private',
+        created_at: threadDetail?.created_at ?? '',
+        updated_at: threadDetail?.updated_at ?? '',
+        messages: nextMessages,
+      });
+      setSelectedThreadId(nextThreadId);
+      setSelectedRepoId(nextRepoId);
+      setThreadSummaries((current) => {
+        const existingSummary = current.find((summary) => summary.id === nextThreadId);
+        const nextSummary: AskThreadSummary = {
+          id: nextThreadId,
+          session_id: response.session_id,
+          title: existingSummary?.title ?? threadDetail?.title ?? requestPrompt,
+          repo_scope: requestRepoScope,
+          visibility: existingSummary?.visibility ?? threadDetail?.visibility ?? 'private',
+          updated_at: existingSummary?.updated_at ?? threadDetail?.updated_at ?? '',
+          message_count: nextMessages.length,
+        };
+        return [nextSummary, ...current.filter((summary) => summary.id !== nextThreadId)];
+      });
+      setPrompt('');
+
+      const targetHash = buildChatHash(nextRepoId, nextThreadId);
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
+    } catch (chatError) {
+      if (chatRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+
+      const staleRestoredThread = chatError instanceof HttpError && chatError.status === 404 && requestThreadId;
+      if (staleRestoredThread) {
+        setSelectedThreadId(null);
+        setThreadDetail(null);
+        setThreadDetailError(null);
+        const fallbackRepoId = requestRepoScope[0] ?? selectedRepoId;
+        if (fallbackRepoId) {
+          setSelectedRepoId(fallbackRepoId);
+        }
+        const targetHash = buildChatHash(fallbackRepoId, null);
+        if (window.location.hash !== targetHash) {
+          window.location.hash = targetHash;
+        }
+        setSubmitError(restoredChatThreadUnavailableMessage);
+      } else {
+        setSubmitError(chatError instanceof Error ? chatError.message : 'Unknown chat error');
+      }
+    } finally {
+      if (chatRequestVersionRef.current === requestVersion) {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  if (loading) return <Panel title="Chat" subtitle="Browse and continue grounded ask threads from a dedicated chat route.">Loading visible repositories…</Panel>;
+  if (error) return <Panel title="Chat" subtitle="Browse and continue grounded ask threads from a dedicated chat route.">Failed to load: {error}</Panel>;
+
+  return (
+    <Panel title="Chat" subtitle="Browse and continue grounded ask threads from a dedicated chat route.">
+      {repos.length === 0 ? (
+        <div style={{ color: '#57606a' }}>No visible repositories found.</div>
+      ) : (
+        <div style={{ display: 'grid', gap: 20 }}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button type="button" style={primaryButtonStyle} onClick={handleStartFreshChat}>
+                Start fresh chat
+              </button>
+              <div style={{ color: '#57606a' }}>Current scope: {selectedRepoName}</div>
+              {selectedThreadId ? <div style={{ color: '#57606a' }}>Active thread: {selectedThreadId}</div> : null}
+            </div>
+            {threadsLoading ? <div style={{ color: '#57606a' }}>Loading threads…</div> : null}
+            {threadsError ? <div style={{ color: '#cf222e' }}>Failed to load threads: {threadsError}</div> : null}
+            {!threadsLoading && !threadsError ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {threadSummaries.map((summary) => (
+                  <button
+                    key={summary.id}
+                    type="button"
+                    onClick={() => {
+                      invalidateInFlightChatRequest();
+                      const nextRepoId = summary.repo_scope[0] ?? selectedRepoId;
+                      setSelectedRepoId(nextRepoId);
+                      setSelectedThreadId(summary.id);
+                      setThreadDetail(null);
+                      setThreadDetailError(null);
+                      setSubmitError(null);
+                      const targetHash = buildChatHash(nextRepoId, summary.id);
+                      if (window.location.hash !== targetHash) {
+                        window.location.hash = targetHash;
+                      }
+                    }}
+                    style={{
+                      ...detailCardStyle,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      background: summary.id === selectedThreadId ? '#ddf4ff' : '#ffffff',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{summary.title}</div>
+                    <div style={{ color: '#57606a', marginTop: 4 }}>{summary.message_count} messages</div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <form style={{ display: 'grid', gap: 12 }} onSubmit={(event) => void handleSubmit(event)}>
+            <label style={fieldLabelStyle}>
+              <span>Question</span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Continue the selected thread or start a fresh repository-scoped chat"
+                rows={4}
+                style={{ ...inputStyle, resize: 'vertical' }}
+              />
+            </label>
+
+            <div>
+              <button type="submit" style={primaryButtonStyle} disabled={submitting || prompt.trim().length === 0 || !selectedRepoId}>
+                {submitting ? 'Asking…' : 'Ask'}
+              </button>
+            </div>
+          </form>
+
+          {threadDetailLoading ? <div style={{ color: '#57606a' }}>Loading thread…</div> : null}
+          {threadDetailError ? <div style={{ color: '#cf222e' }}>Failed to load thread: {threadDetailError}</div> : null}
+          {submitError ? <div style={{ color: '#cf222e' }}>Chat failed: {submitError}</div> : null}
+
+          {threadDetail ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{threadDetail.title}</div>
+              {threadDetail.messages.map((message) => (
+                <div key={message.id} style={{ ...detailCardStyle, display: 'grid', gap: 8 }}>
+                  <div style={{ color: '#57606a', fontWeight: 600, textTransform: 'capitalize' }}>{message.role}</div>
+                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message.content}</div>
+                </div>
+              ))}
+            </div>
+          ) : !threadDetailLoading && !threadDetailError ? (
+            <div style={{ color: '#57606a' }}>Choose a thread to continue it, or start a fresh chat in the current repository scope.</div>
+          ) : null}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -4858,6 +5282,15 @@ export function App() {
       };
     }
 
+    if (hashPath === '#/chat') {
+      const params = new URLSearchParams(hashQuery);
+      return {
+        kind: 'chat' as const,
+        initialRepoId: params.get('repo_id') ?? '',
+        initialThreadId: params.get('thread_id')?.trim() || null,
+      };
+    }
+
     const settingsMatch = hashPath.match(/^#\/settings(?:\/([a-z-]+))?$/);
     if (settingsMatch) {
       const section = settingsMatch[1] as SettingsSectionId | undefined;
@@ -4909,6 +5342,9 @@ export function App() {
           <a href="#/" style={{ color: '#0969da', fontWeight: 600 }}>
             Repositories
           </a>
+          <a href="#/chat" style={{ color: '#0969da', fontWeight: 600 }}>
+            Chat
+          </a>
           <a href="#/ask" style={{ color: '#0969da', fontWeight: 600 }}>
             Ask
           </a>
@@ -4937,6 +5373,7 @@ export function App() {
       {route.kind === 'auth' ? (
         <AuthPage key={hash} inviteId={route.inviteId} inviteEmail={route.inviteEmail} oauthCallback={route.oauthCallback} />
       ) : null}
+      {route.kind === 'chat' ? <ChatPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'ask' ? <AskPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
       {route.kind === 'settings-landing' ? (
