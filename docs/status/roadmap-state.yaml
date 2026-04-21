@@ -5,47 +5,49 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: bf892067184ea664d1d437032f80398306b137ee
+  head: 79fb964c7fd29df1694e705f5b98b25353acfcd7
 last_completed_task:
-  id: task55c
-  title: Add an authenticated observability panel within the shared settings shell
+  id: task55d
+  title: Add an authenticated OAuth-clients inventory panel within the shared settings shell
   status: done
   summary: >-
-    Chose another Task 55 vertical slice with operator-visible value instead of
-    returning to the deferred docs-only `task20q2am63b` parity-row tweak.
-    `web/src/App.tsx` now turns `#/settings/observability` from a dead
-    placeholder into a real authenticated observability panel: it fetches
-    `/api/v1/auth/audit-events` and `/api/v1/auth/analytics`, shows truthful
-    loading/error/empty/populated states for each dataset, renders visible audit
-    event and analytics record details, and keeps richer filtering/drill-down/
-    export workflows explicitly out of scope. `web/src/App.test.tsx`,
+    Chose another Task 55 product-surface closure instead of returning to the
+    deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx` now
+    turns `#/settings/oauth-clients` from a dead placeholder into a real
+    authenticated read-only inventory panel backed by
+    `/api/v1/auth/oauth-clients`: it shows truthful loading/error/empty/
+    populated states, renders membership-visible client metadata and redirect
+    URIs, and explicitly keeps OAuth authorization, token, and broader client
+    management workflows out of scope. `web/src/App.test.tsx`,
     `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
     `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
-    observability baseline without overstating broader analytics parity.
+    OAuth-client baseline without overstating broader OAuth parity or exposing
+    secret material.
   tests:
-    - npm test -- src/App.test.tsx -t 'audit and analytics inventory inside the shared settings shell|observability loading failures per endpoint': passed (2 passed | 115 skipped)
-    - npm test -- src/App.test.tsx: passed (117 passed)
+    - npx vitest run src/App.test.tsx -t 'oauth client inventory inside the shared settings shell': passed (1 passed | 119 skipped)
+    - npx vitest run src/App.test.tsx: passed (120 passed)
     - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the observability placeholder with a real authenticated audit/analytics panel inside the shared shell and that the focused docs/report updates match the intended task55c slice
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and suggested only optional follow-up hardening for malformed payload normalization and explicit empty-state tests
-  commit: bf892067184ea664d1d437032f80398306b137ee
-  next_task: task55d
+    spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the OAuth-clients placeholder with a truthful authenticated inventory panel inside the shared shell, keeps the slice read-only, and leaves the docs/report wording narrowly aligned with the shipped baseline
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and confirmed the panel does not render secret hashes or secret material from the OAuth-client payload
+  commit: 79fb964c7fd29df1694e705f5b98b25353acfcd7
+  next_task: task55e
 current_task:
-  id: task55d
+  id: task55e
   parent_task: task55
-  title: Add an authenticated OAuth-clients inventory panel within the shared settings shell
+  title: Add an authenticated review-automation visibility panel within the shared settings shell
   status: pending
   summary: >-
     Task55a restored shared settings discoverability, task55b shipped a minimal
-    API-key inventory/revoke workflow, and task55c shipped an operator-visible
-    observability panel. The next meaningful Task 55 closure should keep that
-    product-surface momentum by replacing the `#/settings/oauth-clients`
-    placeholder with a truthful authenticated inventory panel backed by
-    `/api/v1/auth/oauth-clients`, rather than dropping back into the deferred
-    paperwork-only Public REST API parity-row cleanup.
+    API-key inventory/revoke workflow, task55c shipped an operator-visible
+    observability panel, and task55d shipped a truthful OAuth-client inventory.
+    The next meaningful Task 55 closure should keep that product-surface
+    momentum by replacing the `#/settings/review-automation` placeholder with a
+    real authenticated visibility panel grounded in the existing review webhook,
+    delivery-attempt, and review-agent-run APIs, rather than dropping back into
+    the deferred paperwork-only Public REST API parity-row cleanup.
 deferred_tasks:
   - id: task20q2am63b
     parent_task: task20q2am63
@@ -58,6 +60,32 @@ deferred_tasks:
       shipped settings-navigation closure and can resume once product-surface
       balance recovers.
 history:
+  - id: task55d
+    status: done
+    summary: >-
+      Chose another Task 55 product-surface closure instead of returning to the
+      deferred docs-only `task20q2am63b` parity-row tweak. `web/src/App.tsx` now
+      turns `#/settings/oauth-clients` from a dead placeholder into a real
+      authenticated read-only inventory panel backed by
+      `/api/v1/auth/oauth-clients`: it shows truthful loading/error/empty/
+      populated states, renders membership-visible client metadata and redirect
+      URIs, and explicitly keeps OAuth authorization, token, and broader client
+      management workflows out of scope. `web/src/App.test.tsx`,
+      `specs/acceptance/settings-navigation.md`, `specs/acceptance/auth.md`, and
+      `docs/reports/2026-04-18-parity-gap-report.md` now ground that minimal
+      OAuth-client baseline without overstating broader OAuth parity or exposing
+      secret material.
+    tests:
+      - npx vitest run src/App.test.tsx -t 'oauth client inventory inside the shared settings shell': passed (1 passed | 119 skipped)
+      - npx vitest run src/App.test.tsx: passed (120 passed)
+      - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live diff replaces the OAuth-clients placeholder with a truthful authenticated inventory panel inside the shared shell, keeps the slice read-only, and leaves the docs/report wording narrowly aligned with the shipped baseline
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live diff and confirmed the panel does not render secret hashes or secret material from the OAuth-client payload
+    commit: 79fb964c7fd29df1694e705f5b98b25353acfcd7
+    next_task: task55e
   - id: task55c
     status: done
     summary: >-
