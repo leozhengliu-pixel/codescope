@@ -5,38 +5,76 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: faddb33b52a046987b3fbe8ad1facaa905d70f7a
+  head: 73ce0cfc1caf8a46c48ab4917c331b8bfa9aa183
 last_completed_task:
-  id: roadmap-bootstrap-2026-04-22
-  title: Follow-on parity roadmap bootstrap
+  id: task86
+  title: SQL metadata schema and migration harness
   status: done
   summary: >-
-    Closed one meaningful post-audit roadmap bootstrap instead of reopening the finished
-    85-task plan or leaving the repo blocked behind a vague "remaining blockers" note.
-    `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md` now turns the final
-    parity audit blockers into a focused Task 86-100 follow-on roadmap, and
-    `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` now links that
-    roadmap so future runs can resume from a truthful next implementation queue rather
-    than from another paperwork-only audit fragment.
+    Closed one meaningful Task 86 operator-visible harness slice instead of splitting
+    Makefile wiring, local bootstrap orchestration, focused contract/smoke coverage, and
+    truthful docs into separate paperwork runs. `Makefile` now exposes
+    `make metadata-dev-bootstrap`; `scripts/bootstrap_local_metadata_dev.sh` validates the
+    local Postgres URL contract, waits for readiness, ensures the dedicated
+    `sourcebot_test` database exists, runs `make sqlx-migrate`, and then runs
+    `make sqlx-test`; the paired shell checks plus README/operator-maintenance/parity-report
+    updates ground that workflow truthfully as a local bootstrap-and-compatibility closure
+    rather than a shipped durable runtime baseline.
   tests:
-    - python3 raw-content checks for follow-on roadmap title/tasks 86-100 and audit link: passed
+    - bash scripts/check_local_metadata_dev_bootstrap_contract.sh: passed
+    - bash scripts/check_local_metadata_dev_bootstrap_smoke.sh: passed
+    - bash scripts/check_make_sqlx_migrate.sh: passed
+    - bash scripts/check_sqlx_test_workflow.sh: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh: passed
+    - bash scripts/check_local_metadata_env_contract.sh .: passed
+    - cargo test -p sourcebot-config: passed (12 passed)
+    - cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed (4 passed)
     - git diff --check: passed
+    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the follow-on roadmap bootstrap is a meaningful post-audit closure, derives Task 86-100 directly from the Task 85 blockers, and truthfully pivots the repo to the superseding roadmap without reopening the finished 85-task plan
-    code: approved by one independent post-implementation review; reviewer found no blocking logic, truthfulness, or security issues after the commit-hash/rule/blocker-note fixes and confirmed the state file now anchors to the real substantive docs commit with Task 86 as the next live slice
-  commit: faddb33b52a046987b3fbe8ad1facaa905d70f7a
-  next_task: task86
+    spec: passed one independent post-implementation review; reviewer confirmed the live worktree stayed within the intended Task 86 file set, removed the out-of-scope plan artifact, and truthfully closed one bounded metadata-bootstrap harness slice instead of another audit-only fragment
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the new `make metadata-dev-bootstrap` flow, its contract/smoke checks, or the doc wording after aligning the `DATABASE_URL` behavior with the unfinished lazy `PgCatalogStore` path in `crates/api/src/storage.rs`
+  commit: 73ce0cfc1caf8a46c48ab4917c331b8bfa9aa183
+  next_task: task87
 current_task:
-  id: task86
+  id: task87
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: SQL metadata schema and migration harness
+  title: Durable catalog, auth, and organization state
   status: pending
   summary: >-
-    The original roadmap is complete as an audit, so resume on the follow-on roadmap's
-    first implementation-backed blocker. Task 86 should establish the durable SQL schema,
-    migration commands, dev bootstrap path, and focused compatibility checks that unlock
-    later auth/org/ask/review-agent persistence slices.
+    Task 86 now provides the durable metadata migration harness and bounded local bootstrap
+    workflow, so the next meaningful closure should move catalog, bootstrap/local-session,
+    API-key, OAuth-client, membership, invite, and organization aggregates onto durable
+    metadata with explicit local-dev fallback and upgrade behavior.
 history:
+  - id: task86
+    status: done
+    summary: >-
+      Closed one meaningful Task 86 operator-visible harness slice instead of splitting
+      Makefile wiring, local bootstrap orchestration, focused contract/smoke coverage, and
+      truthful docs into separate paperwork runs. `Makefile` now exposes
+      `make metadata-dev-bootstrap`; `scripts/bootstrap_local_metadata_dev.sh` validates the
+      local Postgres URL contract, waits for readiness, ensures the dedicated
+      `sourcebot_test` database exists, runs `make sqlx-migrate`, and then runs
+      `make sqlx-test`; the paired shell checks plus README/operator-maintenance/parity-report
+      updates ground that workflow truthfully as a local bootstrap-and-compatibility closure
+      rather than a shipped durable runtime baseline.
+    tests:
+      - bash scripts/check_local_metadata_dev_bootstrap_contract.sh: passed
+      - bash scripts/check_local_metadata_dev_bootstrap_smoke.sh: passed
+      - bash scripts/check_make_sqlx_migrate.sh: passed
+      - bash scripts/check_sqlx_test_workflow.sh: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - cargo test -p sourcebot-config: passed (12 passed)
+      - cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed (4 passed)
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live worktree stayed within the intended Task 86 file set, removed the out-of-scope plan artifact, and truthfully closed one bounded metadata-bootstrap harness slice instead of another audit-only fragment
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the new `make metadata-dev-bootstrap` flow, its contract/smoke checks, or the doc wording after aligning the `DATABASE_URL` behavior with the unfinished lazy `PgCatalogStore` path in `crates/api/src/storage.rs`
+    commit: 73ce0cfc1caf8a46c48ab4917c331b8bfa9aa183
+    next_task: task87
   - id: roadmap-bootstrap-2026-04-22
     status: done
     summary: >-
