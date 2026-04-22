@@ -5,46 +5,75 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 25fb9e58791238cc39f011525c6ac19b0da51649
+  head: 64cdbd9076a6b1f2d7d33a58972dbbfcc6e93b99
 last_completed_task:
-  id: task87a
-  title: Durable PostgreSQL local-session store
+  id: task87b1
+  title: Durable PostgreSQL bootstrap-admin store
   status: done
   summary: >-
-    Closed one meaningful Task 87 durable-auth slice instead of splitting SQL session
-    storage, router wiring, invited-user regressions, and truthful docs into separate
-    paperwork runs. `crates/api/src/auth.rs` now provides a PostgreSQL-backed local-session
-    store behind `DATABASE_URL`; `crates/api/src/main.rs` persists the corresponding local
-    account before durable bootstrap-login and invite-redemption session writes so a fresh
-    API process can still restore `/api/v1/auth/me`; and the focused SQLx/auth coverage plus
-    README/auth/parity-report updates ground that narrower shipped baseline without
-    overclaiming broader durable bootstrap/account/org/catalog parity.
+    Closed one meaningful Task 87b bootstrap slice instead of splitting SQL migration,
+    bootstrap-store wiring, legacy upgrade handling, router regressions, and truthful docs
+    into separate paperwork runs. `crates/api/src/auth.rs` now provides a PostgreSQL-backed
+    bootstrap store keyed by `LOCAL_BOOTSTRAP_ADMIN_USER_ID`; `crates/api/src/main.rs` routes
+    bootstrap status/create/login through PostgreSQL whenever `DATABASE_URL` is configured;
+    legacy `local_accounts` bootstrap rows without `password_hash` stay fail-closed as still
+    requiring bootstrap and can be upgraded in place; and the focused SQLx/bootstrap/auth
+    coverage plus README/auth/parity updates ground that narrower shipped baseline without
+    overclaiming broader durable bootstrap/account/org parity.
   tests:
-    - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
-    - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed (100 passed)
-    - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api tests::invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me -- --exact --nocapture --test-threads=1: passed
-    - cargo test -p sourcebot-api --bin sourcebot-api tests::invite_redeem_reuses_pending_invite_account_adds_membership_and_returns_session -- --exact --nocapture: passed
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api bootstrap_ -- --nocapture --test-threads=1: passed (27 passed)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture --test-threads=1: passed (100 passed)
     - python3 raw-content doc truth checks for README/auth acceptance/parity report: passed
+    - bash scripts/check_local_metadata_env_contract.sh .: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh: passed
     - git diff --check: passed
     - git diff --cached --check: passed
-    - python3 added-lines security scan over `git show --unified=0 HEAD`: passed (0 findings)
+    - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the staged slice stays within one bounded Task 87a closure, includes the invited-user PostgreSQL regression, and keeps broader durable bootstrap/account/org/catalog parity explicitly deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the final durable local-session diff after the invite-redemption fix and only noted a non-blocking future cleanup around possible orphaned cross-store local-account rows if a later organization-state write fails
-  commit: 25fb9e58791238cc39f011525c6ac19b0da51649
-  next_task: task87b
+    spec: passed one independent post-implementation review; reviewer confirmed the staged slice matches the bounded Task 87b1 plan by adding the bootstrap password-hash migration, PostgreSQL-backed bootstrap store/wiring, legacy bootstrap-row upgrade handling, focused SQLx/router coverage, and truthful docs without widening into broader durable organization/auth aggregates
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged PostgreSQL bootstrap-admin diff and only noted non-blocking follow-ups around propagating invalid DATABASE_URL as a startup error and possibly fail-closing malformed non-null bootstrap password hashes more explicitly
+  commit: 64cdbd9076a6b1f2d7d33a58972dbbfcc6e93b99
+  next_task: task87b2
 current_task:
-  id: task87b
+  id: task87b2
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable bootstrap/account/org auth aggregates
+  title: Durable local-account, membership, and invite aggregates
   status: pending
   summary: >-
-    Task 87a moved local-session persistence onto PostgreSQL with truthful bootstrap-login and
-    invite-redemption coverage, so the next meaningful closure should move the remaining
-    bootstrap/admin, local-account, membership/invite, API-key, OAuth-client, and broader
-    organization aggregates onto durable metadata with explicit local-dev fallback/upgrade
-    behavior instead of revisiting session-only paperwork.
+    Task 87b1 made bootstrap-admin metadata durable on PostgreSQL with truthful legacy-upgrade
+    handling, so the next meaningful closure should move the adjacent local-account,
+    membership, and invite aggregates onto durable metadata with explicit fallback/upgrade
+    behavior instead of returning to bootstrap paperwork or splitting those auth/org records
+    into doc-only fragments.
 history:
+  - id: task87b1
+    status: done
+    summary: >-
+      Closed one meaningful Task 87b bootstrap slice instead of splitting SQL migration,
+      bootstrap-store wiring, legacy upgrade handling, router regressions, and truthful docs
+      into separate paperwork runs. `crates/api/src/auth.rs` now provides a PostgreSQL-backed
+      bootstrap store keyed by `LOCAL_BOOTSTRAP_ADMIN_USER_ID`; `crates/api/src/main.rs`
+      routes bootstrap status/create/login through PostgreSQL whenever `DATABASE_URL` is
+      configured; legacy `local_accounts` bootstrap rows without `password_hash` stay
+      fail-closed as still requiring bootstrap and can be upgraded in place; and the focused
+      SQLx/bootstrap/auth coverage plus README/auth/parity updates ground that narrower
+      shipped baseline without overclaiming broader durable bootstrap/account/org parity.
+    tests:
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api bootstrap_ -- --nocapture --test-threads=1: passed (27 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture --test-threads=1: passed (100 passed)
+      - python3 raw-content doc truth checks for README/auth acceptance/parity report: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh: passed
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the staged slice matches the bounded Task 87b1 plan by adding the bootstrap password-hash migration, PostgreSQL-backed bootstrap store/wiring, legacy bootstrap-row upgrade handling, focused SQLx/router coverage, and truthful docs without widening into broader durable organization/auth aggregates
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged PostgreSQL bootstrap-admin diff and only noted non-blocking follow-ups around propagating invalid DATABASE_URL as a startup error and possibly fail-closing malformed non-null bootstrap password hashes more explicitly
+    commit: 64cdbd9076a6b1f2d7d33a58972dbbfcc6e93b99
+    next_task: task87b2
   - id: task87a
     status: done
     summary: >-
@@ -57,9 +86,9 @@ history:
       README/auth/parity-report updates ground that narrower shipped baseline without
       overclaiming broader durable bootstrap/account/org/catalog parity.
     tests:
-      - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
-      - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed (100 passed)
-      - TEST_DATABASE_URL='postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api tests::invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me -- --exact --nocapture --test-threads=1: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_ -- --nocapture: passed (100 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api tests::invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me -- --exact --nocapture --test-threads=1: passed
       - cargo test -p sourcebot-api --bin sourcebot-api tests::invite_redeem_reuses_pending_invite_account_adds_membership_and_returns_session -- --exact --nocapture: passed
       - python3 raw-content doc truth checks for README/auth acceptance/parity report: passed
       - git diff --check: passed
@@ -789,10 +818,10 @@ b1
 notes:
   execution_rules:
     - docs/status/roadmap-state.yaml is the single source of project status.
-    - Execute exactly one smallest deliverable task per execution unit.
-    - A task is complete only after implementation, tests, docs, review, commit, and push.
+    - Execute exactly one smallest meaningful closure per execution unit.
+    - A task is complete only after implementation, focused verification, docs/review as needed, commit, and push.
     - After each task, update this file with status, summary, tests, commit, and next task.
-    - If a task is too large, split it and only do the first subtask.
+    - If a task is too large, split it toward a user-visible, operator-visible, or real implementation-backed closure rather than a paperwork-only fragment.
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
     - Use docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
   blockers:
@@ -804,5 +833,5 @@ notes:
         splits. The governing roadmap is now
         `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; Task 86 closed that
         bootstrap/operator workflow, Task 87a closed the durable PostgreSQL local-session
-        slice, and the next live work item is Task 87b rather than any archived pre-follow-on
-        blocker thread.
+        slice, Task 87b1 closed the durable PostgreSQL bootstrap-admin slice, and the next
+        live work item is Task 87b2 rather than any archived pre-follow-on blocker thread.
