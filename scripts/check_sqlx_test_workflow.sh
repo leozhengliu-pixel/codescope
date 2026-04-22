@@ -24,7 +24,7 @@ require_line "$makefile" 'DATABASE_URL="\$\$TEST_DATABASE_URL" \$\(CARGO\) test 
 
 require_line "$readme" '^5\. Run the focused metadata-schema test wrapper:$' 'README sqlx-test step'
 require_line "$readme" '^   make sqlx-test$' 'README make sqlx-test command'
-require_line "$readme" '^8\. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage test suite so local migration workflow verification uses one reproducible command\.$' 'README sqlx-test workflow note'
-require_line "$readme" '^9\. `make sqlx-test` runs the current storage migration-inventory and catalog fallback tests, not full Postgres-backed runtime parity; durable-store execution remains a later roadmap slice\.$' 'README sqlx-test truthful scope note'
+require_line "$readme" '^9\. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage test suite so local migration workflow verification uses one reproducible command\.$' 'README sqlx-test workflow note'
+require_line "$readme" '^10\. `make sqlx-test` runs the current storage migration-inventory and catalog fallback tests, not full Postgres-backed runtime parity; durable-store execution remains a later roadmap slice\.$' 'README sqlx-test truthful scope note'
 
 printf 'sqlx-test workflow contract OK\n'

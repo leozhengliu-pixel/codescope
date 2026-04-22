@@ -45,12 +45,17 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make sqlx-test
    ```
-6. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for both the local-only `sourcebot` bootstrap database and the dedicated `sourcebot_test` test database.
-7. `make sqlx-test-reset` uses `TEST_DATABASE_URL` plus the repo-local `.sqlx-cli` install root to drop, recreate, and re-migrate the deterministic local test database.
-8. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage test suite so local migration workflow verification uses one reproducible command.
-9. `make sqlx-test` runs the current storage migration-inventory and catalog fallback tests, not full Postgres-backed runtime parity; durable-store execution remains a later roadmap slice.
-10. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
-11. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; these workflows only bootstrap the metadata schema for upcoming durable-store slices.
+6. Or run the single local metadata bootstrap wrapper:
+   ```bash
+   make metadata-dev-bootstrap
+   ```
+7. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for both the local-only `sourcebot` bootstrap database and the dedicated `sourcebot_test` test database.
+8. `make sqlx-test-reset` uses `TEST_DATABASE_URL` plus the repo-local `.sqlx-cli` install root to drop, recreate, and re-migrate the deterministic local test database.
+9. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage test suite so local migration workflow verification uses one reproducible command.
+10. `make sqlx-test` runs the current storage migration-inventory and catalog fallback tests, not full Postgres-backed runtime parity; durable-store execution remains a later roadmap slice.
+11. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
+12. `make metadata-dev-bootstrap` is a local-only operator bootstrap helper that waits for local Postgres, ensures the dedicated test database exists, runs `make sqlx-migrate`, and then runs the focused `make sqlx-test` compatibility check.
+13. `make metadata-dev-bootstrap` does not mean the API already uses durable metadata by default; the current API still routes `DATABASE_URL` through an unimplemented lazy `PgCatalogStore` path, so this helper is only a local bootstrap-and-compatibility workflow today.
 
 ## Local operator runtime baseline
 1. Copy the example env file so `make` can auto-load the repo-local runtime contract:

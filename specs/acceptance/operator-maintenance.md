@@ -13,6 +13,7 @@ This document covers:
 - restoring the current local Postgres metadata database with `scripts/restore_local_metadata_db.sh` and `make metadata-restore BACKUP_DIR=/path/to/backup`
 - restricting metadata backup/restore to `DATABASE_URL` targets on `127.0.0.1` or `localhost`
 - running the current local SQLx migration workflow with `make dev-up` and `make sqlx-migrate`
+- running the local metadata bootstrap compatibility workflow with `make metadata-dev-bootstrap`
 - treating upgrades as a local repo update, migration, and API/worker restart sequence
 
 This document does **not** claim:
@@ -57,9 +58,12 @@ then they:
 2. start local Postgres with `make dev-up` before metadata backup or schema maintenance
 3. capture a metadata backup before schema maintenance
 4. run the current local SQLx migration workflow with `make sqlx-migrate`
-5. treat an upgrade as a repo update plus migration plus `make api` and `make worker` restarts
-6. use `make runtime-restore BACKUP_DIR=/path/to/backup` if they need to restore the current file-backed runtime baseline
-7. use `make metadata-restore BACKUP_DIR=/path/to/backup` if they need to restore the current local metadata dump
+5. optionally run `make metadata-dev-bootstrap` for the bounded local-only workflow that waits for local Postgres, ensures the dedicated `_test` database exists, runs `make sqlx-migrate`, and then runs the focused `make sqlx-test` compatibility check
+6. treat an upgrade as a repo update plus migration plus `make api` and `make worker` restarts
+7. use `make runtime-restore BACKUP_DIR=/path/to/backup` if they need to restore the current file-backed runtime baseline
+8. use `make metadata-restore BACKUP_DIR=/path/to/backup` if they need to restore the current local metadata dump
+
+The `make metadata-dev-bootstrap` helper is intentionally local-only orchestration for the current metadata schema contract; it does **not** mean the API already uses durable metadata by default, because `DATABASE_URL` still routes through an unfinished lazy `PgCatalogStore` path rather than a shipped durable runtime baseline.
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain outside the shipped maintenance baseline:
