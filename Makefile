@@ -10,7 +10,7 @@ API_ADDR ?= 127.0.0.1:3000
 SQLX_CLI_VERSION ?= 0.8.6
 SQLX_CLI_ROOT ?= .sqlx-cli
 
-.PHONY: help fmt check test api worker dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset sqlx-test runtime-backup runtime-restore
+.PHONY: help fmt check test api worker dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset sqlx-test runtime-backup runtime-restore metadata-backup metadata-restore
 
 help:
 	@printf '%s\n' \
@@ -24,6 +24,8 @@ help:
 	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata storage tests' \
 	  'make runtime-backup - create a timestamped backup of the current local runtime state' \
 	  'make runtime-restore BACKUP_DIR=/path/to/backup - restore the local runtime state from a captured backup directory' \
+	  'make metadata-backup - create a timestamped backup of the current local metadata database' \
+	  'make metadata-restore BACKUP_DIR=/path/to/backup - restore the local metadata database from a captured backup directory' \
 	  'make dev-up    - start local postgres via docker compose' \
 	  'make dev-down  - stop local postgres' \
 	  'make dev-logs  - show postgres logs'
@@ -77,3 +79,12 @@ runtime-backup:
 runtime-restore:
 	@: "$${BACKUP_DIR:?BACKUP_DIR must be set}"
 	bash scripts/restore_local_runtime_state.sh "$$BACKUP_DIR"
+
+metadata-backup:
+	@: "$${DATABASE_URL:?DATABASE_URL must be set}"
+	bash scripts/backup_local_metadata_db.sh backups/metadata
+
+metadata-restore:
+	@: "$${DATABASE_URL:?DATABASE_URL must be set}"
+	@: "$${BACKUP_DIR:?BACKUP_DIR must be set}"
+	bash scripts/restore_local_metadata_db.sh "$$BACKUP_DIR"

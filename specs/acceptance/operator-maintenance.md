@@ -1,7 +1,7 @@
 # Operator Maintenance Acceptance
 
 ## Purpose
-This acceptance spec defines the current local operator-maintenance baseline for the rewrite. It covers only backup and restore of the current file-backed runtime state plus the local SQLx migration workflow and local upgrade sequence already documented in the repo.
+This acceptance spec defines the current local operator-maintenance baseline for the rewrite. It covers backup and restore of the current file-backed runtime state plus a local-only database backup/restore baseline for the current local Postgres metadata workflow / SQLx metadata workflow and the local upgrade sequence already documented in the repo.
 
 ## Scope
 This document covers:
@@ -9,18 +9,21 @@ This document covers:
 - restoring the current file-backed runtime state with `scripts/restore_local_runtime_state.sh` and `make runtime-restore BACKUP_DIR=/path/to/backup`
 - resolving runtime paths from `SOURCEBOT_DATA_DIR`
 - honoring explicit `SOURCEBOT_BOOTSTRAP_STATE_PATH`, `SOURCEBOT_LOCAL_SESSION_STATE_PATH`, and `SOURCEBOT_ORGANIZATION_STATE_PATH` overrides
+- backing up the current local Postgres metadata database with `scripts/backup_local_metadata_db.sh` and `make metadata-backup`
+- restoring the current local Postgres metadata database with `scripts/restore_local_metadata_db.sh` and `make metadata-restore BACKUP_DIR=/path/to/backup`
+- restricting metadata backup/restore to `DATABASE_URL` targets on `127.0.0.1` or `localhost`
 - running the current local SQLx migration workflow with `make dev-up` and `make sqlx-migrate`
 - treating upgrades as a local repo update, migration, and API/worker restart sequence
 
 This document does **not** claim:
-- durable metadata backup/restore parity
+- that every product/runtime surface already persists to the metadata database
 - a backup of the seeded in-memory catalog fallback or other still-undurable metadata surfaces
 - production-grade readiness checks or deployment automation
 - supervised worker rollout, rollback orchestration, or zero-downtime upgrade behavior
 
-## Backup contract
+## Runtime-state backup contract
 Given the operator is using the current local runtime baseline,
-when they run the backup helper,
+when they run the runtime backup helper,
 then the helper creates a timestamped backup directory under the requested backup root and stores:
 - `bootstrap-state.json`
 - `local-sessions.json`
@@ -31,24 +34,36 @@ If local session or organization state files are still absent, the helper may ma
 
 If the bootstrap state file is absent, the helper fails clearly instead of inventing bootstrap metadata that does not exist.
 
-## Restore contract
-Given the operator has a captured backup directory from the helper,
-when they run the restore helper against that directory,
+## Runtime-state restore contract
+Given the operator has a captured runtime backup directory from the helper,
+when they run the runtime restore helper against that directory,
 then the helper refuses missing or incomplete backup directories and otherwise copies the captured runtime files back to the currently resolved runtime paths, creating parent directories as needed.
+
+## Metadata backup contract
+Given the operator is using the current local metadata baseline,
+when they run `make metadata-backup`,
+then the helper requires `DATABASE_URL`, refuses non-local hosts, creates a timestamped backup directory, writes a `dump.sql` created with `pg_dump`, and records a manifest with a redacted database URL plus the local-only backup marker.
+
+## Metadata restore contract
+Given the operator has a captured metadata backup directory from the helper,
+when they run `make metadata-restore BACKUP_DIR=/path/to/backup`,
+then the helper requires `DATABASE_URL`, refuses non-local hosts, validates that `dump.sql` and `manifest.txt` exist, requires the local-only backup marker plus a matching redacted target URL in the manifest, and replays the dump into the current local metadata target with `psql -v ON_ERROR_STOP=1 -f dump.sql`.
 
 ## Migration and upgrade contract
 Given the operator wants to perform local maintenance,
 when they follow the documented runbook,
 then they:
 1. capture a runtime backup first
-2. start local Postgres with `make dev-up`
-3. run the current local SQLx migration workflow with `make sqlx-migrate`
-4. treat an upgrade as a repo update plus migration plus `make api` and `make worker` restarts
-5. use `make runtime-restore BACKUP_DIR=/path/to/backup` if they need to restore the current file-backed runtime baseline
+2. start local Postgres with `make dev-up` before metadata backup or schema maintenance
+3. capture a metadata backup before schema maintenance
+4. run the current local SQLx migration workflow with `make sqlx-migrate`
+5. treat an upgrade as a repo update plus migration plus `make api` and `make worker` restarts
+6. use `make runtime-restore BACKUP_DIR=/path/to/backup` if they need to restore the current file-backed runtime baseline
+7. use `make metadata-restore BACKUP_DIR=/path/to/backup` if they need to restore the current local metadata dump
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain outside the shipped maintenance baseline:
 - durable metadata migration parity across every runtime surface
-- production-safe metadata backup and restore
+- production-safe remote or managed metadata backup and restore
 - readiness checks that validate migration state or dependencies
 - production deployment, rollback, and observability parity

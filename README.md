@@ -82,28 +82,39 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make runtime-backup
    ```
-2. Record the backup directory emitted by the helper; it contains copies of `bootstrap-state.json`, `local-sessions.json`, `organizations.json`, and a manifest for the resolved runtime paths.
-3. Start or confirm the local metadata dependency before schema maintenance:
+2. Record the runtime backup directory emitted by the helper; it contains copies of `bootstrap-state.json`, `local-sessions.json`, `organizations.json`, and a manifest for the resolved runtime paths.
+3. Start or confirm the local metadata dependency before metadata backup or schema maintenance:
    ```bash
    make dev-up
    ```
-4. Run the current local SQLx migration workflow:
+4. Capture a backup of the current local metadata database before schema maintenance:
+   ```bash
+   make metadata-backup
+   ```
+5. Record the metadata backup directory emitted by the helper; it contains a SQL dump and manifest for the current local `DATABASE_URL` target without storing plaintext credentials.
+6. Run the current local SQLx migration workflow:
    ```bash
    make sqlx-migrate
    ```
-5. Treat upgrades as a repo update plus migration plus local process restart sequence:
+7. Treat upgrades as a repo update plus migration plus local process restart sequence:
    ```bash
    git pull --ff-only
    make sqlx-migrate
    make api
    make worker
    ```
-6. If maintenance fails, restore the file-backed runtime baseline from the captured backup directory:
+8. If maintenance fails, restore the file-backed runtime baseline from the captured runtime backup directory:
    ```bash
    BACKUP_DIR=/absolute/path/to/backups/runtime/20260422T000000Z
    make runtime-restore BACKUP_DIR="$BACKUP_DIR"
    ```
-7. This maintenance baseline is intentionally narrow: it covers only the current file-backed runtime state plus the local SQLx migration workflow, and it does not yet claim durable metadata backup/restore parity, readiness checks, or production-grade deployment automation.
+9. If maintenance fails after a metadata change, restore the local metadata database from the captured metadata backup directory:
+   ```bash
+   BACKUP_DIR=/absolute/path/to/backups/metadata/20260422T000000Z
+   make metadata-restore BACKUP_DIR="$BACKUP_DIR"
+   ```
+10. The metadata backup/restore helpers intentionally stay local-only for this baseline: they require `DATABASE_URL` to target `127.0.0.1` or `localhost`, validate a matching redacted manifest on restore, and rely on `pg_dump`/`psql` from the local operator environment.
+11. This maintenance baseline now covers the current file-backed runtime state plus the local Postgres metadata dump/restore workflow, but it still does not claim that every product/runtime surface is durable yet, nor does it claim readiness checks or production-grade deployment automation.
 
 ## License
 Current default: MIT.
