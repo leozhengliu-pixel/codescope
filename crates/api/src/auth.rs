@@ -7,9 +7,10 @@ use sourcebot_core::{
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
-    BootstrapState, BootstrapStatus, LocalSession, LocalSessionState, OrganizationState,
-    RepositorySyncJob, ReviewAgentRunStatus,
+    BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
+    OrganizationState, RepositorySyncJob, ReviewAgentRunStatus,
 };
+use sqlx::{postgres::PgPoolOptions, Row};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -39,6 +40,11 @@ pub struct FileLocalSessionStore {
 #[derive(Clone, Debug)]
 pub struct FileOrganizationStore {
     state_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct PgLocalSessionStore {
+    pool: sqlx::PgPool,
 }
 
 #[derive(Debug)]
@@ -125,6 +131,15 @@ impl FileLocalSessionStore {
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(LocalSessionState::default()),
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+impl PgLocalSessionStore {
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
     }
 }
 
@@ -390,6 +405,59 @@ impl LocalSessionStore for FileLocalSessionStore {
 }
 
 #[async_trait]
+impl LocalSessionStore for PgLocalSessionStore {
+    async fn local_session(&self, session_id: &str) -> Result<Option<LocalSession>> {
+        let row = sqlx::query(
+            "SELECT id, user_id, secret_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM sessions WHERE id = $1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| LocalSession {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            secret_hash: row.get("secret_hash"),
+            created_at: row.get("created_at"),
+        }))
+    }
+
+    async fn persist_local_session_account(&self, account: LocalAccount) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ($1, $2, $3, $4::timestamptz) ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, created_at = EXCLUDED.created_at",
+        )
+        .bind(account.id)
+        .bind(account.email)
+        .bind(account.name)
+        .bind(account.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn store_local_session(&self, session: LocalSession) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sessions (id, user_id, secret_hash, created_at) VALUES ($1, $2, $3, $4::timestamptz) ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id, secret_hash = EXCLUDED.secret_hash, created_at = EXCLUDED.created_at",
+        )
+        .bind(session.id)
+        .bind(session.user_id)
+        .bind(session.secret_hash)
+        .bind(session.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_local_session(&self, session_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+#[async_trait]
 impl OrganizationStore for FileOrganizationStore {
     async fn organization_state(&self) -> Result<OrganizationState> {
         self.read_persisted_state()
@@ -501,8 +569,23 @@ pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStor
     Arc::new(FileBootstrapStore::new(state_path))
 }
 
-pub fn build_local_session_store(state_path: impl Into<PathBuf>) -> DynLocalSessionStore {
-    Arc::new(FileLocalSessionStore::new(state_path))
+pub fn try_build_local_session_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> Result<DynLocalSessionStore> {
+    if let Some(database_url) = database_url {
+        return Ok(Arc::new(PgLocalSessionStore::connect_lazy(database_url)?));
+    }
+
+    Ok(Arc::new(FileLocalSessionStore::new(state_path)))
+}
+
+pub fn build_local_session_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> DynLocalSessionStore {
+    try_build_local_session_store(state_path, database_url)
+        .expect("local session store DATABASE_URL must be valid")
 }
 
 pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizationStore {
@@ -512,6 +595,7 @@ pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::catalog_migrator;
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AuditActor, AuditEvent, Connection, ConnectionConfig,
         ConnectionKind, LocalAccount, OAuthClient, Organization, OrganizationInvite,
@@ -519,8 +603,9 @@ mod tests {
         RepositorySyncJobStatus, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
         ReviewWebhookDeliveryAttempt, SearchContext,
     };
+    use sqlx::{postgres::PgPoolOptions, Row};
     use std::{
-        fs,
+        env, fs,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -843,6 +928,182 @@ mod tests {
         assert_eq!(persisted.sessions, vec![retained]);
 
         fs::remove_file(path).unwrap();
+    }
+
+    async fn session_test_pool() -> sqlx::PgPool {
+        let database_url = env::var("DATABASE_URL")
+            .or_else(|_| env::var("TEST_DATABASE_URL"))
+            .expect(
+                "DATABASE_URL or TEST_DATABASE_URL must be set for Postgres session-store tests",
+            );
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply catalog migrations");
+        sqlx::query(
+            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset local session test tables");
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind("org_acme")
+            .bind("acme")
+            .bind("Acme")
+            .execute(&pool)
+            .await
+            .expect("seed organization");
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ($1, $2, $3, $4::timestamptz)",
+        )
+        .bind("local_user_bootstrap_admin")
+        .bind("admin@example.com")
+        .bind("Bootstrap Admin")
+        .bind("2026-04-16T17:59:00Z")
+        .execute(&pool)
+        .await
+        .expect("seed local account");
+        pool
+    }
+
+    async fn persisted_sessions(pool: &sqlx::PgPool) -> Vec<LocalSession> {
+        let rows = sqlx::query(
+            "SELECT id, user_id, secret_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM sessions ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await
+        .expect("read persisted sessions");
+
+        rows.into_iter()
+            .map(|row| LocalSession {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                secret_hash: row.get("secret_hash"),
+                created_at: row.get("created_at"),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn pg_local_session_store_persists_and_reads_local_sessions() {
+        let pool = session_test_pool().await;
+        let store = PgLocalSessionStore { pool: pool.clone() };
+        let session = LocalSession {
+            id: "session_1".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$session-secret".into(),
+            created_at: "2026-04-16T18:00:00Z".into(),
+        };
+
+        store.store_local_session(session.clone()).await.unwrap();
+
+        assert_eq!(
+            store.local_session(&session.id).await.unwrap(),
+            Some(session.clone())
+        );
+        assert_eq!(persisted_sessions(&pool).await, vec![session]);
+    }
+
+    #[tokio::test]
+    async fn pg_local_session_store_persists_truthful_local_account_rows() {
+        let pool = session_test_pool().await;
+        let store = PgLocalSessionStore { pool: pool.clone() };
+
+        store
+            .persist_local_session_account(LocalAccount {
+                id: "local_user_bootstrap_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-16T17:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        let row = sqlx::query(
+            "SELECT email, name, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = $1",
+        )
+        .bind("local_user_bootstrap_admin")
+        .fetch_one(&pool)
+        .await
+        .expect("read persisted local account row");
+
+        assert_eq!(row.get::<String, _>("email"), "admin@example.com");
+        assert_eq!(row.get::<String, _>("name"), "Admin User");
+        assert_eq!(row.get::<String, _>("created_at"), "2026-04-16T17:00:00Z");
+    }
+
+    #[test]
+    fn try_build_local_session_store_rejects_invalid_database_url() {
+        let result =
+            try_build_local_session_store(unique_test_path("invalid-database-url"), Some("not a database url"));
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn pg_local_session_store_rewrites_existing_session_with_same_id() {
+        let pool = session_test_pool().await;
+        let store = PgLocalSessionStore { pool: pool.clone() };
+
+        store
+            .store_local_session(LocalSession {
+                id: "session_1".into(),
+                user_id: "local_user_bootstrap_admin".into(),
+                secret_hash: "$argon2id$original".into(),
+                created_at: "2026-04-16T18:00:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        let updated = LocalSession {
+            id: "session_1".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$rotated".into(),
+            created_at: "2026-04-16T19:00:00Z".into(),
+        };
+
+        store.store_local_session(updated.clone()).await.unwrap();
+
+        assert_eq!(
+            store.local_session("session_1").await.unwrap(),
+            Some(updated.clone())
+        );
+        assert_eq!(persisted_sessions(&pool).await, vec![updated]);
+    }
+
+    #[tokio::test]
+    async fn pg_local_session_store_deletes_only_requested_session() {
+        let pool = session_test_pool().await;
+        let store = PgLocalSessionStore { pool: pool.clone() };
+        let retained = LocalSession {
+            id: "session_keep".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$keep".into(),
+            created_at: "2026-04-16T18:00:00Z".into(),
+        };
+        let deleted = LocalSession {
+            id: "session_drop".into(),
+            user_id: "local_user_bootstrap_admin".into(),
+            secret_hash: "$argon2id$drop".into(),
+            created_at: "2026-04-16T18:01:00Z".into(),
+        };
+
+        store.store_local_session(retained.clone()).await.unwrap();
+        store.store_local_session(deleted.clone()).await.unwrap();
+
+        assert!(store.delete_local_session(&deleted.id).await.unwrap());
+        assert_eq!(store.local_session(&deleted.id).await.unwrap(), None);
+        assert_eq!(
+            store.local_session(&retained.id).await.unwrap(),
+            Some(retained.clone())
+        );
+        assert_eq!(persisted_sessions(&pool).await, vec![retained]);
     }
 
     #[tokio::test]

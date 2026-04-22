@@ -47,6 +47,13 @@ pub trait LocalSessionStore: Send + Sync {
         &self,
         session_id: &str,
     ) -> Result<Option<sourcebot_models::LocalSession>>;
+    async fn persist_local_session_account(
+        &self,
+        account: sourcebot_models::LocalAccount,
+    ) -> Result<()> {
+        let _ = account;
+        Ok(())
+    }
     async fn store_local_session(&self, session: sourcebot_models::LocalSession) -> Result<()>;
     async fn delete_local_session(&self, session_id: &str) -> Result<bool>;
 }

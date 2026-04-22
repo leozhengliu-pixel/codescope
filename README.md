@@ -51,8 +51,8 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```
 7. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for both the local-only `sourcebot` bootstrap database and the dedicated `sourcebot_test` test database.
 8. `make sqlx-test-reset` uses `TEST_DATABASE_URL` plus the repo-local `.sqlx-cli` install root to drop, recreate, and re-migrate the deterministic local test database.
-9. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage test suite so local migration workflow verification uses one reproducible command.
-10. `make sqlx-test` runs the current storage migration-inventory and catalog fallback tests, not full Postgres-backed runtime parity; durable-store execution remains a later roadmap slice.
+9. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage and durable local-session test suite so local migration workflow verification uses one reproducible command.
+10. `make sqlx-test` now covers the storage migration-inventory/catalog fallback checks plus the PostgreSQL-backed local-session store and login -> `/api/v1/auth/me` regression slice; broader durable catalog/auth/org runtime parity remains a later roadmap slice.
 11. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
 12. `make metadata-dev-bootstrap` is a local-only operator bootstrap helper that waits for local Postgres, ensures the dedicated test database exists, runs `make sqlx-migrate`, and then runs the focused `make sqlx-test` compatibility check.
 13. `make metadata-dev-bootstrap` does not mean the API already uses durable metadata by default; the current API still routes `DATABASE_URL` through an unimplemented lazy `PgCatalogStore` path, so this helper is only a local bootstrap-and-compatibility workflow today.
@@ -62,37 +62,38 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    cp .env.example .env
    ```
-2. Set `SOURCEBOT_DATA_DIR` in `.env` to the directory that should hold the current local file-backed runtime state. When only that shared base is set, the API and worker derive:
+2. Set `SOURCEBOT_DATA_DIR` in `.env` to the directory that should hold the current local runtime state. When only that shared base is set, the API and worker derive:
    - `bootstrap-state.json`
    - `local-sessions.json`
    - `organizations.json`
-3. Optional explicit overrides still win for individual files if you set `SOURCEBOT_BOOTSTRAP_STATE_PATH`, `SOURCEBOT_LOCAL_SESSION_STATE_PATH`, or `SOURCEBOT_ORGANIZATION_STATE_PATH`.
-4. Start the API with the repo-local `.env` contract:
+3. When `DATABASE_URL` is configured, the API now persists local sessions durably in PostgreSQL and ignores `local-sessions.json` for active session reads/writes; bootstrap/admin and organization state still remain file-backed follow-up work.
+4. Optional explicit overrides still win for the file-backed state paths if you set `SOURCEBOT_BOOTSTRAP_STATE_PATH`, `SOURCEBOT_LOCAL_SESSION_STATE_PATH`, or `SOURCEBOT_ORGANIZATION_STATE_PATH`.
+5. Start the API with the repo-local `.env` contract:
    ```bash
    make api
    ```
-5. In a second shell, run the current worker baseline with that same `.env` contract:
+6. In a second shell, run the current worker baseline with that same `.env` contract:
    ```bash
    make worker
    ```
-6. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, and then exits.
-7. Optional worker-only stub controls for the current baseline are:
+7. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, and then exits.
+8. Optional worker-only stub controls for the current baseline are:
    - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
    - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`
-8. Run the bounded local end-to-end smoke matrix when you want one repo-local operator check that bootstraps auth and then exercises authenticated connections, search, ask, public review-webhook intake, and one-shot worker completion together:
+9. Run the bounded local end-to-end smoke matrix when you want one repo-local operator check that bootstraps auth and then exercises authenticated connections, search, ask, public review-webhook intake, and one-shot worker completion together:
    ```bash
    bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite
    ```
-9. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
-10. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
-11. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
+10. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
+11. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
+12. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
 
 ## Local operator maintenance baseline
 1. Capture a backup of the current file-backed runtime state before maintenance:
    ```bash
    make runtime-backup
    ```
-2. Record the runtime backup directory emitted by the helper; it contains copies of `bootstrap-state.json`, `local-sessions.json`, `organizations.json`, and a manifest for the resolved runtime paths.
+2. Record the runtime backup directory emitted by the helper; it contains copies of the current file-backed runtime paths plus a manifest. When `DATABASE_URL` is configured, active durable local sessions live in PostgreSQL instead of `local-sessions.json`, so pair runtime backups with the metadata backup flow below.
 3. Start or confirm the local metadata dependency before metadata backup or schema maintenance:
    ```bash
    make dev-up
@@ -124,7 +125,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    make metadata-restore BACKUP_DIR="$BACKUP_DIR"
    ```
 10. The metadata backup/restore helpers intentionally stay local-only for this baseline: they require `DATABASE_URL` to target `127.0.0.1` or `localhost`, validate a matching redacted manifest on restore, and rely on `pg_dump`/`psql` from the local operator environment.
-11. This maintenance baseline now covers the current file-backed runtime state plus the local Postgres metadata dump/restore workflow, but it still does not claim that every product/runtime surface is durable yet, nor does it claim readiness checks or production-grade deployment automation.
+11. This maintenance baseline now covers the current file-backed runtime state plus the local Postgres metadata dump/restore workflow; notably, local sessions are durable in PostgreSQL when `DATABASE_URL` is configured, but broader durable auth/org/catalog/runtime parity still remains follow-up work.
 
 ## License
 Current default: MIT.

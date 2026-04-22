@@ -13,8 +13,8 @@ use ask::{
     AskCompletionRequest, AskCompletionResponse, AskThreadResponse, DynAskThreadStore,
 };
 use auth::{
-    build_bootstrap_store, build_local_session_store, build_organization_store, DynBootstrapStore,
-    DynLocalSessionStore, DynOrganizationStore,
+    build_bootstrap_store, build_local_session_store, build_organization_store,
+    try_build_local_session_store, DynBootstrapStore, DynLocalSessionStore, DynOrganizationStore,
 };
 use axum::{
     body::Bytes,
@@ -32,12 +32,12 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{build_llm_provider, visible_repo_ids_for_user, LlmProviderConfig};
 use sourcebot_models::{
-    AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadSummary,
-    AskThreadVisibility, AuditActor, AuditEvent, BootstrapState, BootstrapStatus, Connection,
-    ConnectionConfig, ConnectionKind, LocalAccount, LocalSession, OAuthClient, Organization,
-    OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
-    RepositoryDetail, RepositorySummary, RepositorySyncJob, ReviewAgentRun,
-    ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt, SearchContext,
+    AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadSummary, AskThreadVisibility,
+    AuditActor, AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig,
+    ConnectionKind, LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite,
+    OrganizationMembership, OrganizationRole, OrganizationState, RepositoryDetail,
+    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
+    ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
@@ -95,7 +95,10 @@ async fn main() -> anyhow::Result<()> {
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
     let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
-    let local_sessions = build_local_session_store(config.local_session_state_path.clone());
+    let local_sessions = try_build_local_session_store(
+        config.local_session_state_path.clone(),
+        config.database_url.as_deref(),
+    )?;
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
@@ -877,6 +880,52 @@ async fn login_local_admin(
         .to_string();
     let created_at = current_timestamp();
 
+    let session_account = if authenticated_user_id == LOCAL_BOOTSTRAP_ADMIN_USER_ID {
+        let bootstrap_state = state
+            .bootstrap
+            .bootstrap_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .filter(|bootstrap_state| {
+                !bootstrap_state.admin_email.trim().is_empty()
+                    && !bootstrap_state.admin_name.trim().is_empty()
+            })
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        LocalAccount {
+            id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string(),
+            email: bootstrap_state.admin_email,
+            name: bootstrap_state.admin_name,
+            password_hash: None,
+            created_at: bootstrap_state.initialized_at,
+        }
+    } else {
+        let organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let account = organization_state
+            .accounts
+            .iter()
+            .find(|account| account.id == authenticated_user_id)
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+        LocalAccount {
+            id: account.id.clone(),
+            email: account.email.clone(),
+            name: account.name.clone(),
+            password_hash: None,
+            created_at: account.created_at.clone(),
+        }
+    };
+
+    state
+        .local_sessions
+        .persist_local_session_account(session_account)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     state
         .local_sessions
         .store_local_session(LocalSession {
@@ -993,9 +1042,9 @@ async fn redeem_local_invite(
         generated_user_id
     };
 
-
     if !organization_state.memberships.iter().any(|membership| {
-        membership.organization_id == invite_organization_id && membership.user_id == accepted_user_id
+        membership.organization_id == invite_organization_id
+            && membership.user_id == accepted_user_id
     }) {
         organization_state.memberships.push(OrganizationMembership {
             organization_id: invite_organization_id.clone(),
@@ -1007,6 +1056,24 @@ async fn redeem_local_invite(
 
     organization_state.invites[invite_index].accepted_by_user_id = Some(accepted_user_id.clone());
     organization_state.invites[invite_index].accepted_at = Some(created_at.clone());
+
+    let session_account = organization_state
+        .accounts
+        .iter()
+        .find(|account| account.id == accepted_user_id)
+        .map(|account| LocalAccount {
+            id: account.id.clone(),
+            email: account.email.clone(),
+            name: account.name.clone(),
+            password_hash: None,
+            created_at: account.created_at.clone(),
+        })
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    state
+        .local_sessions
+        .persist_local_session_account(session_account)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let local_session = LocalSession {
         id: session_id.clone(),
@@ -1106,7 +1173,9 @@ async fn authenticate_api_key_record(
         let _ = verify_secret_or_burn_failure(&api_key_secret, None);
         return Err(StatusCode::UNAUTHORIZED);
     };
-    if !api_key_record_has_required_auth_fields(api_key, &api_key_id) || api_key.revoked_at.is_some() {
+    if !api_key_record_has_required_auth_fields(api_key, &api_key_id)
+        || api_key.revoked_at.is_some()
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -1181,7 +1250,9 @@ async fn get_authenticated_local_admin(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        if bootstrap_state.admin_email.trim().is_empty() || bootstrap_state.admin_name.trim().is_empty() {
+        if bootstrap_state.admin_email.trim().is_empty()
+            || bootstrap_state.admin_name.trim().is_empty()
+        {
             return Err(StatusCode::UNAUTHORIZED);
         }
 
@@ -1204,7 +1275,10 @@ async fn get_authenticated_local_admin(
         .iter()
         .find(|account| account.id == session.user_id)
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if account.email.trim().is_empty() || account.name.trim().is_empty() || account.created_at.trim().is_empty() {
+    if account.email.trim().is_empty()
+        || account.name.trim().is_empty()
+        || account.created_at.trim().is_empty()
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -1506,7 +1580,8 @@ async fn list_authenticated_members(
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
+    let admin_organization_ids =
+        admin_organization_ids_for_user(&organization_state, &session.user_id);
 
     let payload: Vec<MembersOrganizationResponse> = organization_state
         .organizations
@@ -2306,7 +2381,8 @@ fn verify_secret_or_burn_failure(
 
 fn burn_dummy_secret_verification_check(presented_secret: &str) {
     let dummy_salt = SaltString::encode_b64(b"credential-burn-dummy").expect("valid dummy salt");
-    if let Ok(dummy_hash) = Argon2::default().hash_password(b"credential-burn-secret", &dummy_salt) {
+    if let Ok(dummy_hash) = Argon2::default().hash_password(b"credential-burn-secret", &dummy_salt)
+    {
         let _ = Argon2::default().verify_password(presented_secret.as_bytes(), &dummy_hash);
     }
 }
@@ -2433,8 +2509,9 @@ fn linked_account_memberships_for_user(
         .iter()
         .filter(|membership| membership.user_id == user_id)
         .filter_map(|membership| {
-            organizations_by_id.get(membership.organization_id.as_str()).map(|organization| {
-                LinkedAccountMembershipResponse {
+            organizations_by_id
+                .get(membership.organization_id.as_str())
+                .map(|organization| LinkedAccountMembershipResponse {
                     organization: MembersOrganizationIdentityResponse {
                         id: organization.id.clone(),
                         slug: organization.slug.clone(),
@@ -2442,8 +2519,7 @@ fn linked_account_memberships_for_user(
                     },
                     role: membership.role.clone(),
                     joined_at: membership.joined_at.clone(),
-                }
-            })
+                })
         })
         .collect()
 }
@@ -2511,7 +2587,11 @@ fn invite_roster_entry_response(
     } else {
         None
     };
-    let status = if invite_is_accepted { "accepted" } else { "pending" };
+    let status = if invite_is_accepted {
+        "accepted"
+    } else {
+        "pending"
+    };
 
     InviteRosterEntryResponse {
         id: invite.id.clone(),
@@ -3623,7 +3703,8 @@ async fn create_ask_completion(
         .complete(&request)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let filtered_citations = filter_ask_citations_to_repo_scope(&response.citations, &request.repo_scope);
+    let filtered_citations =
+        filter_ask_citations_to_repo_scope(&response.citations, &request.repo_scope);
 
     let (thread_id, session_id) = if let Some(existing_thread) = existing_thread {
         let thread_id = existing_thread.id.as_str();
@@ -3764,7 +3845,8 @@ async fn get_ask_thread(
         .ok_or(StatusCode::NOT_FOUND)?;
     let mut response = AskThreadResponse::from(thread);
     for message in &mut response.messages {
-        let filtered_citations = filter_ask_citations_to_repo_scope(&message.citations, &response.repo_scope);
+        let filtered_citations =
+            filter_ask_citations_to_repo_scope(&message.citations, &response.repo_scope);
         message.citations = filtered_citations.clone();
         message.rendered_citations = filtered_citations
             .iter()
@@ -3784,7 +3866,7 @@ mod tests {
     use crate::{
         ask::InMemoryAskThreadStore,
         commits::{CommitStore, LocalCommitStore},
-        storage::{InMemoryCatalogStore, PgCatalogStore},
+        storage::{catalog_migrator, InMemoryCatalogStore, PgCatalogStore},
     };
     use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
@@ -3794,16 +3876,16 @@ mod tests {
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AskMessage, AskMessageRole, AskThread, AskThreadVisibility,
         AuditActor, AuditEvent, Connection, ConnectionConfig, ConnectionKind, LocalAccount,
-        LocalSessionState, OAuthClient, Organization, OrganizationInvite,
-        OrganizationMembership, OrganizationRole, OrganizationState,
-        RepositoryPermissionBinding, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
-        SearchContext,
+        LocalSessionState, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
+        OrganizationRole, OrganizationState, RepositoryPermissionBinding, ReviewAgentRun,
+        ReviewAgentRunStatus, ReviewWebhook, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
+    use sqlx::{postgres::PgPoolOptions, Row};
     use std::sync::Arc;
     use std::{
         collections::HashMap,
-        fs,
+        env, fs,
         path::PathBuf,
         process::Command,
         time::{SystemTime, UNIX_EPOCH},
@@ -4311,11 +4393,12 @@ mod tests {
     fn test_app_with_catalog(config: AppConfig, catalog: DynCatalogStore) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
+        let database_url = config.database_url.clone();
         build_router(
             config,
             catalog,
             build_bootstrap_store(bootstrap_state_path),
-            build_local_session_store(local_session_state_path),
+            build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -4330,11 +4413,12 @@ mod tests {
     fn test_app_with_search_store(config: AppConfig, search: DynSearchStore) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
+        let database_url = config.database_url.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(bootstrap_state_path),
-            build_local_session_store(local_session_state_path),
+            build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
             search,
@@ -4345,11 +4429,12 @@ mod tests {
     fn test_app_with_ask_thread_store(config: AppConfig, ask_threads: DynAskThreadStore) -> Router {
         let bootstrap_state_path = config.bootstrap_state_path.clone();
         let local_session_state_path = config.local_session_state_path.clone();
+        let database_url = config.database_url.clone();
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(bootstrap_state_path),
-            build_local_session_store(local_session_state_path),
+            build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -4539,7 +4624,7 @@ mod tests {
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("app-state-bootstrap")),
-            build_local_session_store(unique_test_path("app-state-local-sessions")),
+            build_local_session_store(unique_test_path("app-state-local-sessions"), None),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -4653,6 +4738,235 @@ mod tests {
         format!("Bearer {}:{}", payload.session_id, payload.session_secret)
     }
 
+    async fn pg_local_session_test_pool() -> sqlx::PgPool {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for Postgres-backed local-session tests");
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply catalog migrations");
+        sqlx::query(
+            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset Postgres-backed local-session test tables");
+        pool
+    }
+
+    #[tokio::test]
+    async fn auth_login_and_me_use_postgres_backed_local_sessions_when_database_url_is_configured()
+    {
+        let pool = pg_local_session_test_pool().await;
+        let bootstrap_state_path = unique_test_path("pg-local-session-bootstrap");
+        let local_session_state_path = unique_test_path("pg-local-session-file-a");
+        let poisoned_local_session_state_path = unique_test_path("pg-local-session-file-b");
+        fs::write(
+            &poisoned_local_session_state_path,
+            b"not valid local session json",
+        )
+        .unwrap();
+
+        let config =
+            AppConfig {
+                bootstrap_state_path: bootstrap_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                database_url: Some(env::var("TEST_DATABASE_URL").expect(
+                    "TEST_DATABASE_URL must be set for Postgres-backed local-session tests",
+                )),
+                ..AppConfig::default()
+            };
+        let app = test_app_with_config(config.clone());
+        let authorization = bootstrap_and_login(&app).await;
+
+        let persisted_session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .expect("count persisted sessions");
+        assert_eq!(persisted_session_count, 1);
+
+        let reloaded_app = test_app_with_config(AppConfig {
+            local_session_state_path: poisoned_local_session_state_path.display().to_string(),
+            ..config
+        });
+        let response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/auth/me")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AuthMeResponseBody = read_json(response).await;
+        assert_eq!(payload.user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+        assert_eq!(payload.email, "admin@example.com");
+        assert_eq!(payload.name, "Admin User");
+
+        let persisted_session_user_id: String = sqlx::query("SELECT user_id FROM sessions LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("read persisted Postgres-backed session")
+            .get("user_id");
+        assert_eq!(persisted_session_user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(poisoned_local_session_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me() {
+        let pool = pg_local_session_test_pool().await;
+        let organization_state_path = unique_test_path("pg-invite-redeem-orgs");
+        let local_session_state_path = unique_test_path("pg-invite-redeem-file-a");
+        let poisoned_local_session_state_path = unique_test_path("pg-invite-redeem-file-b");
+        fs::write(
+            &poisoned_local_session_state_path,
+            b"not valid local session json",
+        )
+        .unwrap();
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                }],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "user_admin".into(),
+                    role: OrganizationRole::Admin,
+                    joined_at: "2026-04-21T00:00:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: "user_admin".into(),
+                    email: "admin@example.com".into(),
+                    name: "Admin User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                }],
+                invites: vec![OrganizationInvite {
+                    id: "invite_pending".into(),
+                    organization_id: "org_acme".into(),
+                    email: "invitee@example.com".into(),
+                    role: OrganizationRole::Viewer,
+                    invited_by_user_id: "user_admin".into(),
+                    created_at: "2026-04-21T00:05:00Z".into(),
+                    expires_at: "2026-04-28T00:05:00Z".into(),
+                    accepted_by_user_id: None,
+                    accepted_at: None,
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("pg-invite-redeem-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            database_url: Some(env::var("TEST_DATABASE_URL").expect(
+                "TEST_DATABASE_URL must be set for Postgres-backed local-session tests",
+            )),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config.clone());
+
+        let redeem_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Invited Person".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(redeem_response.status(), StatusCode::CREATED);
+        let redeem_payload: LoginResponseBody = read_json(redeem_response).await;
+        assert!(redeem_payload.session_id.starts_with("local_session_"));
+        assert!(!redeem_payload.session_secret.is_empty());
+
+        let persisted_account = sqlx::query(
+            "SELECT id, email, name FROM local_accounts WHERE id = $1",
+        )
+        .bind(&redeem_payload.user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("persist invited local account for Postgres-backed session");
+        let persisted_account_email: String = persisted_account.get("email");
+        let persisted_account_name: String = persisted_account.get("name");
+        assert_eq!(persisted_account_email, "invitee@example.com");
+        assert_eq!(persisted_account_name, "Invited Person");
+
+        let persisted_session_user_id: String = sqlx::query(
+            "SELECT user_id FROM sessions WHERE id = $1",
+        )
+        .bind(&redeem_payload.session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("persist invited account session in Postgres")
+        .get("user_id");
+        assert_eq!(persisted_session_user_id, redeem_payload.user_id);
+
+        let reloaded_app = test_app_with_config(AppConfig {
+            local_session_state_path: poisoned_local_session_state_path.display().to_string(),
+            ..config
+        });
+        let me_response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            redeem_payload.session_id, redeem_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(me_response.status(), StatusCode::OK);
+        let me_payload: AuthMeResponseBody = read_json(me_response).await;
+        assert_eq!(me_payload.user_id, persisted_session_user_id);
+        assert_eq!(me_payload.email, "invitee@example.com");
+        assert_eq!(me_payload.name, "Invited Person");
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(poisoned_local_session_state_path).unwrap();
+        pool.close().await;
+    }
+
     async fn seed_local_session(state_path: &str, user_id: &str) -> String {
         let session_id = format!("seeded_session_{user_id}");
         let session_secret = format!("secret_for_{user_id}");
@@ -4660,7 +4974,7 @@ mod tests {
             .hash_password(session_secret.as_bytes(), &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        build_local_session_store(state_path.to_string())
+        build_local_session_store(state_path.to_string(), None)
             .store_local_session(LocalSession {
                 id: session_id.clone(),
                 user_id: user_id.into(),
@@ -4792,6 +5106,7 @@ mod tests {
                 unique_test_path("api-key-helper-sessions")
                     .display()
                     .to_string(),
+                None,
             ),
             build_browse_store(),
             build_commit_store(),
@@ -5183,7 +5498,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_completions_filters_out_of_scope_provider_citations_from_persisted_threads_and_api_responses() {
+    async fn ask_completions_filters_out_of_scope_provider_citations_from_persisted_threads_and_api_responses(
+    ) {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
         let organization_state_path = unique_test_path("ask-filter-citations-orgs");
         write_organization_state_fixture(
@@ -5207,7 +5523,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -5247,7 +5566,10 @@ mod tests {
             payload.rendered_citations[0].repo_id,
             "repo_sourcebot_rewrite"
         );
-        assert!(!payload.citations.iter().any(|citation| citation.repo_id == "repo_hidden"));
+        assert!(!payload
+            .citations
+            .iter()
+            .any(|citation| citation.repo_id == "repo_hidden"));
 
         let threads = ask_threads
             .list_threads_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
@@ -5261,7 +5583,10 @@ mod tests {
             .expect("new ask completion should create a thread");
         assert_eq!(thread.messages.len(), 2);
         assert_eq!(thread.messages[1].citations.len(), 1);
-        assert_eq!(thread.messages[1].citations[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(
+            thread.messages[1].citations[0].repo_id,
+            "repo_sourcebot_rewrite"
+        );
         assert!(!thread.messages[1]
             .citations
             .iter()
@@ -5438,7 +5763,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -5745,8 +6073,14 @@ mod tests {
         assert_eq!(payload.messages[1].id, "msg_visible_detail_assistant");
         assert_eq!(payload.messages[1].role, "assistant");
         assert_eq!(payload.messages[1].citations.len(), 1);
-        assert_eq!(payload.messages[1].citations[0].repo_id, "repo_sourcebot_rewrite");
-        assert_eq!(payload.messages[1].citations[0].path, "crates/api/src/main.rs");
+        assert_eq!(
+            payload.messages[1].citations[0].repo_id,
+            "repo_sourcebot_rewrite"
+        );
+        assert_eq!(
+            payload.messages[1].citations[0].path,
+            "crates/api/src/main.rs"
+        );
         assert_eq!(payload.messages[1].rendered_citations.len(), 1);
         assert_eq!(
             payload.messages[1].rendered_citations[0].display_label,
@@ -5908,7 +6242,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6028,7 +6365,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6157,7 +6497,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6176,7 +6519,10 @@ mod tests {
                         serde_json::to_vec(&AskCompletionRequest {
                             prompt: "follow-up question".into(),
                             system_prompt: None,
-                            repo_scope: vec!["repo_demo_docs".into(), "repo_sourcebot_rewrite".into()],
+                            repo_scope: vec![
+                                "repo_demo_docs".into(),
+                                "repo_sourcebot_rewrite".into(),
+                            ],
                             thread_id: Some(existing_thread.id.clone()),
                         })
                         .unwrap(),
@@ -6201,7 +6547,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ask_completions_returns_not_found_when_thread_scope_does_not_match_requested_repo_scope() {
+    async fn ask_completions_returns_not_found_when_thread_scope_does_not_match_requested_repo_scope(
+    ) {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
         let organization_state_path = unique_test_path("ask-thread-scope-mismatch-orgs");
         write_organization_state_fixture(
@@ -6254,7 +6601,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6299,7 +6649,8 @@ mod tests {
     #[tokio::test]
     async fn ask_completions_validates_requested_thread_before_calling_provider() {
         let ask_threads = Arc::new(InMemoryAskThreadStore::new());
-        let organization_state_path = unique_test_path("ask-thread-validation-before-provider-orgs");
+        let organization_state_path =
+            unique_test_path("ask-thread-validation-before-provider-orgs");
         write_organization_state_fixture(
             &organization_state_path,
             LOCAL_BOOTSTRAP_ADMIN_USER_ID,
@@ -6337,19 +6688,26 @@ mod tests {
         let config = AppConfig {
             llm_provider: Some("disabled".into()),
             organization_state_path: organization_state_path.display().to_string(),
-            bootstrap_state_path: unique_test_path("ask-thread-validation-before-provider-bootstrap")
-                .display()
-                .to_string(),
-            local_session_state_path: unique_test_path("ask-thread-validation-before-provider-sessions")
-                .display()
-                .to_string(),
+            bootstrap_state_path: unique_test_path(
+                "ask-thread-validation-before-provider-bootstrap",
+            )
+            .display()
+            .to_string(),
+            local_session_state_path: unique_test_path(
+                "ask-thread-validation-before-provider-sessions",
+            )
+            .display()
+            .to_string(),
             ..AppConfig::default()
         };
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6681,7 +7039,7 @@ mod tests {
             AppConfig::default(),
             Arc::new(InMemoryCatalogStore::seeded()),
             Arc::new(AlreadyInitializedBootstrapStore),
-            build_local_session_store(unique_test_path("already-initialized-sessions")),
+            build_local_session_store(unique_test_path("already-initialized-sessions"), None),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6963,7 +7321,11 @@ mod tests {
             }],
             ..OrganizationState::default()
         };
-        fs::write(&organization_state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
 
         let app = test_app_with_config(AppConfig {
             organization_state_path: organization_state_path.display().to_string(),
@@ -7016,7 +7378,8 @@ mod tests {
             .iter()
             .find(|account| account.id == invitee_user_id)
             .unwrap();
-        let invitee_password_hash = PasswordHash::new(invitee_account.password_hash.as_deref().unwrap()).unwrap();
+        let invitee_password_hash =
+            PasswordHash::new(invitee_account.password_hash.as_deref().unwrap()).unwrap();
         assert!(Argon2::default()
             .verify_password(b"correct horse battery staple", &invitee_password_hash)
             .is_ok());
@@ -7180,10 +7543,7 @@ mod tests {
         let organization_state_path = unique_test_path("invite-redeem-existing-account-orgs");
         let local_session_state_path = unique_test_path("invite-redeem-existing-account-sessions");
         let existing_password_hash = Argon2::default()
-            .hash_password(
-                b"already-owned-password",
-                &SaltString::generate(&mut OsRng),
-            )
+            .hash_password(b"already-owned-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
         let original_state = OrganizationState {
@@ -7358,7 +7718,10 @@ mod tests {
         let local_session_state_path = unique_test_path("login-invited-account-sessions");
         let invite_password = "invite-password";
         let invite_password_hash = Argon2::default()
-            .hash_password(invite_password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .hash_password(
+                invite_password.as_bytes(),
+                &SaltString::generate(&mut OsRng),
+            )
             .unwrap()
             .to_string();
         fs::write(
@@ -8564,7 +8927,8 @@ mod tests {
     #[tokio::test]
     async fn auth_linked_accounts_fails_closed_when_session_user_has_no_local_account_record() {
         let organization_state_path = unique_test_path("auth-linked-accounts-missing-account");
-        let local_session_state_path = unique_test_path("auth-linked-accounts-missing-account-sessions");
+        let local_session_state_path =
+            unique_test_path("auth-linked-accounts-missing-account-sessions");
         let user_id = "local_user_missing";
         let authorization =
             seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
@@ -8613,7 +8977,8 @@ mod tests {
     #[tokio::test]
     async fn auth_linked_accounts_returns_current_local_identity_and_visible_memberships() {
         let organization_state_path = unique_test_path("auth-linked-accounts-visible-memberships");
-        let local_session_state_path = unique_test_path("auth-linked-accounts-visible-memberships-sessions");
+        let local_session_state_path =
+            unique_test_path("auth-linked-accounts-visible-memberships-sessions");
         let user_id = "local_user_admin";
         let authorization =
             seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
@@ -9048,7 +9413,10 @@ mod tests {
         assert_eq!(payload[0].members[0].account.id, user_id);
         assert_eq!(payload[0].members[0].account.email, "admin@example.com");
         assert_eq!(payload[0].members[0].account.name, "Admin User");
-        assert_eq!(payload[0].members[0].account.created_at, "2026-04-18T00:00:00Z");
+        assert_eq!(
+            payload[0].members[0].account.created_at,
+            "2026-04-18T00:00:00Z"
+        );
         assert_eq!(payload[0].members[1].user_id, "local_user_viewer");
         assert_eq!(payload[0].members[1].role, "viewer");
         assert_eq!(payload[0].invites.len(), 2);
@@ -14518,7 +14886,8 @@ mod tests {
 
     #[tokio::test]
     async fn review_webhook_event_intake_returns_401_for_invalid_persisted_secret_hash() {
-        let organization_state_path = unique_test_path("review-webhook-events-invalid-persisted-secret-orgs");
+        let organization_state_path =
+            unique_test_path("review-webhook-events-invalid-persisted-secret-orgs");
         let state = OrganizationState {
             organizations: vec![Organization {
                 id: "org_acme".into(),
@@ -15972,7 +16341,8 @@ mod tests {
 
     #[tokio::test]
     async fn auth_me_returns_401_for_invalid_persisted_session_hash() {
-        let local_session_state_path = unique_test_path("auth-me-invalid-persisted-session-sessions");
+        let local_session_state_path =
+            unique_test_path("auth-me-invalid-persisted-session-sessions");
         fs::write(
             &local_session_state_path,
             serde_json::to_vec(&LocalSessionState {
@@ -17216,7 +17586,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -17295,7 +17668,10 @@ mod tests {
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(config.bootstrap_state_path.clone()),
-            build_local_session_store(config.local_session_state_path.clone()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -17387,7 +17763,7 @@ mod tests {
             },
             Arc::new(InMemoryCatalogStore::seeded()),
             build_bootstrap_store(unique_test_path("config-store")),
-            build_local_session_store(unique_test_path("config-local-sessions")),
+            build_local_session_store(unique_test_path("config-local-sessions"), None),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -17445,9 +17821,11 @@ mod tests {
             local_session_state_path: local_session_state_path.display().to_string(),
             ..AppConfig::default()
         });
-        let authorization =
-            seed_local_session(&local_session_state_path.display().to_string(), LOCAL_BOOTSTRAP_ADMIN_USER_ID)
-                .await;
+        let authorization = seed_local_session(
+            &local_session_state_path.display().to_string(),
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+        )
+        .await;
 
         let response = app
             .oneshot(
@@ -17481,7 +17859,9 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let payload: Vec<RepositorySummary> = read_json(response).await;
-        assert!(payload.iter().any(|repo| repo.id == "repo_sourcebot_rewrite"));
+        assert!(payload
+            .iter()
+            .any(|repo| repo.id == "repo_sourcebot_rewrite"));
         assert!(payload.iter().any(|repo| repo.id == "repo_demo_docs"));
     }
 

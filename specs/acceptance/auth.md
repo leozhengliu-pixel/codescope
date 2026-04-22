@@ -21,7 +21,7 @@
 
 ## Expected behavior
 1. First-run onboarding can initialize the first admin under a self-hosted deployment.
-2. Users can authenticate and receive a durable session.
+2. Users can authenticate and receive a durable session; when `DATABASE_URL` is configured, local sessions persist in PostgreSQL across API restarts.
 3. Org admins can invite users and assign roles.
 4. Role changes propagate to repository access checks.
 5. API keys are creatable, listable, revocable, and scoped according to product policy.
@@ -40,6 +40,7 @@
 ## Black-box examples
 - First boot allows creating one admin account from `#/auth`, then closes bootstrap flow and falls through to local login.
 - A local admin can sign in from `#/auth`, the frontend persists the returned `session_id:session_secret` token client-side, restores `/api/v1/auth/me`, and reuses that bearer token on later protected `/api/v1/auth/...` requests until logout clears it.
+- When `DATABASE_URL` is configured, that local session remains durable in PostgreSQL, so a fresh API process can still restore `/api/v1/auth/me` even if the configured local-session file path is empty or stale; broader durable bootstrap/account/org state remains follow-up work.
 - If a local-session or API-key bearer token references missing or corrupted persisted secret material, the corresponding protected auth request still fails closed with `401` after the same Argon2 verification burn path instead of shortcutting on the missing/malformed stored record.
 - An invited email can open `#/auth?invite=<invite_id>&email=<invited_email>`, submit name and password to `POST /api/v1/auth/invite-redeem`, receive a new local session, and immediately land in the signed-in auth state without claiming that broader invite creation or admin invite-management UX already exists.
 - A user landing on `#/auth` with OAuth callback params such as `provider`, `error`, `error_description`, `code`, or `state` still gets the local login form plus a truthful provider-aware callback-status callout that acknowledges the redirect, surfaces any returned error/code details, and explicitly says that this rewrite does not finish external-provider sign-in/callback exchange there yet.
