@@ -102,4 +102,7 @@ retries, and production-grade operator/runtime parity.
 Task 85 can be closed as an honest audit-and-checklist closure because the repo now
 has a final parity audit document and a fully grounded feature matrix. The audit's
 truthful answer is that release parity is **not** complete yet, and the unchecked
-items above are the blocking work that remains.
+items above are the blocking work that remains. Those blockers now continue under
+`docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md` so future runs can
+resume from a truthful follow-on roadmap instead of reopening the finished 85-task
+audit roadmap.
