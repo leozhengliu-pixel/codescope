@@ -32,7 +32,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Journey map and missing-spec prerequisites | `specs/acceptance/journeys.md` | Present in this slice | Maps indexed surfaces into user/admin/operator journeys and names the missing dedicated acceptance specs that must be created before broader implementation proceeds. |
 | Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
 | Settings navigation shell | `specs/acceptance/settings-navigation.md` | Present in this slice | Covers the shared `#/settings` landing page plus subsection-shell discoverability without over-claiming richer admin CRUD UX. |
-| Worker execution parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box worker/operator acceptance spec in a later Task 1 slice. |
+| Worker execution parity | `specs/acceptance/worker-runtime.md` | Present in task80b | Covers the shipped one-shot, stub-oriented worker runtime baseline, runtime-baseline logging, no-work exits, and stub terminal outcomes while explicitly deferring real execution, retries, supervision, durable metadata, and production observability. |
 | Operator workflows parity | `specs/acceptance/operator-runtime.md` | Present in task80a | Covers the shipped local runtime liveness/config baseline, shared `SOURCEBOT_DATA_DIR` path wiring, and `make api` + one-shot `make worker` bring-up while explicitly deferring migrations, readiness, supervision, durable metadata, and production-grade observability. |
 
 ## Surface inventory
@@ -71,9 +71,9 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 | Surface family | Rewrite evidence | Parity intent | Current acceptance home |
 | --- | --- | --- | --- |
-| One-shot review-agent worker entrypoint | `crates/worker/src/main.rs` → `main`, `run_worker_tick` | Worker parity starts from a single-shot entrypoint that loads config, constructs the organization store, invokes one worker tick, and logs either a terminal run or the no-work path | `specs/acceptance/index.md` until dedicated worker spec exists |
-| Idle/no-work worker behavior | `crates/worker/src/main.rs` | Worker exposes an explicit no-work path by logging when no queued review-agent run is available | `specs/acceptance/index.md` until dedicated worker spec exists |
-| Config-driven stub execution outcomes | `crates/worker/src/main.rs` | Worker entrypoint selects a configured stub outcome before invoking the tick, creating the acceptance anchor for later completed/failed worker parity slices | `specs/acceptance/index.md` until dedicated worker spec exists |
+| One-shot review-agent worker entrypoint | `crates/worker/src/main.rs` → `main`, `run_worker_tick` | Worker parity starts from a single-shot entrypoint that loads config, constructs the organization store, logs the resolved runtime baseline, invokes one worker tick, and logs either a terminal run or the no-work path | `specs/acceptance/worker-runtime.md` |
+| Idle/no-work worker behavior | `crates/worker/src/main.rs` | Worker exposes an explicit no-work path by logging when no queued review-agent run or repository-sync job is available | `specs/acceptance/worker-runtime.md` |
+| Config-driven stub execution outcomes | `crates/worker/src/main.rs` | Worker entrypoint selects review-agent and repository-sync stub outcomes before invoking the tick, and logs those resolved stub selections as part of the startup runtime baseline | `specs/acceptance/worker-runtime.md` |
 | Retry/scheduling/resume loops | _Not implemented yet_ | Real automation parity for retries, polling, rescheduling, and worker orchestration | Future worker acceptance spec |
 
 ### 4. Operator/admin workflow surface families
@@ -87,10 +87,10 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Durable metadata / migrations / backup-restore | _Not implemented yet_ | Practical Sourcebot replacement requires production-grade persistence, migrations, backup, and restore parity | Future operator acceptance spec |
 
 ## Immediate follow-up gaps exposed by this index
-1. The acceptance corpus now has a dedicated operator runtime spec, but still lacks a dedicated worker-runtime black-box spec.
+1. The acceptance corpus now has dedicated operator-runtime and worker-runtime specs; later slices should extend those documents instead of restating worker/operator behavior only in this index.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
 3. `specs/FEATURE_PARITY.md` now has the evidence column needed for later parity auditing, but most rows are still only placeholders; later slices should keep replacing `_TBD_` rows with grounded evidence instead of treating the matrix as complete.
-4. Review-agent, OAuth, analytics, audit, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/operator-runtime.md` now covers the local runtime baseline, and `specs/acceptance/settings-navigation.md` covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
+4. Review-agent, OAuth, analytics, and audit flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/operator-runtime.md` now covers the local runtime baseline, `specs/acceptance/worker-runtime.md` covers the current one-shot worker baseline, and `specs/acceptance/settings-navigation.md` covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
 
 ## Related follow-up document
 - `specs/acceptance/journeys.md` maps the indexed surfaces above into explicit user/admin/operator journeys and identifies the minimum dedicated missing acceptance-spec documents exposed by the current rewrite evidence.

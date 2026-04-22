@@ -30,8 +30,8 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 | Admin | Inspect review webhooks, delivery attempts, and review-agent runs from authenticated endpoints | `/api/v1/auth/review-webhooks`; `/api/v1/auth/review-webhooks/{webhook_id}`; `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts`; `/api/v1/auth/review-webhooks/{webhook_id}/delivery-attempts/{attempt_id}`; `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs`; `/api/v1/auth/review-webhooks/{webhook_id}/review-agent-runs/{run_id}`; `/api/v1/auth/review-webhook-delivery-attempts`; `/api/v1/auth/review-webhook-delivery-attempts/{attempt_id}`; `/api/v1/auth/review-agent-runs`; `/api/v1/auth/review-agent-runs/{run_id}` | `specs/acceptance/index.md` only | Create `specs/acceptance/review-automation.md` before implementation broadens across webhook admin UX, run history, retries, and operator diagnostics |
 | Admin | Use auth/admin/settings navigation shells | `web/src/App.tsx` now includes `#/settings` plus shared-shell subsection routes for connections, API keys, OAuth clients, observability, and review automation; broader onboarding/login/admin route families are still absent | `specs/acceptance/settings-navigation.md` and `specs/acceptance/auth.md` | None for the current route-shell baseline; extend `specs/acceptance/settings-navigation.md` before broader settings/admin frontend implementation proceeds |
 | Operator | Confirm service liveness and frontend bootstrap config | `/healthz`; `/api/v1/config` | `specs/acceptance/operator-runtime.md` | None for the current local liveness/config baseline; extend the existing spec before claiming broader deployment/runtime behavior |
-| Operator | Run the one-shot worker tick against organization state path wiring | `crates/worker/src/main.rs` `main`; `AppConfig::from_env()`; `build_organization_store(config.organization_state_path.clone())`; `run_worker_tick(...)` | `specs/acceptance/index.md` only | Create `specs/acceptance/worker-runtime.md` before broad worker orchestration work proceeds |
-| Operator | Observe worker no-work and configured stub terminal outcomes | `StubReviewAgentRunExecutionOutcome`; worker logs for terminal status and `no queued review-agent run available`; `crates/worker/src/lib.rs` stub execution helpers | `specs/acceptance/index.md` only | Covered by the same required `specs/acceptance/worker-runtime.md` follow-up |
+| Operator | Run the one-shot worker tick against organization state path wiring | `crates/worker/src/main.rs` `main`; `AppConfig::from_env()`; `build_organization_store(config.organization_state_path.clone())`; `run_worker_tick(...)`; startup runtime-baseline log fields for resolved path and stub selections | `specs/acceptance/worker-runtime.md` | None for the current one-shot stub baseline; extend `specs/acceptance/worker-runtime.md` before broader worker orchestration work proceeds |
+| Operator | Observe worker no-work and configured stub terminal outcomes | `StubReviewAgentRunExecutionOutcome`; `StubRepositorySyncJobExecutionOutcome`; worker logs for startup runtime baseline, terminal status, and `no queued review-agent run or repository sync job available`; `crates/worker/src/lib.rs` stub execution helpers | `specs/acceptance/worker-runtime.md` | None for the current stub/logging baseline; later slices should extend the same worker-runtime acceptance home instead of creating a second baseline doc |
 | Operator | Accept public review-webhook events into the automation pipeline | `/api/v1/review-webhooks/{webhook_id}/events` plus the authenticated inspection endpoints above | `specs/acceptance/index.md` only | Covered by the same required `specs/acceptance/review-automation.md` follow-up |
 | Operator | Track repo sync/index readiness exposed to users and admins | Repo `sync_state` surfaced through `/api/v1/repos`, `/api/v1/repos/{repo_id}`, the repo pages/panels in `web/src/App.tsx`, and authenticated sync-job history at `/api/v1/auth/repository-sync-jobs` | `specs/acceptance/repository-operations.md` | None for the dedicated acceptance home itself; later parity work should extend this spec for persisted index status, failure recovery, and operator controls |
 
@@ -52,17 +52,18 @@ This document turns the surface inventory in `specs/acceptance/index.md` into co
 
 ### Operator journeys
 1. **Runtime liveness/config** now has a dedicated acceptance home in `specs/acceptance/operator-runtime.md` for the current local `/healthz`, `/api/v1/config`, shared `SOURCEBOT_DATA_DIR`, and `make api`/`make worker` baseline without over-claiming broader deployment parity.
-2. **Worker runtime** is currently represented by a one-shot entrypoint plus stubbed terminal outcomes and explicit no-work logging. That is enough evidence to justify a dedicated worker-runtime acceptance doc, but not enough to claim retries, scheduling loops, or full automation orchestration.
+2. **Worker runtime** now has a dedicated home in `specs/acceptance/worker-runtime.md` for the one-shot entrypoint, startup runtime-baseline logging, stubbed terminal outcomes, and explicit no-work logging. That baseline still does not claim retries, scheduling loops, or full automation orchestration.
 3. **Review webhook intake and run inspection** spans both operator and admin concerns; the current authenticated/public route set should be moved into a dedicated review-automation acceptance doc before broader implementation.
 4. **Repository operations** now has a dedicated acceptance home in `specs/acceptance/repository-operations.md`; later sync/index parity work should extend that doc instead of overloading `browse.md`.
 
 ## Minimum missing acceptance-spec set exposed by the current journey audit
-These are the smallest dedicated follow-up docs this journey map shows as prerequisites for broader parity implementation in the indexed gaps:
+These are the smallest still-missing dedicated follow-up docs this journey map shows as prerequisites for broader parity implementation in the indexed gaps:
 
 1. `specs/acceptance/admin-observability.md`
 2. `specs/acceptance/oauth-clients.md`
 3. `specs/acceptance/review-automation.md`
-4. `specs/acceptance/worker-runtime.md`
+
+`specs/acceptance/worker-runtime.md` is now present; later worker slices should extend that existing acceptance home instead of reopening the gap elsewhere.
 
 ## Immediate usage rule for later slices
 - Extend an existing domain spec when this document says an acceptance home already exists.

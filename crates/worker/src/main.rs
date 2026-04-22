@@ -13,6 +13,8 @@ use tracing::info;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(std::io::stderr)
         .compact()
         .init();
 
@@ -34,6 +36,14 @@ async fn main() -> anyhow::Result<()> {
             StubRepositorySyncJobExecutionOutcome::Failed
         }
     };
+
+    info!(
+        organization_state_path = %config.organization_state_path,
+        review_agent_stub_outcome = ?review_agent_stub_outcome,
+        repository_sync_stub_outcome = ?repository_sync_stub_outcome,
+        "worker runtime baseline resolved for explicit one-shot runtime"
+    );
+
     let outcome = run_worker_tick(
         store.as_ref(),
         review_agent_stub_outcome,
@@ -50,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
         Some(WorkerTickOutcome::RepositorySyncJob(job)) => info!(
             repository_sync_job_id = %job.id,
             status = ?job.status,
-            "recorded repository sync job stub terminal status after one worker tick"
+            "recorded repository-sync terminal status after stub worker execution for the one-shot runtime baseline"
         ),
         None => info!("no queued review-agent run or repository sync job available"),
     }

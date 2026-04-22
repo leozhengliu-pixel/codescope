@@ -70,8 +70,12 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make worker
    ```
-6. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick and exits. This repo does not yet claim supervised workers, durable worker metadata, retries, or continuous background orchestration.
-7. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
+6. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, and then exits.
+7. Optional worker-only stub controls for the current baseline are:
+   - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
+   - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`
+8. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
+9. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
 
 ## License
 Current default: MIT.
