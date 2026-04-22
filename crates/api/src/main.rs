@@ -94,7 +94,10 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = config.bind_addr.parse()?;
     let service_name = config.service_name.clone();
     let catalog = build_catalog_store(config.database_url.as_deref()).await?;
-    let bootstrap = build_bootstrap_store(config.bootstrap_state_path.clone());
+    let bootstrap = build_bootstrap_store(
+        config.bootstrap_state_path.clone(),
+        config.database_url.as_deref(),
+    );
     let local_sessions = try_build_local_session_store(
         config.local_session_state_path.clone(),
         config.database_url.as_deref(),
@@ -4397,7 +4400,7 @@ mod tests {
         build_router(
             config,
             catalog,
-            build_bootstrap_store(bootstrap_state_path),
+            build_bootstrap_store(bootstrap_state_path, database_url.as_deref()),
             build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
@@ -4417,7 +4420,7 @@ mod tests {
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(bootstrap_state_path),
+            build_bootstrap_store(bootstrap_state_path, database_url.as_deref()),
             build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
@@ -4433,7 +4436,7 @@ mod tests {
         build_router(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(bootstrap_state_path),
+            build_bootstrap_store(bootstrap_state_path, database_url.as_deref()),
             build_local_session_store(local_session_state_path, database_url.as_deref()),
             build_browse_store(),
             build_commit_store(),
@@ -4623,7 +4626,7 @@ mod tests {
         let state = build_app_state(
             config,
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(unique_test_path("app-state-bootstrap")),
+            build_bootstrap_store(unique_test_path("app-state-bootstrap"), None),
             build_local_session_store(unique_test_path("app-state-local-sessions"), None),
             build_browse_store(),
             build_commit_store(),
@@ -4759,6 +4762,426 @@ mod tests {
         pool
     }
 
+    fn postgres_bootstrap_test_config(
+        bootstrap_state_path: &std::path::Path,
+        local_session_state_path: &std::path::Path,
+    ) -> AppConfig {
+        AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            database_url: Some(
+                env::var("TEST_DATABASE_URL")
+                    .expect("TEST_DATABASE_URL must be set for Postgres-backed bootstrap tests"),
+            ),
+            ..AppConfig::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_bootstrap_status_uses_postgres_backed_bootstrap_admin_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        let bootstrap_state_path = unique_test_path("pg-bootstrap-status-unused");
+        let local_session_state_path = unique_test_path("pg-bootstrap-status-sessions");
+        let app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let initial_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(initial_response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(initial_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: true,
+            }
+        );
+
+        let password_hash = Argon2::default()
+            .hash_password(
+                b"correct horse battery staple",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind("admin@example.com")
+        .bind("Admin User")
+        .bind(&password_hash)
+        .bind("2026-04-22T10:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("persist bootstrap admin in Postgres");
+
+        let reloaded_app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+        let reloaded_response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reloaded_response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(reloaded_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+        assert!(!bootstrap_state_path.exists());
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_bootstrap_create_persists_bootstrap_admin_in_postgres_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        let bootstrap_state_path = unique_test_path("pg-bootstrap-create-unused");
+        let local_session_state_path = unique_test_path("pg-bootstrap-create-sessions");
+        let app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(create_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+        assert!(!bootstrap_state_path.exists());
+
+        let persisted_row = sqlx::query(
+            "SELECT email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = $1",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .fetch_one(&pool)
+        .await
+        .expect("read persisted Postgres bootstrap admin");
+        let persisted_password_hash: String = persisted_row.get("password_hash");
+        assert_eq!(persisted_row.get::<String, _>("email"), "admin@example.com");
+        assert_eq!(persisted_row.get::<String, _>("name"), "Admin User");
+        assert_ne!(persisted_password_hash, "correct horse battery staple");
+        assert!(persisted_password_hash.starts_with("$argon2"));
+        assert!(
+            OffsetDateTime::parse(&persisted_row.get::<String, _>("created_at"), &Rfc3339)
+                .is_ok()
+        );
+
+        let status_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(status_response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(status_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_bootstrap_create_upgrades_legacy_bootstrap_account_row_without_password_hash(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ($1, $2, $3, $4::timestamptz)",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind("legacy@example.com")
+        .bind("Legacy Admin")
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .expect("persist legacy bootstrap account row without password hash");
+        let bootstrap_state_path = unique_test_path("pg-bootstrap-upgrade-unused");
+        let local_session_state_path = unique_test_path("pg-bootstrap-upgrade-sessions");
+        let app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let initial_status_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/bootstrap")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(initial_status_response.status(), StatusCode::OK);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(initial_status_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: true,
+            }
+        );
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        assert_eq!(
+            read_json::<BootstrapStatusResponse>(create_response).await,
+            BootstrapStatusResponse {
+                bootstrap_required: false,
+            }
+        );
+
+        let persisted_row = sqlx::query(
+            "SELECT email, name, password_hash FROM local_accounts WHERE id = $1",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .fetch_one(&pool)
+        .await
+        .expect("read upgraded bootstrap admin row");
+        let persisted_password_hash: String = persisted_row.get("password_hash");
+        assert_eq!(persisted_row.get::<String, _>("email"), "admin@example.com");
+        assert_eq!(persisted_row.get::<String, _>("name"), "Admin User");
+        assert!(persisted_password_hash.starts_with("$argon2"));
+        assert!(!bootstrap_state_path.exists());
+
+        let login_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_bootstrap_create_returns_conflict_on_second_post_after_initialization(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        let bootstrap_state_path = unique_test_path("pg-bootstrap-conflict-unused");
+        let local_session_state_path = unique_test_path("pg-bootstrap-conflict-sessions");
+        let app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let first_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first_response.status(), StatusCode::CREATED);
+
+        let second_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second_response.status(), StatusCode::CONFLICT);
+        assert!(!bootstrap_state_path.exists());
+        assert!(!local_session_state_path.exists());
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_bootstrap_login_uses_postgres_backed_bootstrap_admin_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        let bootstrap_state_path = unique_test_path("pg-bootstrap-login-unused");
+        let local_session_state_path = unique_test_path("pg-bootstrap-login-sessions");
+        let app = test_app_with_config(postgres_bootstrap_test_config(
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&BootstrapCreateRequest {
+                            email: "admin@example.com".into(),
+                            name: "Admin User".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        assert!(!bootstrap_state_path.exists());
+
+        let poisoned_bootstrap_state_path = unique_test_path("pg-bootstrap-login-poisoned");
+        fs::write(&poisoned_bootstrap_state_path, b"not valid bootstrap json").unwrap();
+        let reloaded_app = test_app_with_config(postgres_bootstrap_test_config(
+            &poisoned_bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = reloaded_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        assert_eq!(login_payload.user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+        assert!(!login_payload.session_secret.is_empty());
+
+        let auth_me_response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(auth_me_response.status(), StatusCode::OK);
+        let auth_me_payload: AuthMeResponseBody = read_json(auth_me_response).await;
+        assert_eq!(auth_me_payload.user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+        assert_eq!(auth_me_payload.email, "admin@example.com");
+        assert_eq!(auth_me_payload.name, "Admin User");
+
+        let persisted_session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .expect("count persisted Postgres sessions after login");
+        assert_eq!(persisted_session_count, 1);
+        assert!(poisoned_bootstrap_state_path.is_file());
+        assert!(!local_session_state_path.exists());
+
+        fs::remove_file(poisoned_bootstrap_state_path).unwrap();
+        pool.close().await;
+    }
+
     #[tokio::test]
     async fn auth_login_and_me_use_postgres_backed_local_sessions_when_database_url_is_configured()
     {
@@ -4818,8 +5241,8 @@ mod tests {
             .expect("read persisted Postgres-backed session")
             .get("user_id");
         assert_eq!(persisted_session_user_id, LOCAL_BOOTSTRAP_ADMIN_USER_ID);
+        assert!(!bootstrap_state_path.exists());
 
-        fs::remove_file(bootstrap_state_path).unwrap();
         fs::remove_file(poisoned_local_session_state_path).unwrap();
         pool.close().await;
     }
@@ -5101,6 +5524,7 @@ mod tests {
                 unique_test_path("api-key-helper-bootstrap")
                     .display()
                     .to_string(),
+                None,
             ),
             build_local_session_store(
                 unique_test_path("api-key-helper-sessions")
@@ -5522,7 +5946,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -5762,7 +6186,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -6241,7 +6665,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -6364,7 +6788,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -6496,7 +6920,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -6600,7 +7024,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -6703,7 +7127,7 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -17585,7 +18009,7 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -17667,7 +18091,7 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -17762,7 +18186,7 @@ mod tests {
                 llm_api_key: Some("super-secret".into()),
             },
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(unique_test_path("config-store")),
+            build_bootstrap_store(unique_test_path("config-store"), None),
             build_local_session_store(unique_test_path("config-local-sessions"), None),
             build_browse_store(),
             build_commit_store(),

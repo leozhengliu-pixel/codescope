@@ -21,7 +21,7 @@ help:
 	  'make worker    - run sourcebot-worker' \
 	  'make sqlx-migrate - run SQLx database migrations for the metadata schema against DATABASE_URL' \
 	  'make sqlx-test-reset - drop, recreate, and re-migrate the deterministic test metadata database via TEST_DATABASE_URL' \
-	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata plus durable local-session tests' \
+	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata plus durable bootstrap/local-session tests' \
 	  'make metadata-dev-bootstrap - wait for local Postgres, ensure the dedicated test metadata database exists, run migrations, and run focused metadata compatibility tests' \
 	  'make runtime-backup - create a timestamped backup of the current local runtime state' \
 	  'make runtime-restore BACKUP_DIR=/path/to/backup - restore the local runtime state from a captured backup directory' \
@@ -63,7 +63,7 @@ sqlx-migrate:
 sqlx-test-reset:
 	@: "$${TEST_DATABASE_URL:?TEST_DATABASE_URL must be set}"
 	@case "$$TEST_DATABASE_URL" in \
-	  postgres://*@127.0.0.1:5432/sourcebot_test|postgres://*@localhost:5432/sourcebot_test) ;; \
+	  postgres://*@127.0.0.1:5432/sourcebot_test|postgres://*@localhost:5432/sourcebot_test|postgresql://*@127.0.0.1:5432/sourcebot_test|postgresql://*@localhost:5432/sourcebot_test) ;; \
 	  *) printf '%s\n' 'TEST_DATABASE_URL must target the dedicated local sourcebot_test database on 127.0.0.1 or localhost' >&2; exit 1 ;; \
 	esac
 	$(CARGO) install --locked sqlx-cli --version $(SQLX_CLI_VERSION) --no-default-features --features rustls,postgres --root $(SQLX_CLI_ROOT)
@@ -73,7 +73,9 @@ sqlx-test:
 	@: "$${TEST_DATABASE_URL:?TEST_DATABASE_URL must be set}"
 	$(MAKE) sqlx-test-reset
 	DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture
+	TEST_DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api pg_bootstrap_store_ -- --nocapture --test-threads=1
 	TEST_DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api pg_local_session_store_ -- --nocapture --test-threads=1
+	TEST_DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api postgres_backed_bootstrap_ -- --nocapture --test-threads=1
 	TEST_DATABASE_URL="$$TEST_DATABASE_URL" $(CARGO) test -p sourcebot-api --bin sourcebot-api auth_login_and_me_use_postgres_backed_local_sessions_when_database_url_is_configured -- --nocapture --test-threads=1
 
 metadata-dev-bootstrap:

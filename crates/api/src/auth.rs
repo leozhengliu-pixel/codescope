@@ -27,6 +27,8 @@ pub type DynBootstrapStore = Arc<dyn BootstrapStore>;
 pub type DynLocalSessionStore = Arc<dyn LocalSessionStore>;
 pub type DynOrganizationStore = Arc<dyn OrganizationStore>;
 
+const LOCAL_BOOTSTRAP_ADMIN_USER_ID: &str = "local_user_bootstrap_admin";
+
 #[derive(Clone, Debug)]
 pub struct FileBootstrapStore {
     state_path: PathBuf,
@@ -44,6 +46,11 @@ pub struct FileOrganizationStore {
 
 #[derive(Clone, Debug)]
 pub struct PgLocalSessionStore {
+    pool: sqlx::PgPool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PgBootstrapStore {
     pool: sqlx::PgPool,
 }
 
@@ -140,6 +147,31 @@ impl PgLocalSessionStore {
             .max_connections(5)
             .connect_lazy(database_url)?;
         Ok(Self { pool })
+    }
+}
+
+impl PgBootstrapStore {
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
+    }
+
+    async fn bootstrap_row(&self) -> Result<Option<BootstrapState>> {
+        let row = sqlx::query(
+            "SELECT email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = $1 AND password_hash IS NOT NULL",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| BootstrapState {
+            initialized_at: row.get("created_at"),
+            admin_email: row.get("email"),
+            admin_name: row.get("name"),
+            password_hash: row.get("password_hash"),
+        }))
     }
 }
 
@@ -364,6 +396,48 @@ impl BootstrapStore for FileBootstrapStore {
 }
 
 #[async_trait]
+impl BootstrapStore for PgBootstrapStore {
+    async fn bootstrap_status(&self) -> Result<BootstrapStatus> {
+        let bootstrap_required = sqlx::query(
+            "SELECT 1 FROM local_accounts WHERE id = $1 AND password_hash IS NOT NULL",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .fetch_optional(&self.pool)
+        .await?
+        .is_none();
+
+        Ok(BootstrapStatus { bootstrap_required })
+    }
+
+    async fn bootstrap_state(&self) -> Result<Option<BootstrapState>> {
+        self.bootstrap_row().await
+    }
+
+    async fn initialize_bootstrap(&self, state: BootstrapState) -> Result<()> {
+        let result = sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz) ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, password_hash = EXCLUDED.password_hash, created_at = EXCLUDED.created_at WHERE local_accounts.password_hash IS NULL",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind(state.admin_email)
+        .bind(state.admin_name)
+        .bind(state.password_hash)
+        .bind(state.initialized_at)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(std::io::Error::new(
+                ErrorKind::AlreadyExists,
+                "bootstrap already initialized",
+            )
+            .into());
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
 impl LocalSessionStore for FileLocalSessionStore {
     async fn local_session(&self, session_id: &str) -> Result<Option<LocalSession>> {
         let state = self.read_persisted_state()?;
@@ -565,8 +639,23 @@ impl OrganizationStore for FileOrganizationStore {
     }
 }
 
-pub fn build_bootstrap_store(state_path: impl Into<PathBuf>) -> DynBootstrapStore {
-    Arc::new(FileBootstrapStore::new(state_path))
+pub fn try_build_bootstrap_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> Result<DynBootstrapStore> {
+    if let Some(database_url) = database_url {
+        return Ok(Arc::new(PgBootstrapStore::connect_lazy(database_url)?));
+    }
+
+    Ok(Arc::new(FileBootstrapStore::new(state_path)))
+}
+
+pub fn build_bootstrap_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> DynBootstrapStore {
+    try_build_bootstrap_store(state_path, database_url)
+        .expect("bootstrap store DATABASE_URL must be valid when configured")
 }
 
 pub fn try_build_local_session_store(
@@ -729,6 +818,135 @@ mod tests {
         );
 
         fs::remove_file(valid_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_bootstrap_store_requires_bootstrap_when_admin_row_is_missing() {
+        let pool = bootstrap_test_pool().await;
+        let store = PgBootstrapStore { pool: pool.clone() };
+
+        assert!(store.bootstrap_status().await.unwrap().bootstrap_required);
+        assert_eq!(store.bootstrap_state().await.unwrap(), None);
+        assert_eq!(persisted_bootstrap_row(&pool).await, None);
+    }
+
+    #[tokio::test]
+    async fn pg_bootstrap_store_treats_legacy_bootstrap_row_without_password_hash_as_still_requiring_bootstrap(
+    ) {
+        let pool = bootstrap_test_pool().await;
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ($1, $2, $3, $4::timestamptz)",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind("legacy@example.com")
+        .bind("Legacy Admin")
+        .bind("2026-04-22T15:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        let store = PgBootstrapStore { pool: pool.clone() };
+
+        assert!(store.bootstrap_status().await.unwrap().bootstrap_required);
+        assert_eq!(store.bootstrap_state().await.unwrap(), None);
+
+        let upgraded_state = BootstrapState {
+            initialized_at: "2026-04-22T16:00:00Z".into(),
+            admin_email: "bootstrap@example.com".into(),
+            admin_name: "Bootstrap Admin".into(),
+            password_hash: "$argon2id$bootstrap-hash".into(),
+        };
+        store.initialize_bootstrap(upgraded_state.clone()).await.unwrap();
+
+        assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
+        assert_eq!(store.bootstrap_state().await.unwrap(), Some(upgraded_state.clone()));
+        assert_eq!(
+            persisted_bootstrap_row(&pool).await,
+            Some((
+                "bootstrap@example.com".into(),
+                "Bootstrap Admin".into(),
+                "$argon2id$bootstrap-hash".into(),
+                "2026-04-22T16:00:00Z".into(),
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_bootstrap_store_initializes_bootstrap_admin_once() {
+        let pool = bootstrap_test_pool().await;
+        let store = PgBootstrapStore { pool: pool.clone() };
+        let state = BootstrapState {
+            initialized_at: "2026-04-22T16:00:00Z".into(),
+            admin_email: "bootstrap@example.com".into(),
+            admin_name: "Bootstrap Admin".into(),
+            password_hash: "$argon2id$bootstrap-hash".into(),
+        };
+
+        store.initialize_bootstrap(state.clone()).await.unwrap();
+
+        let error = store
+            .initialize_bootstrap(BootstrapState {
+                initialized_at: "2026-04-22T16:01:00Z".into(),
+                admin_email: "other@example.com".into(),
+                admin_name: "Other Admin".into(),
+                password_hash: "$argon2id$other-hash".into(),
+            })
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io_error| io_error.kind() == ErrorKind::AlreadyExists)
+        );
+        assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
+        assert_eq!(store.bootstrap_state().await.unwrap(), Some(state.clone()));
+        assert_eq!(
+            persisted_bootstrap_row(&pool).await,
+            Some((
+                "bootstrap@example.com".into(),
+                "Bootstrap Admin".into(),
+                "$argon2id$bootstrap-hash".into(),
+                "2026-04-22T16:00:00Z".into(),
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_bootstrap_store_reads_persisted_bootstrap_state() {
+        let pool = bootstrap_test_pool().await;
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind("persisted@example.com")
+        .bind("Persisted Admin")
+        .bind("$argon2id$persisted-hash")
+        .bind("2026-04-22T15:30:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgBootstrapStore { pool: pool.clone() };
+
+        assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
+        assert_eq!(
+            store.bootstrap_state().await.unwrap(),
+            Some(BootstrapState {
+                initialized_at: "2026-04-22T15:30:00Z".into(),
+                admin_email: "persisted@example.com".into(),
+                admin_name: "Persisted Admin".into(),
+                password_hash: "$argon2id$persisted-hash".into(),
+            })
+        );
+        assert_eq!(
+            persisted_bootstrap_row(&pool).await,
+            Some((
+                "persisted@example.com".into(),
+                "Persisted Admin".into(),
+                "$argon2id$persisted-hash".into(),
+                "2026-04-22T15:30:00Z".into(),
+            ))
+        );
     }
 
     #[tokio::test]
@@ -961,7 +1179,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES ($1, $2, $3, $4::timestamptz)",
         )
-        .bind("local_user_bootstrap_admin")
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
         .bind("admin@example.com")
         .bind("Bootstrap Admin")
         .bind("2026-04-16T17:59:00Z")
@@ -969,6 +1187,47 @@ mod tests {
         .await
         .expect("seed local account");
         pool
+    }
+
+    async fn bootstrap_test_pool() -> sqlx::PgPool {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for Postgres bootstrap-store tests");
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply catalog migrations");
+        sqlx::query(
+            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset bootstrap test tables");
+        pool
+    }
+
+    async fn persisted_bootstrap_row(
+        pool: &sqlx::PgPool,
+    ) -> Option<(String, String, String, String)> {
+        sqlx::query(
+            "SELECT email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = $1",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .fetch_optional(pool)
+        .await
+        .expect("read persisted bootstrap account row")
+        .map(|row| {
+            (
+                row.get("email"),
+                row.get("name"),
+                row.get("password_hash"),
+                row.get("created_at"),
+            )
+        })
     }
 
     async fn persisted_sessions(pool: &sqlx::PgPool) -> Vec<LocalSession> {

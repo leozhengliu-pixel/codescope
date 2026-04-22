@@ -311,7 +311,7 @@ mod tests {
     use sourcebot_models::{ConnectionKind, SyncState};
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_and_task05b6_delivery_attempts_only(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_and_task87b1_local_account_password_hash(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -321,8 +321,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7].into_iter().collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 migration versions"
+            [1, 2, 3, 4, 5, 6, 7, 8].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -348,6 +348,8 @@ mod tests {
                 "0006_review_agent_runs.up.sql".to_string(),
                 "0007_delivery_attempts.down.sql".to_string(),
                 "0007_delivery_attempts.up.sql".to_string(),
+                "0008_local_account_password_hash.down.sql".to_string(),
+                "0008_local_account_password_hash.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
