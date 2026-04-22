@@ -74,8 +74,13 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
 7. Optional worker-only stub controls for the current baseline are:
    - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
    - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`
-8. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
-9. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
+8. Run the bounded local end-to-end smoke matrix when you want one repo-local operator check that bootstraps auth and then exercises authenticated connections, search, ask, public review-webhook intake, and one-shot worker completion together:
+   ```bash
+   bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite
+   ```
+9. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
+10. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
+11. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
 
 ## Local operator maintenance baseline
 1. Capture a backup of the current file-backed runtime state before maintenance:
