@@ -1,40 +1,39 @@
 # Feature Parity Matrix
 
-This document preserves the existing feature inventory while converting it into a
-stable row-per-feature matrix with explicit status and acceptance-evidence
-placeholder columns for later parity-audit updates.
+This document now serves as a concise ledger pointing each feature row at the
+final parity audit and the acceptance/gap-report evidence it summarizes.
 
 | Domain | Feature | Status | Acceptance evidence |
 | --- | --- | --- | --- |
-| Core user features | Cross-repo and cross-branch code search | Needs audit | _TBD_ |
-| Core user features | Regex, literal, boolean, repo/language/path filters | Needs audit | _TBD_ |
-| Core user features | File explorer with tree browsing and syntax highlighting | Needs audit | _TBD_ |
-| Core user features | Repository page and repo list page | Needs audit | _TBD_ |
-| Core user features | File source view | Needs audit | _TBD_ |
-| Core user features | Commit list, commit detail, and diff view | Needs audit | _TBD_ |
-| Core user features | Code navigation: definitions and references | Needs audit | _TBD_ |
-| Core user features | Ask the codebase with inline citations | Needs audit | _TBD_ |
-| Core user features | Chat threads, history, rename, visibility | Needs audit | _TBD_ |
-| Core user features | Search contexts / saved scopes | Needs audit | _TBD_ |
-| Admin and org features | First-run onboarding | Needs audit | _TBD_ |
-| Admin and org features | Organizations, membership, invites, roles | Needs audit | _TBD_ |
-| Admin and org features | API keys | Needs audit | _TBD_ |
-| Admin and org features | Connection management | Needs audit | _TBD_ |
-| Admin and org features | Sync state and indexing status | Needs audit | _TBD_ |
-| Admin and org features | Linked external accounts | Needs audit | _TBD_ |
-| Admin and org features | Access / permission sync | Needs audit | _TBD_ |
-| Integrations | GitHub | Needs audit | _TBD_ |
-| Integrations | GitLab | Needs audit | _TBD_ |
-| Integrations | Gitea | Needs audit | _TBD_ |
-| Integrations | Gerrit | Needs audit | _TBD_ |
-| Integrations | Bitbucket | Needs audit | _TBD_ |
-| Integrations | Azure DevOps | Needs audit | _TBD_ |
-| Integrations | Generic Git host / local Git | Partial | `specs/acceptance/generic-local-git.md` now grounds the current baseline: shared `generic_git`/`local` connection kinds and configs, authenticated `/api/v1/auth/connections` CRUD, the first authenticated `POST /api/v1/auth/repositories/import/local` baseline for importing one real local Git working tree into the current catalog path, repo-detail connection metadata, and the limited `#/settings/connections` shell with local `repo_path` handling, local-only explicit-path import UX for existing local connections, quick navigation from successful imports into `#/repos/:repoId`, the shipped generic-host quick-open affordance with fail-closed rejection of unsafe `javascript:` URLs, and read-only sync-history visibility. Generic-host discovery, broader status/control UX, and durable catalog-backed parity remain open. |
-| Integrations | OIDC / SSO providers | Missing | `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground that the rewrite still lacks OIDC/SSO provider login and external-account mapping; the live auth surface remains local bootstrap/login/session management plus OAuth-client admin endpoints. |
-| Integrations | MCP server | Partial | `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground the current rewrite as partial: `crates/mcp/src/lib.rs` ships a real MCP manifest plus repository-aware retrieval-tool definitions and `execute_tool_call(...)` support for `list_repos`, `list_tree`, `read_file`, `glob`, and `grep`, while transport/runtime/auth wiring and explicit permission-scoped end-to-end evidence remain open. |
-| Integrations | Public REST API | Partial | `specs/acceptance/integrations.md` and `docs/reports/2026-04-18-parity-gap-report.md` already ground the current rewrite as partial: versioned `/api/v1/...` JSON routes span config, repo browse/search, auth, OAuth-client, and review-webhook surfaces, while endpoint completeness, integration-specific acceptance evidence, and durable connection/repository operations remain open. |
-| Later-phase advanced features | Audit logs | Needs audit | _TBD_ |
-| Later-phase advanced features | Analytics | Needs audit | _TBD_ |
-| Later-phase advanced features | OAuth client / token flows | Needs audit | _TBD_ |
-| Later-phase advanced features | Review agent / webhook automation | Needs audit | _TBD_ |
-| Later-phase advanced features | Enterprise entitlement controls | Needs audit | _TBD_ |
+| Core user features | Cross-repo and cross-branch code search | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/search.md`, and the search rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Regex, literal, boolean, repo/language/path filters | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/search.md`, and the search rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | File explorer with tree browsing and syntax highlighting | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/browse.md`, and the browse/frontend rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Repository page and repo list page | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/browse.md`, `specs/acceptance/repository-operations.md`, and the browse/frontend rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | File source view | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/browse.md`, and the browse/frontend rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Commit list, commit detail, and diff view | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/browse.md`, and the browse/frontend rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Code navigation: definitions and references | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/code-nav.md`, and the browse/frontend rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Ask the codebase with inline citations | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/ask.md`, and the ask/chat rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Chat threads, history, rename, visibility | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/ask.md`, and the ask/chat rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Core user features | Search contexts / saved scopes | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Core user features), `specs/acceptance/index.md`, `specs/acceptance/search.md`, and the auth/API rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | First-run onboarding | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/auth.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | Organizations, membership, invites, roles | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/auth.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | API keys | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | Connection management | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/integrations.md`, `specs/acceptance/generic-local-git.md`, and the integrations/auth-admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | Sync state and indexing status | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/repository-operations.md`, and the backend/API + ops rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | Linked external accounts | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Admin and org features | Access / permission sync | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Admin and org features), `specs/acceptance/auth.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | GitHub | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | GitLab | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Gitea | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Gerrit | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Bitbucket | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Azure DevOps | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Generic Git host / local Git | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/generic-local-git.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | OIDC / SSO providers | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | MCP server | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Integrations | Public REST API | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Integrations), `specs/acceptance/integrations.md`, and the backend/API + integrations rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Later-phase advanced features | Audit logs | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Later-phase advanced features), `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and the auth/admin + ops rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Later-phase advanced features | Analytics | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Later-phase advanced features), `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and the auth/admin + ops rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Later-phase advanced features | OAuth client / token flows | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Later-phase advanced features), `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, and the auth/admin rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Later-phase advanced features | Review agent / webhook automation | Partial | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Later-phase advanced features), `specs/acceptance/ask.md`, `specs/acceptance/auth.md`, `specs/acceptance/operator-runtime.md`, and the backend/API + ops rows in `docs/reports/2026-04-18-parity-gap-report.md`. |
+| Later-phase advanced features | Enterprise entitlement controls | Missing | See `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` (Later-phase advanced features), `specs/acceptance/index.md`, and the roadmap completion criteria in `docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md`. |
