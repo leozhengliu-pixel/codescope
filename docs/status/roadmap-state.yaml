@@ -5,49 +5,82 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 52aba8770afb22484fcd0bf9092989f2e98da017
+  head: 9ad36487afff4375ff340cbd1b4a0fc89c763423
 last_completed_task:
-  id: task80b
-  title: Extend deployment/config parity with a dedicated worker-runtime acceptance and execution baseline
+  id: task81a
+  title: Ship a truthful local operator maintenance baseline for runtime-state backup/restore and migration workflow
   status: done
   summary: >-
-    Chose one meaningful Phase 11 worker-runtime closure instead of splitting
-    startup logging, focused smoke coverage, acceptance grounding, parity-report
-    cleanup, and operator docs into separate paperwork slices. `crates/worker/src/main.rs`
-    now logs the resolved organization-state path, selected review-agent and
-    repository-sync stub outcomes, and explicit one-shot runtime wording before
-    running exactly one worker tick; `crates/worker/tests/worker_runtime_logging_smoke.rs`
-    proves the startup baseline plus no-work and failed repository-sync terminal
-    logging against the real binary; and `specs/acceptance/worker-runtime.md`,
-    `README.md`, `.env.example`, `specs/acceptance/index.md`,
-    `specs/acceptance/journeys.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
-    and `docs/plans/2026-04-22-task80b-worker-runtime-baseline-plan.md` now ground
-    the shipped one-shot stub-oriented worker baseline truthfully while explicitly
-    deferring real execution, retries, scheduling, supervision, and broader
-    operator observability.
+    Pivoted Task 81 away from an over-broad backup/restore/migration parity ask and
+    closed one meaningful operator-visible slice instead of splitting contract,
+    docs, backup tooling, restore tooling, and focused verification into separate
+    paperwork runs. `scripts/backup_local_runtime_state.sh` and
+    `scripts/restore_local_runtime_state.sh` now let operators capture and restore
+    the current file-backed runtime state, `Makefile` exposes `runtime-backup` and
+    `runtime-restore`, `scripts/check_operator_maintenance_contract.sh` plus
+    `scripts/check_runtime_backup_uniqueness.sh` prove the contract and collision-
+    safe backup path, and `README.md`, `specs/acceptance/operator-maintenance.md`,
+    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+    `docs/reports/2026-04-18-parity-gap-report.md`, and
+    `docs/plans/2026-04-22-task81a-operator-maintenance-baseline-plan.md` now
+    ground the shipped local maintenance baseline truthfully while explicitly
+    deferring durable metadata backup/restore parity, readiness checks, and
+    production-grade deployment or rollback guarantees.
   tests:
-    - cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed (2 passed)
-    - cargo test -p sourcebot-worker: passed
+    - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: passed
+    - python3 tempdir backup/restore smoke for bootstrap-state.json, local-sessions.json, and organizations.json: passed
+    - bash scripts/check_local_metadata_env_contract.sh /opt/data/projects/sourcebot-rewrite: passed
     - git diff --check: passed
-    - python3 raw-content doc truthfulness checks over worker-runtime acceptance, journeys, and parity report: passed
     - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed two independent post-implementation reviews; reviewers confirmed the live slice stays within the intended Task 80b scope, keeps the worker one-shot and stub-oriented, grounds the startup/runtime-baseline logging with focused smoke coverage, and updates acceptance/report/journey docs truthfully now that `specs/acceptance/worker-runtime.md` exists
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the worker entrypoint logging, focused smoke test, or scoped worker-runtime docs/report updates after the final journeys/report cleanup
-  commit: 52aba8770afb22484fcd0bf9092989f2e98da017
-  next_task: task81
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice truthfully narrows Task 81 into a local file-backed operator-maintenance baseline, keeps durable metadata and production guarantees explicitly deferred, and closes the scripts/docs/acceptance/report loop in one run instead of another audit-only paperwork fragment
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the backup-directory uniqueness fix and only suggested future CI smoke automation plus a clearer note that restore writes to the currently resolved runtime paths
+  commit: 9ad36487afff4375ff340cbd1b4a0fc89c763423
+  next_task: task81b
 current_task:
-  id: task81
+  id: task81b
   parent_task: phase11
-  title: Document and test backup, restore, migration, and upgrade workflows
+  title: Extend operator maintenance parity from file-backed runtime-state backup to durable metadata recovery and upgrade safety
   status: pending
   summary: >-
-    Task 80 now has a truthful local operator baseline plus a dedicated one-shot
-    worker-runtime acceptance home. The next meaningful Phase 11 closure should
-    move to Task 81's operator-facing backup/restore/migration workflow instead of
-    continuing to micro-slice worker paperwork after the acceptance and report drift
-    were closed here.
+    Task 81 was too broad to close truthfully in one run because durable metadata
+    backup/restore and broader upgrade-safety guarantees do not exist yet. After
+    shipping Task 81a's real local runtime-state maintenance baseline, the next
+    meaningful Phase 11 closure is to extend this operator-maintenance surface
+    toward durable metadata recovery only when the implementation and focused
+    verification can land together as one honest slice.
 history:
+  - id: task81a
+    status: done
+    summary: >-
+      Pivoted Task 81 away from an over-broad backup/restore/migration parity ask and
+      closed one meaningful operator-visible slice instead of splitting contract,
+      docs, backup tooling, restore tooling, and focused verification into separate
+      paperwork runs. `scripts/backup_local_runtime_state.sh` and
+      `scripts/restore_local_runtime_state.sh` now let operators capture and restore
+      the current file-backed runtime state, `Makefile` exposes `runtime-backup` and
+      `runtime-restore`, `scripts/check_operator_maintenance_contract.sh` plus
+      `scripts/check_runtime_backup_uniqueness.sh` prove the contract and collision-
+      safe backup path, and `README.md`, `specs/acceptance/operator-maintenance.md`,
+      `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-22-task81a-operator-maintenance-baseline-plan.md` now
+      ground the shipped local maintenance baseline truthfully while explicitly
+      deferring durable metadata backup/restore parity, readiness checks, and
+      production-grade deployment or rollback guarantees.
+    tests:
+      - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: passed
+      - python3 tempdir backup/restore smoke for bootstrap-state.json, local-sessions.json, and organizations.json: passed
+      - bash scripts/check_local_metadata_env_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice truthfully narrows Task 81 into a local file-backed operator-maintenance baseline, keeps durable metadata and production guarantees explicitly deferred, and closes the scripts/docs/acceptance/report loop in one run instead of another audit-only paperwork fragment
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the backup-directory uniqueness fix and only suggested future CI smoke automation plus a clearer note that restore writes to the currently resolved runtime paths
+    commit: 9ad36487afff4375ff340cbd1b4a0fc89c763423
+    next_task: task81b
   - id: task80b
     status: done
     summary: >-
