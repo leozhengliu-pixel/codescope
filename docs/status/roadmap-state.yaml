@@ -5,56 +5,69 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e6244d8671590d7704f189ea3f8da37c14365816
+  head: 888f981621cdca921f5775fbb18ce3da7da79a29
 last_completed_task:
-  id: task84
-  title: End-to-end smoke matrix
+  id: task85
+  title: Final parity audit and release checklist
   status: done
   summary: >-
-    Closed one meaningful Phase 11 operator-visible smoke slice instead of splitting
-    the harness, focused contract coverage, doc grounding, and roadmap truth into
-    separate paperwork runs. `scripts/check_end_to_end_smoke_matrix.sh` now starts
-    the real API against an isolated temp runtime, bootstraps and logs in a local
-    admin, exercises authenticated connections/search/ask plus public review-webhook
-    intake, runs the real one-shot worker with a stubbed completed outcome, and
-    verifies the queued review-agent run reaches `completed`; the paired contract
-    script plus focused API/worker coverage keep that local smoke baseline honest;
-    and `README.md`, `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
-    `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-22-task84-end-to-end-smoke-matrix-plan.md` now ground it
-    truthfully as a bounded stub-backed operator check rather than full release
-    certification.
+    Closed one meaningful Phase 11 audit closure instead of leaving Task 85 as an
+    unfinished paperwork placeholder. `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md`
+    now maps every `specs/FEATURE_PARITY.md` row to shipped code/tests/docs evidence and
+    records the release blockers that still prevent an honest full-parity claim;
+    `specs/FEATURE_PARITY.md` no longer contains `Needs audit` / `_TBD_` placeholders;
+    and `docs/plans/2026-04-22-task85-final-parity-audit-plan.md` records the bounded
+    closure plan. The audit stays truthful that the rewrite is not yet ready to claim
+    full Sourcebot-replacement parity, so the roadmap task is complete as an audit and
+    checklist closure rather than as a release-certification claim.
   tests:
+    - python3 raw-content checks for Task 85 plan/audit/matrix placeholders: passed
     - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
     - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
-    - cargo test -p sourcebot-api review_webhook -- --nocapture: passed (37 passed)
-    - cargo test -p sourcebot-api ask_ -- --nocapture: passed (25 passed)
-    - cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed (5 passed)
-    - bash -n scripts/check_end_to_end_smoke_matrix.sh: passed
-    - bash -n scripts/check_end_to_end_smoke_matrix_contract.sh: passed
     - git diff --check: passed
-    - git diff --cached --check: passed
-    - python3 raw-content doc truth checks: passed
-    - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 84 plan by shipping one repo-local smoke command across auth, integrations, search, ask, and review-agent plus the required truthful docs without overclaiming full release certification
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the credential-redaction and non-eval assertion fixes, and only noted optional future regression coverage for the authenticated helper path plus a possible build reuse optimization
-  commit: e6244d8671590d7704f189ea3f8da37c14365816
-  next_task: task85
+    spec: passed one independent post-implementation review; reviewer confirmed the Task 85 docs stay in scope, remove active matrix placeholders, and explicitly state that full-parity release is not yet ready instead of overclaiming completion
+    code: approved by one independent post-implementation review; reviewer found no blocking truthfulness, logic, or security issues in the docs-only audit closure and only noted that the remaining `Needs audit` / `_TBD_` phrases appear as explanatory text inside the new checklist rather than live matrix placeholders
+  commit: 888f981621cdca921f5775fbb18ce3da7da79a29
+  next_task: null
 current_task:
-  id: task85
-  parent_task: phase11
-  title: Final parity audit and release checklist
-  status: pending
+  id: null
+  parent_task: null
+  title: null
+  status: blocked
   summary: >-
-    Task 84 now contributes one honest local end-to-end smoke matrix that covers the
-    current auth, integrations, search, ask, and review-agent baseline in a single
-    bounded operator run. The next meaningful Phase 11 closure should shift to Task 85
-    by producing the final parity audit/release checklist that maps
-    `specs/FEATURE_PARITY.md` to shipped code/tests/docs and reconciles any remaining
-    deferred notes, rather than reopening this new smoke slice into smaller paperwork-
-    only follow-ups.
+    The original 85-task roadmap is now fully audited through Task 85, but the final
+    parity audit shows the product is still not ready for a truthful full-parity release
+    claim. Resume from the remaining blockers listed in
+    `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` by turning
+    them into a follow-on roadmap rather than pretending the current roadmap still has
+    an unfinished in-file task.
 history:
+  - id: task85
+    status: done
+    summary: >-
+      Closed one meaningful Phase 11 audit closure instead of leaving Task 85 as an
+      unfinished paperwork placeholder. `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md`
+      now maps every `specs/FEATURE_PARITY.md` row to shipped code/tests/docs evidence
+      and records the release blockers that still prevent an honest full-parity claim;
+      `specs/FEATURE_PARITY.md` no longer contains `Needs audit` / `_TBD_`
+      placeholders; and `docs/plans/2026-04-22-task85-final-parity-audit-plan.md`
+      records the bounded closure plan. The audit stays truthful that the rewrite is
+      not yet ready to claim full Sourcebot-replacement parity, so the roadmap task is
+      complete as an audit and checklist closure rather than as a release-certification
+      claim.
+    tests:
+      - python3 raw-content checks for Task 85 plan/audit/matrix placeholders: passed
+      - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the Task 85 docs stay in scope, remove active matrix placeholders, and explicitly state that full-parity release is not yet ready instead of overclaiming completion
+      code: approved by one independent post-implementation review; reviewer found no blocking truthfulness, logic, or security issues in the docs-only audit closure and only noted that the remaining `Needs audit` / `_TBD_` phrases appear as explanatory text inside the new checklist rather than live matrix placeholders
+    commit: 888f981621cdca921f5775fbb18ce3da7da79a29
+    next_task: null
   - id: task84
     status: done
     summary: >-
