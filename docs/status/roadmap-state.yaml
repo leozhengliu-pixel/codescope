@@ -5,54 +5,77 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7d4c7e14f3e38943c1a550f1a6f2b123181bf511
+  head: 52aba8770afb22484fcd0bf9092989f2e98da017
 last_completed_task:
-  id: task80a
-  title: Add an operator runtime baseline with shared SOURCEBOT_DATA_DIR wiring and make worker bring-up
+  id: task80b
+  title: Extend deployment/config parity with a dedicated worker-runtime acceptance and execution baseline
   status: done
   summary: >-
-    Chose one meaningful Phase 11 deployment/config closure instead of splitting
-    config wiring, worker entrypoint, acceptance grounding, and operator runbook
-    wording into separate paperwork slices. `crates/config/src/lib.rs` now
-    derives bootstrap, local-session, and organization state files from one
-    shared `SOURCEBOT_DATA_DIR` unless explicit per-file overrides are set,
-    while `crates/worker/tests/no_queued_review_agent_run_idle_smoke.rs`
-    proves the worker consumes the derived organizations file without requiring
-    `SOURCEBOT_ORGANIZATION_STATE_PATH`. `Makefile`, `.env.example`,
-    `README.md`, `specs/acceptance/operator-runtime.md`,
-    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
-    `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-21-task80a-operator-runtime-baseline-plan.md` now
-    ground the shipped local operator baseline truthfully as `/healthz`,
-    `/api/v1/config`, shared runtime-path wiring, and `make api` plus one-shot
-    `make worker`, while explicitly deferring migrations, readiness,
-    supervision, retries, and production-grade observability.
+    Chose one meaningful Phase 11 worker-runtime closure instead of splitting
+    startup logging, focused smoke coverage, acceptance grounding, parity-report
+    cleanup, and operator docs into separate paperwork slices. `crates/worker/src/main.rs`
+    now logs the resolved organization-state path, selected review-agent and
+    repository-sync stub outcomes, and explicit one-shot runtime wording before
+    running exactly one worker tick; `crates/worker/tests/worker_runtime_logging_smoke.rs`
+    proves the startup baseline plus no-work and failed repository-sync terminal
+    logging against the real binary; and `specs/acceptance/worker-runtime.md`,
+    `README.md`, `.env.example`, `specs/acceptance/index.md`,
+    `specs/acceptance/journeys.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+    and `docs/plans/2026-04-22-task80b-worker-runtime-baseline-plan.md` now ground
+    the shipped one-shot stub-oriented worker baseline truthfully while explicitly
+    deferring real execution, retries, scheduling, supervision, and broader
+    operator observability.
   tests:
-    - cargo test -p sourcebot-config data_dir -- --nocapture: passed (3 passed)
-    - cargo test -p sourcebot-worker data_dir --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed (1 passed)
-    - cargo test -p sourcebot-config: passed (12 passed)
+    - cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed (2 passed)
     - cargo test -p sourcebot-worker: passed
-    - make -n worker: passed (`cargo run -p sourcebot-worker`)
     - git diff --check: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    - python3 raw-content doc truthfulness checks over worker-runtime acceptance, journeys, and parity report: passed
+    - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice stays within the intended Task 80a scope, matches the operator runtime baseline plan, and keeps the docs truthful about the current local API plus one-shot worker contract without overclaiming broader deployment parity
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the `SOURCEBOT_DATA_DIR` derivation, explicit override precedence, worker runtime behavior, or scoped operator-runtime docs, and only suggested optional future end-to-end API path coverage plus a later dedicated worker-runtime acceptance spec
-  commit: 7d4c7e14f3e38943c1a550f1a6f2b123181bf511
-  next_task: task80b
+    spec: passed two independent post-implementation reviews; reviewers confirmed the live slice stays within the intended Task 80b scope, keeps the worker one-shot and stub-oriented, grounds the startup/runtime-baseline logging with focused smoke coverage, and updates acceptance/report/journey docs truthfully now that `specs/acceptance/worker-runtime.md` exists
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the worker entrypoint logging, focused smoke test, or scoped worker-runtime docs/report updates after the final journeys/report cleanup
+  commit: 52aba8770afb22484fcd0bf9092989f2e98da017
+  next_task: task81
 current_task:
-  id: task80b
+  id: task81
   parent_task: phase11
-  title: Extend deployment/config parity with a dedicated worker-runtime acceptance and execution baseline
+  title: Document and test backup, restore, migration, and upgrade workflows
   status: pending
   summary: >-
-    Task 80a now closes the local operator-runtime baseline with shared
-    `SOURCEBOT_DATA_DIR` wiring, a `make worker` entrypoint, focused tests, and
-    truthful docs. The next meaningful closure should stay in Phase 11 by
-    grounding worker-runtime behavior and execution expectations in one bounded
-    slice, rather than immediately falling back to smaller docs-only tweaks on
-    the new operator baseline.
+    Task 80 now has a truthful local operator baseline plus a dedicated one-shot
+    worker-runtime acceptance home. The next meaningful Phase 11 closure should
+    move to Task 81's operator-facing backup/restore/migration workflow instead of
+    continuing to micro-slice worker paperwork after the acceptance and report drift
+    were closed here.
 history:
+  - id: task80b
+    status: done
+    summary: >-
+      Chose one meaningful Phase 11 worker-runtime closure instead of splitting
+      startup logging, focused smoke coverage, acceptance grounding, parity-report
+      cleanup, and operator docs into separate paperwork slices. `crates/worker/src/main.rs`
+      now logs the resolved organization-state path, selected review-agent and
+      repository-sync stub outcomes, and explicit one-shot runtime wording before
+      running exactly one worker tick; `crates/worker/tests/worker_runtime_logging_smoke.rs`
+      proves the startup baseline plus no-work and failed repository-sync terminal
+      logging against the real binary; and `specs/acceptance/worker-runtime.md`,
+      `README.md`, `.env.example`, `specs/acceptance/index.md`,
+      `specs/acceptance/journeys.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
+      and `docs/plans/2026-04-22-task80b-worker-runtime-baseline-plan.md` now ground
+      the shipped one-shot stub-oriented worker baseline truthfully while explicitly
+      deferring real execution, retries, scheduling, supervision, and broader
+      operator observability.
+    tests:
+      - cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed (2 passed)
+      - cargo test -p sourcebot-worker: passed
+      - git diff --check: passed
+      - python3 raw-content doc truthfulness checks over worker-runtime acceptance, journeys, and parity report: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed two independent post-implementation reviews; reviewers confirmed the live slice stays within the intended Task 80b scope, keeps the worker one-shot and stub-oriented, grounds the startup/runtime-baseline logging with focused smoke coverage, and updates acceptance/report/journey docs truthfully now that `specs/acceptance/worker-runtime.md` exists
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the worker entrypoint logging, focused smoke test, or scoped worker-runtime docs/report updates after the final journeys/report cleanup
+    commit: 52aba8770afb22484fcd0bf9092989f2e98da017
+    next_task: task81
   - id: task80a
     status: done
     summary: >-
