@@ -5,53 +5,81 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d31eb6127bb1de73d8c8dc783d02e8b4b7934360
+  head: e7b68e061a35340926dc2a82b62805a6e4986c90
 last_completed_task:
-  id: task81b
-  title: Ship the local Postgres metadata backup/restore operator-maintenance baseline
+  id: task82
+  title: Add a browse retrieval scale guardrail for recursive artifact directories
   status: done
   summary: >-
-    Closed the next meaningful Task 81 operator-visible slice instead of splitting
-    helper scripts, focused smoke coverage, runbook truthfulness, and acceptance/report
-    updates into separate paperwork runs. `scripts/backup_local_metadata_db.sh` and
-    `scripts/restore_local_metadata_db.sh` now add local-only Postgres metadata
-    dump/restore helpers guarded by scheme, localhost, and manifest-match checks;
-    `Makefile` exposes `metadata-backup` and `metadata-restore`; and
-    `scripts/check_local_metadata_backup_contract.sh`,
-    `scripts/check_local_metadata_backup_restore_smoke.sh`,
-    `scripts/check_operator_maintenance_contract.sh`, `README.md`,
-    `specs/acceptance/operator-maintenance.md`, `specs/acceptance/index.md`,
-    `specs/acceptance/journeys.md`,
+    Closed one meaningful Phase 11 implementation-backed slice instead of another
+    audit-only or over-broad search-parity pass. `crates/api/src/browse.rs` now uses
+    one shared ignored-directory policy so recursive local browse `glob` and `grep`
+    skip `.git`, `target`, `node_modules`, and `dist`; focused regressions plus a
+    representative multi-repo adapter smoke prove visible source hits still surface
+    while obvious build-artifact directories do not; and
+    `specs/acceptance/integrations.md`,
+    `specs/repo-git-search-fixture-layout.md`,
     `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-22-task81b-local-metadata-backup-plan.md` now ground that
-    widened maintenance baseline truthfully while still explicitly deferring broader
-    durable-surface, readiness, and production deployment guarantees.
+    `docs/plans/2026-04-22-task82-browse-retrieval-scale-sanity-plan.md` now ground
+    that practical browse/MCP retrieval scale guardrail truthfully without claiming
+    broader indexing or performance parity.
   tests:
-    - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_local_metadata_env_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - cargo test -p sourcebot-api glob_paths_skips_common_build_artifact_directories -- --nocapture: passed
+    - cargo test -p sourcebot-api grep_skips_common_build_artifact_directories -- --nocapture: passed
+    - cargo test -p sourcebot-api browse_glob_and_grep_scale_sanity_skip_ignored_dirs_across_multiple_repositories -- --nocapture: passed
+    - cargo test -p sourcebot-api browse:: -- --nocapture: passed (19 passed)
+    - cargo test -p sourcebot-api: passed (320 passed)
     - git diff --check: passed
     - git diff --cached --check: passed
+    - python3 raw-content doc truth checks: passed
     - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice adds the intended local-only metadata backup/restore capability, keeps `make dev-up` ordered before metadata backup in the runbook, and closes scripts/tests/docs/reporting together in one honest Task 81 closure instead of another docs-only or audit-only fragment
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only suggested an optional future manifest schema/version field for clearer forward-compatibility failures
-  commit: d31eb6127bb1de73d8c8dc783d02e8b4b7934360
-  next_task: task82
+    spec: passed one independent post-implementation review; reviewer confirmed the slice stays narrowly scoped to local browse retrieval scale sanity, closes implementation plus focused tests plus the representative multi-repo smoke and docs in one run, and keeps broader indexing/performance parity explicitly deferred
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only noted the non-blocking tradeoff that explicit `target/` browse `glob`/`grep` queries now fail closed because recursive traversal is intentionally pruned at ignored directories
+  commit: e7b68e061a35340926dc2a82b62805a6e4986c90
+  next_task: task83
 current_task:
-  id: task82
+  id: task83
   parent_task: phase11
-  title: Performance and scale sanity pass
+  title: Security hardening pass
   status: pending
   summary: >-
-    Task 81 is now closed as one bounded operator-maintenance baseline spanning both
-    file-backed runtime state and local Postgres metadata recovery. The next meaningful
-    Phase 11 slice should bias toward implementation-backed performance/scale evidence
-    rather than another paperwork-only follow-up, ideally by landing one representative
-    multi-repo sanity check plus any focused bottleneck fix and truthful reporting in
-    the same run.
+    Task 82 is now closed with one real implementation-backed performance/scale sanity
+    guardrail for local browse and MCP-style retrieval. The next meaningful Phase 11
+    slice should shift to Task 83 by hardening secret handling, auth/session
+    boundaries, webhook validation, token storage, and permission checks without
+    regressing the newly landed browse retrieval baseline.
 history:
+  - id: task82
+    status: done
+    summary: >-
+      Closed one meaningful Phase 11 implementation-backed slice instead of another
+      audit-only or over-broad search-parity pass. `crates/api/src/browse.rs` now uses
+      one shared ignored-directory policy so recursive local browse `glob` and `grep`
+      skip `.git`, `target`, `node_modules`, and `dist`; focused regressions plus a
+      representative multi-repo adapter smoke prove visible source hits still surface
+      while obvious build-artifact directories do not; and
+      `specs/acceptance/integrations.md`,
+      `specs/repo-git-search-fixture-layout.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-22-task82-browse-retrieval-scale-sanity-plan.md` now ground
+      that practical browse/MCP retrieval scale guardrail truthfully without claiming
+      broader indexing or performance parity.
+    tests:
+      - cargo test -p sourcebot-api glob_paths_skips_common_build_artifact_directories -- --nocapture: passed
+      - cargo test -p sourcebot-api grep_skips_common_build_artifact_directories -- --nocapture: passed
+      - cargo test -p sourcebot-api browse_glob_and_grep_scale_sanity_skip_ignored_dirs_across_multiple_repositories -- --nocapture: passed
+      - cargo test -p sourcebot-api browse:: -- --nocapture: passed (19 passed)
+      - cargo test -p sourcebot-api: passed (320 passed)
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 raw-content doc truth checks: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the slice stays narrowly scoped to local browse retrieval scale sanity, closes implementation plus focused tests plus the representative multi-repo smoke and docs in one run, and keeps broader indexing/performance parity explicitly deferred
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only noted the non-blocking tradeoff that explicit `target/` browse `glob`/`grep` queries now fail closed because recursive traversal is intentionally pruned at ignored directories
+    commit: e7b68e061a35340926dc2a82b62805a6e4986c90
+    next_task: task83
   - id: task81b
     status: done
     summary: >-
