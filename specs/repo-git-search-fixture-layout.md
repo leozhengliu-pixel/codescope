@@ -46,7 +46,7 @@ This document now reflects the canonical builder ownership and layout contract a
 | Family | Current owner today | Canonical repo id(s) / labels | Canonical on-disk shape today | Why this shape matters |
 | --- | --- | --- | --- | --- |
 | Search temp corpus | `crates/test_support/repo_tree_fixture.rs` `CanonicalRepoTreeRoot::create(...)` for the shared temp root plus `crates/search/src/lib.rs` test-only `create_test_store()` for search-only extras | `repo_test` | temp root containing `src/main.rs`, `README.md`, `.git/HEAD`, `target/generated.txt`, `image.png`, `binary.dat` | Proves search returns source/doc hits while skipping `.git`, generated output, binary files, and over-size files |
-| Browse temp corpus | `crates/test_support/repo_tree_fixture.rs` `CanonicalRepoTreeRoot::create(...)` for the shared temp root plus `crates/api/src/browse.rs` test-only `create_test_store()` for browse-only symlink variants | `repo_test` | temp root containing `README.md`, `src/main.rs`, `target/generated.rs`; some tests add `src/readme-link.rs` symlink | Proves tree/blob/glob/grep operate on a visible repo tree, including symlink and traversal edge cases |
+| Browse temp corpus | `crates/test_support/repo_tree_fixture.rs` `CanonicalRepoTreeRoot::create(...)` for the shared temp root plus `crates/api/src/browse.rs` test-only `create_test_store()` for browse-only symlink variants | `repo_test` | temp root containing `README.md`, `src/main.rs`, `target/generated.rs`; some tests add `src/readme-link.rs` symlink and ignored artifact directories like `.git/`, `node_modules/`, and `dist/` | Proves tree/blob/glob/grep operate on a visible repo tree while recursive `glob`/`grep` behavior still distinguishes visible source files from ignored artifact directories |
 | Commit seeded/special-case catalog corpus | `crates/api/src/commits.rs` `LocalCommitStore::seeded()` plus `crates/models/src/lib.rs` seeded repositories | `repo_sourcebot_rewrite`, `repo_demo_docs` | `repo_sourcebot_rewrite` is mapped to the live rewrite repo root; `repo_demo_docs` is a seeded catalog repo id that currently returns empty history via `EMPTY_HISTORY_REPO_IDS` | Separates real-history coverage from the explicit empty-history docs/demo case already exposed through the seeded catalog |
 | Commit synthetic temp-git corpus | `crates/api/src/commits.rs` test helpers `create_temp_git_repo(...)`, `write_text_file(...)`, `git_in(...)` | caller-chosen ids like `repo_temp` | throwaway git repo initialized with `git init`, explicit file writes, and deterministic commits | Proves diff/history edge cases without checking in copied upstream repositories |
 
@@ -97,8 +97,7 @@ Required layout contract:
 Required behavior contract:
 
 - tree listings expose both `README.md` and `src/`
-- glob results may include paths also visible in tree listings, including
-  `target/generated.rs`
+- recursive `glob`/`grep` behavior must keep visible source hits while skipping obvious artifact directories such as `.git/`, `target/`, `node_modules/`, and `dist/`
 - blob reads return exact contents for visible files
 - parent-directory traversal like `../etc` is rejected before filesystem access
 - current grep symlink handling is constrained to the repo root; glob behavior must

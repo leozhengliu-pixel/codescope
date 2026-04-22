@@ -18,6 +18,7 @@ pub type DynBrowseStore = Arc<dyn BrowseStore>;
 
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
+const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
 
 pub trait BrowseStore: Send + Sync {
     fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<TreeResponse>>;
@@ -198,6 +199,11 @@ impl LocalBrowseStore {
         canonical_path.starts_with(canonical_root)
     }
 
+    fn should_skip_directory(path: &Path) -> bool {
+        path.file_name()
+            .is_some_and(|name| SKIPPED_DIR_NAMES.iter().any(|skipped| name == *skipped))
+    }
+
     fn collect_glob_matches(
         &self,
         root: &Path,
@@ -221,6 +227,9 @@ impl LocalBrowseStore {
                 .with_context(|| format!("failed to read file type for {}", path.display()))?;
 
             if file_type.is_dir() {
+                if Self::should_skip_directory(&path) {
+                    continue;
+                }
                 self.collect_glob_matches(root, &path, matcher, matches)?;
                 continue;
             }
@@ -262,6 +271,9 @@ impl LocalBrowseStore {
                 .with_context(|| format!("failed to read file type for {}", path.display()))?;
 
             if file_type.is_dir() {
+                if Self::should_skip_directory(&path) {
+                    continue;
+                }
                 self.collect_grep_matches(root, &path, query, matches)?;
                 continue;
             }
@@ -749,6 +761,43 @@ mod tests {
         (store, root)
     }
 
+    fn create_test_store_with_common_ignored_dirs() -> (LocalBrowseStore, PathBuf) {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-ignored-dirs",
+            "hello world\n",
+            "fn main() { /* shared_scale_marker */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+
+        fs::write(
+            root.join("target").join("ignored.rs"),
+            "pub fn ignored_target() { /* shared_scale_marker */ }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
+        fs::write(
+            root.join("node_modules").join("pkg").join("index.rs"),
+            "pub fn ignored_node_modules() { /* shared_scale_marker */ }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("dist")).unwrap();
+        fs::write(
+            root.join("dist").join("bundle.rs"),
+            "pub fn ignored_dist() { /* shared_scale_marker */ }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(
+            root.join(".git").join("ignored.rs"),
+            "pub fn ignored_git() { /* shared_scale_marker */ }\n",
+        )
+        .unwrap();
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        (store, root)
+    }
+
     fn git_in(repo_root: &Path, args: &[&str]) {
         let output = Command::new("git")
             .args(args)
@@ -895,6 +944,24 @@ mod tests {
     }
 
     #[test]
+    fn glob_paths_skips_common_build_artifact_directories() {
+        let (store, root) = create_test_store_with_common_ignored_dirs();
+
+        let glob = store.glob_paths("repo_test", "**/*.rs").unwrap().unwrap();
+
+        assert!(glob.paths.iter().any(|path| path == "src/main.rs"));
+        assert!(glob.paths.iter().all(|path| !path.starts_with("target/")));
+        assert!(glob
+            .paths
+            .iter()
+            .all(|path| !path.starts_with("node_modules/")));
+        assert!(glob.paths.iter().all(|path| !path.starts_with("dist/")));
+        assert!(glob.paths.iter().all(|path| !path.starts_with(".git/")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_browse_store_globs_paths_visible_in_tree_entries() {
         let (store, root) = create_test_store();
 
@@ -907,7 +974,7 @@ mod tests {
             .glob_paths("repo_test", "target/*.rs")
             .unwrap()
             .unwrap();
-        assert_eq!(glob.paths, vec!["target/generated.rs"]);
+        assert!(glob.paths.is_empty());
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1006,14 +1073,37 @@ mod tests {
 
         assert_eq!(grep.repo_id, "repo_test");
         assert_eq!(grep.query, "generated");
-        assert_eq!(
-            grep.matches,
-            vec![GrepMatchResponse {
-                path: "target/generated.rs".into(),
-                line_number: 1,
-                line: "pub fn generated() {}".into(),
-            }]
-        );
+        assert!(grep.matches.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn grep_skips_common_build_artifact_directories() {
+        let (store, root) = create_test_store_with_common_ignored_dirs();
+
+        let grep = store
+            .grep("repo_test", "shared_scale_marker")
+            .unwrap()
+            .unwrap();
+
+        assert!(grep.matches.iter().any(|entry| entry.path == "src/main.rs"));
+        assert!(grep
+            .matches
+            .iter()
+            .all(|entry| !entry.path.starts_with("target/")));
+        assert!(grep
+            .matches
+            .iter()
+            .all(|entry| !entry.path.starts_with("node_modules/")));
+        assert!(grep
+            .matches
+            .iter()
+            .all(|entry| !entry.path.starts_with("dist/")));
+        assert!(grep
+            .matches
+            .iter()
+            .all(|entry| !entry.path.starts_with(".git/")));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1027,17 +1117,101 @@ mod tests {
 
         let grep = store.grep("repo_test", "generated").unwrap().unwrap();
 
-        assert_eq!(
-            grep.matches,
-            vec![GrepMatchResponse {
-                path: "target/generated.rs".into(),
-                line_number: 1,
-                line: "pub fn generated() {}".into(),
-            }]
-        );
+        assert!(grep.matches.is_empty());
 
         fs::remove_file(outside_path).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn browse_glob_and_grep_scale_sanity_skip_ignored_dirs_across_multiple_repositories() {
+        let repo_alpha = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-scale-alpha",
+            "alpha\n",
+            "fn main() { /* shared_scale_marker */ }\n",
+            "target/generated.rs",
+        )
+        .root;
+        let repo_beta = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-scale-beta",
+            "beta\n",
+            "fn main() { /* shared_scale_marker */ }\n",
+            "target/generated.rs",
+        )
+        .root;
+
+        for root in [&repo_alpha, &repo_beta] {
+            fs::write(
+                root.join("target").join("ignored.rs"),
+                "pub fn ignored_target() { /* shared_scale_marker */ }\n",
+            )
+            .unwrap();
+            fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
+            fs::write(
+                root.join("node_modules").join("pkg").join("index.rs"),
+                "pub fn ignored_node_modules() { /* shared_scale_marker */ }\n",
+            )
+            .unwrap();
+            fs::create_dir_all(root.join("dist")).unwrap();
+            fs::write(
+                root.join("dist").join("bundle.rs"),
+                "pub fn ignored_dist() { /* shared_scale_marker */ }\n",
+            )
+            .unwrap();
+            fs::create_dir_all(root.join(".git")).unwrap();
+            fs::write(
+                root.join(".git").join("ignored.rs"),
+                "pub fn ignored_git() { /* shared_scale_marker */ }\n",
+            )
+            .unwrap();
+        }
+
+        let browse: DynBrowseStore = Arc::new(LocalBrowseStore::new(HashMap::from([
+            ("repo_alpha".to_string(), repo_alpha.clone()),
+            ("repo_beta".to_string(), repo_beta.clone()),
+        ])));
+        let glob_adapter = BrowseGlobStoreAdapter::new(Arc::clone(&browse));
+        let grep_adapter = BrowseGrepStoreAdapter::new(Arc::clone(&browse));
+
+        for repo_id in ["repo_alpha", "repo_beta"] {
+            let glob = GlobStore::glob_paths(&glob_adapter, repo_id, "**/*.rs")
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(glob.paths.iter().any(|path| path == "src/main.rs"));
+            assert!(glob.paths.iter().all(|path| !path.starts_with("target/")));
+            assert!(glob
+                .paths
+                .iter()
+                .all(|path| !path.starts_with("node_modules/")));
+            assert!(glob.paths.iter().all(|path| !path.starts_with("dist/")));
+            assert!(glob.paths.iter().all(|path| !path.starts_with(".git/")));
+
+            let grep = GrepStore::grep(&grep_adapter, repo_id, "shared_scale_marker")
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(grep.matches.iter().any(|entry| entry.path == "src/main.rs"));
+            assert!(grep
+                .matches
+                .iter()
+                .all(|entry| !entry.path.starts_with("target/")));
+            assert!(grep
+                .matches
+                .iter()
+                .all(|entry| !entry.path.starts_with("node_modules/")));
+            assert!(grep
+                .matches
+                .iter()
+                .all(|entry| !entry.path.starts_with("dist/")));
+            assert!(grep
+                .matches
+                .iter()
+                .all(|entry| !entry.path.starts_with(".git/")));
+        }
+
+        fs::remove_dir_all(repo_alpha).unwrap();
+        fs::remove_dir_all(repo_beta).unwrap();
     }
 
     #[tokio::test]
