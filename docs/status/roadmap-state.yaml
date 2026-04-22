@@ -5,56 +5,89 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e85a26ae08d789f82632984183cd1001116b8c45
+  head: e6244d8671590d7704f189ea3f8da37c14365816
 last_completed_task:
-  id: task83
-  title: Harden credential verification burn paths
+  id: task84
+  title: End-to-end smoke matrix
   status: done
   summary: >-
-    Closed one meaningful Phase 11 implementation-backed security slice instead of
-    splitting audit notes, focused regressions, acceptance wording, and roadmap truth
-    into separate paperwork runs. `crates/api/src/main.rs` now routes local-session,
-    API-key, and public review-webhook credential checks through one shared
-    fail-closed Argon2 burn helper so missing or malformed persisted secret hashes do
-    not shortcut verification work, focused regressions plus broad auth/webhook and
-    full `sourcebot-api` coverage keep the narrower baseline green, and
-    `specs/acceptance/auth.md`, `specs/acceptance/integrations.md`,
+    Closed one meaningful Phase 11 operator-visible smoke slice instead of splitting
+    the harness, focused contract coverage, doc grounding, and roadmap truth into
+    separate paperwork runs. `scripts/check_end_to_end_smoke_matrix.sh` now starts
+    the real API against an isolated temp runtime, bootstraps and logs in a local
+    admin, exercises authenticated connections/search/ask plus public review-webhook
+    intake, runs the real one-shot worker with a stubbed completed outcome, and
+    verifies the queued review-agent run reaches `completed`; the paired contract
+    script plus focused API/worker coverage keep that local smoke baseline honest;
+    and `README.md`, `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
     `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-22-task83-credential-verification-burn-plan.md` now ground
-    that bounded credential-hardening baseline truthfully without claiming broader
-    auth/session or token-storage parity.
+    `docs/plans/2026-04-22-task84-end-to-end-smoke-matrix-plan.md` now ground it
+    truthfully as a bounded stub-backed operator check rather than full release
+    certification.
   tests:
-    - cargo test -p sourcebot-api revoke_explicitly_targets_requested_local_session_and_fails_closed -- --nocapture: passed
-    - cargo test -p sourcebot-api auth_me_returns_401_for_missing_session_record -- --nocapture: passed
-    - cargo test -p sourcebot-api auth_me_returns_401_for_invalid_persisted_session_hash -- --nocapture: passed
-    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_unknown_api_key -- --nocapture: passed
-    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_invalid_persisted_hash -- --nocapture: passed
-    - cargo test -p sourcebot-api review_webhook_event_intake_returns_401_for_invalid_persisted_secret_hash -- --nocapture: passed
-    - cargo test -p sourcebot-api auth_ -- --nocapture: passed
-    - cargo test -p sourcebot-api review_webhook -- --nocapture: passed
-    - cargo test -p sourcebot-api: passed (298 passed)
+    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
+    - cargo test -p sourcebot-api review_webhook -- --nocapture: passed (37 passed)
+    - cargo test -p sourcebot-api ask_ -- --nocapture: passed (25 passed)
+    - cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed (5 passed)
+    - bash -n scripts/check_end_to_end_smoke_matrix.sh: passed
+    - bash -n scripts/check_end_to_end_smoke_matrix_contract.sh: passed
     - git diff --check: passed
     - git diff --cached --check: passed
     - python3 raw-content doc truth checks: passed
-    - python3 added-lines security scan over `git diff --cached --unified=0`: passed with 1 reviewed test-fixture false positive (`let password = "correct horse battery staple";`)
+    - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 83 credential-burn plan, keeps the changed files in scope, closes the required tests/docs in one run, and avoids broader auth redesign
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and treated the lone password-string regex hit as a test-fixture false positive rather than a production secret leak
-  commit: e85a26ae08d789f82632984183cd1001116b8c45
-  next_task: task84
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 84 plan by shipping one repo-local smoke command across auth, integrations, search, ask, and review-agent plus the required truthful docs without overclaiming full release certification
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the credential-redaction and non-eval assertion fixes, and only noted optional future regression coverage for the authenticated helper path plus a possible build reuse optimization
+  commit: e6244d8671590d7704f189ea3f8da37c14365816
+  next_task: task85
 current_task:
-  id: task84
+  id: task85
   parent_task: phase11
-  title: End-to-end smoke matrix
+  title: Final parity audit and release checklist
   status: pending
   summary: >-
-    Task 83 now has one honest credential-verification burn hardening baseline for
-    local-session, API-key, and public review-webhook failures. The next meaningful
-    Phase 11 closure should shift to Task 84 by adding end-to-end smoke coverage for
-    critical user/operator journeys across integrations, search, ask, auth, and
-    review-agent rather than reopening this narrower security slice into paperwork-only
-    follow-ups.
+    Task 84 now contributes one honest local end-to-end smoke matrix that covers the
+    current auth, integrations, search, ask, and review-agent baseline in a single
+    bounded operator run. The next meaningful Phase 11 closure should shift to Task 85
+    by producing the final parity audit/release checklist that maps
+    `specs/FEATURE_PARITY.md` to shipped code/tests/docs and reconciles any remaining
+    deferred notes, rather than reopening this new smoke slice into smaller paperwork-
+    only follow-ups.
 history:
+  - id: task84
+    status: done
+    summary: >-
+      Closed one meaningful Phase 11 operator-visible smoke slice instead of splitting
+      the harness, focused contract coverage, doc grounding, and roadmap truth into
+      separate paperwork runs. `scripts/check_end_to_end_smoke_matrix.sh` now starts
+      the real API against an isolated temp runtime, bootstraps and logs in a local
+      admin, exercises authenticated connections/search/ask plus public review-webhook
+      intake, runs the real one-shot worker with a stubbed completed outcome, and
+      verifies the queued review-agent run reaches `completed`; the paired contract
+      script plus focused API/worker coverage keep that local smoke baseline honest;
+      and `README.md`, `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-22-task84-end-to-end-smoke-matrix-plan.md` now ground it
+      truthfully as a bounded stub-backed operator check rather than full release
+      certification.
+    tests:
+      - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
+      - cargo test -p sourcebot-api review_webhook -- --nocapture: passed (37 passed)
+      - cargo test -p sourcebot-api ask_ -- --nocapture: passed (25 passed)
+      - cargo test -p sourcebot-worker --test explicit_completed_stub_outcome_smoke -- --nocapture: passed (5 passed)
+      - bash -n scripts/check_end_to_end_smoke_matrix.sh: passed
+      - bash -n scripts/check_end_to_end_smoke_matrix_contract.sh: passed
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 raw-content doc truth checks: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 84 plan by shipping one repo-local smoke command across auth, integrations, search, ask, and review-agent plus the required truthful docs without overclaiming full release certification
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the credential-redaction and non-eval assertion fixes, and only noted optional future regression coverage for the authenticated helper path plus a possible build reuse optimization
+    commit: e6244d8671590d7704f189ea3f8da37c14365816
+    next_task: task85
   - id: task83
     status: done
     summary: >-
