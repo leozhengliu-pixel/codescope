@@ -1065,21 +1065,22 @@ async fn authenticate_local_session_record(
     headers: &HeaderMap,
 ) -> Result<LocalSession, StatusCode> {
     let (session_id, session_secret) = parse_bearer_token_id_secret(headers)?;
-    let session = state
+    let session = if let Some(session) = state
         .local_sessions
         .local_session(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !local_session_record_is_well_formed(&session, &session_id) {
+    {
+        session
+    } else {
+        let _ = verify_secret_or_burn_failure(&session_secret, None);
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    if !local_session_record_has_required_auth_fields(&session, &session_id) {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let secret_hash =
-        PasswordHash::new(&session.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Argon2::default()
-        .verify_password(session_secret.as_bytes(), &secret_hash)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    verify_secret_or_burn_failure(&session_secret, Some(&session.secret_hash))?;
 
     Ok(session)
 }
@@ -1095,20 +1096,21 @@ async fn authenticate_api_key_record(
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let api_key = organization_state
+    let api_key = if let Some(api_key) = organization_state
         .api_keys
         .iter()
         .find(|api_key| api_key.id == api_key_id)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    if !api_key_record_is_well_formed(api_key, &api_key_id) || api_key.revoked_at.is_some() {
+    {
+        api_key
+    } else {
+        let _ = verify_secret_or_burn_failure(&api_key_secret, None);
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    if !api_key_record_has_required_auth_fields(api_key, &api_key_id) || api_key.revoked_at.is_some() {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let secret_hash =
-        PasswordHash::new(&api_key.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Argon2::default()
-        .verify_password(api_key_secret.as_bytes(), &secret_hash)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    verify_secret_or_burn_failure(&api_key_secret, Some(&api_key.secret_hash))?;
 
     let owning_account = organization_state
         .accounts
@@ -2168,7 +2170,7 @@ async fn intake_review_webhook_event(
     {
         webhook
     } else {
-        burn_review_webhook_secret_check(&webhook_secret);
+        let _ = verify_secret_or_burn_failure(&webhook_secret, None);
         return Err(StatusCode::UNAUTHORIZED);
     };
 
@@ -2285,17 +2287,27 @@ fn verify_review_webhook_secret(
     webhook: &ReviewWebhook,
     webhook_secret: &str,
 ) -> Result<(), StatusCode> {
-    let secret_hash =
-        PasswordHash::new(&webhook.secret_hash).map_err(|_| StatusCode::UNAUTHORIZED)?;
-    Argon2::default()
-        .verify_password(webhook_secret.as_bytes(), &secret_hash)
-        .map_err(|_| StatusCode::UNAUTHORIZED)
+    verify_secret_or_burn_failure(webhook_secret, Some(&webhook.secret_hash))
 }
 
-fn burn_review_webhook_secret_check(webhook_secret: &str) {
-    let dummy_salt = SaltString::encode_b64(b"review-webhook-dummy").expect("valid dummy salt");
-    if let Ok(dummy_hash) = Argon2::default().hash_password(b"review-webhook-secret", &dummy_salt) {
-        let _ = Argon2::default().verify_password(webhook_secret.as_bytes(), &dummy_hash);
+fn verify_secret_or_burn_failure(
+    presented_secret: &str,
+    persisted_hash: Option<&str>,
+) -> Result<(), StatusCode> {
+    if let Some(secret_hash) = persisted_hash.and_then(|hash| PasswordHash::new(hash).ok()) {
+        return Argon2::default()
+            .verify_password(presented_secret.as_bytes(), &secret_hash)
+            .map_err(|_| StatusCode::UNAUTHORIZED);
+    }
+
+    burn_dummy_secret_verification_check(presented_secret);
+    Err(StatusCode::UNAUTHORIZED)
+}
+
+fn burn_dummy_secret_verification_check(presented_secret: &str) {
+    let dummy_salt = SaltString::encode_b64(b"credential-burn-dummy").expect("valid dummy salt");
+    if let Ok(dummy_hash) = Argon2::default().hash_password(b"credential-burn-secret", &dummy_salt) {
+        let _ = Argon2::default().verify_password(presented_secret.as_bytes(), &dummy_hash);
     }
 }
 
@@ -2981,16 +2993,39 @@ async fn logout_local_admin(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn local_session_record_is_well_formed(session: &LocalSession, expected_session_id: &str) -> bool {
-    if session.id != expected_session_id
-        || session.id.trim().is_empty()
-        || session.user_id.trim().is_empty()
-        || session.created_at.trim().is_empty()
-    {
-        return false;
-    }
+fn local_session_record_has_required_auth_fields(
+    session: &LocalSession,
+    expected_session_id: &str,
+) -> bool {
+    session.id == expected_session_id
+        && !session.id.trim().is_empty()
+        && !session.user_id.trim().is_empty()
+        && !session.created_at.trim().is_empty()
+}
 
-    PasswordHash::new(&session.secret_hash).is_ok()
+fn local_session_record_is_well_formed(session: &LocalSession, expected_session_id: &str) -> bool {
+    local_session_record_has_required_auth_fields(session, expected_session_id)
+        && PasswordHash::new(&session.secret_hash).is_ok()
+}
+
+#[allow(dead_code)]
+fn api_key_record_has_required_auth_fields(
+    api_key: &sourcebot_models::ApiKey,
+    expected_api_key_id: &str,
+) -> bool {
+    api_key.id == expected_api_key_id
+        && !api_key.id.trim().is_empty()
+        && !api_key.user_id.trim().is_empty()
+        && !api_key.name.trim().is_empty()
+        && !api_key.created_at.trim().is_empty()
+        && !api_key
+            .revoked_at
+            .as_deref()
+            .is_some_and(|revoked_at| revoked_at.trim().is_empty())
+        && !api_key
+            .repo_scope
+            .iter()
+            .any(|repo_id| repo_id.trim().is_empty())
 }
 
 #[allow(dead_code)]
@@ -2998,24 +3033,8 @@ fn api_key_record_is_well_formed(
     api_key: &sourcebot_models::ApiKey,
     expected_api_key_id: &str,
 ) -> bool {
-    if api_key.id != expected_api_key_id
-        || api_key.id.trim().is_empty()
-        || api_key.user_id.trim().is_empty()
-        || api_key.name.trim().is_empty()
-        || api_key.created_at.trim().is_empty()
-        || api_key
-            .revoked_at
-            .as_deref()
-            .is_some_and(|revoked_at| revoked_at.trim().is_empty())
-        || api_key
-            .repo_scope
-            .iter()
-            .any(|repo_id| repo_id.trim().is_empty())
-    {
-        return false;
-    }
-
-    PasswordHash::new(&api_key.secret_hash).is_ok()
+    api_key_record_has_required_auth_fields(api_key, expected_api_key_id)
+        && PasswordHash::new(&api_key.secret_hash).is_ok()
 }
 
 async fn revoke_local_admin_session(
@@ -14498,6 +14517,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn review_webhook_event_intake_returns_401_for_invalid_persisted_secret_hash() {
+        let organization_state_path = unique_test_path("review-webhook-events-invalid-persisted-secret-orgs");
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            review_webhooks: vec![ReviewWebhook {
+                id: "review_webhook_1".into(),
+                organization_id: "org_acme".into(),
+                connection_id: "conn_local".into(),
+                repository_id: "repo_sourcebot_rewrite".into(),
+                events: vec!["pull_request_review".into()],
+                secret_hash: "not-a-valid-password-hash".into(),
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-25T00:05:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/review-webhooks/review_webhook_1/events")
+                    .header(
+                        header::AUTHORIZATION,
+                        "Bearer review_webhook_1:wrong-secret",
+                    )
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ReviewWebhookEventRequestBody {
+                            event_type: "pull_request_review".into(),
+                            connection_id: "conn_local".into(),
+                            repository_id: "repo_sourcebot_rewrite".into(),
+                            review_id: "review_123".into(),
+                            external_event_id: "evt_123".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn review_webhook_events_reject_payloads_outside_webhook_scope() {
         let organization_state_path = unique_test_path("review-webhook-events-scope-orgs");
         let secret_hash = Argon2::default()
@@ -15637,6 +15717,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_api_key_helper_fails_closed_for_unknown_api_key() {
+        let organization_state_path = unique_test_path("auth-api-key-helper-unknown-key-orgs");
+        let user_id = "local_user_member";
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                password_hash: None,
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let error = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers("Bearer key_missing:any-secret"),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[test]
+    fn verify_secret_or_burn_failure_rejects_missing_or_invalid_hashes() {
+        assert_eq!(
+            verify_secret_or_burn_failure("presented-secret", None),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+        assert_eq!(
+            verify_secret_or_burn_failure("presented-secret", Some("not-a-valid-password-hash")),
+            Err(StatusCode::UNAUTHORIZED)
+        );
+    }
+
+    #[tokio::test]
     async fn auth_api_key_helper_fails_closed_when_owner_account_is_missing() {
         let organization_state_path = unique_test_path("auth-api-key-helper-missing-account-orgs");
         let user_id = "local_user_deleted";
@@ -15785,6 +15924,82 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
         fs::remove_file(bootstrap_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_for_missing_session_record() {
+        let bootstrap_state_path = unique_test_path("auth-me-missing-session-bootstrap");
+        let local_session_state_path = unique_test_path("auth-me-missing-session-sessions");
+        let password = "correct horse battery staple";
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        fs::write(
+            &bootstrap_state_path,
+            serde_json::to_vec(&BootstrapStateResponse {
+                initialized_at: "2026-04-16T17:00:00Z".into(),
+                admin_email: "admin@example.com".into(),
+                admin_name: "Admin User".into(),
+                password_hash,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header("authorization", "Bearer local_session_missing:any-secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        fs::remove_file(bootstrap_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_me_returns_401_for_invalid_persisted_session_hash() {
+        let local_session_state_path = unique_test_path("auth-me-invalid-persisted-session-sessions");
+        fs::write(
+            &local_session_state_path,
+            serde_json::to_vec(&LocalSessionState {
+                sessions: vec![LocalSession {
+                    id: "local_session_invalid_hash".into(),
+                    user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                    secret_hash: "not-a-valid-password-hash".into(),
+                    created_at: "2026-04-16T18:00:00Z".into(),
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let app_state = test_app_state_with_config(AppConfig {
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let error = authenticate_local_session_record(
+            &app_state,
+            &bearer_headers("Bearer local_session_invalid_hash:any-secret"),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, StatusCode::UNAUTHORIZED);
+
         fs::remove_file(local_session_state_path).unwrap();
     }
 

@@ -40,6 +40,7 @@
 ## Black-box examples
 - First boot allows creating one admin account from `#/auth`, then closes bootstrap flow and falls through to local login.
 - A local admin can sign in from `#/auth`, the frontend persists the returned `session_id:session_secret` token client-side, restores `/api/v1/auth/me`, and reuses that bearer token on later protected `/api/v1/auth/...` requests until logout clears it.
+- If a local-session or API-key bearer token references missing or corrupted persisted secret material, the corresponding protected auth request still fails closed with `401` after the same Argon2 verification burn path instead of shortcutting on the missing/malformed stored record.
 - An invited email can open `#/auth?invite=<invite_id>&email=<invited_email>`, submit name and password to `POST /api/v1/auth/invite-redeem`, receive a new local session, and immediately land in the signed-in auth state without claiming that broader invite creation or admin invite-management UX already exists.
 - A user landing on `#/auth` with OAuth callback params such as `provider`, `error`, `error_description`, `code`, or `state` still gets the local login form plus a truthful provider-aware callback-status callout that acknowledges the redirect, surfaces any returned error/code details, and explicitly says that this rewrite does not finish external-provider sign-in/callback exchange there yet.
 - A viewer can search and browse allowed repos but cannot manage connections.

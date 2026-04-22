@@ -38,3 +38,4 @@
 - An authenticated admin can open the settings connections shell, inspect existing connection records, and manage generic/local connection metadata through the versioned `/api/v1/auth/connections` API.
 - Repository detail shows connection metadata, and authenticated sync-history views remain read-only until later provider/runtime slices land real enumeration/import/index behavior.
 - Calling the public REST API returns versioned JSON and permission-scoped results.
+- Public review-webhook event intake rejects wrong, missing, or corrupted persisted webhook secret material with `401` while keeping webhook existence and stored secret-hash corruption opaque to the caller.
