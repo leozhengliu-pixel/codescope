@@ -5,51 +5,90 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e7b68e061a35340926dc2a82b62805a6e4986c90
+  head: e85a26ae08d789f82632984183cd1001116b8c45
 last_completed_task:
-  id: task82
-  title: Add a browse retrieval scale guardrail for recursive artifact directories
+  id: task83
+  title: Harden credential verification burn paths
   status: done
   summary: >-
-    Closed one meaningful Phase 11 implementation-backed slice instead of another
-    audit-only or over-broad search-parity pass. `crates/api/src/browse.rs` now uses
-    one shared ignored-directory policy so recursive local browse `glob` and `grep`
-    skip `.git`, `target`, `node_modules`, and `dist`; focused regressions plus a
-    representative multi-repo adapter smoke prove visible source hits still surface
-    while obvious build-artifact directories do not; and
-    `specs/acceptance/integrations.md`,
-    `specs/repo-git-search-fixture-layout.md`,
+    Closed one meaningful Phase 11 implementation-backed security slice instead of
+    splitting audit notes, focused regressions, acceptance wording, and roadmap truth
+    into separate paperwork runs. `crates/api/src/main.rs` now routes local-session,
+    API-key, and public review-webhook credential checks through one shared
+    fail-closed Argon2 burn helper so missing or malformed persisted secret hashes do
+    not shortcut verification work, focused regressions plus broad auth/webhook and
+    full `sourcebot-api` coverage keep the narrower baseline green, and
+    `specs/acceptance/auth.md`, `specs/acceptance/integrations.md`,
     `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-22-task82-browse-retrieval-scale-sanity-plan.md` now ground
-    that practical browse/MCP retrieval scale guardrail truthfully without claiming
-    broader indexing or performance parity.
+    `docs/plans/2026-04-22-task83-credential-verification-burn-plan.md` now ground
+    that bounded credential-hardening baseline truthfully without claiming broader
+    auth/session or token-storage parity.
   tests:
-    - cargo test -p sourcebot-api glob_paths_skips_common_build_artifact_directories -- --nocapture: passed
-    - cargo test -p sourcebot-api grep_skips_common_build_artifact_directories -- --nocapture: passed
-    - cargo test -p sourcebot-api browse_glob_and_grep_scale_sanity_skip_ignored_dirs_across_multiple_repositories -- --nocapture: passed
-    - cargo test -p sourcebot-api browse:: -- --nocapture: passed (19 passed)
-    - cargo test -p sourcebot-api: passed (320 passed)
+    - cargo test -p sourcebot-api revoke_explicitly_targets_requested_local_session_and_fails_closed -- --nocapture: passed
+    - cargo test -p sourcebot-api auth_me_returns_401_for_missing_session_record -- --nocapture: passed
+    - cargo test -p sourcebot-api auth_me_returns_401_for_invalid_persisted_session_hash -- --nocapture: passed
+    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_unknown_api_key -- --nocapture: passed
+    - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_invalid_persisted_hash -- --nocapture: passed
+    - cargo test -p sourcebot-api review_webhook_event_intake_returns_401_for_invalid_persisted_secret_hash -- --nocapture: passed
+    - cargo test -p sourcebot-api auth_ -- --nocapture: passed
+    - cargo test -p sourcebot-api review_webhook -- --nocapture: passed
+    - cargo test -p sourcebot-api: passed (298 passed)
     - git diff --check: passed
     - git diff --cached --check: passed
     - python3 raw-content doc truth checks: passed
-    - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    - python3 added-lines security scan over `git diff --cached --unified=0`: passed with 1 reviewed test-fixture false positive (`let password = "correct horse battery staple";`)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the slice stays narrowly scoped to local browse retrieval scale sanity, closes implementation plus focused tests plus the representative multi-repo smoke and docs in one run, and keeps broader indexing/performance parity explicitly deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only noted the non-blocking tradeoff that explicit `target/` browse `glob`/`grep` queries now fail closed because recursive traversal is intentionally pruned at ignored directories
-  commit: e7b68e061a35340926dc2a82b62805a6e4986c90
-  next_task: task83
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 83 credential-burn plan, keeps the changed files in scope, closes the required tests/docs in one run, and avoids broader auth redesign
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and treated the lone password-string regex hit as a test-fixture false positive rather than a production secret leak
+  commit: e85a26ae08d789f82632984183cd1001116b8c45
+  next_task: task84
 current_task:
-  id: task83
+  id: task84
   parent_task: phase11
-  title: Security hardening pass
+  title: End-to-end smoke matrix
   status: pending
   summary: >-
-    Task 82 is now closed with one real implementation-backed performance/scale sanity
-    guardrail for local browse and MCP-style retrieval. The next meaningful Phase 11
-    slice should shift to Task 83 by hardening secret handling, auth/session
-    boundaries, webhook validation, token storage, and permission checks without
-    regressing the newly landed browse retrieval baseline.
+    Task 83 now has one honest credential-verification burn hardening baseline for
+    local-session, API-key, and public review-webhook failures. The next meaningful
+    Phase 11 closure should shift to Task 84 by adding end-to-end smoke coverage for
+    critical user/operator journeys across integrations, search, ask, auth, and
+    review-agent rather than reopening this narrower security slice into paperwork-only
+    follow-ups.
 history:
+  - id: task83
+    status: done
+    summary: >-
+      Closed one meaningful Phase 11 implementation-backed security slice instead of
+      splitting audit notes, focused regressions, acceptance wording, and roadmap truth
+      into separate paperwork runs. `crates/api/src/main.rs` now routes local-session,
+      API-key, and public review-webhook credential checks through one shared
+      fail-closed Argon2 burn helper so missing or malformed persisted secret hashes do
+      not shortcut verification work, focused regressions plus broad auth/webhook and
+      full `sourcebot-api` coverage keep the narrower baseline green, and
+      `specs/acceptance/auth.md`, `specs/acceptance/integrations.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-22-task83-credential-verification-burn-plan.md` now ground
+      that bounded credential-hardening baseline truthfully without claiming broader
+      auth/session or token-storage parity.
+    tests:
+      - cargo test -p sourcebot-api revoke_explicitly_targets_requested_local_session_and_fails_closed -- --nocapture: passed
+      - cargo test -p sourcebot-api auth_me_returns_401_for_missing_session_record -- --nocapture: passed
+      - cargo test -p sourcebot-api auth_me_returns_401_for_invalid_persisted_session_hash -- --nocapture: passed
+      - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_unknown_api_key -- --nocapture: passed
+      - cargo test -p sourcebot-api auth_api_key_helper_fails_closed_for_invalid_persisted_hash -- --nocapture: passed
+      - cargo test -p sourcebot-api review_webhook_event_intake_returns_401_for_invalid_persisted_secret_hash -- --nocapture: passed
+      - cargo test -p sourcebot-api auth_ -- --nocapture: passed
+      - cargo test -p sourcebot-api review_webhook -- --nocapture: passed
+      - cargo test -p sourcebot-api: passed (298 passed)
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 raw-content doc truth checks: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed with 1 reviewed test-fixture false positive (`let password = "correct horse battery staple";`)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the bounded Task 83 credential-burn plan, keeps the changed files in scope, closes the required tests/docs in one run, and avoids broader auth redesign
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and treated the lone password-string regex hit as a test-fixture false positive rather than a production secret leak
+    commit: e85a26ae08d789f82632984183cd1001116b8c45
+    next_task: task84
   - id: task82
     status: done
     summary: >-
