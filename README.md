@@ -52,6 +52,27 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
 10. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
 11. The current API still falls back to the seeded in-memory catalog store even when `DATABASE_URL` is set; these workflows only bootstrap the metadata schema for upcoming durable-store slices.
 
+## Local operator runtime baseline
+1. Copy the example env file so `make` can auto-load the repo-local runtime contract:
+   ```bash
+   cp .env.example .env
+   ```
+2. Set `SOURCEBOT_DATA_DIR` in `.env` to the directory that should hold the current local file-backed runtime state. When only that shared base is set, the API and worker derive:
+   - `bootstrap-state.json`
+   - `local-sessions.json`
+   - `organizations.json`
+3. Optional explicit overrides still win for individual files if you set `SOURCEBOT_BOOTSTRAP_STATE_PATH`, `SOURCEBOT_LOCAL_SESSION_STATE_PATH`, or `SOURCEBOT_ORGANIZATION_STATE_PATH`.
+4. Start the API with the repo-local `.env` contract:
+   ```bash
+   make api
+   ```
+5. In a second shell, run the current worker baseline with that same `.env` contract:
+   ```bash
+   make worker
+   ```
+6. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick and exits. This repo does not yet claim supervised workers, durable worker metadata, retries, or continuous background orchestration.
+7. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
+
 ## License
 Current default: MIT.
 If you prefer a stronger explicit patent grant, we can switch to Apache-2.0 before first public release.

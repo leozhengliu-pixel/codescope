@@ -33,7 +33,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Frontend route/page parity index | `specs/acceptance/index.md` | Present in task01a1 | Surface inventory anchor for route/page/worker/operator evidence. |
 | Settings navigation shell | `specs/acceptance/settings-navigation.md` | Present in this slice | Covers the shared `#/settings` landing page plus subsection-shell discoverability without over-claiming richer admin CRUD UX. |
 | Worker execution parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box worker/operator acceptance spec in a later Task 1 slice. |
-| Operator workflows parity | _Missing acceptance spec_ | Planned | Needs a dedicated black-box operator/admin/runtime acceptance spec in a later Task 1 slice. |
+| Operator workflows parity | `specs/acceptance/operator-runtime.md` | Present in task80a | Covers the shipped local runtime liveness/config baseline, shared `SOURCEBOT_DATA_DIR` path wiring, and `make api` + one-shot `make worker` bring-up while explicitly deferring migrations, readiness, supervision, durable metadata, and production-grade observability. |
 
 ## Surface inventory
 
@@ -41,7 +41,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 | Surface family | Representative routes in rewrite | Parity intent | Current acceptance home |
 | --- | --- | --- | --- |
-| Health and public config | `/healthz`, `/api/v1/config` | Operator-visible service liveness and frontend bootstrap config parity | `specs/acceptance/index.md` until operator spec exists |
+| Health and public config | `/healthz`, `/api/v1/config` | Operator-visible service liveness and frontend bootstrap config parity | `specs/acceptance/operator-runtime.md` |
 | Bootstrap and local session auth | `/api/v1/auth/bootstrap`, `/api/v1/auth/login`, `/api/v1/auth/me`, `/api/v1/auth/logout`, `/api/v1/auth/revoke` | First-run onboarding, login/session restoration, and local-admin auth parity | `specs/acceptance/auth.md` |
 | API key management | `/api/v1/auth/api-keys`, `/api/v1/auth/api-keys/{api_key_id}/revoke` | Authenticated API credential lifecycle parity | `specs/acceptance/auth.md` (to be expanded) |
 | Search contexts | `/api/v1/auth/search-contexts` | Saved search scope/context parity | `specs/acceptance/search.md` (to be expanded) |
@@ -81,16 +81,16 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 | Surface family | Rewrite evidence | Parity intent | Current acceptance home |
 | --- | --- | --- | --- |
 | First-run bootstrap workflow | `/api/v1/auth/bootstrap` in `crates/api/src/main.rs` | Operator can initialize a fresh instance safely and deterministically | `specs/acceptance/auth.md` |
-| Local-dev organization-state path wiring | `crates/worker/src/main.rs` loads `AppConfig::from_env()` and builds the organization store from `config.organization_state_path` | Dev/runtime state-path behavior, startup tolerance, and migration-safe operator expectations | `specs/acceptance/index.md` until dedicated operator spec exists |
+| Local-dev organization-state path wiring | `crates/worker/src/main.rs` loads `AppConfig::from_env()` and builds the organization store from `config.organization_state_path` | Dev/runtime state-path behavior, startup tolerance, shared `SOURCEBOT_DATA_DIR` baseline, and explicit-path override expectations | `specs/acceptance/operator-runtime.md` |
 | Repo sync/index visibility | Repo `sync_state` exposed through API/UI surfaces in `crates/api/src/main.rs` and `web/src/App.tsx`, plus authenticated sync-job history in `/api/v1/auth/repository-sync-jobs` | Operator/user parity for sync readiness, failure visibility, and read-only sync-job history | `specs/acceptance/repository-operations.md` |
 | Review webhook operational visibility | Authenticated review-webhook, delivery-attempt, and review-agent-run endpoints in `crates/api/src/main.rs` | Operator/admin inspection of automation state and failures | `specs/acceptance/index.md` until dedicated operator/review-webhook specs exist |
 | Durable metadata / migrations / backup-restore | _Not implemented yet_ | Practical Sourcebot replacement requires production-grade persistence, migrations, backup, and restore parity | Future operator acceptance spec |
 
 ## Immediate follow-up gaps exposed by this index
-1. The acceptance corpus has broad domain specs, but no dedicated worker/operator black-box specs yet.
+1. The acceptance corpus now has a dedicated operator runtime spec, but still lacks a dedicated worker-runtime black-box spec.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
 3. `specs/FEATURE_PARITY.md` now has the evidence column needed for later parity auditing, but most rows are still only placeholders; later slices should keep replacing `_TBD_` rows with grounded evidence instead of treating the matrix as complete.
-4. Review-agent, OAuth, analytics, audit, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/settings-navigation.md` now covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
+4. Review-agent, OAuth, analytics, audit, and worker runtime flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/operator-runtime.md` now covers the local runtime baseline, and `specs/acceptance/settings-navigation.md` covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
 
 ## Related follow-up document
 - `specs/acceptance/journeys.md` maps the indexed surfaces above into explicit user/admin/operator journeys and identifies the minimum dedicated missing acceptance-spec documents exposed by the current rewrite evidence.

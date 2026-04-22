@@ -10,7 +10,7 @@ API_ADDR ?= 127.0.0.1:3000
 SQLX_CLI_VERSION ?= 0.8.6
 SQLX_CLI_ROOT ?= .sqlx-cli
 
-.PHONY: help fmt check test api dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset sqlx-test
+.PHONY: help fmt check test api worker dev-up dev-down dev-logs sqlx-migrate sqlx-test-reset sqlx-test
 
 help:
 	@printf '%s\n' \
@@ -18,6 +18,7 @@ help:
 	  'make check     - cargo check workspace' \
 	  'make test      - cargo test workspace' \
 	  'make api       - run sourcebot-api' \
+	  'make worker    - run sourcebot-worker' \
 	  'make sqlx-migrate - run SQLx database migrations for the metadata schema against DATABASE_URL' \
 	  'make sqlx-test-reset - drop, recreate, and re-migrate the deterministic test metadata database via TEST_DATABASE_URL' \
 	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata storage tests' \
@@ -36,6 +37,9 @@ test:
 
 api:
 	SOURCEBOT_BIND_ADDR=$(API_ADDR) $(CARGO) run -p sourcebot-api
+
+worker:
+	$(CARGO) run -p sourcebot-worker
 
 dev-up:
 	docker compose up -d postgres

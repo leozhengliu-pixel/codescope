@@ -1,6 +1,32 @@
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use std::env;
+use std::{env, path::PathBuf};
+
+fn configured_data_dir() -> Option<String> {
+    env::var("SOURCEBOT_DATA_DIR").ok().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn runtime_state_path(
+    explicit_var: &str,
+    data_dir: Option<&str>,
+    default_path: &str,
+    file_name: &str,
+) -> String {
+    env::var(explicit_var).unwrap_or_else(|_| match data_dir {
+        Some(data_dir) => PathBuf::from(data_dir)
+            .join(file_name)
+            .display()
+            .to_string(),
+        None => default_path.to_string(),
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -49,18 +75,32 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
+        let data_dir = configured_data_dir();
+
         Self {
             service_name: env::var("SOURCEBOT_SERVICE_NAME")
                 .unwrap_or_else(|_| "sourcebot-api".to_string()),
             bind_addr: env::var("SOURCEBOT_BIND_ADDR")
                 .unwrap_or_else(|_| "127.0.0.1:3000".to_string()),
             database_url: env::var("DATABASE_URL").ok(),
-            bootstrap_state_path: env::var("SOURCEBOT_BOOTSTRAP_STATE_PATH")
-                .unwrap_or_else(|_| ".sourcebot/bootstrap-state.json".to_string()),
-            local_session_state_path: env::var("SOURCEBOT_LOCAL_SESSION_STATE_PATH")
-                .unwrap_or_else(|_| ".sourcebot/local-sessions.json".to_string()),
-            organization_state_path: env::var("SOURCEBOT_ORGANIZATION_STATE_PATH")
-                .unwrap_or_else(|_| ".sourcebot/organizations.json".to_string()),
+            bootstrap_state_path: runtime_state_path(
+                "SOURCEBOT_BOOTSTRAP_STATE_PATH",
+                data_dir.as_deref(),
+                ".sourcebot/bootstrap-state.json",
+                "bootstrap-state.json",
+            ),
+            local_session_state_path: runtime_state_path(
+                "SOURCEBOT_LOCAL_SESSION_STATE_PATH",
+                data_dir.as_deref(),
+                ".sourcebot/local-sessions.json",
+                "local-sessions.json",
+            ),
+            organization_state_path: runtime_state_path(
+                "SOURCEBOT_ORGANIZATION_STATE_PATH",
+                data_dir.as_deref(),
+                ".sourcebot/organizations.json",
+                "organizations.json",
+            ),
             llm_provider: env::var("SOURCEBOT_LLM_PROVIDER")
                 .ok()
                 .or_else(|| Some("disabled".to_string())),
@@ -184,6 +224,96 @@ mod tests {
         assert_eq!(public.llm_provider.as_deref(), Some("stub"));
         assert_eq!(public.llm_model.as_deref(), Some("stub-model"));
         assert!(public.has_llm_api_key);
+    }
+
+    #[test]
+    fn from_env_data_dir_derives_runtime_state_paths() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        env::set_var("SOURCEBOT_DATA_DIR", "/tmp/sourcebot-runtime");
+        env::remove_var("SOURCEBOT_BOOTSTRAP_STATE_PATH");
+        env::remove_var("SOURCEBOT_LOCAL_SESSION_STATE_PATH");
+        env::remove_var("SOURCEBOT_ORGANIZATION_STATE_PATH");
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.bootstrap_state_path,
+            "/tmp/sourcebot-runtime/bootstrap-state.json"
+        );
+        assert_eq!(
+            config.local_session_state_path,
+            "/tmp/sourcebot-runtime/local-sessions.json"
+        );
+        assert_eq!(
+            config.organization_state_path,
+            "/tmp/sourcebot-runtime/organizations.json"
+        );
+
+        env::remove_var("SOURCEBOT_DATA_DIR");
+    }
+
+    #[test]
+    fn from_env_blank_data_dir_falls_back_to_default_runtime_state_paths() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        env::set_var("SOURCEBOT_DATA_DIR", "   ");
+        env::remove_var("SOURCEBOT_BOOTSTRAP_STATE_PATH");
+        env::remove_var("SOURCEBOT_LOCAL_SESSION_STATE_PATH");
+        env::remove_var("SOURCEBOT_ORGANIZATION_STATE_PATH");
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.bootstrap_state_path,
+            ".sourcebot/bootstrap-state.json"
+        );
+        assert_eq!(
+            config.local_session_state_path,
+            ".sourcebot/local-sessions.json"
+        );
+        assert_eq!(
+            config.organization_state_path,
+            ".sourcebot/organizations.json"
+        );
+
+        env::remove_var("SOURCEBOT_DATA_DIR");
+    }
+
+    #[test]
+    fn from_env_explicit_runtime_state_paths_override_data_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        env::set_var("SOURCEBOT_DATA_DIR", "/tmp/sourcebot-runtime");
+        env::set_var(
+            "SOURCEBOT_BOOTSTRAP_STATE_PATH",
+            "/var/lib/sourcebot/custom-bootstrap.json",
+        );
+        env::set_var(
+            "SOURCEBOT_LOCAL_SESSION_STATE_PATH",
+            "/var/lib/sourcebot/custom-local-sessions.json",
+        );
+        env::set_var(
+            "SOURCEBOT_ORGANIZATION_STATE_PATH",
+            "/var/lib/sourcebot/custom-organizations.json",
+        );
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.bootstrap_state_path,
+            "/var/lib/sourcebot/custom-bootstrap.json"
+        );
+        assert_eq!(
+            config.local_session_state_path,
+            "/var/lib/sourcebot/custom-local-sessions.json"
+        );
+        assert_eq!(
+            config.organization_state_path,
+            "/var/lib/sourcebot/custom-organizations.json"
+        );
+
+        env::remove_var("SOURCEBOT_DATA_DIR");
+        env::remove_var("SOURCEBOT_BOOTSTRAP_STATE_PATH");
+        env::remove_var("SOURCEBOT_LOCAL_SESSION_STATE_PATH");
+        env::remove_var("SOURCEBOT_ORGANIZATION_STATE_PATH");
     }
 
     #[test]

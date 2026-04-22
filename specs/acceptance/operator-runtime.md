@@ -1,0 +1,76 @@
+# Operator Runtime Acceptance
+
+## Purpose
+This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API and one-shot worker.
+
+## Scope
+This document covers:
+- `GET /healthz`
+- `GET /api/v1/config`
+- the shared `SOURCEBOT_DATA_DIR` runtime-path contract
+- explicit per-file path overrides for bootstrap, local-session, and organization state
+- local bring-up with `make api` and `make worker`
+
+This document does **not** claim:
+- metadata migrations or durable metadata parity
+- readiness checks beyond the current liveness endpoint
+- supervised or continuously running workers
+- durable worker scheduling, retries, or orchestration
+- backup/restore workflows
+- production-grade observability or deployment automation
+
+## Environment contract
+### Shared runtime data directory
+When the operator sets `SOURCEBOT_DATA_DIR=/path/to/runtime`, the local runtime uses that directory as the default base for the current file-backed state:
+- bootstrap state: `/path/to/runtime/bootstrap-state.json`
+- local session state: `/path/to/runtime/local-sessions.json`
+- organization state: `/path/to/runtime/organizations.json`
+
+### Explicit path overrides
+If the operator also sets any of these variables, the explicit value wins over `SOURCEBOT_DATA_DIR` for that specific file:
+- `SOURCEBOT_BOOTSTRAP_STATE_PATH`
+- `SOURCEBOT_LOCAL_SESSION_STATE_PATH`
+- `SOURCEBOT_ORGANIZATION_STATE_PATH`
+
+Operators may therefore keep one shared runtime directory by default while still overriding individual files when needed.
+
+## Local runtime bring-up baseline
+### API
+Given a repo-local `.env` with `SOURCEBOT_DATA_DIR` and the other required environment values,
+when the operator runs:
+```bash
+make api
+```
+then the API starts with the repo's `.env` contract and exposes the current local runtime baseline on the configured bind address.
+
+### Worker
+Given the same repo-local `.env`,
+when the operator runs:
+```bash
+make worker
+```
+then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes at most one worker tick, and exits.
+
+This worker baseline is intentionally limited to one-shot local bring-up. It is not a supervised background service contract.
+
+## Observable runtime behavior
+### Liveness endpoint
+Given the API is running,
+when the operator requests `GET /healthz`,
+then the service returns a successful liveness response suitable for confirming the process is up.
+
+This endpoint is the current liveness baseline only. It does not claim dependency readiness, migration readiness, or downstream health verification.
+
+### Public config endpoint
+Given the API is running,
+when the operator requests `GET /api/v1/config`,
+then the service returns public runtime config needed by the frontend bootstrap surface while keeping secrets redacted to presence-only indicators rather than exposing raw secret values.
+
+## Deferred follow-up areas
+The following parity-facing operator concerns remain explicitly outside the shipped baseline documented here:
+- database schema migration workflows and durable metadata storage
+- readiness probes that verify dependencies or upgrade state
+- supervised worker lifecycle management
+- durable worker metadata, retries, and resume loops
+- production metrics, tracing, alerting, and other production-grade observability
+- recovery, backup, restore, and upgrade-safe deployment procedures

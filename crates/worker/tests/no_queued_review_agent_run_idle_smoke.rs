@@ -16,6 +16,14 @@ fn unique_test_path(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("sourcebot-worker-{name}-{nanos}.json"))
 }
 
+fn unique_test_dir(name: &str) -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("sourcebot-worker-{name}-{nanos}"))
+}
+
 fn review_agent_run(id: &str, status: ReviewAgentRunStatus, created_at: &str) -> ReviewAgentRun {
     ReviewAgentRun {
         id: id.into(),
@@ -164,4 +172,53 @@ async fn worker_binary_exits_cleanly_and_leaves_default_empty_effective_state_wh
 
     let persisted = store.organization_state().await.unwrap();
     assert_eq!(persisted, OrganizationState::default());
+}
+
+#[tokio::test]
+async fn worker_binary_uses_organizations_file_derived_from_sourcebot_data_dir_when_no_explicit_path_is_set(
+) {
+    let data_dir = unique_test_dir("sourcebot-data-dir-idle-smoke");
+    fs::create_dir(&data_dir).unwrap();
+    let path = data_dir.join("organizations.json");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            review_agent_runs: vec![review_agent_run(
+                "run_queued_oldest",
+                ReviewAgentRunStatus::Queued,
+                "2026-04-25T00:10:05Z",
+            )],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_DATA_DIR", &data_dir)
+        .env_remove("SOURCEBOT_ORGANIZATION_STATE_PATH")
+        .env(
+            "SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME",
+            "completed",
+        )
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly when SOURCEBOT_DATA_DIR points at the derived organizations file"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted.review_agent_runs.len(), 1);
+    assert_eq!(persisted.review_agent_runs[0].id, "run_queued_oldest");
+    assert_eq!(
+        persisted.review_agent_runs[0].status,
+        ReviewAgentRunStatus::Completed,
+        "worker should process the queued run persisted at <data_dir>/organizations.json"
+    );
+
+    fs::remove_file(path).unwrap();
+    fs::remove_dir(data_dir).unwrap();
 }
