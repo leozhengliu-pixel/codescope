@@ -77,6 +77,34 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
 8. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
 9. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
 
+## Local operator maintenance baseline
+1. Capture a backup of the current file-backed runtime state before maintenance:
+   ```bash
+   make runtime-backup
+   ```
+2. Record the backup directory emitted by the helper; it contains copies of `bootstrap-state.json`, `local-sessions.json`, `organizations.json`, and a manifest for the resolved runtime paths.
+3. Start or confirm the local metadata dependency before schema maintenance:
+   ```bash
+   make dev-up
+   ```
+4. Run the current local SQLx migration workflow:
+   ```bash
+   make sqlx-migrate
+   ```
+5. Treat upgrades as a repo update plus migration plus local process restart sequence:
+   ```bash
+   git pull --ff-only
+   make sqlx-migrate
+   make api
+   make worker
+   ```
+6. If maintenance fails, restore the file-backed runtime baseline from the captured backup directory:
+   ```bash
+   BACKUP_DIR=/absolute/path/to/backups/runtime/20260422T000000Z
+   make runtime-restore BACKUP_DIR="$BACKUP_DIR"
+   ```
+7. This maintenance baseline is intentionally narrow: it covers only the current file-backed runtime state plus the local SQLx migration workflow, and it does not yet claim durable metadata backup/restore parity, readiness checks, or production-grade deployment automation.
+
 ## License
 Current default: MIT.
 If you prefer a stronger explicit patent grant, we can switch to Apache-2.0 before first public release.
