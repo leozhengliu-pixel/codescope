@@ -5,47 +5,86 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: be48c97fe313d06176ce2452e17f9ca37bb8a71f
+  head: 7d4c7e14f3e38943c1a550f1a6f2b123181bf511
 last_completed_task:
-  id: task79c
-  title: Add a dedicated `#/agents` route baseline on top of existing review-agent visibility APIs
+  id: task80a
+  title: Add an operator runtime baseline with shared SOURCEBOT_DATA_DIR wiring and make worker bring-up
   status: done
   summary: >-
-    Chose one meaningful Task 79 closure instead of splitting the dedicated
-    agents route, restored run detail, reload/fail-closed behavior, delivery
-    attempt plus webhook visibility, docs, and review into separate paperwork
-    slices. `web/src/App.tsx` and `web/src/App.test.tsx` now ship a dedicated
-    `#/agents` route with top-level navigation, optional hash-restored `run_id`,
-    truthful selected-run reload behavior, independent webhook loading even when
-    delivery-attempt detail fails, and fail-closed reset to `#/agents` when a
-    restored run is no longer visible. `specs/acceptance/ask.md`,
-    `specs/acceptance/index.md`, `docs/reports/2026-04-18-parity-gap-report.md`,
-    and `docs/plans/2026-04-21-task79c-agents-route-baseline-plan.md` now ground
-    the shipped operator-visible agents baseline truthfully while explicitly
-    deferring richer management, retries, and orchestration.
+    Chose one meaningful Phase 11 deployment/config closure instead of splitting
+    config wiring, worker entrypoint, acceptance grounding, and operator runbook
+    wording into separate paperwork slices. `crates/config/src/lib.rs` now
+    derives bootstrap, local-session, and organization state files from one
+    shared `SOURCEBOT_DATA_DIR` unless explicit per-file overrides are set,
+    while `crates/worker/tests/no_queued_review_agent_run_idle_smoke.rs`
+    proves the worker consumes the derived organizations file without requiring
+    `SOURCEBOT_ORGANIZATION_STATE_PATH`. `Makefile`, `.env.example`,
+    `README.md`, `specs/acceptance/operator-runtime.md`,
+    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+    `docs/reports/2026-04-18-parity-gap-report.md`, and
+    `docs/plans/2026-04-21-task80a-operator-runtime-baseline-plan.md` now
+    ground the shipped local operator baseline truthfully as `/healthz`,
+    `/api/v1/config`, shared runtime-path wiring, and `make api` plus one-shot
+    `make worker`, while explicitly deferring migrations, readiness,
+    supervision, retries, and production-grade observability.
   tests:
-    - npx vitest run src/App.test.tsx -t "reloads the selected agent run|keeps webhook visibility when the selected delivery attempt fails to load": passed (2 passed | 163 skipped)
-    - npx vitest run src/App.test.tsx: passed (165 passed)
-    - NODE_OPTIONS=--max-old-space-size=4096 npm run build: passed
+    - cargo test -p sourcebot-config data_dir -- --nocapture: passed (3 passed)
+    - cargo test -p sourcebot-worker data_dir --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed (1 passed)
+    - cargo test -p sourcebot-config: passed (12 passed)
+    - cargo test -p sourcebot-worker: passed
+    - make -n worker: passed (`cargo run -p sourcebot-worker`)
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice matches the intended narrow `#/agents` baseline with top-level nav, hash-restored `run_id`, fail-closed 404 reset, related run/delivery-attempt/webhook detail loading, preserved settings review-automation inventory, and docs that keep richer agent management/retry/orchestration explicitly deferred
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the reload regression and delivery-attempt/webhook decoupling fixes, and only suggested an optional future retry affordance for top-level run-list loading
-  commit: be48c97fe313d06176ce2452e17f9ca37bb8a71f
-  next_task: task80
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice stays within the intended Task 80a scope, matches the operator runtime baseline plan, and keeps the docs truthful about the current local API plus one-shot worker contract without overclaiming broader deployment parity
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the `SOURCEBOT_DATA_DIR` derivation, explicit override precedence, worker runtime behavior, or scoped operator-runtime docs, and only suggested optional future end-to-end API path coverage plus a later dedicated worker-runtime acceptance spec
+  commit: 7d4c7e14f3e38943c1a550f1a6f2b123181bf511
+  next_task: task80b
 current_task:
-  id: task80
+  id: task80b
   parent_task: phase11
-  title: Deployment and config parity
+  title: Extend deployment/config parity with a dedicated worker-runtime acceptance and execution baseline
   status: pending
   summary: >-
-    Task 79's dedicated ask/chat/agents route baseline is now closed with
-    truthful docs and focused verification. The next meaningful closure should
-    move into Phase 11 production hardening by selecting one bounded
-    deployment/config parity slice, rather than continuing Task 79 with smaller
-    paperwork-only follow-ups.
+    Task 80a now closes the local operator-runtime baseline with shared
+    `SOURCEBOT_DATA_DIR` wiring, a `make worker` entrypoint, focused tests, and
+    truthful docs. The next meaningful closure should stay in Phase 11 by
+    grounding worker-runtime behavior and execution expectations in one bounded
+    slice, rather than immediately falling back to smaller docs-only tweaks on
+    the new operator baseline.
 history:
+  - id: task80a
+    status: done
+    summary: >-
+      Chose one meaningful Phase 11 deployment/config closure instead of splitting
+      config wiring, worker entrypoint, acceptance grounding, and operator runbook
+      wording into separate paperwork slices. `crates/config/src/lib.rs` now
+      derives bootstrap, local-session, and organization state files from one
+      shared `SOURCEBOT_DATA_DIR` unless explicit per-file overrides are set,
+      while `crates/worker/tests/no_queued_review_agent_run_idle_smoke.rs`
+      proves the worker consumes the derived organizations file without requiring
+      `SOURCEBOT_ORGANIZATION_STATE_PATH`. `Makefile`, `.env.example`,
+      `README.md`, `specs/acceptance/operator-runtime.md`,
+      `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-21-task80a-operator-runtime-baseline-plan.md` now
+      ground the shipped local operator baseline truthfully as `/healthz`,
+      `/api/v1/config`, shared runtime-path wiring, and `make api` plus one-shot
+      `make worker`, while explicitly deferring migrations, readiness,
+      supervision, retries, and production-grade observability.
+    tests:
+      - cargo test -p sourcebot-config data_dir -- --nocapture: passed (3 passed)
+      - cargo test -p sourcebot-worker data_dir --test no_queued_review_agent_run_idle_smoke -- --nocapture: passed (1 passed)
+      - cargo test -p sourcebot-config: passed (12 passed)
+      - cargo test -p sourcebot-worker: passed
+      - make -n worker: passed (`cargo run -p sourcebot-worker`)
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice stays within the intended Task 80a scope, matches the operator runtime baseline plan, and keeps the docs truthful about the current local API plus one-shot worker contract without overclaiming broader deployment parity
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the `SOURCEBOT_DATA_DIR` derivation, explicit override precedence, worker runtime behavior, or scoped operator-runtime docs, and only suggested optional future end-to-end API path coverage plus a later dedicated worker-runtime acceptance spec
+    commit: 7d4c7e14f3e38943c1a550f1a6f2b123181bf511
+    next_task: task80b
   - id: task79c
     status: done
     summary: >-
