@@ -5,52 +5,84 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9ad36487afff4375ff340cbd1b4a0fc89c763423
+  head: d31eb6127bb1de73d8c8dc783d02e8b4b7934360
 last_completed_task:
-  id: task81a
-  title: Ship a truthful local operator maintenance baseline for runtime-state backup/restore and migration workflow
+  id: task81b
+  title: Ship the local Postgres metadata backup/restore operator-maintenance baseline
   status: done
   summary: >-
-    Pivoted Task 81 away from an over-broad backup/restore/migration parity ask and
-    closed one meaningful operator-visible slice instead of splitting contract,
-    docs, backup tooling, restore tooling, and focused verification into separate
-    paperwork runs. `scripts/backup_local_runtime_state.sh` and
-    `scripts/restore_local_runtime_state.sh` now let operators capture and restore
-    the current file-backed runtime state, `Makefile` exposes `runtime-backup` and
-    `runtime-restore`, `scripts/check_operator_maintenance_contract.sh` plus
-    `scripts/check_runtime_backup_uniqueness.sh` prove the contract and collision-
-    safe backup path, and `README.md`, `specs/acceptance/operator-maintenance.md`,
-    `specs/acceptance/index.md`, `specs/acceptance/journeys.md`,
+    Closed the next meaningful Task 81 operator-visible slice instead of splitting
+    helper scripts, focused smoke coverage, runbook truthfulness, and acceptance/report
+    updates into separate paperwork runs. `scripts/backup_local_metadata_db.sh` and
+    `scripts/restore_local_metadata_db.sh` now add local-only Postgres metadata
+    dump/restore helpers guarded by scheme, localhost, and manifest-match checks;
+    `Makefile` exposes `metadata-backup` and `metadata-restore`; and
+    `scripts/check_local_metadata_backup_contract.sh`,
+    `scripts/check_local_metadata_backup_restore_smoke.sh`,
+    `scripts/check_operator_maintenance_contract.sh`, `README.md`,
+    `specs/acceptance/operator-maintenance.md`, `specs/acceptance/index.md`,
+    `specs/acceptance/journeys.md`,
     `docs/reports/2026-04-18-parity-gap-report.md`, and
-    `docs/plans/2026-04-22-task81a-operator-maintenance-baseline-plan.md` now
-    ground the shipped local maintenance baseline truthfully while explicitly
-    deferring durable metadata backup/restore parity, readiness checks, and
-    production-grade deployment or rollback guarantees.
+    `docs/plans/2026-04-22-task81b-local-metadata-backup-plan.md` now ground that
+    widened maintenance baseline truthfully while still explicitly deferring broader
+    durable-surface, readiness, and production deployment guarantees.
   tests:
+    - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
     - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: passed
-    - python3 tempdir backup/restore smoke for bootstrap-state.json, local-sessions.json, and organizations.json: passed
     - bash scripts/check_local_metadata_env_contract.sh /opt/data/projects/sourcebot-rewrite: passed
     - git diff --check: passed
+    - git diff --cached --check: passed
     - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live slice truthfully narrows Task 81 into a local file-backed operator-maintenance baseline, keeps durable metadata and production guarantees explicitly deferred, and closes the scripts/docs/acceptance/report loop in one run instead of another audit-only paperwork fragment
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects after the backup-directory uniqueness fix and only suggested future CI smoke automation plus a clearer note that restore writes to the currently resolved runtime paths
-  commit: 9ad36487afff4375ff340cbd1b4a0fc89c763423
-  next_task: task81b
+    spec: passed one independent post-implementation review; reviewer confirmed the live slice adds the intended local-only metadata backup/restore capability, keeps `make dev-up` ordered before metadata backup in the runbook, and closes scripts/tests/docs/reporting together in one honest Task 81 closure instead of another docs-only or audit-only fragment
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only suggested an optional future manifest schema/version field for clearer forward-compatibility failures
+  commit: d31eb6127bb1de73d8c8dc783d02e8b4b7934360
+  next_task: task82
 current_task:
-  id: task81b
+  id: task82
   parent_task: phase11
-  title: Extend operator maintenance parity from file-backed runtime-state backup to durable metadata recovery and upgrade safety
+  title: Performance and scale sanity pass
   status: pending
   summary: >-
-    Task 81 was too broad to close truthfully in one run because durable metadata
-    backup/restore and broader upgrade-safety guarantees do not exist yet. After
-    shipping Task 81a's real local runtime-state maintenance baseline, the next
-    meaningful Phase 11 closure is to extend this operator-maintenance surface
-    toward durable metadata recovery only when the implementation and focused
-    verification can land together as one honest slice.
+    Task 81 is now closed as one bounded operator-maintenance baseline spanning both
+    file-backed runtime state and local Postgres metadata recovery. The next meaningful
+    Phase 11 slice should bias toward implementation-backed performance/scale evidence
+    rather than another paperwork-only follow-up, ideally by landing one representative
+    multi-repo sanity check plus any focused bottleneck fix and truthful reporting in
+    the same run.
 history:
+  - id: task81b
+    status: done
+    summary: >-
+      Closed the next meaningful Task 81 operator-visible slice instead of splitting
+      helper scripts, focused smoke coverage, runbook truthfulness, and acceptance/report
+      updates into separate paperwork runs. `scripts/backup_local_metadata_db.sh` and
+      `scripts/restore_local_metadata_db.sh` now add local-only Postgres metadata
+      dump/restore helpers guarded by scheme, localhost, and manifest-match checks;
+      `Makefile` exposes `metadata-backup` and `metadata-restore`; and
+      `scripts/check_local_metadata_backup_contract.sh`,
+      `scripts/check_local_metadata_backup_restore_smoke.sh`,
+      `scripts/check_operator_maintenance_contract.sh`, `README.md`,
+      `specs/acceptance/operator-maintenance.md`, `specs/acceptance/index.md`,
+      `specs/acceptance/journeys.md`,
+      `docs/reports/2026-04-18-parity-gap-report.md`, and
+      `docs/plans/2026-04-22-task81b-local-metadata-backup-plan.md` now ground that
+      widened maintenance baseline truthfully while still explicitly deferring broader
+      durable-surface, readiness, and production deployment guarantees.
+    tests:
+      - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_local_metadata_env_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 added-lines security scan over `git diff --cached --unified=0`: passed (0 findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live slice adds the intended local-only metadata backup/restore capability, keeps `make dev-up` ordered before metadata backup in the runbook, and closes scripts/tests/docs/reporting together in one honest Task 81 closure instead of another docs-only or audit-only fragment
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the staged diff and only suggested an optional future manifest schema/version field for clearer forward-compatibility failures
+    commit: d31eb6127bb1de73d8c8dc783d02e8b4b7934360
+    next_task: task82
   - id: task81a
     status: done
     summary: >-
