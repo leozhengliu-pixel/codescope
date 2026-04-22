@@ -1,49 +1,60 @@
 version: 1
 roadmap:
-  path: docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md
-  total_tasks: 85
+  path: docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md
+  total_tasks: 15
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 888f981621cdca921f5775fbb18ce3da7da79a29
+  head: faddb33b52a046987b3fbe8ad1facaa905d70f7a
 last_completed_task:
-  id: task85
-  title: Final parity audit and release checklist
+  id: roadmap-bootstrap-2026-04-22
+  title: Follow-on parity roadmap bootstrap
   status: done
   summary: >-
-    Closed one meaningful Phase 11 audit closure instead of leaving Task 85 as an
-    unfinished paperwork placeholder. `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md`
-    now maps every `specs/FEATURE_PARITY.md` row to shipped code/tests/docs evidence and
-    records the release blockers that still prevent an honest full-parity claim;
-    `specs/FEATURE_PARITY.md` no longer contains `Needs audit` / `_TBD_` placeholders;
-    and `docs/plans/2026-04-22-task85-final-parity-audit-plan.md` records the bounded
-    closure plan. The audit stays truthful that the rewrite is not yet ready to claim
-    full Sourcebot-replacement parity, so the roadmap task is complete as an audit and
-    checklist closure rather than as a release-certification claim.
+    Closed one meaningful post-audit roadmap bootstrap instead of reopening the finished
+    85-task plan or leaving the repo blocked behind a vague "remaining blockers" note.
+    `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md` now turns the final
+    parity audit blockers into a focused Task 86-100 follow-on roadmap, and
+    `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` now links that
+    roadmap so future runs can resume from a truthful next implementation queue rather
+    than from another paperwork-only audit fragment.
   tests:
-    - python3 raw-content checks for Task 85 plan/audit/matrix placeholders: passed
-    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
+    - python3 raw-content checks for follow-on roadmap title/tasks 86-100 and audit link: passed
     - git diff --check: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the Task 85 docs stay in scope, remove active matrix placeholders, and explicitly state that full-parity release is not yet ready instead of overclaiming completion
-    code: approved by one independent post-implementation review; reviewer found no blocking truthfulness, logic, or security issues in the docs-only audit closure and only noted that the remaining `Needs audit` / `_TBD_` phrases appear as explanatory text inside the new checklist rather than live matrix placeholders
-  commit: 888f981621cdca921f5775fbb18ce3da7da79a29
-  next_task: null
+    spec: passed one independent post-implementation review; reviewer confirmed the follow-on roadmap bootstrap is a meaningful post-audit closure, derives Task 86-100 directly from the Task 85 blockers, and truthfully pivots the repo to the superseding roadmap without reopening the finished 85-task plan
+    code: approved by one independent post-implementation review; reviewer found no blocking logic, truthfulness, or security issues after the commit-hash/rule/blocker-note fixes and confirmed the state file now anchors to the real substantive docs commit with Task 86 as the next live slice
+  commit: faddb33b52a046987b3fbe8ad1facaa905d70f7a
+  next_task: task86
 current_task:
-  id: null
-  parent_task: null
-  title: null
-  status: blocked
+  id: task86
+  parent_task: phase-a-durable-metadata-and-migration-backbone
+  title: SQL metadata schema and migration harness
+  status: pending
   summary: >-
-    The original 85-task roadmap is now fully audited through Task 85, but the final
-    parity audit shows the product is still not ready for a truthful full-parity release
-    claim. Resume from the remaining blockers listed in
-    `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md` by turning
-    them into a follow-on roadmap rather than pretending the current roadmap still has
-    an unfinished in-file task.
+    The original roadmap is complete as an audit, so resume on the follow-on roadmap's
+    first implementation-backed blocker. Task 86 should establish the durable SQL schema,
+    migration commands, dev bootstrap path, and focused compatibility checks that unlock
+    later auth/org/ask/review-agent persistence slices.
 history:
+  - id: roadmap-bootstrap-2026-04-22
+    status: done
+    summary: >-
+      Closed one meaningful post-audit roadmap bootstrap instead of reopening the
+      finished 85-task plan or leaving the repo blocked behind a vague "remaining
+      blockers" note. `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`
+      now turns the final parity audit blockers into a focused Task 86-100 follow-on
+      roadmap, and `docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md`
+      now links that roadmap so future runs can resume from a truthful next
+      implementation queue rather than from another paperwork-only audit fragment.
+    tests:
+      - python3 raw-content checks for follow-on roadmap title/tasks 86-100 and audit link: passed
+      - git diff --check: passed
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the follow-on roadmap bootstrap is a meaningful post-audit closure, derives Task 86-100 directly from the Task 85 blockers, and truthfully pivots the repo to the superseding roadmap without reopening the finished 85-task plan
+      code: approved by one independent post-implementation review; reviewer found no blocking logic, truthfulness, or security issues after the commit-hash/rule/blocker-note fixes and confirmed the state file now anchors to the real substantive docs commit with Task 86 as the next live slice
+    commit: faddb33b52a046987b3fbe8ad1facaa905d70f7a
+    next_task: task86
   - id: task85
     status: done
     summary: >-
@@ -5810,29 +5821,13 @@ notes:
     - After each task, update this file with status, summary, tests, commit, and next task.
     - If a task is too large, split it and only do the first subtask.
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
-    - Use docs/plans/2026-04-18-sourcebot-full-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
+    - Use docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
   blockers:
-    - id: task20q2am55
-      title: Ground same-card mixed terminal-state sync-history error-detail evidence for the older-failed/newer-succeeded baseline case
-      status: blocked
-      blocked_on: missing already-landed same-card mixed terminal-state sync-history error-detail older-failed/newer-succeeded baseline evidence in `web/src/App.test.tsx`
+    - id: follow-on-roadmap-bootstrap
+      title: Prior per-task blockers archived by the follow-on roadmap bootstrap
+      status: resolved
       evidence: >-
-        Independent spec review confirmed the proposed docs wording would
-        overstate shipped coverage: the repo currently has exact-timestamp
-        shared-repository-id same-card sync-history error-detail coverage and the
-        simpler latest-sync summary older-failed/newer-succeeded baseline, but
-        not the focused sync-history error-detail baseline this docs-only slice
-        expected to ground.
-      suggested_next_action: >-
-        Add one focused `web/src/App.test.tsx` regression for the same-card mixed
-        terminal-state sync-history error-detail older-failed/newer-succeeded
-        baseline, then retry the acceptance-doc grounding in a later execution
-        unit.
-    - id: task07b
-      title: Add first Postgres-backed repository listing query
-      status: blocked
-      workaround: >-
-        Start a reachable local Postgres metadata database (or restore Docker/
-        Compose/bootstrap binaries) so task07b can be implemented with a real
-        failing-then-passing query test against the SQL metadata schema instead
-        of guessing at an unverified query path.
+        The previous roadmap-specific blocker notes belonged to superseded pre-audit task
+        splits. The governing roadmap is now
+        `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`, and the next live
+        work item is Task 86 rather than any archived pre-follow-on blocker thread.
