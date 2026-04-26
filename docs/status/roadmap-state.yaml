@@ -5,56 +5,102 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 21abcd9527f46854d6f7fae8207d32dc14c6cdc3
+  head: dfa4af0f9fb29c68f8cd8b7d13a73323cad6d55d
 last_completed_task:
-  id: task94a
-  title: API-key settings create lifecycle baseline
+  id: task94b
+  title: Settings members pending local-invite creation baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94 auth/admin lifecycle slice instead of splitting
-    the frontend create form, one-time secret handling, fail-closed management
-    controls, acceptance wording, parity-report truth updates, focused Vitest
-    coverage, and independent review into smaller paperwork-only runs. The
-    `#/settings/api-keys` panel now keeps the existing authenticated inventory
-    and revoke behavior, adds a minimal create form that posts a trimmed name
-    plus optional newline-delimited repository scope to `/api/v1/auth/api-keys`,
-    prepends the created key metadata to the visible inventory without copying
-    the plaintext secret into inventory rows, and reveals the returned secret
-    only in the immediate create-success area. Initial inventory load failures
-    fail closed by hiding management controls. Docs keep the claim bounded to
-    minimal inventory/create/revoke with one-time secret reveal and explicitly
-    defer rotation, bulk management, advanced scoping UX, and full credential
-    lifecycle parity.
+    Closed one meaningful Task 94 auth/admin lifecycle slice instead of
+    splitting backend invite creation, frontend settings controls, fail-closed
+    load/error behavior, acceptance wording, parity-report truth updates,
+    focused Rust/Vitest coverage, PostgreSQL fallback evidence, and independent
+    review into smaller paperwork-only runs. `POST /api/v1/auth/members/invites`
+    now lets an authenticated local-session admin create a pending local invite
+    for an administered organization on the shipped file-backed baseline; it
+    trims fields, rejects invalid role/email inputs, fails closed for hidden
+    organizations and non-admin memberships, persists audit visibility in the
+    same organization aggregate consumed by `GET /api/v1/auth/members`, and
+    returns `501` instead of silently writing fallback files when PostgreSQL auth
+    metadata is configured. The `#/settings/members` panel exposes the bounded
+    create flow only after inventory loads successfully, posts the administered
+    organization id plus trimmed email/role, updates the matching organization
+    inventory from the response, clears the submitted email, and keeps docs/copy
+    explicit that email delivery, resend/cancel, role editing, member removal,
+    durable PostgreSQL invite creation, and full org/member lifecycle parity
+    remain follow-up work.
   tests:
-    - npm test -- --run src/App.test.tsx -t "creates an api key": passed (1 passed; 169 skipped) after the carry-over TDD test was added before implementation
-    - npm test -- --run src/App.test.tsx -t "restores an existing local session": passed (1 passed; 169 skipped) for the corrected empty-state copy
-    - npm test -- --run src/App.test.tsx -t "api key": passed (4 passed; 166 skipped)
-    - npm test -- --run src/App.test.tsx: passed (170 passed)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture: RED failed first for invalid email `@` with 201 before validation hardening, then passed (1 passed; 361 filtered)
+    - repo-local PostgreSQL preflight: pg_ctl status reported live server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture: passed (5 passed; 357 filtered), including PG-backed roster coverage and 501 file-backed-create fallback evidence
+    - cargo fmt --check: passed
+    - npm test -- --run src/App.test.tsx -t "creates a member invite": passed (1 passed; 170 skipped)
+    - npm test -- --run src/App.test.tsx -t "members": passed (4 passed; 167 skipped)
+    - npm test -- --run src/App.test.tsx: passed (171 passed)
     - npm run build: passed
     - git diff --check: passed
-    - python3 doc/ui truth checks for auth acceptance, settings acceptance, parity-gap report, final audit, and empty-state copy: passed
+    - python3 doc/ui truth checks for auth acceptance, settings acceptance, parity-gap report, final audit, and UI copy: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing stale auth/report/empty-state wording; reviewer approved the minimal create/inventory/revoke scope, one-time secret reveal, fail-closed load-error controls, bounded docs, and focused verification with no remaining blocking issues
-  commit: 21abcd9527f46854d6f7fae8207d32dc14c6cdc3
-  next_task: task94b
+    code: passed independent read-only re-review after fixing the reviewer-found invalid-email validation blocker and adding file-backed audit persistence plus PostgreSQL 501 fallback coverage; reviewer approved the bounded pending local-invite scope with no remaining blocking issues
+  commit: dfa4af0f9fb29c68f8cd8b7d13a73323cad6d55d
+  next_task: task94c
 current_task:
-  id: task94b
+  id: task94c
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Continue auth/admin lifecycle parity on durable state
   status: pending
   summary: >-
-    Task 94a adds the minimal API-key create UI on top of the existing durable
-    inventory/revoke backend and settings shell, but Task 94 remains partial.
-    The next meaningful closure should continue Phase C with another user- or
-    admin-visible auth/admin blocker that can close with implementation,
-    focused verification, truthful docs, and independent review, such as
-    invite/member management, richer API-key lifecycle semantics, durable
-    permission-sync behavior, or another bounded settings/admin slice. Do not
-    treat the API-key panel as full credential-management parity yet; rotation,
-    bulk management, advanced scoping UX, broader admin CRUD, and deeper org/
-    permission durability remain follow-up work.
+    Task 94b adds a bounded members settings pending local-invite creation flow
+    on top of the existing admin-visible members inventory and local invite
+    redemption baseline, but Task 94 remains partial. The next meaningful
+    closure should continue Phase C with another user- or admin-visible
+    auth/admin blocker that can close with implementation, focused verification,
+    truthful docs, and independent review, such as durable PostgreSQL-backed
+    invite creation, invite resend/cancel/redemption UX, member role editing or
+    removal, richer API-key lifecycle semantics, durable permission-sync
+    behavior, or another bounded settings/admin slice. Do not treat the members
+    panel as full org/member lifecycle parity yet; email delivery, resend/cancel,
+    role editing, member removal, durable invite-create parity, broader admin
+    CRUD, and deeper org/permission durability remain follow-up work.
 history:
+  - id: task94b
+    status: done
+    summary: >-
+      Closed one meaningful Task 94 auth/admin lifecycle slice instead of
+      splitting backend invite creation, frontend settings controls, fail-closed
+      load/error behavior, acceptance wording, parity-report truth updates,
+      focused Rust/Vitest coverage, PostgreSQL fallback evidence, and independent
+      review into smaller paperwork-only runs. `POST /api/v1/auth/members/invites`
+      now lets an authenticated local-session admin create a pending local invite
+      for an administered organization on the shipped file-backed baseline; it
+      trims fields, rejects invalid role/email inputs, fails closed for hidden
+      organizations and non-admin memberships, persists audit visibility in the
+      same organization aggregate consumed by `GET /api/v1/auth/members`, and
+      returns `501` instead of silently writing fallback files when PostgreSQL auth
+      metadata is configured. The `#/settings/members` panel exposes the bounded
+      create flow only after inventory loads successfully, posts the administered
+      organization id plus trimmed email/role, updates the matching organization
+      inventory from the response, clears the submitted email, and keeps docs/copy
+      explicit that email delivery, resend/cancel, role editing, member removal,
+      durable PostgreSQL invite creation, and full org/member lifecycle parity
+      remain follow-up work.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture: RED failed first for invalid email `@` with 201 before validation hardening, then passed (1 passed; 361 filtered)
+      - repo-local PostgreSQL preflight: pg_ctl status reported live server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture: passed (5 passed; 357 filtered), including PG-backed roster coverage and 501 file-backed-create fallback evidence
+      - cargo fmt --check: passed
+      - npm test -- --run src/App.test.tsx -t "creates a member invite": passed (1 passed; 170 skipped)
+      - npm test -- --run src/App.test.tsx -t "members": passed (4 passed; 167 skipped)
+      - npm test -- --run src/App.test.tsx: passed (171 passed)
+      - npm run build: passed
+      - git diff --check: passed
+      - python3 doc/ui truth checks for auth acceptance, settings acceptance, parity-gap report, final audit, and UI copy: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing the reviewer-found invalid-email validation blocker and adding file-backed audit persistence plus PostgreSQL 501 fallback coverage; reviewer approved the bounded pending local-invite scope with no remaining blocking issues
+    commit: dfa4af0f9fb29c68f8cd8b7d13a73323cad6d55d
+    next_task: task94c
   - id: task94a
     status: done
     summary: >-
