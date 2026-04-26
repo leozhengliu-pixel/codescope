@@ -5,27 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d1bb9e41b24ccce0fde6715215671b3066c3141f
+  head: 5dbfb03237bebb34daadf462427cc72fdce20bc5
 last_completed_task:
-  id: task87c3
-  title: PostgreSQL-backed repo-permission filtering for sync-job history
+  id: task87c4
+  title: PostgreSQL-backed repository-sync-job lifecycle storage
   status: done
   summary: >-
-    Closed one meaningful Task 87c3 durable organization-auth slice instead of splitting
-    route authorization, a PostgreSQL-backed regression, SQLx wrapper wiring, and
-    acceptance/docs contract updates into smaller paperwork runs. `/api/v1/auth/repository-sync-jobs`
-    still reads sync-job records from the configured organization-state store, but when
-    `DATABASE_URL` is configured it now filters those records through PostgreSQL-backed
-    organization membership and `repository_permission_bindings` so stale file-backed
-    organization-auth fixtures cannot leak hidden repository jobs; `make sqlx-test` now
-    includes the focused `auth_repository_sync_jobs_` route family, and README plus
-    repository-operations acceptance wording ground this bounded permission-filtering
-    baseline without overclaiming full repo-permission sync lifecycle, persisted
-    index-status, retry/recovery, operator controls, or broader organization aggregates.
+    Closed one meaningful Task 87c4 durable organization/runtime slice instead of splitting
+    SQL migration `0010`, PostgreSQL organization-store wiring, atomic sync-job claim/complete
+    behavior, worker/API routing, SQLx wrapper coverage, and truthful docs/checkers into
+    smaller paperwork runs. `crates/api/src/auth.rs` now provides `PgOrganizationStore`
+    for repository-sync-job rows when `DATABASE_URL` is configured, keeps the broader
+    organization aggregate file-backed for fields not yet moved, preserves terminal sync-job
+    progress against stale whole-state writes, and offers a transactional claim-and-complete
+    path that avoids an observable intermediate `running` write for one-shot workers.
+    The new migration, API/worker wiring, README, Makefile, and checker updates ground this
+    bounded lifecycle baseline without overclaiming full organization aggregate, ask-thread,
+    review-agent, analytics/audit, local repository import, or provider runtime durability.
   tests:
-    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after stale local Postgres pid/socket recovery and restart as `hermes`
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture --test-threads=1: passed (4 passed)
+    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes`
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (4 lib tests + 4 bin tests)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+    - cargo fmt --check: passed
     - bash scripts/check_sqlx_test_workflow.sh .: passed
     - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
     - bash scripts/check_local_metadata_env_contract.sh .: passed
@@ -33,25 +34,53 @@ last_completed_task:
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed one independent post-implementation review; reviewer confirmed the diff correctly separates file-backed sync-job records from PostgreSQL-backed visibility metadata, proves hidden jobs are filtered by live repository-permission bindings, and keeps Makefile/README/checker/spec wording within the bounded parity scope
-  commit: d1bb9e41b24ccce0fde6715215671b3066c3141f
-  next_task: task87c4
+    code: passed one independent read-only post-implementation review; reviewer found the PostgreSQL-backed repository-sync-job lifecycle migration, `PgOrganizationStore` implementation, API/worker wiring, and docs/checker scope consistent with the bounded task and no blocking issues
+  commit: 5dbfb03237bebb34daadf462427cc72fdce20bc5
+  next_task: task88
 current_task:
-  id: task87c4
+  id: task88
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Remaining durable organization aggregates and repo-permission sync lifecycle
+  title: Durable ask-thread and review-agent persistence
   status: pending
   summary: >-
-    Task 87c3 now proves one authenticated read path uses PostgreSQL-backed membership
-    and repository-permission bindings, but Task 87 still is not a full durable
-    organization-state closure. The next meaningful release-parity slice should move the
-    remaining repo-permission sync lifecycle or another auth-visible organization
-    aggregate off stale file-backed state, with implementation, focused PostgreSQL tests,
-    truthful docs/checkers, independent review, commit, state update, and push in one
-    run. Do not reopen API-key/OAuth-client/catalog paperwork, and do not jump to Task 88
-    until the remaining Task 87 durable organization/runtime blockers are explicitly
-    closed or deferred with evidence.
+    Task 87c4 moves repository-sync-job lifecycle rows and worker claim/complete behavior
+    onto PostgreSQL while explicitly leaving ask-thread, review-agent, analytics/audit,
+    local repository import, provider runtime, and full organization aggregate durability
+    unclaimed. The next meaningful release-parity slice should start Task 88 by moving one
+    bounded ask-thread or review-agent persistence lifecycle onto durable metadata with
+    implementation, focused PostgreSQL tests, truthful docs/checkers, independent review,
+    commit, state update, and push in one run; avoid reopening Task 87 paperwork unless new
+    evidence shows a shipped durable-auth/catalog/sync-job regression.
 history:
+  - id: task87c4
+    status: done
+    summary: >-
+      Closed one meaningful Task 87c4 durable organization/runtime slice instead of splitting
+      SQL migration `0010`, PostgreSQL organization-store wiring, atomic sync-job claim/complete
+      behavior, worker/API routing, SQLx wrapper coverage, and truthful docs/checkers into
+      smaller paperwork runs. `crates/api/src/auth.rs` now provides `PgOrganizationStore`
+      for repository-sync-job rows when `DATABASE_URL` is configured, keeps the broader
+      organization aggregate file-backed for fields not yet moved, preserves terminal sync-job
+      progress against stale whole-state writes, and offers a transactional claim-and-complete
+      path that avoids an observable intermediate `running` write for one-shot workers.
+      The new migration, API/worker wiring, README, Makefile, and checker updates ground this
+      bounded lifecycle baseline without overclaiming full organization aggregate, ask-thread,
+      review-agent, analytics/audit, local repository import, or provider runtime durability.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes`
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (4 lib tests + 4 bin tests)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - cargo fmt --check: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent read-only post-implementation review; reviewer found the PostgreSQL-backed repository-sync-job lifecycle migration, `PgOrganizationStore` implementation, API/worker wiring, and docs/checker scope consistent with the bounded task and no blocking issues
+    commit: 5dbfb03237bebb34daadf462427cc72fdce20bc5
+    next_task: task88
   - id: task87c3
     status: done
     summary: >-
@@ -962,5 +991,7 @@ notes:
         closed the durable PostgreSQL local-account/membership/invite slice, Task 87c1
         closed durable API-key/OAuth-client metadata, Task 87c2 closed bounded catalog
         reads, Task 87c3 closed PostgreSQL-backed repository-permission filtering for
-        authenticated sync-job history, and the next live work item is Task 87c4 rather
-        than any archived pre-follow-on blocker thread.
+        authenticated sync-job history, Task 87c4 closed PostgreSQL-backed repository-sync-job
+        lifecycle storage, and the next live work item is Task 88 rather than any archived
+        pre-follow-on blocker thread.
+
