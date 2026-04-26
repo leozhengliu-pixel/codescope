@@ -5,26 +5,29 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c8378ff5288c5bcfcfa12767a61257597bbacb7f
+  head: 87bd7b66adac249212dcb2d7798a23912405a5ec
 last_completed_task:
-  id: task88b
-  title: PostgreSQL-backed review-agent-run lifecycle persistence
+  id: task88c
+  title: Durable review-webhook delivery-attempt persistence
   status: done
   summary: >-
-    Closed one meaningful Task 88 durable review-agent slice instead of splitting
-    PostgreSQL run-store wiring, focused lifecycle regressions, SQLx-wrapper contract wording,
-    and truthful parity docs into smaller paperwork runs. `crates/api/src/auth.rs` now loads
-    and stores `review_agent_runs` through `PgOrganizationStore` when `DATABASE_URL` is
-    configured, keeps unrelated organization aggregate fields file-backed, claims the oldest
-    queued run with PostgreSQL row locking, completes/fails only claimed runs, and preserves
-    terminal completed/failed status against stale writes. README, Makefile help text, paired
-    checker scripts, and the parity-gap report now ground this bounded review-agent-run
-    lifecycle baseline without overclaiming delivery-attempt durability, richer orchestration,
-    retries, analytics/audit, or full organization aggregate durability.
+    Closed one meaningful Task 88 durable review-webhook delivery-attempt slice instead of
+    splitting PostgreSQL attempt-store wiring, fractional timestamp/fallback hardening,
+    SQLx-wrapper contract wording, and truthful parity docs into smaller paperwork runs.
+    `crates/api/src/auth.rs` now loads and stores `review_webhook_delivery_attempts`
+    through `PgOrganizationStore` when `DATABASE_URL` is configured, preserves UTC
+    fractional `accepted_at` precision on PostgreSQL round trips, keeps unrelated
+    organization aggregate fields file-backed, and avoids clearing file-backed delivery
+    attempts until the PostgreSQL transaction succeeds. README, Makefile help text, paired
+    checker scripts, and the parity-gap report now ground this bounded delivery-attempt
+    durability baseline without overclaiming richer review-agent orchestration, retries,
+    analytics/audit, provider runtime, local repository import, or full organization
+    aggregate durability.
   tests:
-    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after restarting the repo-local server as `hermes` and probing both configured URLs with bundled `psql` via the ELF loader
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_organization_store_review_agent_runs_ -- --nocapture --test-threads=1: passed (2 passed; RED phase previously failed as expected before implementation)
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (6 lib tests + 6 bin tests; selector includes the 2 new review-agent-run tests in each target)
+    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes` and both configured URLs probed with bundled `psql` via the ELF loader
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --lib pg_organization_store_delivery_attempts_preserve_ -- --nocapture --test-threads=1: passed (2 passed after the expected RED failure exposed fractional timestamp truncation and fallback clearing on PostgreSQL upsert failure)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_delivery_attempts_ -- --nocapture --test-threads=1: passed (3 lib tests + 3 bin tests)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (9 lib tests + 9 bin tests)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
     - cargo fmt --check: passed
     - bash scripts/check_sqlx_test_workflow.sh .: passed
@@ -33,24 +36,54 @@ last_completed_task:
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed review-agent-run lifecycle store, stale-write terminal preservation, docs/checker wording, and bounded non-overclaiming scope with no blocking security or logic issues
-  commit: c8378ff5288c5bcfcfa12767a61257597bbacb7f
-  next_task: task88c
+    code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed delivery-attempt store/read path, fractional accepted_at preservation, transaction-before-fallback-clearing failure behavior, docs/checker wording, and bounded non-overclaiming scope with no blocking security or logic issues
+  commit: 87bd7b66adac249212dcb2d7798a23912405a5ec
+  next_task: task89
 current_task:
-  id: task88c
+  id: task89
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable review-webhook delivery-attempt persistence
+  title: Migration, backward-compatibility, and fail-closed recovery smokes
   status: pending
   summary: >-
-    Task 88b moves review-agent-run lifecycle rows onto PostgreSQL when `DATABASE_URL` is
-    configured, but Task 88 is still not complete: delivery-attempt rows remain file-backed,
-    richer review-agent orchestration/retries, analytics/audit, provider runtime, local
-    repository import, and full organization aggregate durability remain unclaimed. The next
-    meaningful release-parity slice should continue Task 88 by moving one bounded
-    review-webhook delivery-attempt storage/read lifecycle onto durable metadata with
-    implementation, focused PostgreSQL tests, truthful docs/checkers, independent review,
-    commit, state update, and push in one run.
+    Task 88 now has bounded PostgreSQL durability for ask threads/messages, review-agent
+    runs, review-webhook delivery attempts, and repository-sync lifecycle rows, but Phase A
+    still needs a meaningful recovery/compatibility closure before later user-facing parity
+    slices can safely build on that persisted baseline. The next release-parity slice should
+    prove startup, empty-state bootstrap, local-dev migration, and fail-closed recovery
+    behavior across the newly durable metadata surfaces with focused smoke coverage, truthful
+    docs/checkers, independent review, commit, state update, and push in one run.
 history:
+  - id: task88c
+    status: done
+    summary: >-
+      Closed one meaningful Task 88 durable review-webhook delivery-attempt slice instead of
+      splitting PostgreSQL attempt-store wiring, fractional timestamp/fallback hardening,
+      SQLx-wrapper contract wording, and truthful parity docs into smaller paperwork runs.
+      `crates/api/src/auth.rs` now loads and stores `review_webhook_delivery_attempts`
+      through `PgOrganizationStore` when `DATABASE_URL` is configured, preserves UTC
+      fractional `accepted_at` precision on PostgreSQL round trips, keeps unrelated
+      organization aggregate fields file-backed, and avoids clearing file-backed delivery
+      attempts until the PostgreSQL transaction succeeds. README, Makefile help text, paired
+      checker scripts, and the parity-gap report now ground this bounded delivery-attempt
+      durability baseline without overclaiming richer review-agent orchestration, retries,
+      analytics/audit, provider runtime, local repository import, or full organization
+      aggregate durability.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes` and both configured URLs probed with bundled `psql` via the ELF loader
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --lib pg_organization_store_delivery_attempts_preserve_ -- --nocapture --test-threads=1: passed (2 passed after the expected RED failure exposed fractional timestamp truncation and fallback clearing on PostgreSQL upsert failure)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_delivery_attempts_ -- --nocapture --test-threads=1: passed (3 lib tests + 3 bin tests)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (9 lib tests + 9 bin tests)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - cargo fmt --check: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed delivery-attempt store/read path, fractional accepted_at preservation, transaction-before-fallback-clearing failure behavior, docs/checker wording, and bounded non-overclaiming scope with no blocking security or logic issues
+    commit: 87bd7b66adac249212dcb2d7798a23912405a5ec
+    next_task: task89
   - id: task88b
     status: done
     summary: >-
