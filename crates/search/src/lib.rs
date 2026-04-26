@@ -16,6 +16,24 @@ pub type DynSearchStore = Arc<dyn SearchStore>;
 
 pub trait SearchStore: Send + Sync {
     fn search(&self, query: &str, repo_id: Option<&str>) -> Result<SearchResponse>;
+    fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepositoryIndexState {
+    Indexed,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RepositoryIndexStatus {
+    pub repo_id: String,
+    pub status: RepositoryIndexState,
+    pub indexed_file_count: usize,
+    pub indexed_line_count: usize,
+    pub skipped_file_count: usize,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,14 +90,31 @@ pub enum SymbolExtraction {
 pub struct LocalSearchStore {
     repo_roots: HashMap<String, PathBuf>,
     max_file_size_bytes: u64,
+    indexed_lines: HashMap<String, Vec<IndexedLine>>,
+    index_statuses: HashMap<String, RepositoryIndexStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IndexedLine {
+    path: String,
+    line_number: usize,
+    line: String,
 }
 
 impl LocalSearchStore {
     pub fn new(repo_roots: HashMap<String, PathBuf>) -> Self {
-        Self {
+        Self::build(repo_roots, DEFAULT_MAX_FILE_SIZE_BYTES)
+    }
+
+    fn build(repo_roots: HashMap<String, PathBuf>, max_file_size_bytes: u64) -> Self {
+        let mut store = Self {
             repo_roots,
-            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
-        }
+            max_file_size_bytes,
+            indexed_lines: HashMap::new(),
+            index_statuses: HashMap::new(),
+        };
+        store.rebuild_index();
+        store
     }
 
     pub fn seeded() -> Self {
@@ -91,22 +126,92 @@ impl LocalSearchStore {
 
     pub fn with_max_file_size_bytes(mut self, max_file_size_bytes: u64) -> Self {
         self.max_file_size_bytes = max_file_size_bytes;
+        self.rebuild_index();
         self
     }
 
-    fn search_repo(&self, repo_id: &str, root: &Path, query: &str) -> Result<Vec<SearchResult>> {
-        let mut results = Vec::new();
-        self.collect_matches(repo_id, root, root, query, &mut results)?;
-        Ok(results)
+    fn rebuild_index(&mut self) {
+        self.indexed_lines.clear();
+        self.index_statuses.clear();
+
+        for (repo_id, root) in &self.repo_roots {
+            match self.index_repo(root) {
+                Ok((lines, indexed_file_count, indexed_line_count, skipped_file_count)) => {
+                    self.indexed_lines.insert(repo_id.clone(), lines);
+                    self.index_statuses.insert(
+                        repo_id.clone(),
+                        RepositoryIndexStatus {
+                            repo_id: repo_id.clone(),
+                            status: RepositoryIndexState::Indexed,
+                            indexed_file_count,
+                            indexed_line_count,
+                            skipped_file_count,
+                            error: None,
+                        },
+                    );
+                }
+                Err(error) => {
+                    self.indexed_lines.insert(repo_id.clone(), Vec::new());
+                    self.index_statuses.insert(
+                        repo_id.clone(),
+                        RepositoryIndexStatus {
+                            repo_id: repo_id.clone(),
+                            status: RepositoryIndexState::Error,
+                            indexed_file_count: 0,
+                            indexed_line_count: 0,
+                            skipped_file_count: 0,
+                            error: Some(error.to_string()),
+                        },
+                    );
+                }
+            }
+        }
     }
 
-    fn collect_matches(
+    fn index_repo(&self, root: &Path) -> Result<(Vec<IndexedLine>, usize, usize, usize)> {
+        let mut lines = Vec::new();
+        let mut indexed_file_count = 0;
+        let mut indexed_line_count = 0;
+        let mut skipped_file_count = 0;
+        self.collect_indexed_lines(
+            root,
+            root,
+            &mut lines,
+            &mut indexed_file_count,
+            &mut indexed_line_count,
+            &mut skipped_file_count,
+        )?;
+        Ok((
+            lines,
+            indexed_file_count,
+            indexed_line_count,
+            skipped_file_count,
+        ))
+    }
+
+    fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
+        self.indexed_lines
+            .get(repo_id)
+            .into_iter()
+            .flatten()
+            .filter(|indexed_line| indexed_line.line.contains(query))
+            .map(|indexed_line| SearchResult {
+                repo_id: repo_id.to_string(),
+                path: indexed_line.path.clone(),
+                line_number: indexed_line.line_number,
+                line: indexed_line.line.clone(),
+            })
+            .collect()
+    }
+
+    fn collect_indexed_lines(
         &self,
-        repo_id: &str,
         root: &Path,
         current_path: &Path,
-        query: &str,
-        results: &mut Vec<SearchResult>,
+        lines: &mut Vec<IndexedLine>,
+        indexed_file_count: &mut usize,
+        indexed_line_count: &mut usize,
+        skipped_file_count: &mut usize,
     ) -> Result<()> {
         let entries = fs::read_dir(current_path)
             .with_context(|| format!("failed to read directory {}", current_path.display()))?;
@@ -125,28 +230,44 @@ impl LocalSearchStore {
 
             if file_type.is_dir() {
                 if should_skip_directory(&path) {
+                    *skipped_file_count += 1;
                     continue;
                 }
 
-                self.collect_matches(repo_id, root, &path, query, results)?;
+                self.collect_indexed_lines(
+                    root,
+                    &path,
+                    lines,
+                    indexed_file_count,
+                    indexed_line_count,
+                    skipped_file_count,
+                )?;
                 continue;
             }
 
-            if !file_type.is_file() || should_skip_file(&path) {
+            if !file_type.is_file() {
+                continue;
+            }
+
+            if should_skip_file(&path) {
+                *skipped_file_count += 1;
                 continue;
             }
 
             let metadata = fs::metadata(&path)
                 .with_context(|| format!("failed to read metadata for {}", path.display()))?;
             if metadata.len() > self.max_file_size_bytes {
+                *skipped_file_count += 1;
                 continue;
             }
 
             let Ok(contents) = fs::read_to_string(&path) else {
+                *skipped_file_count += 1;
                 continue;
             };
 
             if is_obviously_binary(&contents) {
+                *skipped_file_count += 1;
                 continue;
             }
 
@@ -156,15 +277,14 @@ impl LocalSearchStore {
                 .to_string_lossy()
                 .replace('\\', "/");
 
+            *indexed_file_count += 1;
             for (index, line) in contents.lines().enumerate() {
-                if line.contains(query) {
-                    results.push(SearchResult {
-                        repo_id: repo_id.to_string(),
-                        path: relative_path.clone(),
-                        line_number: index + 1,
-                        line: line.to_string(),
-                    });
-                }
+                *indexed_line_count += 1;
+                lines.push(IndexedLine {
+                    path: relative_path.clone(),
+                    line_number: index + 1,
+                    line: line.to_string(),
+                });
             }
         }
 
@@ -177,14 +297,19 @@ impl SearchStore for LocalSearchStore {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim).filter(|value| !value.is_empty());
 
-        let repos: Vec<(&String, &PathBuf)> = match requested_repo_id {
-            Some(repo_id) => self.repo_roots.get_key_value(repo_id).into_iter().collect(),
-            None => self.repo_roots.iter().collect(),
+        let repos: Vec<&String> = match requested_repo_id {
+            Some(repo_id) => self
+                .repo_roots
+                .get_key_value(repo_id)
+                .map(|(repo_id, _)| repo_id)
+                .into_iter()
+                .collect(),
+            None => self.repo_roots.keys().collect(),
         };
 
         let mut results = Vec::new();
-        for (repo_id, root) in repos {
-            results.extend(self.search_repo(repo_id, root, query)?);
+        for repo_id in repos {
+            results.extend(self.search_repo(repo_id, query));
         }
 
         Ok(SearchResponse {
@@ -192,6 +317,10 @@ impl SearchStore for LocalSearchStore {
             repo_id: requested_repo_id.map(ToOwned::to_owned),
             results,
         })
+    }
+
+    fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>> {
+        Ok(self.index_statuses.get(repo_id).cloned())
     }
 }
 
@@ -446,6 +575,7 @@ mod tests {
     #[test]
     fn local_search_store_returns_line_matches() {
         let (store, root) = create_test_store();
+        fs::write(root.join("post_index.txt"), "post_index_marker\n").unwrap();
 
         let response = store.search("build_router", Some("repo_test")).unwrap();
 
@@ -464,6 +594,14 @@ mod tests {
             .results
             .iter()
             .all(|result| result.path != "target/generated.txt"));
+
+        let post_index_response = store
+            .search("post_index_marker", Some("repo_test"))
+            .unwrap();
+        assert!(
+            post_index_response.results.is_empty(),
+            "search must use the startup-built index rather than rewalking the filesystem per query"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -502,6 +640,22 @@ mod tests {
 
         assert!(response.results.is_empty());
         assert_eq!(response.repo_id.as_deref(), Some("missing_repo"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_reports_truthful_index_status_counts() {
+        let (store, root) = create_test_store();
+
+        let status = store.repository_index_status("repo_test").unwrap().unwrap();
+
+        assert_eq!(status.repo_id, "repo_test");
+        assert_eq!(status.status, RepositoryIndexState::Indexed);
+        assert_eq!(status.indexed_file_count, 2);
+        assert_eq!(status.indexed_line_count, 3);
+        assert_eq!(status.skipped_file_count, 4);
+        assert_eq!(status.error, None);
 
         fs::remove_dir_all(root).unwrap();
     }

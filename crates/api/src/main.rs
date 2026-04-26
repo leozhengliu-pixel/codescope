@@ -42,7 +42,8 @@ use sourcebot_models::{
     ReviewWebhookDeliveryAttempt, SearchContext,
 };
 use sourcebot_search::{
-    build_search_store, extract_symbols, DynSearchStore, SearchResponse, SymbolKind,
+    build_search_store, extract_symbols, DynSearchStore, RepositoryIndexStatus, SearchResponse,
+    SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
@@ -291,6 +292,10 @@ fn build_router(
         .route("/api/v1/config", get(public_config))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
+        .route(
+            "/api/v1/repos/{repo_id}/index-status",
+            get(get_repository_index_status),
+        )
         .route("/api/v1/repos/{repo_id}/tree", get(get_repository_tree))
         .route("/api/v1/repos/{repo_id}/blob", get(get_repository_blob))
         .route(
@@ -4026,6 +4031,20 @@ async fn ensure_repo_visible_for_request(
     Ok(())
 }
 
+async fn get_repository_index_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(repo_id): Path<String>,
+) -> Result<Json<RepositoryIndexStatus>, StatusCode> {
+    ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+    let status = state
+        .search
+        .repository_index_status(&repo_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(status))
+}
+
 async fn search_repository_contents(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -4335,6 +4354,16 @@ mod tests {
         query: String,
         repo_id: Option<String>,
         results: Vec<SearchResultResponse>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RepositoryIndexStatusResponse {
+        repo_id: String,
+        status: String,
+        indexed_file_count: usize,
+        indexed_line_count: usize,
+        skipped_file_count: usize,
+        error: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -21960,6 +21989,82 @@ mod tests {
             .unwrap();
 
         assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repository_index_status_reports_visible_repo_and_fails_closed_for_hidden_repo() {
+        let visible_root = unique_test_path("index-status-visible-root");
+        let hidden_root = unique_test_path("index-status-hidden-root");
+        fs::create_dir_all(&visible_root).unwrap();
+        fs::create_dir_all(&hidden_root).unwrap();
+        fs::write(
+            visible_root.join("main.rs"),
+            "fn indexed_status_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            hidden_root.join("secret.rs"),
+            "fn hidden_status_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("index-status-orgs");
+        let local_session_state_path = unique_test_path("index-status-sessions");
+        let user_id = "user_index_status_viewer";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_visible"]);
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let search = Arc::new(LocalSearchStore::new(HashMap::from([
+            ("repo_visible".to_string(), visible_root.clone()),
+            ("repo_hidden".to_string(), hidden_root.clone()),
+        ])));
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("index-status-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            search,
+        );
+
+        let visible_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_visible/index-status")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(visible_response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatusResponse = read_json(visible_response).await;
+        assert_eq!(payload.repo_id, "repo_visible");
+        assert_eq!(payload.status, "indexed");
+        assert_eq!(payload.indexed_file_count, 1);
+        assert_eq!(payload.indexed_line_count, 1);
+        assert_eq!(payload.skipped_file_count, 0);
+        assert_eq!(payload.error, None);
+
+        let hidden_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_hidden/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+        fs::remove_dir_all(visible_root).unwrap();
+        fs::remove_dir_all(hidden_root).unwrap();
     }
 
     #[tokio::test]
