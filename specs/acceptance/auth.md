@@ -15,7 +15,7 @@
 ## Current rewrite grounding
 - Backend auth/API-key/admin surface: `crates/api/src/main.rs`
 - Persisted auth/org models: `crates/models/src/lib.rs`
-- Frontend auth route baseline plus API-key inventory/revoke, members inventory, access visibility inventory, OAuth-client inventory, observability, and review-automation settings panels: `web/src/App.tsx`
+- Frontend auth route baseline plus API-key inventory/create/revoke, members inventory, access visibility inventory, OAuth-client inventory, observability, and review-automation settings panels: `web/src/App.tsx`
 - Focused frontend verification: `web/src/App.test.tsx`
 - Related settings-shell contract: `specs/acceptance/settings-navigation.md`
 
@@ -46,8 +46,8 @@
 - An invited email can open `#/auth?invite=<invite_id>&email=<invited_email>`, submit name and password to `POST /api/v1/auth/invite-redeem`, receive a new local session, and immediately land in the signed-in auth state without claiming that broader invite creation or admin invite-management UX already exists.
 - A user landing on `#/auth` with OAuth callback params such as `provider`, `error`, `error_description`, `code`, or `state` still gets the local login form plus a truthful provider-aware callback-status callout that acknowledges the redirect, surfaces any returned error/code details, and explicitly says that this rewrite does not finish external-provider sign-in/callback exchange there yet.
 - A viewer can search and browse allowed repos but cannot manage connections.
-- An authenticated user can open `#/settings/api-keys`, load their current API-key inventory from durable PostgreSQL metadata when `DATABASE_URL` is configured, distinguish active vs revoked keys, and see repo-scope wording that stays truthful when a key is not repo-bound.
-- An authenticated user can revoke an active key from that minimal inventory panel, after which the key is no longer shown as active even after an API restart when `DATABASE_URL` is configured, though richer creation/scoping UX remains follow-up work.
+- An authenticated user can open `#/settings/api-keys`, load their current API-key inventory from durable PostgreSQL metadata when `DATABASE_URL` is configured, distinguish active vs revoked keys, create a minimal new key by submitting a name plus optional newline-delimited repository scope, see the returned plaintext `secret` only in the immediate creation-success area, and see repo-scope wording that stays truthful when a key is not repo-bound.
+- An authenticated user can revoke an active key from that minimal inventory panel, after which the key is no longer shown as active even after an API restart when `DATABASE_URL` is configured, though richer rotation, bulk management, and advanced scoping UX remain follow-up work.
 - An authenticated local-session user who administers at least one organization can open `#/settings/members`, load the admin-visible organization member and invite inventory from `/api/v1/auth/members`, inspect joined member account details plus truthful accepted-vs-pending invite status, and confirm that the panel stays read-only rather than claiming full org/invite management parity.
 - An authenticated user can open `#/settings/access`, load the repositories currently visible to their account from `/api/v1/repos`, inspect truthful loading/empty/populated states plus visible repository metadata, and confirm that the panel stays read-only rather than claiming shipped permission-sync management or role-edit workflows.
 - An authenticated user can open `#/settings/linked-accounts`, load the current local account identity plus visible organization memberships from `/api/v1/auth/linked-accounts`, confirm the route fails closed when the local session lacks a real local-account record, and see explicit copy that external provider linking and SSO remain follow-up work.

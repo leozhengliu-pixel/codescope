@@ -1434,6 +1434,7 @@ describe('App', () => {
     window.location.hash = '#/settings/api-keys';
 
     expect(await screen.findByText('No API keys found')).toBeInTheDocument();
+    expect(screen.getByText('Use the create form above for the current minimal flow;', { exact: false })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/auth/api-keys',
       expect.objectContaining({
@@ -2787,6 +2788,82 @@ describe('App', () => {
     expect(within(revokedKey).getByText('2026-04-21T10:00:00Z')).toBeInTheDocument();
   });
 
+  it('creates an api key, adds it to the inventory, and reveals the plaintext secret only in the immediate success area', async () => {
+    window.location.hash = '#/settings/api-keys';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/api-keys' && !init?.method) {
+        return jsonResponse([
+          {
+            id: 'key-existing',
+            user_id: 'local-user-1',
+            name: 'Existing automation',
+            created_at: '2026-04-20T12:00:00Z',
+            revoked_at: null,
+            repo_scope: [],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/api-keys' && init?.method === 'POST') {
+        expect(init.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+          'Content-Type': 'application/json',
+        });
+        expect(init.body).toBe(JSON.stringify({ name: 'Deploy bot', repo_scope: ['repo-alpha', 'repo-beta'] }));
+
+        return jsonResponse(
+          {
+            id: 'key-created',
+            user_id: 'local-user-1',
+            name: 'Deploy bot',
+            secret: 'sbp_created_secret_once',
+            created_at: '2026-04-26T12:00:00Z',
+            revoked_at: null,
+            repo_scope: ['repo-alpha', 'repo-beta'],
+          },
+          true,
+          201
+        );
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('API key Existing automation')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Key name'), { target: { value: ' Deploy bot ' } });
+    fireEvent.change(screen.getByLabelText('Repository scope'), { target: { value: 'repo-alpha\n\n repo-beta ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create API key' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/api-keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer session-1:secret-1',
+        },
+        body: JSON.stringify({ name: 'Deploy bot', repo_scope: ['repo-alpha', 'repo-beta'] }),
+      });
+    });
+
+    const createdKey = await screen.findByLabelText('API key Deploy bot');
+    expect(within(createdKey).getByText('Key id: key-created')).toBeInTheDocument();
+    expect(within(createdKey).getByText('repo-alpha')).toBeInTheDocument();
+    expect(within(createdKey).getByText('repo-beta')).toBeInTheDocument();
+    expect(screen.getByText('API key created. Copy the secret now; it will not be shown again.')).toBeInTheDocument();
+    expect(screen.getByText('sbp_created_secret_once')).toBeInTheDocument();
+    expect(screen.getByLabelText('Key name')).toHaveValue('');
+    expect(screen.getByLabelText('Repository scope')).toHaveValue('');
+  });
+
   it('revokes an active api key from the inventory', async () => {
     window.location.hash = '#/settings/api-keys';
 
@@ -2830,7 +2907,7 @@ describe('App', () => {
     expect(within(activeKey).queryByRole('button', { name: 'Revoke key Personal automation' })).not.toBeInTheDocument();
   });
 
-  it('shows an api keys loading failure', async () => {
+  it('shows an api keys loading failure without exposing management controls', async () => {
     window.location.hash = '#/settings/api-keys';
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse({}, false, 503));
@@ -2840,6 +2917,8 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'API keys' })).toBeInTheDocument();
     expect(await screen.findByText('Unable to load API keys: Request failed: 503')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create API key' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Key name')).not.toBeInTheDocument();
   });
 
   it('renders oauth client inventory inside the shared settings shell', async () => {

@@ -254,6 +254,10 @@ type ApiKeyListItem = {
   repo_scope: string[];
 };
 
+type CreateApiKeyResponse = ApiKeyListItem & {
+  secret: string;
+};
+
 type OAuthClientListItem = {
   id: string;
   organization_id: string;
@@ -4356,6 +4360,11 @@ function SettingsApiKeysPage() {
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
   const [revokedKeyIds, setRevokedKeyIds] = useState<string[]>([]);
   const [revokeErrors, setRevokeErrors] = useState<Record<string, string | null>>({});
+  const [keyName, setKeyName] = useState('');
+  const [repoScopeText, setRepoScopeText] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createdKeyResult, setCreatedKeyResult] = useState<CreateApiKeyResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -4383,6 +4392,56 @@ function SettingsApiKeysPage() {
       cancelled = true;
     };
   }, []);
+
+  const parsedRepoScope = repoScopeText
+    .split('\n')
+    .map((repoId) => repoId.trim())
+    .filter((repoId) => repoId.length > 0);
+  const createDisabled = loading || error !== null || isCreating || keyName.trim().length === 0;
+
+  const handleCreateApiKey = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (createDisabled) {
+      return;
+    }
+
+    setIsCreating(true);
+    setCreateError(null);
+    setCreatedKeyResult(null);
+
+    try {
+      const createdKey = await fetchJson<CreateApiKeyResponse>('/api/v1/auth/api-keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: keyName.trim(),
+          repo_scope: parsedRepoScope,
+        }),
+      });
+
+      setApiKeys((currentKeys) => [
+        {
+          id: createdKey.id,
+          user_id: createdKey.user_id,
+          name: createdKey.name,
+          created_at: createdKey.created_at,
+          revoked_at: createdKey.revoked_at,
+          repo_scope: createdKey.repo_scope,
+        },
+        ...currentKeys,
+      ]);
+      setCreatedKeyResult(createdKey);
+      setKeyName('');
+      setRepoScopeText('');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   const handleRevoke = async (apiKeyId: string) => {
     setRevokeErrors((currentErrors) => ({ ...currentErrors, [apiKeyId]: null }));
@@ -4412,9 +4471,55 @@ function SettingsApiKeysPage() {
     <Panel title="API keys" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
-          This minimal panel shows the authenticated inventory and lets you revoke an active key. Key creation and richer
-          scoping UX remain follow-up work.
+          This minimal panel shows the authenticated inventory, lets you create a key, and lets you revoke an active key.
+          Richer scoping UX, rotation, and broader credential-management workflows remain follow-up work.
         </p>
+
+        {!loading && !error ? (
+          <form onSubmit={handleCreateApiKey} style={{ ...detailCardStyle, display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Create API key</div>
+            <div style={{ color: '#57606a' }}>
+              Create a key for the current authenticated account. Leave repository scope empty to use the repos currently
+              visible to you; enter one repository id per line for a bounded scoped key. The plaintext secret is returned
+              only once after a successful create request.
+            </div>
+
+            <div style={detailGridStyle}>
+              <label style={fieldLabelStyle}>
+                <span>Key name</span>
+                <input value={keyName} onChange={(event) => setKeyName(event.target.value)} style={inputStyle} disabled={isCreating} />
+              </label>
+
+              <label style={fieldLabelStyle}>
+                <span>Repository scope</span>
+                <textarea
+                  value={repoScopeText}
+                  onChange={(event) => setRepoScopeText(event.target.value)}
+                  style={{ ...inputStyle, minHeight: 96, resize: 'vertical' }}
+                  disabled={isCreating}
+                />
+              </label>
+            </div>
+
+            <div style={{ color: '#57606a' }}>Enter one repository id per line, or leave blank for current visibility.</div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button type="submit" style={primaryButtonStyle} disabled={createDisabled}>
+                {isCreating ? 'Creating…' : 'Create API key'}
+              </button>
+              {createError ? <div>Unable to create API key: {createError}</div> : null}
+            </div>
+          </form>
+        ) : null}
+
+        {createdKeyResult ? (
+          <div style={{ ...detailCardStyle, display: 'grid', gap: 8 }}>
+            <div style={{ fontWeight: 700 }}>API key created. Copy the secret now; it will not be shown again.</div>
+            <Detail label="Name" value={createdKeyResult.name} />
+            <Detail label="Key id" value={createdKeyResult.id} />
+            <Detail label="Secret" value={createdKeyResult.secret} />
+          </div>
+        ) : null}
 
         {loading ? <div>Loading API keys…</div> : null}
         {!loading && error ? <div>Unable to load API keys: {error}</div> : null}
@@ -4422,8 +4527,8 @@ function SettingsApiKeysPage() {
           <div style={detailCardStyle}>
             <div style={{ fontWeight: 600, marginBottom: 8 }}>No API keys found</div>
             <div style={{ color: '#57606a' }}>
-              Your account does not have any API keys yet. Creation and more complete lifecycle workflows remain follow-up
-              work.
+              Your account does not have any API keys yet. Use the create form above for the current minimal flow; richer
+              rotation, bulk management, and advanced scoping workflows remain follow-up work.
             </div>
           </div>
         ) : null}
