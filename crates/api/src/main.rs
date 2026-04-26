@@ -223,6 +223,10 @@ fn build_router(
             post(create_authenticated_members_invite),
         )
         .route(
+            "/api/v1/auth/members/invites/{invite_id}",
+            delete(cancel_authenticated_members_invite),
+        )
+        .route(
             "/api/v1/auth/linked-accounts",
             get(list_authenticated_linked_accounts),
         )
@@ -2059,6 +2063,183 @@ async fn create_authenticated_members_invite(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn cancel_authenticated_members_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(invite_id): Path<String>,
+) -> Result<Json<MembersOrganizationResponse>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let invite_id = invite_id.trim();
+    if invite_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(store) = &state.organization_auth_metadata_store {
+        let admin_metadata = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let organization_state = organization_state_from_auth_metadata(admin_metadata);
+        let invite = organization_state
+            .invites
+            .iter()
+            .find(|invite| invite.id == invite_id)
+            .cloned()
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        if !user_is_organization_admin(
+            &organization_state,
+            &session.user_id,
+            &invite.organization_id,
+        ) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        if invite.accepted_at.is_some() || invite.accepted_by_user_id.is_some() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        let organization = organization_state
+            .organizations
+            .iter()
+            .find(|organization| organization.id == invite.organization_id)
+            .cloned()
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let occurred_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+        let mut audit_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let audit_state_before_cancel = audit_state.clone();
+        audit_state.audit_events.push(AuditEvent {
+            id: format!(
+                "audit_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id: invite.organization_id.clone(),
+            actor: AuditActor {
+                user_id: Some(session.user_id.clone()),
+                api_key_id: None,
+            },
+            action: "auth.member_invite.cancelled".into(),
+            target_type: "organization_invite".into(),
+            target_id: invite.id.clone(),
+            occurred_at,
+            metadata: serde_json::json!({
+                "email": invite.email,
+                "role": match invite.role {
+                    OrganizationRole::Admin => "admin",
+                    OrganizationRole::Viewer => "viewer",
+                },
+            }),
+        });
+        state
+            .organization_store
+            .store_organization_state(audit_state)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        match store.delete_pending_invite(&invite.id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = state
+                    .organization_store
+                    .store_organization_state(audit_state_before_cancel)
+                    .await;
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            Err(_) => {
+                let _ = state
+                    .organization_store
+                    .store_organization_state(audit_state_before_cancel)
+                    .await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+
+        let refreshed_state = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map(organization_state_from_auth_metadata)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Ok(Json(members_organization_response(
+            &refreshed_state,
+            &organization,
+        )));
+    }
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let invite_index = organization_state
+        .invites
+        .iter()
+        .position(|invite| invite.id == invite_id)
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let invite = organization_state.invites[invite_index].clone();
+    if !user_is_organization_admin(
+        &organization_state,
+        &session.user_id,
+        &invite.organization_id,
+    ) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    if invite.accepted_at.is_some() || invite.accepted_by_user_id.is_some() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let organization = organization_state
+        .organizations
+        .iter()
+        .find(|organization| organization.id == invite.organization_id)
+        .cloned()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    organization_state.invites.remove(invite_index);
+    let occurred_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    organization_state.audit_events.push(AuditEvent {
+        id: format!(
+            "audit_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: invite.organization_id.clone(),
+        actor: AuditActor {
+            user_id: Some(session.user_id.clone()),
+            api_key_id: None,
+        },
+        action: "auth.member_invite.cancelled".into(),
+        target_type: "organization_invite".into(),
+        target_id: invite.id,
+        occurred_at,
+        metadata: serde_json::json!({
+            "email": invite.email,
+            "role": match invite.role {
+                OrganizationRole::Admin => "admin",
+                OrganizationRole::Viewer => "viewer",
+            },
+        }),
+    });
+    let response = members_organization_response(&organization_state, &organization);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(response))
 }
 
 async fn list_authenticated_linked_accounts(
@@ -5683,6 +5864,139 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_members_invite_cancel_removes_pending_invite_for_admin_visible_org_only() {
+        let organization_state_path = unique_test_path("members-invite-cancel-organizations");
+        write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
+        let mut seeded_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read seeded organization state"),
+        )
+        .expect("parse seeded organization state");
+        seeded_state.invites.push(OrganizationInvite {
+            id: "invite_acme_pending".into(),
+            organization_id: "org_acme".into(),
+            email: "pending@example.com".into(),
+            role: OrganizationRole::Viewer,
+            invited_by_user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            created_at: "2026-04-21T00:00:00Z".into(),
+            expires_at: "2026-04-28T00:00:00Z".into(),
+            accepted_by_user_id: None,
+            accepted_at: None,
+        });
+        seeded_state.invites.push(OrganizationInvite {
+            id: "invite_acme_accepted".into(),
+            organization_id: "org_acme".into(),
+            email: "accepted@example.com".into(),
+            role: OrganizationRole::Viewer,
+            invited_by_user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+            created_at: "2026-04-20T00:00:00Z".into(),
+            expires_at: "2026-04-27T00:00:00Z".into(),
+            accepted_by_user_id: Some("accepted_user".into()),
+            accepted_at: Some("2026-04-21T12:00:00Z".into()),
+        });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&seeded_state).unwrap(),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-invite-cancel-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-invite-cancel-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/invites/invite_acme_pending")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let updated: MembersOrganizationResponseBody = read_json(response).await;
+        assert_eq!(updated.organization.id, "org_acme");
+        assert!(updated
+            .invites
+            .iter()
+            .all(|invite| invite.id != "invite_acme_pending"));
+        assert!(updated
+            .invites
+            .iter()
+            .any(|invite| invite.id == "invite_acme_accepted"));
+
+        let persisted_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert!(persisted_state
+            .invites
+            .iter()
+            .all(|invite| invite.id != "invite_acme_pending"));
+        assert!(persisted_state.audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.actor.user_id.as_deref() == Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                && event.action == "auth.member_invite.cancelled"
+                && event.target_type == "organization_invite"
+                && event.target_id == "invite_acme_pending"
+                && event.metadata.get("email").and_then(|value| value.as_str())
+                    == Some("pending@example.com")
+        }));
+
+        let accepted_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/invites/invite_acme_accepted")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted_response.status(), StatusCode::BAD_REQUEST);
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/invites/invite_other_existing")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::UNAUTHORIZED);
+
+        let persisted_after_failures: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert!(persisted_after_failures
+            .invites
+            .iter()
+            .any(|invite| invite.id == "invite_acme_accepted"));
+        assert!(persisted_after_failures
+            .invites
+            .iter()
+            .any(|invite| invite.id == "invite_other_existing"));
+    }
+
+    #[tokio::test]
     async fn auth_members_invite_create_persists_pending_invite_for_admin_visible_org_only() {
         let organization_state_path = unique_test_path("members-invite-create-organizations");
         write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
@@ -6802,6 +7116,61 @@ mod tests {
         .expect("hidden organization invite create must not insert a Postgres row");
         assert_eq!(hidden_invite_count, 0);
 
+        let created_invite_id = created_members_payload
+            .invites
+            .iter()
+            .find(|invite| invite.email == "new-pending@example.com")
+            .expect("created invite appears in response")
+            .id
+            .clone();
+        let cancel_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v1/auth/members/invites/{created_invite_id}"))
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancel_response.status(), StatusCode::OK);
+        let cancelled_members_payload: MembersOrganizationResponseBody =
+            read_json(cancel_response).await;
+        assert!(cancelled_members_payload
+            .invites
+            .iter()
+            .all(|invite| invite.id != created_invite_id));
+        let postgres_cancelled_invite_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_invites WHERE email = 'new-pending@example.com'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("cancelled invite is deleted from Postgres");
+        assert_eq!(postgres_cancelled_invite_count, 0);
+
+        let accepted_cancel_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/invites/invite_accepted")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted_cancel_response.status(), StatusCode::BAD_REQUEST);
+        let accepted_invite_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_invites WHERE id = 'invite_accepted'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("accepted invite remains after failed cancel");
+        assert_eq!(accepted_invite_count, 1);
+
         let audit_events_response = app
             .oneshot(
                 Request::builder()
@@ -6819,6 +7188,15 @@ mod tests {
             event.organization_id == "org_acme"
                 && event.action == "auth.member_invite.created"
                 && event.target_type == "organization_invite"
+                && event.metadata.get("email").and_then(|value| value.as_str())
+                    == Some("new-pending@example.com")
+                && event.metadata.get("role").and_then(|value| value.as_str()) == Some("viewer")
+        }));
+        assert!(audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.action == "auth.member_invite.cancelled"
+                && event.target_type == "organization_invite"
+                && event.target_id == created_invite_id
                 && event.metadata.get("email").and_then(|value| value.as_str())
                     == Some("new-pending@example.com")
                 && event.metadata.get("role").and_then(|value| value.as_str()) == Some("viewer")

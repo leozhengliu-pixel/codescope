@@ -4216,6 +4216,7 @@ function SettingsMembersPage() {
   const [inviteEmails, setInviteEmails] = useState<Record<string, string>>({});
   const [inviteRoles, setInviteRoles] = useState<Record<string, 'viewer' | 'admin'>>({});
   const [inviteSubmittingOrgId, setInviteSubmittingOrgId] = useState<string | null>(null);
+  const [inviteCancellingId, setInviteCancellingId] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<Record<string, string | null>>({});
   const [inviteSuccesses, setInviteSuccesses] = useState<Record<string, string | null>>({});
 
@@ -4250,7 +4251,7 @@ function SettingsMembersPage() {
     event.preventDefault();
     const email = (inviteEmails[organization.id] ?? '').trim();
     const role = inviteRoles[organization.id] ?? 'viewer';
-    if (!email || inviteSubmittingOrgId !== null) {
+    if (!email || inviteSubmittingOrgId !== null || inviteCancellingId !== null) {
       return;
     }
 
@@ -4288,12 +4289,45 @@ function SettingsMembersPage() {
     }
   };
 
+  const handleCancelInvite = async (organizationId: string, invite: InviteRosterEntry) => {
+    if (invite.status !== 'pending' || inviteSubmittingOrgId !== null || inviteCancellingId !== null) {
+      return;
+    }
+
+    setInviteCancellingId(invite.id);
+    setInviteErrors((currentErrors) => ({ ...currentErrors, [organizationId]: null }));
+    setInviteSuccesses((currentSuccesses) => ({ ...currentSuccesses, [organizationId]: null }));
+
+    try {
+      const updatedInventory = await fetchJson<MembersOrganizationInventory>(
+        `/api/v1/auth/members/invites/${encodeURIComponent(invite.id)}`,
+        { method: 'DELETE' }
+      );
+      setOrganizations((currentOrganizations) =>
+        currentOrganizations.map((currentOrganization) =>
+          currentOrganization.organization.id === updatedInventory.organization.id ? updatedInventory : currentOrganization
+        )
+      );
+      setInviteSuccesses((currentSuccesses) => ({
+        ...currentSuccesses,
+        [organizationId]: `Invite cancelled for ${invite.email}.`,
+      }));
+    } catch (err) {
+      setInviteErrors((currentErrors) => ({
+        ...currentErrors,
+        [organizationId]: err instanceof Error ? err.message : 'Unknown error',
+      }));
+    } finally {
+      setInviteCancellingId(null);
+    }
+  };
+
   return (
     <Panel title="Members" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
           This minimal panel shows only organizations you can administer plus their current member and invite inventory,
-          and it can create a pending local invite for those administered organizations. Email delivery, resend/cancel,
+          and it can create or cancel pending local invites for those administered organizations. Email delivery, resend,
           role-edit, removal, and full member lifecycle workflows remain follow-up work.
         </p>
 
@@ -4334,7 +4368,8 @@ function SettingsMembersPage() {
                   <div style={{ fontSize: 16, fontWeight: 700 }}>Create invite</div>
                   <div style={{ color: '#57606a' }}>
                     Create a pending local invite for this organization. The current baseline records the invite for
-                    redemption but does not send email, resend/cancel invites, edit member roles, or remove members.
+                    redemption and can cancel pending invites, but does not send email, resend invites, edit member roles,
+                    or remove members.
                   </div>
                   <div style={detailGridStyle}>
                     <label style={fieldLabelStyle}>
@@ -4445,6 +4480,18 @@ function SettingsMembersPage() {
                                 : 'Awaiting acceptance'}
                             </div>
                             {invite.accepted_at ? <div>Accepted at {invite.accepted_at}</div> : null}
+                            {invite.status === 'pending' ? (
+                              <button
+                                type="button"
+                                style={{ ...secondaryButtonStyle, marginTop: 8 }}
+                                disabled={inviteSubmittingOrgId !== null || inviteCancellingId !== null}
+                                onClick={() => handleCancelInvite(organizationInventory.organization.id, invite)}
+                              >
+                                {inviteCancellingId === invite.id
+                                  ? `Cancelling invite for ${invite.email}…`
+                                  : `Cancel invite for ${invite.email}`}
+                              </button>
+                            ) : null}
                           </div>
                         </li>
                       ))}

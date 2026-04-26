@@ -313,6 +313,16 @@ impl PgOrganizationAuthMetadataStore {
         organization_invite_from_row(row)
     }
 
+    pub async fn delete_pending_invite(&self, invite_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM organization_invites WHERE id = $1 AND accepted_by_user_id IS NULL AND accepted_at IS NULL",
+        )
+        .bind(invite_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn delete_invite(&self, invite_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM organization_invites WHERE id = $1")
             .bind(invite_id)
@@ -2366,6 +2376,55 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_deletes_only_pending_invites() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_member', 'member@example.com', 'Member User', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+
+        assert!(store.delete_pending_invite("invite_pending").await.unwrap());
+        assert!(!store
+            .delete_pending_invite("invite_accepted")
+            .await
+            .unwrap());
+
+        let remaining_invites: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM organization_invites")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_invites, 1);
+        let accepted_invites: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_invites WHERE id = 'invite_accepted' AND accepted_at IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(accepted_invites, 1);
     }
 
     #[tokio::test]

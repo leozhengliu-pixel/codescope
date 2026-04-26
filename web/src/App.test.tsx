@@ -2810,6 +2810,96 @@ describe('App', () => {
     expect(within(organizationCard).getByLabelText('Invite email')).toHaveValue('');
   });
 
+  it('cancels a pending member invite from the settings members panel', async () => {
+    window.location.hash = '#/settings/members';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/members' && !init?.method) {
+        return jsonResponse([
+          {
+            organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+            members: [],
+            invites: [
+              {
+                id: 'invite-pending',
+                email: 'pending@acme.test',
+                role: 'viewer',
+                created_at: '2026-04-26T12:00:00Z',
+                expires_at: '2026-05-03T12:00:00Z',
+                invited_by: { id: 'local-user-admin', email: 'admin@acme.test', name: 'Acme Admin' },
+                accepted_by: null,
+                accepted_at: null,
+                status: 'pending',
+              },
+              {
+                id: 'invite-accepted',
+                email: 'accepted@acme.test',
+                role: 'viewer',
+                created_at: '2026-04-20T12:00:00Z',
+                expires_at: '2026-04-27T12:00:00Z',
+                invited_by: { id: 'local-user-admin', email: 'admin@acme.test', name: 'Acme Admin' },
+                accepted_by: { id: 'local-user-accepted', email: 'accepted@acme.test', name: 'Accepted User' },
+                accepted_at: '2026-04-21T12:00:00Z',
+                status: 'accepted',
+              },
+            ],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/members/invites/invite-pending' && init?.method === 'DELETE') {
+        expect(init.headers).toMatchObject({ Authorization: 'Bearer session-1:secret-1' });
+        return jsonResponse({
+          organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+          members: [],
+          invites: [
+            {
+              id: 'invite-accepted',
+              email: 'accepted@acme.test',
+              role: 'viewer',
+              created_at: '2026-04-20T12:00:00Z',
+              expires_at: '2026-04-27T12:00:00Z',
+              invited_by: { id: 'local-user-admin', email: 'admin@acme.test', name: 'Acme Admin' },
+              accepted_by: { id: 'local-user-accepted', email: 'accepted@acme.test', name: 'Accepted User' },
+              accepted_at: '2026-04-21T12:00:00Z',
+              status: 'accepted',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
+    expect(within(organizationCard).getByText('Invite id: invite-pending')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Invite id: invite-accepted')).toBeInTheDocument();
+
+    fireEvent.click(within(organizationCard).getByRole('button', { name: 'Cancel invite for pending@acme.test' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/members/invites/invite-pending', {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer session-1:secret-1' },
+      });
+    });
+
+    expect(await within(organizationCard).findByText('Invite cancelled for pending@acme.test.')).toBeInTheDocument();
+    expect(within(organizationCard).queryByText('Invite id: invite-pending')).not.toBeInTheDocument();
+    expect(within(organizationCard).getByText('Invite id: invite-accepted')).toBeInTheDocument();
+    expect(
+      within(organizationCard).queryByRole('button', { name: 'Cancel invite for accepted@acme.test' })
+    ).not.toBeInTheDocument();
+  });
+
   it('shows a members loading failure inside the shared settings shell', async () => {
     window.location.hash = '#/settings/members';
 
