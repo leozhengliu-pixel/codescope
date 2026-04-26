@@ -219,6 +219,10 @@ fn build_router(
         )
         .route("/api/v1/auth/members", get(list_authenticated_members))
         .route(
+            "/api/v1/auth/members/invites",
+            post(create_authenticated_members_invite),
+        )
+        .route(
             "/api/v1/auth/linked-accounts",
             get(list_authenticated_linked_accounts),
         )
@@ -699,6 +703,13 @@ struct ReviewAgentRunListItemResponse {
     review_id: String,
     status: ReviewAgentRunStatus,
     created_at: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateMembersInviteRequest {
+    organization_id: String,
+    email: String,
+    role: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1849,6 +1860,112 @@ async fn list_authenticated_members(
         .collect();
 
     Ok(Json(payload))
+}
+
+async fn create_authenticated_members_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateMembersInviteRequest>,
+) -> Result<(StatusCode, Json<MembersOrganizationResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    if state.organization_auth_metadata_store.is_some() {
+        return Err(StatusCode::NOT_IMPLEMENTED);
+    }
+
+    let organization_id = payload.organization_id.trim();
+    let email = payload.email.trim();
+    let role = match payload.role.trim() {
+        "admin" => OrganizationRole::Admin,
+        "viewer" => OrganizationRole::Viewer,
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+    let email_parts = email.split('@').collect::<Vec<_>>();
+    if organization_id.is_empty()
+        || email_parts.len() != 2
+        || email_parts.iter().any(|part| part.is_empty())
+        || email.chars().any(char::is_whitespace)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !user_is_organization_admin(&organization_state, &session.user_id, organization_id) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let organization = organization_state
+        .organizations
+        .iter()
+        .find(|organization| organization.id == organization_id)
+        .cloned()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let created_at_time = OffsetDateTime::now_utc();
+    let created_at = created_at_time
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let expires_at = (created_at_time + time::Duration::days(7))
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let invite_id = format!(
+        "invite_{}",
+        SaltString::generate(&mut OsRng)
+            .to_string()
+            .chars()
+            .filter(|ch| ch.is_ascii_alphanumeric())
+            .collect::<String>()
+    );
+
+    organization_state.invites.push(OrganizationInvite {
+        id: invite_id.clone(),
+        organization_id: organization_id.to_string(),
+        email: email.to_string(),
+        role,
+        invited_by_user_id: session.user_id.clone(),
+        created_at: created_at.clone(),
+        expires_at,
+        accepted_by_user_id: None,
+        accepted_at: None,
+    });
+    organization_state.audit_events.push(AuditEvent {
+        id: format!(
+            "audit_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: organization_id.to_string(),
+        actor: AuditActor {
+            user_id: Some(session.user_id.clone()),
+            api_key_id: None,
+        },
+        action: "auth.member_invite.created".into(),
+        target_type: "organization_invite".into(),
+        target_id: invite_id,
+        occurred_at: created_at,
+        metadata: serde_json::json!({
+            "email": email,
+            "role": match organization_state.invites.last().map(|invite| &invite.role) {
+                Some(OrganizationRole::Admin) => "admin",
+                _ => "viewer",
+            },
+        }),
+    });
+
+    let response = members_organization_response(&organization_state, &organization);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::CREATED, Json(response)))
 }
 
 async fn list_authenticated_linked_accounts(
@@ -4763,6 +4880,13 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
+    struct CreateInviteRequestBody {
+        organization_id: String,
+        email: String,
+        role: String,
+    }
+
+    #[derive(Debug, Serialize)]
     struct RevokeRequest {
         session_id: String,
     }
@@ -5419,6 +5543,232 @@ mod tests {
 
         let payload: LoginResponseBody = read_json(login_response).await;
         format!("Bearer {}:{}", payload.session_id, payload.session_secret)
+    }
+
+    fn write_members_invite_create_fixture(path: &PathBuf, admin_role: OrganizationRole) {
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_other".into(),
+                    slug: "other".into(),
+                    name: "Other".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                role: admin_role,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-20T23:55:00Z".into(),
+            }],
+            invites: vec![OrganizationInvite {
+                id: "invite_other_existing".into(),
+                organization_id: "org_other".into(),
+                email: "other@example.com".into(),
+                role: OrganizationRole::Viewer,
+                invited_by_user_id: "other_admin".into(),
+                created_at: "2026-04-21T00:00:00Z".into(),
+                expires_at: "2026-04-28T00:00:00Z".into(),
+                accepted_by_user_id: None,
+                accepted_at: None,
+            }],
+            ..OrganizationState::default()
+        };
+
+        fs::write(path, serde_json::to_vec(&state).unwrap()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_members_invite_create_persists_pending_invite_for_admin_visible_org_only() {
+        let organization_state_path = unique_test_path("members-invite-create-organizations");
+        write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-invite-create-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-invite-create-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: " org_acme ".into(),
+                            email: "  Reviewer@Example.COM  ".into(),
+                            role: " viewer ".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let created: MembersOrganizationResponseBody = read_json(response).await;
+        assert_eq!(created.organization.id, "org_acme");
+        assert_eq!(created.invites.len(), 1);
+        let invite = &created.invites[0];
+        assert!(invite.id.starts_with("invite_"));
+        assert_eq!(invite.email, "Reviewer@Example.COM");
+        assert_eq!(invite.role, "viewer");
+        assert_eq!(invite.status, "pending");
+        assert_eq!(
+            invite.invited_by.as_ref().map(|actor| actor.id.as_str()),
+            Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        );
+        assert!(invite.accepted_by.is_none());
+        assert!(invite.accepted_at.is_none());
+
+        let list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/auth/members")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let roster: Vec<MembersOrganizationResponseBody> = read_json(list_response).await;
+        assert_eq!(roster.len(), 1);
+        assert_eq!(roster[0].organization.id, "org_acme");
+        assert_eq!(roster[0].invites.len(), 1);
+        assert_eq!(roster[0].invites[0].email, "Reviewer@Example.COM");
+        assert!(roster
+            .iter()
+            .all(|entry| entry.organization.id != "org_other"));
+        assert!(created
+            .invites
+            .iter()
+            .all(|entry| entry.email != "other@example.com"));
+
+        let persisted_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert_eq!(persisted_state.invites.len(), 2);
+        let persisted_invite = persisted_state
+            .invites
+            .iter()
+            .find(|entry| entry.email == "Reviewer@Example.COM")
+            .expect("created invite is persisted");
+        assert_eq!(persisted_invite.organization_id, "org_acme");
+        assert_eq!(persisted_invite.role, OrganizationRole::Viewer);
+        assert!(persisted_state.audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.actor.user_id.as_deref() == Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                && event.action == "auth.member_invite.created"
+                && event.target_type == "organization_invite"
+                && event.target_id == persisted_invite.id
+                && event.metadata.get("email").and_then(|value| value.as_str())
+                    == Some("Reviewer@Example.COM")
+                && event.metadata.get("role").and_then(|value| value.as_str()) == Some("viewer")
+        }));
+
+        let invalid_email_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: "org_acme".into(),
+                            email: "@".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_email_response.status(), StatusCode::BAD_REQUEST);
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: "org_other".into(),
+                            email: "hidden@example.com".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::UNAUTHORIZED);
+
+        let viewer_state_path = unique_test_path("members-invite-create-viewer-organizations");
+        write_members_invite_create_fixture(&viewer_state_path, OrganizationRole::Viewer);
+        let viewer_config = AppConfig {
+            organization_state_path: viewer_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-invite-create-viewer-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-invite-create-viewer-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let viewer_app = test_app_with_config(viewer_config);
+        let viewer_authorization = bootstrap_and_login(&viewer_app).await;
+        let viewer_response = viewer_app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, viewer_authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: "org_acme".into(),
+                            email: "viewer@example.com".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(viewer_response.status(), StatusCode::UNAUTHORIZED);
     }
 
     async fn pg_local_session_test_pool() -> sqlx::PgPool {
@@ -6237,18 +6587,44 @@ mod tests {
             .unwrap();
         assert_eq!(login_response.status(), StatusCode::CREATED);
         let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: "org_acme".into(),
+                            email: "new-pending@example.com".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::NOT_IMPLEMENTED);
+        let postgres_invite_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM organization_invites")
+                .fetch_one(&pool)
+                .await
+                .expect("count unchanged Postgres invites after file-backed create rejection");
+        assert_eq!(postgres_invite_count, 2);
 
         let members_response = app
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/members")
-                    .header(
-                        header::AUTHORIZATION,
-                        format!(
-                            "Bearer {}:{}",
-                            login_payload.session_id, login_payload.session_secret
-                        ),
-                    )
+                    .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
             )

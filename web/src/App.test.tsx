@@ -2729,6 +2729,87 @@ describe('App', () => {
     ).toBeInTheDocument();
   });
 
+  it('creates a member invite from the settings members panel after inventory loads', async () => {
+    window.location.hash = '#/settings/members';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/members' && !init?.method) {
+        return jsonResponse([
+          {
+            organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+            members: [],
+            invites: [],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/members/invites' && init?.method === 'POST') {
+        expect(init.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+          'Content-Type': 'application/json',
+        });
+        expect(init.body).toBe(
+          JSON.stringify({ organization_id: 'org-acme', email: 'pending@acme.test', role: 'viewer' })
+        );
+
+        return jsonResponse(
+          {
+            organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+            members: [],
+            invites: [
+              {
+                id: 'invite-created',
+                email: 'pending@acme.test',
+                role: 'viewer',
+                created_at: '2026-04-26T12:00:00Z',
+                expires_at: '2026-05-03T12:00:00Z',
+                invited_by: { id: 'local-user-admin', email: 'admin@acme.test', name: 'Acme Admin' },
+                accepted_by: null,
+                accepted_at: null,
+                status: 'pending',
+              },
+            ],
+          },
+          true,
+          201
+        );
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
+    fireEvent.change(within(organizationCard).getByLabelText('Invite email'), {
+      target: { value: ' pending@acme.test ' },
+    });
+    fireEvent.change(within(organizationCard).getByLabelText('Invite role'), { target: { value: 'viewer' } });
+    fireEvent.click(within(organizationCard).getByRole('button', { name: 'Create invite for Acme, Inc.' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/members/invites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer session-1:secret-1',
+        },
+        body: JSON.stringify({ organization_id: 'org-acme', email: 'pending@acme.test', role: 'viewer' }),
+      });
+    });
+
+    expect(await within(organizationCard).findByText('Invite created for pending@acme.test.')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Invite id: invite-created')).toBeInTheDocument();
+    expect(within(organizationCard).getByText('Invited by Acme Admin')).toBeInTheDocument();
+    expect(within(organizationCard).getByLabelText('Invite email')).toHaveValue('');
+  });
+
   it('shows a members loading failure inside the shared settings shell', async () => {
     window.location.hash = '#/settings/members';
 
@@ -2738,6 +2819,7 @@ describe('App', () => {
 
     expect(screen.getByText('Loading members…')).toBeInTheDocument();
     expect(await screen.findByText('Unable to load members: Request failed: 500')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Invite email')).not.toBeInTheDocument();
   });
 
   it('renders api keys inventory inside the shared settings shell', async () => {

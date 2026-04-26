@@ -4213,6 +4213,11 @@ function SettingsMembersPage() {
   const [organizations, setOrganizations] = useState<MembersOrganizationInventory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inviteEmails, setInviteEmails] = useState<Record<string, string>>({});
+  const [inviteRoles, setInviteRoles] = useState<Record<string, 'viewer' | 'admin'>>({});
+  const [inviteSubmittingOrgId, setInviteSubmittingOrgId] = useState<string | null>(null);
+  const [inviteErrors, setInviteErrors] = useState<Record<string, string | null>>({});
+  const [inviteSuccesses, setInviteSuccesses] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -4241,12 +4246,55 @@ function SettingsMembersPage() {
     };
   }, []);
 
+  const handleCreateInvite = async (event: FormEvent<HTMLFormElement>, organization: MembersOrganizationInventory['organization']) => {
+    event.preventDefault();
+    const email = (inviteEmails[organization.id] ?? '').trim();
+    const role = inviteRoles[organization.id] ?? 'viewer';
+    if (!email || inviteSubmittingOrgId !== null) {
+      return;
+    }
+
+    setInviteSubmittingOrgId(organization.id);
+    setInviteErrors((currentErrors) => ({ ...currentErrors, [organization.id]: null }));
+    setInviteSuccesses((currentSuccesses) => ({ ...currentSuccesses, [organization.id]: null }));
+
+    try {
+      const updatedInventory = await fetchJson<MembersOrganizationInventory>('/api/v1/auth/members/invites', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          organization_id: organization.id,
+          email,
+          role,
+        }),
+      });
+
+      setOrganizations((currentOrganizations) =>
+        currentOrganizations.map((currentOrganization) =>
+          currentOrganization.organization.id === updatedInventory.organization.id ? updatedInventory : currentOrganization
+        )
+      );
+      setInviteEmails((currentEmails) => ({ ...currentEmails, [organization.id]: '' }));
+      setInviteSuccesses((currentSuccesses) => ({ ...currentSuccesses, [organization.id]: `Invite created for ${email}.` }));
+    } catch (err) {
+      setInviteErrors((currentErrors) => ({
+        ...currentErrors,
+        [organization.id]: err instanceof Error ? err.message : 'Unknown error',
+      }));
+    } finally {
+      setInviteSubmittingOrgId(null);
+    }
+  };
+
   return (
     <Panel title="Members" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
-          This baseline is intentionally read-only: it shows only organizations you can administer plus their current
-          member and invite inventory. Invite, role-edit, and removal workflows remain follow-up work.
+          This minimal panel shows only organizations you can administer plus their current member and invite inventory,
+          and it can create a pending local invite for those administered organizations. Email delivery, resend/cancel,
+          role-edit, removal, and full member lifecycle workflows remain follow-up work.
         </p>
 
         {loading ? <div>Loading members…</div> : null}
@@ -4278,6 +4326,66 @@ function SettingsMembersPage() {
                     <span style={searchMetaBadgeStyle}>{organizationInventory.invites.length} invites</span>
                   </div>
                 </div>
+
+                <form
+                  onSubmit={(event) => handleCreateInvite(event, organizationInventory.organization)}
+                  style={{ ...detailCardStyle, display: 'grid', gap: 12 }}
+                >
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Create invite</div>
+                  <div style={{ color: '#57606a' }}>
+                    Create a pending local invite for this organization. The current baseline records the invite for
+                    redemption but does not send email, resend/cancel invites, edit member roles, or remove members.
+                  </div>
+                  <div style={detailGridStyle}>
+                    <label style={fieldLabelStyle}>
+                      <span>Invite email</span>
+                      <input
+                        type="email"
+                        value={inviteEmails[organizationInventory.organization.id] ?? ''}
+                        onChange={(event) =>
+                          setInviteEmails((currentEmails) => ({
+                            ...currentEmails,
+                            [organizationInventory.organization.id]: event.target.value,
+                          }))
+                        }
+                        style={inputStyle}
+                        disabled={inviteSubmittingOrgId !== null}
+                      />
+                    </label>
+                    <label style={fieldLabelStyle}>
+                      <span>Invite role</span>
+                      <select
+                        value={inviteRoles[organizationInventory.organization.id] ?? 'viewer'}
+                        onChange={(event) =>
+                          setInviteRoles((currentRoles) => ({
+                            ...currentRoles,
+                            [organizationInventory.organization.id]: event.target.value as 'viewer' | 'admin',
+                          }))
+                        }
+                        style={inputStyle}
+                        disabled={inviteSubmittingOrgId !== null}
+                      >
+                        <option value="viewer">viewer</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button
+                    type="submit"
+                    style={primaryButtonStyle}
+                    disabled={inviteSubmittingOrgId !== null || (inviteEmails[organizationInventory.organization.id] ?? '').trim().length === 0}
+                  >
+                    {inviteSubmittingOrgId === organizationInventory.organization.id
+                      ? 'Creating invite…'
+                      : `Create invite for ${organizationInventory.organization.name}`}
+                  </button>
+                  {inviteSuccesses[organizationInventory.organization.id] ? (
+                    <div style={{ color: '#1a7f37' }}>{inviteSuccesses[organizationInventory.organization.id]}</div>
+                  ) : null}
+                  {inviteErrors[organizationInventory.organization.id] ? (
+                    <div style={{ color: '#cf222e' }}>Invite create failed: {inviteErrors[organizationInventory.organization.id]}</div>
+                  ) : null}
+                </form>
 
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>Members</div>
