@@ -5,50 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5ab2876d8f6ba7f196d3bc8d0dd789546ca19707
+  head: e0d96f945ffdc2a3f9bc3d67bf078ed395f2b5bc
 last_completed_task:
-  id: task89
-  title: Bounded operator readiness endpoint and smoke coverage
+  id: task90
+  title: Real indexing pipeline and index-status baseline
   status: done
   summary: >-
-    Closed one meaningful Task 89 operator/recovery smoke slice instead of splitting
-    endpoint implementation, file-backed/PostgreSQL readiness regressions, smoke-matrix
-    wiring, acceptance docs, and parity-report wording into smaller paperwork runs.
-    `crates/api/src/main.rs` now exposes `/readyz` alongside liveness-only `/healthz`:
-    file-backed local metadata reports ready when `DATABASE_URL` is absent, while
-    configured PostgreSQL metadata must complete a bounded connection plus SQLx
-    `_sqlx_migrations` inventory read or fail closed with `503`. The local smoke
-    matrix now probes the file-backed readiness shape, and README plus acceptance/parity
-    docs ground the bounded metadata-readiness baseline without overclaiming production
-    dependency health, supervised-worker readiness, richer observability, complete
-    migration automation, or upgrade orchestration.
+    Closed one meaningful Task 90 Phase B slice instead of splitting indexed-search
+    implementation, index-status API wiring, acceptance wording, and verification into
+    smaller paperwork-only runs. `sourcebot-search` now builds a real in-memory line
+    index once at API startup for configured local repository roots, serves search from
+    the prebuilt index without rewalking the filesystem per query, records per-repository
+    indexed/error status plus indexed-file, indexed-line, and skipped-item counts, and
+    exposes those counts at `/api/v1/repos/{repo_id}/index-status` behind the same
+    repository-visibility gate as browse/search. README and repository-operations
+    acceptance wording ground the bounded baseline while explicitly not claiming Tantivy,
+    a persistent/background-updated index, queue depth, retries, failure recovery,
+    frontend management controls, or production-grade indexing parity.
   tests:
-    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes` and both configured URLs probed with bundled `psql` via the ELF loader
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api readyz_ -- --nocapture --test-threads=1: passed (3 passed)
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+    - cargo test -p sourcebot-search local_search_store -- --nocapture: passed (4 passed)
+    - cargo test -p sourcebot-api repository_index_status_reports_visible_repo_and_fails_closed_for_hidden_repo -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
+    - cargo test -p sourcebot-api search_api_key_filters_unscoped_results_to_repo_scope -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
+    - cargo test -p sourcebot-search -- --nocapture: passed (9 passed)
     - cargo fmt --check: passed
-    - bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
-    - bash scripts/check_local_metadata_env_contract.sh .: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only review after fixing the reviewer-found blocking issue that the migration-inventory query was outside the readiness timeout; reviewer approved the bounded connect-plus-query timeout, liveness/readiness separation, fail-closed PostgreSQL behavior, and scoped docs/smoke wording with no remaining blocking issues
-  commit: 5ab2876d8f6ba7f196d3bc8d0dd789546ca19707
-  next_task: task90
+    code: passed one independent read-only post-implementation review; reviewer approved the startup-built in-memory line index, visibility-gated repository index-status route, search response compatibility, skipped-heavy-directory behavior, and bounded non-overclaiming docs with no blocking issues
+  commit: e0d96f945ffdc2a3f9bc3d67bf078ed395f2b5bc
+  next_task: task91
 current_task:
-  id: task90
+  id: task91
   parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Real indexing pipeline and index-status baseline
+  title: Search contract hardening and saved-context lifecycle
   status: pending
   summary: >-
-    Phase A now has a bounded durable-metadata and recovery/readiness baseline through
-    Task 89. The next release-parity closure should move into the highest-value Phase B
-    blocker: replacing the current bounded filesystem search baseline with a real
-    indexing pipeline plus truthful index-status state that later search, browse,
-    commit, and code-navigation parity slices can depend on. Keep the slice vertical
-    and release-facing rather than creating another paperwork-only audit.
+    Task 90 now establishes a bounded startup-built local index and truthful visible
+    repository index-status counts. The next meaningful Phase B closure should harden
+    the user-facing search contract on top of that baseline: filter grammar, pagination
+    or relevance behavior, saved-context lifecycle, and index-aware status handling,
+    while keeping the slice vertical and release-facing rather than falling back to a
+    paperwork-only audit.
 history:
+  - id: task90
+    status: done
+    summary: >-
+      Closed one meaningful Task 90 Phase B slice instead of splitting indexed-search
+      implementation, index-status API wiring, acceptance wording, and verification into
+      smaller paperwork-only runs. `sourcebot-search` now builds a startup-time in-memory
+      line index for configured local repository roots, serves search from that prebuilt
+      index, records per-repository indexed/error status plus indexed-file, indexed-line,
+      and skipped-item counts, and exposes those counts at `/api/v1/repos/{repo_id}/index-status`
+      behind the existing repository-visibility gate. README and repository-operations
+      acceptance wording explicitly keep the claim bounded: no Tantivy, persistent index,
+      background reindexing, queue depth, retries, failure recovery, frontend management
+      controls, or production-grade indexing parity yet.
+    tests:
+      - cargo test -p sourcebot-search local_search_store -- --nocapture: passed (4 passed)
+      - cargo test -p sourcebot-api repository_index_status_reports_visible_repo_and_fails_closed_for_hidden_repo -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
+      - cargo test -p sourcebot-api search_api_key_filters_unscoped_results_to_repo_scope -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
+      - cargo test -p sourcebot-search -- --nocapture: passed (9 passed)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent read-only post-implementation review; reviewer approved the startup-built in-memory line index, visibility-gated repository index-status route, search response compatibility, skipped-heavy-directory behavior, and bounded non-overclaiming docs with no blocking issues
+    commit: e0d96f945ffdc2a3f9bc3d67bf078ed395f2b5bc
+    next_task: task91
   - id: task89
     status: done
     summary: >-
