@@ -5,52 +5,88 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d9a0c5bdeb461fc4ae414c217559811cffe0179b
+  head: 5c603e3802dfc208caa1fe82b8f591246dc71385
 last_completed_task:
-  id: task87c1
-  title: Durable PostgreSQL API-key and OAuth-client metadata
+  id: task87c2
+  title: Bounded PostgreSQL catalog list/detail reads
   status: done
   summary: >-
-    Closed one meaningful Task 87c auth/admin durability slice instead of splitting SQL
-    migration `0009`, PostgreSQL auth-metadata helpers, route wiring, focused SQLx/auth
-    regressions, and truthful docs into separate paperwork runs. `crates/api/src/auth.rs`
-    now stores and loads API-key and OAuth-client metadata from PostgreSQL, including
-    bearer-auth repo-scope validation and admin-visible OAuth-client inventory/create
-    behavior; `crates/api/src/main.rs` routes `/api/v1/auth/api-keys`,
-    `/api/v1/auth/api-keys/{id}/revoke`, API-key bearer auth, and
-    `/api/v1/auth/oauth-clients` through that durable path whenever `DATABASE_URL` is
-    configured while preserving the file-backed fallback without `DATABASE_URL`; and the
-    SQLx wrapper plus README/auth/parity wording now ground that narrower shipped baseline
-    without overclaiming catalog persistence, analytics/audit aggregates, repo-permission
-    durability, or broader whole-aggregate organization state.
+    Closed one meaningful Task 87c2 durable-catalog slice instead of splitting the
+    PostgreSQL `PgCatalogStore` read implementation, focused catalog regressions, SQLx
+    wrapper wiring, and truthful operator/docs contract updates into separate paperwork
+    runs. `crates/api/src/storage.rs` now lists repository summaries and repository
+    details from PostgreSQL when `DATABASE_URL` is configured, keeps local import
+    explicitly unimplemented, and makes destructive catalog tests require
+    `TEST_DATABASE_URL`; `Makefile` extends `make sqlx-test` with the catalog selector
+    while preserving deterministic test-database wiring; and the README, operator
+    acceptance, parity-gap report, and paired checker scripts now ground the bounded
+    catalog read baseline without overclaiming local repository import, connection
+    management, analytics/audit aggregates, repo-permission sync, broader organization
+    aggregates, ask-thread, or review-agent durability.
   tests:
     - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_catalog_store_ -- --nocapture --test-threads=1: passed (3 passed)
+    - DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed (6 passed)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_ -- --nocapture --test-threads=1: passed (10 passed)
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture --test-threads=1: passed (9 passed)
-    - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed)
+    - bash scripts/check_sqlx_test_workflow.sh .: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+    - bash scripts/check_local_metadata_env_contract.sh .: passed
+    - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
+    - rustfmt --edition 2021 --check crates/api/src/storage.rs: passed
     - git diff --check: passed
-    - git diff --cached --check: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (3 test-fixture false positives only: `pg-unscoped-secret`, `pg-secret`, `pg-rollback-secret`; no production credential findings)
+    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 87c carry-over matches the bounded plan, keeps docs truthful, and treats the `lib.rs` storage export plus repo-permission hydration as directly supportive rather than unrelated drift
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the PostgreSQL API-key/OAuth-client durability diff, noted the simple secret-regex hits were test fixtures only, and raised only a non-blocking caution that the new `lib.rs` export slightly widens the crate's internal library surface
-  commit: d9a0c5bdeb461fc4ae414c217559811cffe0179b
-  next_task: task87c2
+    spec: passed independent review; reviewer confirmed the live Task 87c2 diff matches the bounded PostgreSQL catalog list/detail contract, keeps docs/checkers truthful, and stays within the directly coupled catalog/readiness surfaces
+    code: approved by independent re-review after the `TEST_DATABASE_URL` fail-closed adjustment; reviewer found no blocking security, logic, or spec issues and confirmed the deterministic test-database wiring closes the destructive-test safety concern
+  commit: 5c603e3802dfc208caa1fe82b8f591246dc71385
+  next_task: task87c3
 current_task:
-  id: task87c2
+  id: task87c3
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable catalog runtime path and remaining organization aggregates
+  title: Remaining durable organization aggregates and repo-permission sync
   status: pending
   summary: >-
-    Task 87c1 now makes API-key and OAuth-client metadata durable on PostgreSQL, but
-    truthful Task 87 closure still requires the lazy PostgreSQL catalog/runtime path and
-    the remaining organization/auth aggregates that still live in file-backed whole-
-    document state, including repo-permission durability plus broader analytics/audit and
-    organization aggregate persistence. The next meaningful closure should ship one bounded
-    durable slice from that remainder instead of reopening API-key/OAuth paperwork or
-    jumping ahead to Task 88.
+    Task 87c2 now ships bounded PostgreSQL catalog list/detail reads, but Task 87 still
+    is not a full durable metadata closure. The next meaningful release-parity slice
+    should move one remaining organization aggregate surface onto durable metadata, with
+    priority on repo-permission sync or another directly auth-visible aggregate that can
+    be implemented, focused-tested, documented, independently reviewed, committed, and
+    pushed in one run. Do not reopen API-key/OAuth-client or catalog-read paperwork, and
+    do not jump to Task 88 until the remaining Task 87 durable organization/runtime
+    blockers are explicitly closed or deferred with evidence.
 history:
+  - id: task87c2
+    status: done
+    summary: >-
+      Closed one meaningful Task 87c2 durable-catalog slice instead of splitting the
+      PostgreSQL `PgCatalogStore` read implementation, focused catalog regressions, SQLx
+      wrapper wiring, and truthful operator/docs contract updates into separate paperwork
+      runs. `crates/api/src/storage.rs` now lists repository summaries and repository
+      details from PostgreSQL when `DATABASE_URL` is configured, keeps local import
+      explicitly unimplemented, and makes destructive catalog tests require
+      `TEST_DATABASE_URL`; `Makefile` extends `make sqlx-test` with the catalog selector
+      while preserving deterministic test-database wiring; and the README, operator
+      acceptance, parity-gap report, and paired checker scripts now ground the bounded
+      catalog read baseline without overclaiming local repository import, connection
+      management, analytics/audit aggregates, repo-permission sync, broader organization
+      aggregates, ask-thread, or review-agent durability.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_catalog_store_ -- --nocapture --test-threads=1: passed (3 passed)
+      - DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed (6 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
+      - rustfmt --edition 2021 --check crates/api/src/storage.rs: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      spec: passed independent review; reviewer confirmed the live Task 87c2 diff matches the bounded PostgreSQL catalog list/detail contract, keeps docs/checkers truthful, and stays within the directly coupled catalog/readiness surfaces
+      code: approved by independent re-review after the `TEST_DATABASE_URL` fail-closed adjustment; reviewer found no blocking security, logic, or spec issues and confirmed the deterministic test-database wiring closes the destructive-test safety concern
+    commit: 5c603e3802dfc208caa1fe82b8f591246dc71385
+    next_task: task87c3
   - id: task87c1
     status: done
     summary: >-
