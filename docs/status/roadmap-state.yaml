@@ -5,26 +5,26 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d6c429edd4f4cfb4c12cc3df0b9af46d45b8aa1a
+  head: c8378ff5288c5bcfcfa12767a61257597bbacb7f
 last_completed_task:
-  id: task88a
-  title: PostgreSQL-backed ask-thread/message persistence
+  id: task88b
+  title: PostgreSQL-backed review-agent-run lifecycle persistence
   status: done
   summary: >-
-    Closed the first meaningful Task 88 durable ask lifecycle slice instead of splitting
-    migration inventory, PostgreSQL ask-thread store wiring, SQLx wrapper coverage, and
-    acceptance/docs wording into smaller paperwork runs. `crates/api/src/ask.rs` now provides
-    `PgAskThreadStore` for ask-thread metadata and message arrays when `DATABASE_URL` is
-    configured, `crates/api/src/main.rs` selects that durable store at API startup, migration
-    `0011` adds bounded `ask_threads.messages` storage, and the README/Makefile/checker
-    contract now includes the focused ask-thread regression. This grounds durable thread
-    create/append/list/detail owner-scoped reads without overclaiming review-agent
-    persistence, richer ask/chat lifecycle parity, provider runtime behavior, analytics/audit,
-    local repository import, or full organization aggregate durability.
+    Closed one meaningful Task 88 durable review-agent slice instead of splitting
+    PostgreSQL run-store wiring, focused lifecycle regressions, SQLx-wrapper contract wording,
+    and truthful parity docs into smaller paperwork runs. `crates/api/src/auth.rs` now loads
+    and stores `review_agent_runs` through `PgOrganizationStore` when `DATABASE_URL` is
+    configured, keeps unrelated organization aggregate fields file-backed, claims the oldest
+    queued run with PostgreSQL row locking, completes/fails only claimed runs, and preserves
+    terminal completed/failed status against stale writes. README, Makefile help text, paired
+    checker scripts, and the parity-gap report now ground this bounded review-agent-run
+    lifecycle baseline without overclaiming delivery-attempt durability, richer orchestration,
+    retries, analytics/audit, or full organization aggregate durability.
   tests:
-    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes`
-    - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed after the expected RED failure exposed the missing 0011 inventory entry)
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_ask_thread_store_ -- --nocapture --test-threads=1: passed (1 passed)
+    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after restarting the repo-local server as `hermes` and probing both configured URLs with bundled `psql` via the ELF loader
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_organization_store_review_agent_runs_ -- --nocapture --test-threads=1: passed (2 passed; RED phase previously failed as expected before implementation)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (6 lib tests + 6 bin tests; selector includes the 2 new review-agent-run tests in each target)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
     - cargo fmt --check: passed
     - bash scripts/check_sqlx_test_workflow.sh .: passed
@@ -33,24 +33,52 @@ last_completed_task:
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed ask-thread/message migration, store implementation, startup selection, migration inventory, and docs/checker scope with no blocking issues
-  commit: d6c429edd4f4cfb4c12cc3df0b9af46d45b8aa1a
-  next_task: task88b
+    code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed review-agent-run lifecycle store, stale-write terminal preservation, docs/checker wording, and bounded non-overclaiming scope with no blocking security or logic issues
+  commit: c8378ff5288c5bcfcfa12767a61257597bbacb7f
+  next_task: task88c
 current_task:
-  id: task88b
+  id: task88c
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable review-agent persistence
+  title: Durable review-webhook delivery-attempt persistence
   status: pending
   summary: >-
-    Task 88a moves ask-thread metadata and messages onto PostgreSQL when `DATABASE_URL` is
-    configured, but Task 88 is not complete: review-agent runs, delivery-attempt/runtime
-    status transitions, richer ask/chat lifecycle behavior, analytics/audit, provider runtime,
-    local repository import, and full organization aggregate durability remain unclaimed.
-    The next meaningful release-parity slice should continue Task 88 by moving one bounded
-    review-agent or delivery-attempt persistence lifecycle onto durable metadata with
+    Task 88b moves review-agent-run lifecycle rows onto PostgreSQL when `DATABASE_URL` is
+    configured, but Task 88 is still not complete: delivery-attempt rows remain file-backed,
+    richer review-agent orchestration/retries, analytics/audit, provider runtime, local
+    repository import, and full organization aggregate durability remain unclaimed. The next
+    meaningful release-parity slice should continue Task 88 by moving one bounded
+    review-webhook delivery-attempt storage/read lifecycle onto durable metadata with
     implementation, focused PostgreSQL tests, truthful docs/checkers, independent review,
     commit, state update, and push in one run.
 history:
+  - id: task88b
+    status: done
+    summary: >-
+      Closed one meaningful Task 88 durable review-agent slice instead of splitting
+      PostgreSQL run-store wiring, focused lifecycle regressions, SQLx-wrapper contract wording,
+      and truthful parity docs into smaller paperwork runs. `crates/api/src/auth.rs` now loads
+      and stores `review_agent_runs` through `PgOrganizationStore` when `DATABASE_URL` is
+      configured, keeps unrelated organization aggregate fields file-backed, claims the oldest
+      queued run with PostgreSQL row locking, completes/fails only claimed runs, and preserves
+      terminal completed/failed status against stale writes. README, Makefile help text, paired
+      checker scripts, and the parity-gap report now ground this bounded review-agent-run
+      lifecycle baseline without overclaiming delivery-attempt durability, richer orchestration,
+      retries, analytics/audit, or full organization aggregate durability.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after restarting the repo-local server as `hermes` and probing both configured URLs with bundled `psql` via the ELF loader
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_organization_store_review_agent_runs_ -- --nocapture --test-threads=1: passed (2 passed; RED phase previously failed as expected before implementation)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (6 lib tests + 6 bin tests; selector includes the 2 new review-agent-run tests in each target)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - cargo fmt --check: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed review-agent-run lifecycle store, stale-write terminal preservation, docs/checker wording, and bounded non-overclaiming scope with no blocking security or logic issues
+    commit: c8378ff5288c5bcfcfa12767a61257597bbacb7f
+    next_task: task88c
   - id: task88a
     status: done
     summary: >-
