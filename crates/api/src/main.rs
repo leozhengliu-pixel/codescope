@@ -22,7 +22,7 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use browse::{build_browse_store, BlobResponse, DynBrowseStore, ReferenceMatch, TreeResponse};
@@ -224,7 +224,11 @@ fn build_router(
         )
         .route(
             "/api/v1/auth/search-contexts",
-            get(list_authenticated_search_contexts),
+            get(list_authenticated_search_contexts).post(create_authenticated_search_context),
+        )
+        .route(
+            "/api/v1/auth/search-contexts/{context_id}",
+            delete(delete_authenticated_search_context),
         )
         .route(
             "/api/v1/auth/repository-sync-jobs",
@@ -469,6 +473,7 @@ struct SearchQuery {
     #[serde(default)]
     q: String,
     repo_id: Option<String>,
+    context_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -703,6 +708,13 @@ struct CreateConnectionRequest {
 struct ImportLocalRepositoryRequest {
     connection_id: String,
     path: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateSearchContextRequest {
+    name: String,
+    #[serde(default)]
+    repo_scope: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1876,6 +1888,89 @@ async fn list_authenticated_search_contexts(
             })
             .collect(),
     ))
+}
+
+async fn create_authenticated_search_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateSearchContextRequest>,
+) -> Result<(StatusCode, Json<SearchContextListItemResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let name = payload.name.trim().to_string();
+    if name.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visible_repo_ids: HashSet<String> =
+        visible_repo_ids_for_user(&organization_state, &session.user_id)
+            .into_iter()
+            .collect();
+    let timestamp = current_timestamp();
+    let search_context = SearchContext {
+        id: format!(
+            "ctx_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        user_id: session.user_id,
+        name,
+        repo_scope: payload.repo_scope,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+    };
+    let response = search_context_list_item_response(search_context.clone(), &visible_repo_ids);
+    organization_state.search_contexts.push(search_context);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn delete_authenticated_search_context(
+    State(state): State<AppState>,
+    Path(context_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let Some(existing_context_index) =
+        organization_state
+            .search_contexts
+            .iter()
+            .position(|search_context| {
+                search_context.id == context_id && search_context.user_id == session.user_id
+            })
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    organization_state
+        .search_contexts
+        .remove(existing_context_index);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_authenticated_audit_events(
@@ -3943,27 +4038,41 @@ async fn visible_repo_ids_for_request(
     visible_repo_ids_for_user_id(state, &session.user_id).await
 }
 
-async fn visible_search_repo_ids_for_request(
+async fn search_request_context(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<HashSet<String>, StatusCode> {
+) -> Result<(String, HashSet<String>), StatusCode> {
     match authenticate_api_key_record(state, headers).await {
         Ok(authenticated_api_key) => {
             let visible_repo_ids =
                 visible_repo_ids_for_user_id(state, &authenticated_api_key.user_id).await?;
-            if authenticated_api_key.repo_scope.is_empty() {
-                return Ok(visible_repo_ids);
-            }
+            let scoped_visible_repo_ids = if authenticated_api_key.repo_scope.is_empty() {
+                visible_repo_ids
+            } else {
+                authenticated_api_key
+                    .repo_scope
+                    .into_iter()
+                    .filter(|repo_id| visible_repo_ids.contains(repo_id))
+                    .collect()
+            };
 
-            Ok(authenticated_api_key
-                .repo_scope
-                .into_iter()
-                .filter(|repo_id| visible_repo_ids.contains(repo_id))
-                .collect())
+            Ok((authenticated_api_key.user_id, scoped_visible_repo_ids))
         }
-        Err(StatusCode::UNAUTHORIZED) => visible_repo_ids_for_request(state, headers).await,
+        Err(StatusCode::UNAUTHORIZED) => {
+            let session = authenticate_local_session_record(state, headers).await?;
+            let visible_repo_ids = visible_repo_ids_for_user_id(state, &session.user_id).await?;
+            Ok((session.user_id, visible_repo_ids))
+        }
         Err(status) => Err(status),
     }
+}
+
+async fn visible_search_repo_ids_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<HashSet<String>, StatusCode> {
+    let (_user_id, visible_repo_ids) = search_request_context(state, headers).await?;
+    Ok(visible_repo_ids)
 }
 
 async fn visible_browse_repo_ids_for_request(
@@ -4050,11 +4159,41 @@ async fn search_repository_contents(
     headers: HeaderMap,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    let visible_repo_ids = visible_search_repo_ids_for_request(&state, &headers).await?;
+    let (user_id, mut visible_repo_ids) = search_request_context(&state, &headers).await?;
 
     if query.q.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+
+    let requested_context_id = match query.context_id.as_deref().map(str::trim) {
+        Some("") => return Err(StatusCode::NOT_FOUND),
+        context_id => context_id,
+    };
+    if let Some(context_id) = requested_context_id {
+        let organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let search_context = organization_state
+            .search_contexts
+            .iter()
+            .find(|search_context| {
+                search_context.id == context_id && search_context.user_id == user_id
+            })
+            .ok_or(StatusCode::NOT_FOUND)?;
+        let scoped_visible_repo_ids: HashSet<String> = search_context
+            .repo_scope
+            .iter()
+            .filter(|repo_id| visible_repo_ids.contains(*repo_id))
+            .cloned()
+            .collect();
+        if scoped_visible_repo_ids.is_empty() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        visible_repo_ids = scoped_visible_repo_ids;
+    }
+
     let requested_repo_id = query
         .repo_id
         .as_deref()
@@ -4296,7 +4435,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
-    use axum::http::{Request, StatusCode};
+    use axum::http::{Method, Request, StatusCode};
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
@@ -10946,6 +11085,192 @@ mod tests {
         assert_eq!(payload.len(), 1);
         assert_eq!(payload[0].id, "ctx_stale_scope");
         assert_eq!(payload[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids() {
+        let organization_state_path = unique_test_path("auth-search-contexts-create-orgs");
+        let local_session_state_path = unique_test_path("auth-search-contexts-create-sessions");
+        let user_id = "local_user_member";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
+        );
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/auth/search-contexts")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "Backend work",
+                            "repo_scope": ["repo_sourcebot_rewrite", "repo_private"]
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let created: SearchContextListItemResponseBody = read_json(response).await;
+        assert_eq!(created.name, "Backend work");
+        assert_eq!(created.repo_scope, vec!["repo_sourcebot_rewrite"]);
+        assert!(!created.id.is_empty());
+
+        let list_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/search-contexts")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let listed: Vec<SearchContextListItemResponseBody> = read_json(list_response).await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, created.id);
+        assert_eq!(listed[0].repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        let persisted_context = persisted
+            .search_contexts
+            .iter()
+            .find(|context| context.id == created.id)
+            .unwrap();
+        assert_eq!(persisted_context.user_id, user_id);
+        assert_eq!(
+            persisted_context.repo_scope,
+            vec!["repo_sourcebot_rewrite", "repo_private"]
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_delete_removes_only_callers_own_context() {
+        let organization_state_path = unique_test_path("auth-search-contexts-delete-orgs");
+        let local_session_state_path = unique_test_path("auth-search-contexts-delete-sessions");
+        let user_id = "local_user_member";
+        let other_user_id = "local_user_other";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-21T00:00:00Z".into(),
+            }],
+            accounts: vec![
+                LocalAccount {
+                    id: user_id.into(),
+                    email: "member@example.com".into(),
+                    name: "Member User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:55:00Z".into(),
+                },
+                LocalAccount {
+                    id: other_user_id.into(),
+                    email: "other@example.com".into(),
+                    name: "Other User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-20T23:56:00Z".into(),
+                },
+            ],
+            search_contexts: vec![
+                SearchContext {
+                    id: "ctx_own".into(),
+                    user_id: user_id.into(),
+                    name: "Own".into(),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    created_at: "2026-04-21T00:06:30Z".into(),
+                    updated_at: "2026-04-21T00:07:00Z".into(),
+                },
+                SearchContext {
+                    id: "ctx_other".into(),
+                    user_id: other_user_id.into(),
+                    name: "Other".into(),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    created_at: "2026-04-21T00:08:30Z".into(),
+                    updated_at: "2026-04-21T00:09:00Z".into(),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let other_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/v1/auth/search-contexts/ctx_other")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_response.status(), StatusCode::NOT_FOUND);
+
+        let own_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/v1/auth/search-contexts/ctx_own")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(own_response.status(), StatusCode::NO_CONTENT);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted
+            .search_contexts
+            .iter()
+            .all(|context| context.id != "ctx_own"));
+        assert!(persisted
+            .search_contexts
+            .iter()
+            .any(|context| context.id == "ctx_other"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -21989,6 +22314,137 @@ mod tests {
             .unwrap();
 
         assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn search_context_id_narrows_results_and_explicit_repo_must_be_in_context() {
+        let search_root_rewrite = unique_test_path("search-context-scope-rewrite-root");
+        let search_root_docs = unique_test_path("search-context-scope-docs-root");
+        fs::create_dir_all(&search_root_rewrite).unwrap();
+        fs::create_dir_all(&search_root_docs).unwrap();
+        fs::write(
+            search_root_rewrite.join("main.rs"),
+            "fn saved_context_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            search_root_docs.join("guide.md"),
+            "saved_context_marker appears in docs too\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-context-scope-orgs");
+        let local_session_state_path = unique_test_path("search-context-scope-sessions");
+        let user_id = "user_context_member";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite", "repo_demo_docs"],
+        );
+        let mut state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        state.search_contexts = vec![
+            SearchContext {
+                id: "ctx_docs_only".into(),
+                user_id: user_id.into(),
+                name: "Docs only".into(),
+                repo_scope: vec!["repo_demo_docs".into(), "repo_hidden".into()],
+                created_at: "2026-04-21T00:06:30Z".into(),
+                updated_at: "2026-04-21T00:07:00Z".into(),
+            },
+            SearchContext {
+                id: "ctx_other_user".into(),
+                user_id: "user_other".into(),
+                name: "Other user".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                created_at: "2026-04-21T00:08:30Z".into(),
+                updated_at: "2026-04-21T00:09:00Z".into(),
+            },
+        ];
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let search = Arc::new(LocalSearchStore::new(HashMap::from([
+            (
+                "repo_sourcebot_rewrite".to_string(),
+                search_root_rewrite.clone(),
+            ),
+            ("repo_demo_docs".to_string(), search_root_docs.clone()),
+        ])));
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            search,
+        );
+
+        let scoped_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=saved_context_marker&context_id=ctx_docs_only")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(scoped_response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(scoped_response).await;
+        assert!(!payload.results.is_empty());
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_demo_docs"));
+
+        let outside_context_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=saved_context_marker&context_id=ctx_docs_only&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(outside_context_response.status(), StatusCode::NOT_FOUND);
+
+        let blank_context_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=saved_context_marker&context_id=%20%20")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blank_context_response.status(), StatusCode::NOT_FOUND);
+
+        let other_user_context_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=saved_context_marker&context_id=ctx_other_user")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_user_context_response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(search_root_rewrite).unwrap();
+        fs::remove_dir_all(search_root_docs).unwrap();
     }
 
     #[tokio::test]

@@ -19,13 +19,16 @@
 3. A valid query returns ranked matches across all repositories the user can access.
 4. Each result includes repository, revision or branch context, file path, line-oriented snippet, and enough metadata to open the file view.
 5. Filters narrow the result set without leaking inaccessible repositories.
-6. Empty-result queries return a successful response with zero hits, not an internal error.
-7. Invalid regex queries return a user-safe validation error.
-8. Pagination is stable for the same repository revision and query parameters.
+6. Authenticated users can create, list, and delete saved search contexts through `/api/v1/auth/search-contexts`; `GET /api/v1/search?context_id=...` applies the saved context as an additional repository-scope filter.
+7. Empty-result queries return a successful response with zero hits, not an internal error.
+8. Invalid regex queries return a user-safe validation error.
+9. Pagination is stable for the same repository revision and query parameters.
 
 ## Permission behavior
 - Results from repositories outside the caller's permissions must not appear in counts, snippets, suggestions, or facets.
 - Search contexts must only expand to repositories visible to the caller.
+- Saved search contexts are caller-owned. Unknown, deleted, or other-user context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
+- This saved-context baseline is backend/API-only and file-backed in the organization aggregate; it does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or stable pagination parity.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
