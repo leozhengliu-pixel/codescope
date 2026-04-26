@@ -5,50 +5,74 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 10ceaf2aa52d4a14b764ee33693a06dc1815db36
+  head: 0503b55138771774dd29c5924847d2d2a4c79e50
 last_completed_task:
-  id: task91
-  title: Search contract hardening and saved-context lifecycle
+  id: task92
+  title: Browse/source/commit/code-navigation parity polish
   status: done
   summary: >-
-    Closed one meaningful Task 91 Phase B slice instead of splitting saved-context
-    lifecycle implementation, search-contract hardening, acceptance wording, and
-    parity-report truth updates into smaller paperwork-only runs. `/api/v1/auth/search-contexts`
-    now supports authenticated create/list/delete for caller-owned saved contexts, and
-    `/api/v1/search?context_id=...` narrows results to that caller-owned context's
-    currently visible repository scope. Unknown, other-user, blank, or visible-empty
-    contexts fail closed, and an explicit `repo_id` outside the saved context scope is
-    rejected instead of broadening search. The acceptance and parity docs ground this as
-    a backend/API file-backed baseline without claiming frontend context-management UI,
-    SQL-backed context durability, richer grammar, relevance tuning, or stable pagination
+    Closed one meaningful Task 92 Phase B slice instead of splitting binary/source-view
+    contract alignment, focused Rust regressions, acceptance wording, and parity-report
+    truth updates into smaller paperwork-only runs. The backend blob contract now reports
+    non-UTF-8 local and revisioned blobs with path/size metadata, empty text content, and
+    `is_binary: true` instead of failing UTF-8 decoding or lossy-rendering source. The
+    retrieval-tool `ReadFileResult` carries the same marker, and revisioned reference
+    scanning skips binary blobs before iterating source lines. Docs keep the claim bounded
+    to backend/API binary metadata and explicitly defer frontend binary/download affordances,
+    large-file handling, syntax-highlighting depth, richer branch/ref UX, and full code-nav
     parity.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture: passed (1 passed; 356 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_delete_removes_only_callers_own_context -- --nocapture: passed (1 passed; 356 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api search_context_id_narrows_results_and_explicit_repo_must_be_in_context -- --nocapture: RED failed as expected for blank `context_id` broadening search before the fix, then passed after fail-closed handling was added (1 passed; 356 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api search_context -- --nocapture: passed (6 passed; 351 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api search_ -- --nocapture: passed (16 passed; 341 filtered)
+    - cargo test -p sourcebot-core read_file_tool_returns_blob_contents_for_active_repo -- --nocapture: RED failed as expected before close-out because `ReadFileResult` lacked the `is_binary` field required by the binary/source-view contract alignment
+    - cargo test -p sourcebot-core read_file_tool_ -- --nocapture: passed (5 passed; 19 filtered)
+    - cargo test -p sourcebot-api local_browse_store_returns_binary_blob_metadata -- --nocapture: passed (2 bin tests; lib selector matched 0 tests)
+    - cargo test -p sourcebot-api repo_blob_returns_ -- --nocapture: passed (6 bin tests; lib selector matched 0 tests)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 raw-content doc truth checks for search acceptance and parity reports: passed
+    - python3 raw-content doc/state truth checks for browse acceptance, parity reports, and roadmap-state task92/task93/SHA wording: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing the reviewer-found blank-`context_id` broadening bug; reviewer approved caller-owned create/list/delete, visibility/API-key scope intersection, visible-empty fail-closed behavior, explicit repo/context narrowing, and bounded docs with no remaining blocking issues
-  commit: 10ceaf2aa52d4a14b764ee33693a06dc1815db36
-  next_task: task92
+    code: passed independent read-only review; reviewer approved consistent `is_binary` propagation across BlobResponse, RepositoryBlob, ReadFileResult, BrowseBlobStoreAdapter, local/revisioned byte reads, binary reference-scan skipping, and bounded docs with no blocking issues
+  commit: 0503b55138771774dd29c5924847d2d2a4c79e50
+  next_task: task93
 current_task:
-  id: task92
+  id: task93
   parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Browse/source/commit/code-navigation parity polish
+  title: Ask/chat lifecycle parity
   status: pending
   summary: >-
-    Task 91 now provides a bounded backend/API saved-search-context lifecycle and
-    fail-closed context-aware search narrowing on top of the startup-built index baseline.
-    The next meaningful Phase B closure should advance browse/source/commit/code-navigation
-    parity with a vertical user-visible slice such as large/binary-file handling, richer
-    branch/revision behavior, source/commit UX polish, or multi-language code-navigation
-    correctness while avoiding another paperwork-only audit.
+    Task 92 now provides a bounded backend/API binary blob metadata baseline for local and
+    revisioned source retrieval without overclaiming frontend binary/download UX or large-file
+    parity. The next meaningful Phase B closure should advance ask/chat lifecycle parity with
+    a vertical user-visible slice such as thread rename/delete/visibility controls, richer
+    conversation presentation, source-preview behavior, or an API/runtime gap that can close
+    with focused tests and truthful acceptance wording.
 history:
+  - id: task92
+    status: done
+    summary: >-
+      Closed one meaningful Task 92 Phase B slice instead of splitting binary/source-view
+      contract alignment, focused Rust regressions, acceptance wording, and parity-report
+      truth updates into smaller paperwork-only runs. The backend blob contract now reports
+      non-UTF-8 local and revisioned blobs with path/size metadata, empty text content, and
+      `is_binary: true` instead of failing UTF-8 decoding or lossy-rendering source. The
+      retrieval-tool `ReadFileResult` carries the same marker, and revisioned reference
+      scanning skips binary blobs before iterating source lines. Docs keep the claim bounded
+      to backend/API binary metadata and explicitly defer frontend binary/download affordances,
+      large-file handling, syntax-highlighting depth, richer branch/ref UX, and full code-nav
+      parity.
+    tests:
+      - cargo test -p sourcebot-core read_file_tool_returns_blob_contents_for_active_repo -- --nocapture: RED failed as expected before close-out because `ReadFileResult` lacked the `is_binary` field required by the binary/source-view contract alignment
+      - cargo test -p sourcebot-core read_file_tool_ -- --nocapture: passed (5 passed; 19 filtered)
+      - cargo test -p sourcebot-api local_browse_store_returns_binary_blob_metadata -- --nocapture: passed (2 bin tests; lib selector matched 0 tests)
+      - cargo test -p sourcebot-api repo_blob_returns_ -- --nocapture: passed (6 bin tests; lib selector matched 0 tests)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 raw-content doc/state truth checks for browse acceptance, parity reports, and roadmap-state task92/task93/SHA wording: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved consistent `is_binary` propagation across BlobResponse, RepositoryBlob, ReadFileResult, BrowseBlobStoreAdapter, local/revisioned byte reads, binary reference-scan skipping, and bounded docs with no blocking issues
+    commit: 0503b55138771774dd29c5924847d2d2a4c79e50
+    next_task: task93
   - id: task91
     status: done
     summary: >-
