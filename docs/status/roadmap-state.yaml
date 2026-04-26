@@ -5,51 +5,88 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 566e046fa58b25fc6386ec1c6b1ab3aa5aa016f5
+  head: 1ea887271a2b7b78bd5be59fd06cb148d23c4ab6
 last_completed_task:
-  id: task93b
-  title: Ask/chat frontend thread metadata controls
+  id: task93c
+  title: Ask/chat selected-thread delete lifecycle
   status: done
   summary: >-
-    Closed one meaningful Task 93 Phase B frontend lifecycle slice instead of
-    splitting chat-route controls, stale-response hardening, focused Vitest
-    coverage, acceptance wording, and parity-report truth updates into smaller
-    paperwork-only runs. The dedicated `#/chat` route now lets a user rename
-    the selected visible ask thread and switch private/shared visibility through
-    the authenticated PATCH lifecycle API, refreshes the visible detail/header
-    and summary state from the sanitized response, keeps the hash pinned to the
-    same chat thread, and ignores stale metadata responses after the user switches
-    to another thread. Docs keep the claim bounded to focused frontend
-    rename/visibility controls and explicitly defer delete/archive lifecycle,
-    richer conversation/source-preview UX, streaming/progress states, and full
-    chat parity.
+    Closed one meaningful Task 93 Phase B ask/chat lifecycle slice instead of
+    splitting backend DELETE wiring, frontend chat-route delete controls, stale
+    async response hardening, focused Rust/Vitest coverage, acceptance wording,
+    and parity-report truth updates into smaller paperwork-only runs.
+    Authenticated callers can now delete their own currently visible ask thread
+    through `DELETE /api/v1/ask/threads/{thread_id}`, hidden/out-of-scope/
+    missing/other-user threads fail closed without removal, and the dedicated
+    `#/chat` route exposes a selected-thread delete control that removes the
+    summary/detail, preserves repo scope while clearing `thread_id`, and ignores
+    stale delete outcomes after switching threads. Docs keep the claim bounded
+    to thread rename/private-shared visibility/delete lifecycle and explicitly
+    defer archive controls, richer conversation/source-preview UX, streaming/
+    progress states, and full chat parity.
   tests:
-    - npm test -- --run src/App.test.tsx -t "chat route updates the selected thread title": passed (1 passed; 166 skipped)
-    - npm test -- --run src/App.test.tsx -t "chat route ignores stale thread metadata responses": passed (1 passed; 166 skipped)
-    - npm test -- --run src/App.test.tsx -t "chat route": passed (6 passed; 161 skipped)
-    - npm test -- --run src/App.test.tsx: passed (167 passed)
+    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_delete_removes_only_authenticated_visible_thread -- --nocapture: RED failed first with 405 before route implementation, then passed (1 passed; 360 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_ -- --nocapture: passed (5 passed; 356 filtered; selector also matched the storage migration inventory test)
+    - cargo fmt --check: passed
+    - npm test -- --run src/App.test.tsx -t "chat route deletes the selected thread": RED failed first before the delete control existed, then passed (1 passed; 168 skipped)
+    - npm test -- --run src/App.test.tsx -t "chat route ignores stale delete responses": passed after reviewer-forced stale pending-state hardening (1 passed; 168 skipped)
+    - npm test -- --run src/App.test.tsx -t "chat route": passed (8 passed; 161 skipped)
+    - npm test -- --run src/App.test.tsx: passed (169 passed)
     - npm run build: passed
     - git diff --check: passed
-    - python3 raw-content doc truth checks for ask acceptance, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved stale PATCH response invalidation, request body/UI lifecycle correctness, bounded acceptance/parity wording, and absence of blocking React state, TypeScript, XSS/security, or scope-creep issues
-  commit: 566e046fa58b25fc6386ec1c6b1ab3aa5aa016f5
-  next_task: task93c
+    code: passed independent read-only re-review after fixing the reviewer-found blocking issue where a stale DELETE response after thread switch could leave `deleteSubmitting` stuck; reviewer approved the caller-owned visible-thread backend delete gate, no-content citation-sanitization posture, stale delete response guard, focused tests, and bounded docs with no remaining blocking issues
+  commit: 1ea887271a2b7b78bd5be59fd06cb148d23c4ab6
+  next_task: task94
 current_task:
-  id: task93c
-  parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Ask/chat delete/archive lifecycle or richer conversation parity
+  id: task94
+  parent_task: phase-c-auth-admin-and-provider-parity
+  title: Auth/admin lifecycle parity on durable state
   status: pending
   summary: >-
-    Task 93b now provides focused frontend title/private-shared visibility
-    controls on top of the backend PATCH baseline without overclaiming broader
-    chat parity. The next meaningful Task 93 closure should advance another
-    user-visible ask/chat lifecycle blocker such as delete/archive controls with
-    fail-closed visibility tests, richer conversation/source-preview behavior,
-    streaming/progress state handling, or another bounded API/runtime/UI gap that
-    can close with focused tests and truthful acceptance wording.
+    Task 93c completes the current bounded ask/chat lifecycle closure by adding
+    visible caller-owned thread deletion on top of the existing thread list/detail/
+    reopen and rename/private-shared visibility baseline, while archive controls,
+    richer conversation/source-preview UX, streaming/progress states, and full
+    chat parity remain deferred. The next meaningful closure should move into
+    Phase C and advance a user- or admin-visible auth/admin blocker on durable
+    state, such as richer organization/member/invite management, API-key lifecycle
+    semantics, durable permission-sync behavior, or another bounded Task 94 slice
+    that can close with implementation, focused verification, truthful docs, and
+    independent review.
 history:
+  - id: task93c
+    status: done
+    summary: >-
+      Closed one meaningful Task 93 Phase B ask/chat lifecycle slice instead of
+      splitting backend DELETE wiring, frontend chat-route delete controls, stale
+      async response hardening, focused Rust/Vitest coverage, acceptance wording,
+      and parity-report truth updates into smaller paperwork-only runs.
+      Authenticated callers can now delete their own currently visible ask thread
+      through `DELETE /api/v1/ask/threads/{thread_id}`, hidden/out-of-scope/
+      missing/other-user threads fail closed without removal, and the dedicated
+      `#/chat` route exposes a selected-thread delete control that removes the
+      summary/detail, preserves repo scope while clearing `thread_id`, and ignores
+      stale delete outcomes after switching threads. Docs keep the claim bounded
+      to thread rename/private-shared visibility/delete lifecycle and explicitly
+      defer archive controls, richer conversation/source-preview UX, streaming/
+      progress states, and full chat parity.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_delete_removes_only_authenticated_visible_thread -- --nocapture: RED failed first with 405 before route implementation, then passed (1 passed; 360 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_ -- --nocapture: passed (5 passed; 356 filtered; selector also matched the storage migration inventory test)
+      - cargo fmt --check: passed
+      - npm test -- --run src/App.test.tsx -t "chat route deletes the selected thread": RED failed first before the delete control existed, then passed (1 passed; 168 skipped)
+      - npm test -- --run src/App.test.tsx -t "chat route ignores stale delete responses": passed after reviewer-forced stale pending-state hardening (1 passed; 168 skipped)
+      - npm test -- --run src/App.test.tsx -t "chat route": passed (8 passed; 161 skipped)
+      - npm test -- --run src/App.test.tsx: passed (169 passed)
+      - npm run build: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing the reviewer-found blocking issue where a stale DELETE response after thread switch could leave `deleteSubmitting` stuck; reviewer approved the caller-owned visible-thread backend delete gate, no-content citation-sanitization posture, stale delete response guard, focused tests, and bounded docs with no remaining blocking issues
+    commit: 1ea887271a2b7b78bd5be59fd06cb148d23c4ab6
+    next_task: task94
   - id: task93b
     status: done
     summary: >-
