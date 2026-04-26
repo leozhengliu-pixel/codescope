@@ -7,6 +7,7 @@ use sourcebot_models::{
     AskCitation, AskMessage, AskMessageRole, AskRenderedCitation, AskThread, AskThreadSummary,
     AskThreadVisibility,
 };
+use sqlx::{postgres::PgPoolOptions, Row};
 use std::path::{Component, Path};
 use std::sync::{Arc, RwLock};
 
@@ -272,9 +273,340 @@ impl AskThreadStore for InMemoryAskThreadStore {
     }
 }
 
+#[derive(Clone)]
+pub struct PgAskThreadStore {
+    pool: sqlx::PgPool,
+}
+
+impl PgAskThreadStore {
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
+    }
+
+    fn visibility_label(visibility: &AskThreadVisibility) -> &'static str {
+        match visibility {
+            AskThreadVisibility::Private => "private",
+            AskThreadVisibility::Shared => "shared",
+        }
+    }
+
+    fn parse_visibility(value: &str) -> Result<AskThreadVisibility> {
+        match value {
+            "private" => Ok(AskThreadVisibility::Private),
+            "shared" => Ok(AskThreadVisibility::Shared),
+            other => anyhow::bail!("unknown ask-thread visibility {other}"),
+        }
+    }
+
+    fn thread_from_row(row: &sqlx::postgres::PgRow) -> Result<AskThread> {
+        let messages_json: serde_json::Value = row.try_get("messages")?;
+        let messages = serde_json::from_value(messages_json)?;
+        Ok(AskThread {
+            id: row.try_get("id")?,
+            session_id: row.try_get("session_id")?,
+            user_id: row.try_get("user_id")?,
+            title: row.try_get("title")?,
+            repo_scope: row.try_get("repo_scope")?,
+            visibility: Self::parse_visibility(row.try_get::<String, _>("visibility")?.as_str())?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+            messages,
+        })
+    }
+
+    async fn get_thread_row_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, session_id, user_id, title, repo_scope, visibility,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                   messages
+            FROM ask_threads
+            WHERE user_id = $1 AND id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(thread_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+
+    fn replace_message(messages: &mut [AskMessage], message_id: &str, message: AskMessage) -> bool {
+        if let Some(existing) = messages
+            .iter_mut()
+            .find(|existing| existing.id == message_id)
+        {
+            *existing = message;
+            return true;
+        }
+        false
+    }
+}
+
+#[async_trait]
+impl AskThreadStore for PgAskThreadStore {
+    async fn create_thread(&self, thread: AskThread) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO ask_threads (id, session_id, user_id, title, repo_scope, visibility, created_at, updated_at, messages)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz, $9::jsonb)
+            "#,
+        )
+        .bind(&thread.id)
+        .bind(&thread.session_id)
+        .bind(&thread.user_id)
+        .bind(&thread.title)
+        .bind(&thread.repo_scope)
+        .bind(Self::visibility_label(&thread.visibility))
+        .bind(&thread.created_at)
+        .bind(&thread.updated_at)
+        .bind(serde_json::to_value(&thread.messages)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn list_threads_for_user(&self, user_id: &str) -> Result<Vec<AskThreadSummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, session_id, user_id, title, repo_scope, visibility,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                   messages
+            FROM ask_threads
+            WHERE user_id = $1
+            ORDER BY updated_at DESC, id DESC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter()
+            .map(Self::thread_from_row)
+            .map(|thread| thread.map(|thread| thread.summary()))
+            .collect()
+    }
+
+    async fn get_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>> {
+        self.get_thread_row_for_user(user_id, thread_id).await
+    }
+
+    async fn get_thread_messages_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<Vec<AskMessage>>> {
+        Ok(self
+            .get_thread_row_for_user(user_id, thread_id)
+            .await?
+            .map(|thread| thread.messages))
+    }
+
+    async fn get_thread_for_session_for_user(
+        &self,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, session_id, user_id, title, repo_scope, visibility,
+                   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                   to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                   messages
+            FROM ask_threads
+            WHERE user_id = $1 AND session_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+
+    async fn update_thread_metadata_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        title: Option<&str>,
+        visibility: Option<AskThreadVisibility>,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            UPDATE ask_threads
+            SET title = COALESCE($3, title),
+                visibility = COALESCE($4, visibility),
+                updated_at = $5::timestamptz
+            WHERE user_id = $1 AND id = $2
+            RETURNING id, session_id, user_id, title, repo_scope, visibility,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                      messages
+            "#,
+        )
+        .bind(user_id)
+        .bind(thread_id)
+        .bind(title)
+        .bind(visibility.as_ref().map(Self::visibility_label))
+        .bind(updated_at)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+
+    async fn append_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message: AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            UPDATE ask_threads
+            SET messages = messages || jsonb_build_array($3::jsonb),
+                updated_at = $4::timestamptz
+            WHERE user_id = $1 AND id = $2
+            RETURNING id, session_id, user_id, title, repo_scope, visibility,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                      messages
+            "#,
+        )
+        .bind(user_id)
+        .bind(thread_id)
+        .bind(serde_json::to_value(&message)?)
+        .bind(updated_at)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+
+    async fn update_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        content: &str,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let Some(mut thread) = self.get_thread_row_for_user(user_id, thread_id).await? else {
+            return Ok(None);
+        };
+        let Some(message) = thread
+            .messages
+            .iter_mut()
+            .find(|message| message.id == message_id)
+        else {
+            return Ok(None);
+        };
+        message.content = content.into();
+        thread.updated_at = updated_at.into();
+        self.replace_messages_for_user(user_id, thread_id, &thread.messages, updated_at)
+            .await
+    }
+
+    async fn replace_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        message: AskMessage,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let Some(mut thread) = self.get_thread_row_for_user(user_id, thread_id).await? else {
+            return Ok(None);
+        };
+        if !Self::replace_message(&mut thread.messages, message_id, message) {
+            return Ok(None);
+        }
+        self.replace_messages_for_user(user_id, thread_id, &thread.messages, updated_at)
+            .await
+    }
+
+    async fn delete_message_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        message_id: &str,
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let Some(mut thread) = self.get_thread_row_for_user(user_id, thread_id).await? else {
+            return Ok(None);
+        };
+        let Some(message_index) = thread
+            .messages
+            .iter()
+            .position(|message| message.id == message_id)
+        else {
+            return Ok(None);
+        };
+        thread.messages.remove(message_index);
+        self.replace_messages_for_user(user_id, thread_id, &thread.messages, updated_at)
+            .await
+    }
+}
+
+impl PgAskThreadStore {
+    async fn replace_messages_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+        messages: &[AskMessage],
+        updated_at: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            UPDATE ask_threads
+            SET messages = $3::jsonb,
+                updated_at = $4::timestamptz
+            WHERE user_id = $1 AND id = $2
+            RETURNING id, session_id, user_id, title, repo_scope, visibility,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                      messages
+            "#,
+        )
+        .bind(user_id)
+        .bind(thread_id)
+        .bind(serde_json::to_value(messages)?)
+        .bind(updated_at)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+}
+
 #[allow(dead_code)]
 pub fn build_ask_thread_store() -> DynAskThreadStore {
     Arc::new(InMemoryAskThreadStore::new())
+}
+
+pub fn try_build_ask_thread_store(database_url: Option<&str>) -> Result<DynAskThreadStore> {
+    if let Some(database_url) = database_url {
+        return Ok(Arc::new(PgAskThreadStore::connect_lazy(database_url)?));
+    }
+
+    Ok(build_ask_thread_store())
 }
 
 #[allow(dead_code)]
@@ -493,6 +825,104 @@ mod tests {
         assert_eq!(
             store.list_threads_for_user("user_1").await.unwrap(),
             Vec::new()
+        );
+    }
+
+    async fn pg_ask_thread_test_pool() -> sqlx::PgPool {
+        let database_url = std::env::var("TEST_DATABASE_URL").expect(
+            "TEST_DATABASE_URL must be set for destructive Postgres ask-thread store tests",
+        );
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        crate::storage::catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply metadata migrations");
+        sqlx::query(
+            "TRUNCATE TABLE ask_threads, sessions, local_accounts, organization_memberships, organization_invites, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset ask-thread test tables");
+        pool
+    }
+
+    async fn seed_pg_ask_principals(pool: &sqlx::PgPool, user_id: &str, session_id: &str) {
+        sqlx::query("INSERT INTO local_accounts (id, email, name, created_at, password_hash) VALUES ($1, $2, $3, $4::timestamptz, $5)")
+            .bind(user_id)
+            .bind(format!("{user_id}@example.test"))
+            .bind("Ask User")
+            .bind("2026-04-16T07:59:00Z")
+            .bind("test-password-hash")
+            .execute(pool)
+            .await
+            .expect("seed local account");
+        sqlx::query("INSERT INTO sessions (id, user_id, secret_hash, created_at) VALUES ($1, $2, $3, $4::timestamptz)")
+            .bind(session_id)
+            .bind(user_id)
+            .bind("test-secret-hash")
+            .bind("2026-04-16T07:59:30Z")
+            .execute(pool)
+            .await
+            .expect("seed local session");
+    }
+
+    #[tokio::test]
+    async fn pg_ask_thread_store_persists_messages_and_owner_scoped_reads() {
+        let pool = pg_ask_thread_test_pool().await;
+        seed_pg_ask_principals(&pool, "user_pg_ask", "session_pg_ask").await;
+        seed_pg_ask_principals(&pool, "user_pg_other", "session_pg_other").await;
+        let store = PgAskThreadStore { pool };
+        let mut expected = thread(
+            "thread_pg_ask",
+            "user_pg_ask",
+            "2026-04-16T08:01:00Z",
+            "Durable ask thread",
+            "session_pg_ask",
+        );
+
+        store.create_thread(expected.clone()).await.unwrap();
+        let appended = AskMessage {
+            id: "msg_pg_answer".into(),
+            role: AskMessageRole::Assistant,
+            content: "healthz lives in main.rs".into(),
+            citations: vec![citation("crates/api/src/main.rs", "main", 1, 3)],
+        };
+        expected.messages.push(appended.clone());
+        expected.updated_at = "2026-04-16T08:02:00Z".into();
+
+        assert_eq!(
+            store
+                .append_message_for_user(
+                    "user_pg_ask",
+                    "thread_pg_ask",
+                    appended,
+                    "2026-04-16T08:02:00Z",
+                )
+                .await
+                .unwrap(),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            store
+                .get_thread_for_user("user_pg_ask", "thread_pg_ask")
+                .await
+                .unwrap(),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            store
+                .get_thread_for_user("user_pg_other", "thread_pg_ask")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store.list_threads_for_user("user_pg_ask").await.unwrap()[0].message_count,
+            2
         );
     }
 

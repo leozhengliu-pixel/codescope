@@ -10,7 +10,8 @@ use argon2::{
 };
 use ask::{
     build_ask_thread_store, canonicalize_repo_scope, filter_ask_citations_to_repo_scope,
-    AskCompletionRequest, AskCompletionResponse, AskThreadResponse, DynAskThreadStore,
+    try_build_ask_thread_store, AskCompletionRequest, AskCompletionResponse, AskThreadResponse,
+    DynAskThreadStore,
 };
 use auth::{
     build_bootstrap_store, build_local_session_store, build_organization_store,
@@ -107,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
     let browse = build_browse_store();
     let commits = build_commit_store();
     let search = build_search_store();
-    let ask_threads = build_ask_thread_store();
+    let ask_threads = try_build_ask_thread_store(config.database_url.as_deref())?;
 
     let app = build_router(
         config,
