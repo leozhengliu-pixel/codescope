@@ -5,65 +5,86 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: dfa4af0f9fb29c68f8cd8b7d13a73323cad6d55d
+  head: 5684bc0af62c0e3ee9e8e73d1aab45eaa7d26e89
 last_completed_task:
-  id: task94b
-  title: Settings members pending local-invite creation baseline
+  id: task94c
+  title: Durable PostgreSQL members invite creation baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94 auth/admin lifecycle slice instead of
-    splitting backend invite creation, frontend settings controls, fail-closed
-    load/error behavior, acceptance wording, parity-report truth updates,
-    focused Rust/Vitest coverage, PostgreSQL fallback evidence, and independent
-    review into smaller paperwork-only runs. `POST /api/v1/auth/members/invites`
-    now lets an authenticated local-session admin create a pending local invite
-    for an administered organization on the shipped file-backed baseline; it
-    trims fields, rejects invalid role/email inputs, fails closed for hidden
-    organizations and non-admin memberships, persists audit visibility in the
-    same organization aggregate consumed by `GET /api/v1/auth/members`, and
-    returns `501` instead of silently writing fallback files when PostgreSQL auth
-    metadata is configured. The `#/settings/members` panel exposes the bounded
-    create flow only after inventory loads successfully, posts the administered
-    organization id plus trimmed email/role, updates the matching organization
-    inventory from the response, clears the submitted email, and keeps docs/copy
-    explicit that email delivery, resend/cancel, role editing, member removal,
-    durable PostgreSQL invite creation, and full org/member lifecycle parity
+    Closed one meaningful Task 94c durable auth/admin lifecycle slice instead of
+    splitting PostgreSQL invite creation, audit visibility, settings/auth
+    acceptance wording, parity-report updates, focused SQL-backed route coverage,
+    and independent review into smaller paperwork-only runs. `POST
+    /api/v1/auth/members/invites` now uses PostgreSQL auth metadata when
+    `DATABASE_URL` is configured instead of returning `501`; authenticated
+    admins can create pending invite rows for administered organizations, hidden
+    and non-admin organizations still fail closed without inserts, the response
+    is built from the durable members roster, and `auth.member_invite.created`
+    remains visible through the shipped file-backed audit-events surface with
+    rollback/delete on audit read/write failure. Docs keep the claim bounded:
+    email delivery, resend/cancel, role editing, member removal, durable
+    audit-event storage, broader org/member CRUD, and full lifecycle parity
     remain follow-up work.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture: RED failed first for invalid email `@` with 201 before validation hardening, then passed (1 passed; 361 filtered)
-    - repo-local PostgreSQL preflight: pg_ctl status reported live server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture: passed (5 passed; 357 filtered), including PG-backed roster coverage and 501 file-backed-create fallback evidence
+    - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: RED failed before implementation with 501 vs expected 201 (0 passed; 1 failed; 361 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture --test-threads=1: passed (1 passed; 361 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (5 passed; 357 filtered)
     - cargo fmt --check: passed
-    - npm test -- --run src/App.test.tsx -t "creates a member invite": passed (1 passed; 170 skipped)
-    - npm test -- --run src/App.test.tsx -t "members": passed (4 passed; 167 skipped)
-    - npm test -- --run src/App.test.tsx: passed (171 passed)
-    - npm run build: passed
     - git diff --check: passed
-    - python3 doc/ui truth checks for auth acceptance, settings acceptance, parity-gap report, final audit, and UI copy: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+    - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing the reviewer-found invalid-email validation blocker and adding file-backed audit persistence plus PostgreSQL 501 fallback coverage; reviewer approved the bounded pending local-invite scope with no remaining blocking issues
-  commit: dfa4af0f9fb29c68f8cd8b7d13a73323cad6d55d
-  next_task: task94c
+    code: passed independent read-only final review after coupled docs updates; reviewer approved admin authorization before insert, parameterized SQL, fail-closed hidden/non-admin behavior without inserts, refreshed PostgreSQL member responses, file-backed audit visibility with best-effort rollback on audit failures, and bounded docs with no blocking security or logic issues
+  commit: 5684bc0af62c0e3ee9e8e73d1aab45eaa7d26e89
+  next_task: task94d
 current_task:
-  id: task94c
+  id: task94d
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity on durable state
+  title: Continue auth/admin lifecycle parity beyond invite-create
   status: pending
   summary: >-
-    Task 94b adds a bounded members settings pending local-invite creation flow
-    on top of the existing admin-visible members inventory and local invite
-    redemption baseline, but Task 94 remains partial. The next meaningful
-    closure should continue Phase C with another user- or admin-visible
-    auth/admin blocker that can close with implementation, focused verification,
-    truthful docs, and independent review, such as durable PostgreSQL-backed
-    invite creation, invite resend/cancel/redemption UX, member role editing or
-    removal, richer API-key lifecycle semantics, durable permission-sync
-    behavior, or another bounded settings/admin slice. Do not treat the members
-    panel as full org/member lifecycle parity yet; email delivery, resend/cancel,
-    role editing, member removal, durable invite-create parity, broader admin
-    CRUD, and deeper org/permission durability remain follow-up work.
+    Task 94c removes the PostgreSQL-backed members invite-create 501 fallback
+    and proves bounded durable invite row creation plus shipped audit visibility,
+    but Task 94 remains partial. The next meaningful closure should continue
+    Phase C with another admin-visible auth lifecycle blocker that can close with
+    implementation, focused verification, truthful docs, and independent review,
+    such as invite cancel/resend UX, member role editing/removal, durable
+    audit-event storage for auth/admin mutations, richer org/member CRUD,
+    durable permission-sync behavior, or a pivot to the larger Task 95 external
+    provider sign-in slice if that is the higher-value unblocked release blocker.
+    Do not claim full org/member lifecycle parity yet.
 history:
+  - id: task94c
+    status: done
+    summary: >-
+      Closed one meaningful Task 94c durable auth/admin lifecycle slice instead of
+      splitting PostgreSQL invite creation, audit visibility, settings/auth
+      acceptance wording, parity-report updates, focused SQL-backed route coverage,
+      and independent review into smaller paperwork-only runs. `POST
+      /api/v1/auth/members/invites` now uses PostgreSQL auth metadata when
+      `DATABASE_URL` is configured instead of returning `501`; authenticated
+      admins can create pending invite rows for administered organizations, hidden
+      and non-admin organizations still fail closed without inserts, the response
+      is built from the durable members roster, and `auth.member_invite.created`
+      remains visible through the shipped file-backed audit-events surface with
+      rollback/delete on audit read/write failure. Docs keep the claim bounded:
+      email delivery, resend/cancel, role editing, member removal, durable
+      audit-event storage, broader org/member CRUD, and full lifecycle parity
+      remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: RED failed before implementation with 501 vs expected 201 (0 passed; 1 failed; 361 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture --test-threads=1: passed (1 passed; 361 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (5 passed; 357 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only final review after coupled docs updates; reviewer approved admin authorization before insert, parameterized SQL, fail-closed hidden/non-admin behavior without inserts, refreshed PostgreSQL member responses, file-backed audit visibility with best-effort rollback on audit failures, and bounded docs with no blocking security or logic issues
+    commit: 5684bc0af62c0e3ee9e8e73d1aab45eaa7d26e89
+    next_task: task94d
   - id: task94b
     status: done
     summary: >-
