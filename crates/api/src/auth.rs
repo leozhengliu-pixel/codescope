@@ -7,9 +7,9 @@ use sourcebot_core::{
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
-    BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState, Organization,
-    OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
-    RepositorySyncJob, ReviewAgentRunStatus,
+    ApiKey, BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
+    OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
+    OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRunStatus,
 };
 use sqlx::{postgres::PgPoolOptions, Row};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -67,6 +67,7 @@ pub struct OrganizationAuthMetadataState {
     pub accounts: Vec<LocalAccount>,
     pub memberships: Vec<OrganizationMembership>,
     pub invites: Vec<OrganizationInvite>,
+    pub repo_permissions: Vec<RepositoryPermissionBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -269,12 +270,16 @@ impl PgOrganizationAuthMetadataStore {
             .map(|membership| membership.organization_id.clone())
             .collect::<Vec<_>>();
         let organizations = self.organizations_for_ids(&organization_ids).await?;
+        let repo_permissions = self
+            .repo_permissions_for_organization_ids(&organization_ids)
+            .await?;
 
         Ok(Some(OrganizationAuthMetadataState {
             organizations,
             accounts: vec![account],
             memberships,
             invites: vec![],
+            repo_permissions,
         }))
     }
 
@@ -405,6 +410,143 @@ impl PgOrganizationAuthMetadataStore {
         }))
     }
 
+    pub async fn api_keys_for_user(&self, user_id: &str) -> Result<Vec<ApiKey>> {
+        sqlx::query(
+            "SELECT id, user_id, name, secret_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS revoked_at, repo_scope FROM api_keys WHERE user_id = $1 ORDER BY created_at, id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(api_key_from_row)
+        .collect()
+    }
+
+    pub async fn api_key_by_id(&self, api_key_id: &str) -> Result<Option<ApiKey>> {
+        let row = sqlx::query(
+            "SELECT id, user_id, name, secret_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS revoked_at, repo_scope FROM api_keys WHERE id = $1",
+        )
+        .bind(api_key_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(api_key_from_row).transpose()
+    }
+
+    pub async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey> {
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, name, secret_hash, created_at, revoked_at, repo_scope) VALUES ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7::text[])",
+        )
+        .bind(&api_key.id)
+        .bind(&api_key.user_id)
+        .bind(&api_key.name)
+        .bind(&api_key.secret_hash)
+        .bind(&api_key.created_at)
+        .bind(api_key.revoked_at.as_deref())
+        .bind(&api_key.repo_scope)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(api_key)
+    }
+
+    pub async fn delete_api_key(&self, api_key_id: &str, user_id: &str) -> Result<bool> {
+        Ok(sqlx::query("DELETE FROM api_keys WHERE id = $1 AND user_id = $2")
+            .bind(api_key_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+            == 1)
+    }
+
+    pub async fn revoke_api_key(
+        &self,
+        api_key_id: &str,
+        user_id: &str,
+        revoked_at: &str,
+    ) -> Result<bool> {
+        Ok(sqlx::query(
+            "UPDATE api_keys SET revoked_at = $3::timestamptz WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(api_key_id)
+        .bind(user_id)
+        .bind(revoked_at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            == 1)
+    }
+
+    pub async fn restore_api_key_revocation(
+        &self,
+        api_key_id: &str,
+        user_id: &str,
+        revoked_at: &str,
+    ) -> Result<bool> {
+        Ok(sqlx::query(
+            "UPDATE api_keys SET revoked_at = NULL WHERE id = $1 AND user_id = $2 AND revoked_at = $3::timestamptz",
+        )
+        .bind(api_key_id)
+        .bind(user_id)
+        .bind(revoked_at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected()
+            == 1)
+    }
+
+    pub async fn oauth_clients_for_organizations(
+        &self,
+        organization_ids: &[String],
+    ) -> Result<Vec<OAuthClient>> {
+        if organization_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query(
+            "SELECT id, organization_id, name, client_id, client_secret_hash, redirect_uris, created_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS revoked_at FROM oauth_clients WHERE organization_id = ANY($1::text[]) ORDER BY created_at, id",
+        )
+        .bind(organization_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(oauth_client_from_row)
+        .collect()
+    }
+
+    pub async fn create_oauth_client(&self, client: OAuthClient) -> Result<OAuthClient> {
+        sqlx::query(
+            "INSERT INTO oauth_clients (id, organization_id, name, client_id, client_secret_hash, redirect_uris, created_by_user_id, created_at, revoked_at) VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8::timestamptz, $9::timestamptz)",
+        )
+        .bind(&client.id)
+        .bind(&client.organization_id)
+        .bind(&client.name)
+        .bind(&client.client_id)
+        .bind(&client.client_secret_hash)
+        .bind(&client.redirect_uris)
+        .bind(&client.created_by_user_id)
+        .bind(&client.created_at)
+        .bind(client.revoked_at.as_deref())
+        .execute(&self.pool)
+        .await?;
+
+        Ok(client)
+    }
+
+    pub async fn delete_oauth_client(
+        &self,
+        oauth_client_id: &str,
+        organization_id: &str,
+    ) -> Result<bool> {
+        Ok(sqlx::query("DELETE FROM oauth_clients WHERE id = $1 AND organization_id = $2")
+            .bind(oauth_client_id)
+            .bind(organization_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+            == 1)
+    }
+
     async fn organization_auth_metadata_for_organization_ids(
         &self,
         organization_ids: &[String],
@@ -441,12 +583,16 @@ impl PgOrganizationAuthMetadataStore {
             .map(organization_invite_from_row)
             .collect::<Result<Vec<_>>>()?
         };
+        let repo_permissions = self
+            .repo_permissions_for_organization_ids(organization_ids)
+            .await?;
 
         Ok(OrganizationAuthMetadataState {
             organizations,
             accounts,
             memberships,
             invites,
+            repo_permissions,
         })
     }
 
@@ -477,6 +623,24 @@ impl PgOrganizationAuthMetadataStore {
         .await?
         .into_iter()
         .map(local_account_from_row)
+        .collect()
+    }
+
+    async fn repo_permissions_for_organization_ids(
+        &self,
+        organization_ids: &[String],
+    ) -> Result<Vec<RepositoryPermissionBinding>> {
+        if organization_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query(
+            "SELECT organization_id, repository_id, to_char(synced_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS synced_at FROM repository_permission_bindings WHERE organization_id = ANY($1::text[]) ORDER BY organization_id, repository_id",
+        )
+        .bind(organization_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(repository_permission_binding_from_row)
         .collect()
     }
 }
@@ -534,6 +698,42 @@ fn organization_invite_from_row(row: sqlx::postgres::PgRow) -> Result<Organizati
         expires_at: row.get("expires_at"),
         accepted_by_user_id: row.try_get("accepted_by_user_id")?,
         accepted_at: row.try_get("accepted_at")?,
+    })
+}
+
+fn repository_permission_binding_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<RepositoryPermissionBinding> {
+    Ok(RepositoryPermissionBinding {
+        organization_id: row.get("organization_id"),
+        repository_id: row.get("repository_id"),
+        synced_at: row.get("synced_at"),
+    })
+}
+
+fn api_key_from_row(row: sqlx::postgres::PgRow) -> Result<ApiKey> {
+    Ok(ApiKey {
+        id: row.get("id"),
+        user_id: row.get("user_id"),
+        name: row.get("name"),
+        secret_hash: row.get("secret_hash"),
+        created_at: row.get("created_at"),
+        revoked_at: row.try_get("revoked_at")?,
+        repo_scope: row.get("repo_scope"),
+    })
+}
+
+fn oauth_client_from_row(row: sqlx::postgres::PgRow) -> Result<OAuthClient> {
+    Ok(OAuthClient {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        name: row.get("name"),
+        client_id: row.get("client_id"),
+        client_secret_hash: row.get("client_secret_hash"),
+        redirect_uris: row.get("redirect_uris"),
+        created_by_user_id: row.get("created_by_user_id"),
+        created_at: row.get("created_at"),
+        revoked_at: row.try_get("revoked_at")?,
     })
 }
 
@@ -1526,7 +1726,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -1564,7 +1764,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -1623,7 +1823,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -1778,6 +1978,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pg_org_auth_metadata_user_snapshot_includes_repo_permissions_for_member_organizations() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_tools', 'tools', 'Tools')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_github', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES
+            ('repo_sourcebot_rewrite', 'sourcebot-rewrite', 'main', 'conn_github', 'ready'),
+            ('repo_tools', 'tools', 'main', 'conn_github', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_member', 'member@example.com', 'Member User', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:10:00Z'::timestamptz),
+            ('org_tools', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES
+            ('org_acme', 'repo_sourcebot_rewrite', '2026-04-22T09:15:00Z'::timestamptz),
+            ('org_tools', 'repo_tools', '2026-04-22T09:16:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let snapshot = store
+            .user_organization_auth_metadata("local_user_member")
+            .await
+            .unwrap()
+            .expect("member auth metadata");
+
+        assert_eq!(
+            snapshot.repo_permissions,
+            vec![
+                RepositoryPermissionBinding {
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    synced_at: "2026-04-22T09:15:00Z".into(),
+                },
+                RepositoryPermissionBinding {
+                    organization_id: "org_tools".into(),
+                    repository_id: "repo_tools".into(),
+                    synced_at: "2026-04-22T09:16:00Z".into(),
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn pg_org_auth_metadata_accepts_invite_and_persists_account_membership_and_invite_acceptance() {
         let pool = org_auth_metadata_test_pool().await;
         sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
@@ -1857,6 +2125,235 @@ mod tests {
             "local_user_pending"
         );
         assert_eq!(persisted_invite.get::<String, _>("accepted_at"), "2026-04-22T12:30:00Z");
+    }
+
+    async fn persisted_api_keys(pool: &sqlx::PgPool) -> Vec<ApiKey> {
+        sqlx::query(
+            "SELECT id, user_id, name, secret_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS revoked_at, repo_scope FROM api_keys ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| ApiKey {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            name: row.get("name"),
+            secret_hash: row.get("secret_hash"),
+            created_at: row.get("created_at"),
+            revoked_at: row.get("revoked_at"),
+            repo_scope: row.get("repo_scope"),
+        })
+        .collect()
+    }
+
+    async fn persisted_oauth_clients(pool: &sqlx::PgPool) -> Vec<OAuthClient> {
+        sqlx::query(
+            "SELECT id, organization_id, name, client_id, client_secret_hash, redirect_uris, created_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS revoked_at FROM oauth_clients ORDER BY id",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| OAuthClient {
+            id: row.get("id"),
+            organization_id: row.get("organization_id"),
+            name: row.get("name"),
+            client_id: row.get("client_id"),
+            client_secret_hash: row.get("client_secret_hash"),
+            redirect_uris: row.get("redirect_uris"),
+            created_by_user_id: row.get("created_by_user_id"),
+            created_at: row.get("created_at"),
+            revoked_at: row.get("revoked_at"),
+        })
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn pg_api_key_lists_one_users_keys_from_postgres() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', '$argon2id$admin', '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_other', 'other@example.com', 'Other User', '$argon2id$other', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, name, secret_hash, created_at, revoked_at, repo_scope) VALUES
+            ('api_key_active', 'local_user_admin', 'CLI key', '$argon2id$cli', '2026-04-22T10:00:00Z'::timestamptz, NULL, ARRAY['repo_sourcebot_rewrite']::text[]),
+            ('api_key_revoked', 'local_user_admin', 'Revoked key', '$argon2id$revoked', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-23T00:00:00Z'::timestamptz, ARRAY[]::text[]),
+            ('api_key_other', 'local_user_other', 'Other key', '$argon2id$other-key', '2026-04-22T10:10:00Z'::timestamptz, NULL, ARRAY['repo_other']::text[])",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let keys = store.api_keys_for_user("local_user_admin").await.unwrap();
+
+        assert_eq!(
+            keys,
+            vec![
+                ApiKey {
+                    id: "api_key_active".into(),
+                    user_id: "local_user_admin".into(),
+                    name: "CLI key".into(),
+                    secret_hash: "$argon2id$cli".into(),
+                    created_at: "2026-04-22T10:00:00Z".into(),
+                    revoked_at: None,
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                },
+                ApiKey {
+                    id: "api_key_revoked".into(),
+                    user_id: "local_user_admin".into(),
+                    name: "Revoked key".into(),
+                    secret_hash: "$argon2id$revoked".into(),
+                    created_at: "2026-04-22T10:05:00Z".into(),
+                    revoked_at: Some("2026-04-23T00:00:00Z".into()),
+                    repo_scope: vec![],
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_api_key_authenticates_visible_repo_scope_and_revokes_durably() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ('local_user_member', 'member@example.com', 'Member User', '$argon2id$member', '2026-04-22T09:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id) VALUES ('repo_sourcebot_rewrite', 'sourcebot-rewrite', 'main', 'conn_placeholder')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap_err();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let created = store
+            .create_api_key(ApiKey {
+                id: "api_key_member".into(),
+                user_id: "local_user_member".into(),
+                name: "Member CLI".into(),
+                secret_hash: "$argon2id$member-key".into(),
+                created_at: "2026-04-22T10:00:00Z".into(),
+                revoked_at: None,
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.id, "api_key_member");
+
+        let fetched = store.api_key_by_id("api_key_member").await.unwrap();
+        assert_eq!(fetched, Some(created.clone()));
+
+        store
+            .revoke_api_key("api_key_member", "local_user_member", "2026-04-23T00:00:00Z")
+            .await
+            .unwrap();
+
+        let persisted = persisted_api_keys(&pool).await;
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(persisted[0].revoked_at.as_deref(), Some("2026-04-23T00:00:00Z"));
+    }
+
+    #[tokio::test]
+    async fn pg_oauth_client_lists_visible_org_clients_and_persists_redirect_uris() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_hidden', 'hidden', 'Hidden')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', '$argon2id$admin', '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_other', 'other@example.com', 'Other User', '$argon2id$other', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz),
+            ('org_hidden', 'local_user_other', 'admin', '2026-04-22T09:15:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO oauth_clients (id, organization_id, name, client_id, client_secret_hash, redirect_uris, created_by_user_id, created_at, revoked_at) VALUES
+            ('oauth_client_visible', 'org_acme', 'Acme Web App', 'client_visible', '$argon2id$visible', ARRAY['https://acme.example.com/callback', 'http://localhost:3000/callback']::text[], 'local_user_admin', '2026-04-22T10:00:00Z'::timestamptz, NULL),
+            ('oauth_client_hidden', 'org_hidden', 'Hidden App', 'client_hidden', '$argon2id$hidden', ARRAY['https://hidden.example.com/callback']::text[], 'local_user_other', '2026-04-22T10:05:00Z'::timestamptz, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let visible = store
+            .oauth_clients_for_organizations(&["org_acme".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, "oauth_client_visible");
+        assert_eq!(
+            visible[0].redirect_uris,
+            vec![
+                "https://acme.example.com/callback".to_string(),
+                "http://localhost:3000/callback".to_string(),
+            ]
+        );
+
+        let created = store
+            .create_oauth_client(OAuthClient {
+                id: "oauth_client_created".into(),
+                organization_id: "org_acme".into(),
+                name: "Acme CLI".into(),
+                client_id: "client_created".into(),
+                client_secret_hash: "$argon2id$created".into(),
+                redirect_uris: vec![
+                    "https://cli.acme.example.com/callback".into(),
+                    "http://localhost:4000/callback".into(),
+                ],
+                created_by_user_id: "local_user_admin".into(),
+                created_at: "2026-04-22T11:00:00Z".into(),
+                revoked_at: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(created.id, "oauth_client_created");
+
+        let persisted = persisted_oauth_clients(&pool).await;
+        assert_eq!(persisted.len(), 3);
+        assert_eq!(persisted[0].id, "oauth_client_created");
+        assert_eq!(persisted[2].id, "oauth_client_visible");
+        assert!(persisted.iter().any(|client| {
+            client.id == "oauth_client_created"
+                && client.redirect_uris
+                    == vec![
+                        "https://cli.acme.example.com/callback".to_string(),
+                        "http://localhost:4000/callback".to_string(),
+                    ]
+        }));
     }
 
     #[tokio::test]

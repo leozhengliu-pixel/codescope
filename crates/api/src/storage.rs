@@ -321,8 +321,8 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7, 8].into_iter().collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 migration versions"
+            [1, 2, 3, 4, 5, 6, 7, 8, 9].into_iter().collect(),
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -350,6 +350,8 @@ mod tests {
                 "0007_delivery_attempts.up.sql".to_string(),
                 "0008_local_account_password_hash.down.sql".to_string(),
                 "0008_local_account_password_hash.up.sql".to_string(),
+                "0009_api_key_oauth_client_metadata.down.sql".to_string(),
+                "0009_api_key_oauth_client_metadata.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -601,6 +603,59 @@ mod tests {
             assert!(
                 !task05b6_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0007: {unexpected_snippet}"
+            );
+        }
+
+        let task87b2_up_migration = std::fs::read_to_string(
+            migration_dir.join("0008_local_account_password_hash.up.sql"),
+        )
+        .unwrap();
+
+        for expected_snippet in [
+            "ALTER TABLE local_accounts",
+            "ADD COLUMN password_hash TEXT",
+        ] {
+            assert!(
+                task87b2_up_migration.contains(expected_snippet),
+                "missing task87b2 migration snippet: {expected_snippet}"
+            );
+        }
+
+        for unexpected_snippet in [
+            "CREATE TABLE api_keys",
+            "CREATE TABLE oauth_clients",
+            "CREATE TABLE analytics_events",
+        ] {
+            assert!(
+                !task87b2_up_migration.contains(unexpected_snippet),
+                "unexpected out-of-scope table present in 0008: {unexpected_snippet}"
+            );
+        }
+
+        let task87c_up_migration = std::fs::read_to_string(
+            migration_dir.join("0009_api_key_oauth_client_metadata.up.sql"),
+        )
+        .unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE api_keys",
+            "id TEXT PRIMARY KEY",
+            "user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+            "name TEXT NOT NULL",
+            "secret_hash TEXT NOT NULL",
+            "created_at TIMESTAMPTZ NOT NULL",
+            "revoked_at TIMESTAMPTZ",
+            "repo_scope TEXT[] NOT NULL",
+            "CREATE TABLE oauth_clients",
+            "organization_id TEXT NOT NULL REFERENCES organizations(id)",
+            "client_id TEXT NOT NULL UNIQUE",
+            "client_secret_hash TEXT NOT NULL",
+            "redirect_uris TEXT[] NOT NULL",
+            "created_by_user_id TEXT NOT NULL REFERENCES local_accounts(id)",
+        ] {
+            assert!(
+                task87c_up_migration.contains(expected_snippet),
+                "missing task87c migration snippet: {expected_snippet}"
             );
         }
     }

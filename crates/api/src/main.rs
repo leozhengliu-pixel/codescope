@@ -333,6 +333,7 @@ fn organization_state_from_auth_metadata(
         accounts: metadata.accounts,
         memberships: metadata.memberships,
         invites: metadata.invites,
+        repo_permissions: metadata.repo_permissions,
         ..OrganizationState::default()
     }
 }
@@ -1289,24 +1290,40 @@ async fn authenticate_api_key_record(
     headers: &HeaderMap,
 ) -> Result<AuthenticatedApiKeyRecord, StatusCode> {
     let (api_key_id, api_key_secret) = parse_bearer_token_id_secret(headers)?;
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let api_key = if let Some(api_key) = organization_state
-        .api_keys
-        .iter()
-        .find(|api_key| api_key.id == api_key_id)
-    {
-        api_key
+    let (api_key, organization_state) = if let Some(store) = &state.organization_auth_metadata_store {
+        let api_key = if let Some(api_key) = store
+            .api_key_by_id(&api_key_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        {
+            api_key
+        } else {
+            let _ = verify_secret_or_burn_failure(&api_key_secret, None);
+            return Err(StatusCode::UNAUTHORIZED);
+        };
+        let organization_state = user_auth_organization_state(state, &api_key.user_id)
+            .await?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        (api_key, organization_state)
     } else {
-        let _ = verify_secret_or_burn_failure(&api_key_secret, None);
-        return Err(StatusCode::UNAUTHORIZED);
+        let organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let api_key = if let Some(api_key) = organization_state
+            .api_keys
+            .iter()
+            .find(|api_key| api_key.id == api_key_id)
+        {
+            api_key.clone()
+        } else {
+            let _ = verify_secret_or_burn_failure(&api_key_secret, None);
+            return Err(StatusCode::UNAUTHORIZED);
+        };
+        (api_key, organization_state)
     };
-    if !api_key_record_has_required_auth_fields(api_key, &api_key_id)
-        || api_key.revoked_at.is_some()
-    {
+    if !api_key_record_has_required_auth_fields(&api_key, &api_key_id) || api_key.revoked_at.is_some() {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -1671,17 +1688,26 @@ async fn list_authenticated_api_keys(
     headers: HeaderMap,
 ) -> Result<Json<Vec<ApiKeyListItemResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    Ok(Json(
-        organization_state
+    let api_keys = if let Some(store) = &state.organization_auth_metadata_store {
+        store
+            .api_keys_for_user(&session.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .api_keys
             .into_iter()
             .filter(|api_key| api_key.user_id == session.user_id)
+            .collect()
+    };
+
+    Ok(Json(
+        api_keys
+            .into_iter()
             .map(|api_key| ApiKeyListItemResponse {
                 id: api_key.id,
                 user_id: api_key.user_id,
@@ -1761,13 +1787,16 @@ async fn list_authenticated_audit_events(
     headers: HeaderMap,
 ) -> Result<Json<Vec<AuditEventListItemResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
+    let auth_organization_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let visible_organization_ids =
+        visible_organization_ids_for_user(&auth_organization_state, &session.user_id);
     let organization_state = state
         .organization_store
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let visible_organization_ids =
-        visible_organization_ids_for_user(&organization_state, &session.user_id);
 
     Ok(Json(
         organization_state
@@ -1839,19 +1868,22 @@ async fn list_authenticated_oauth_clients(
     headers: HeaderMap,
 ) -> Result<Json<Vec<OAuthClientListItemResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let visible_organization_ids =
-        visible_organization_ids_for_user(&organization_state, &session.user_id);
+    let organization_state = admin_auth_organization_state(&state, &session.user_id).await?;
+    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
+    let oauth_clients = if let Some(store) = &state.organization_auth_metadata_store {
+        let organization_ids = admin_organization_ids.iter().cloned().collect::<Vec<_>>();
+        store
+            .oauth_clients_for_organizations(&organization_ids)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        organization_state.oauth_clients.clone()
+    };
 
     Ok(Json(
-        organization_state
-            .oauth_clients
+        oauth_clients
             .into_iter()
-            .filter(|client| visible_organization_ids.contains(&client.organization_id))
+            .filter(|client| admin_organization_ids.contains(&client.organization_id))
             .map(oauth_client_list_item_response)
             .collect(),
     ))
@@ -2174,11 +2206,7 @@ async fn create_authenticated_oauth_client(
 ) -> Result<(StatusCode, Json<CreateOAuthClientResponse>), StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-    let mut organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut organization_state = admin_auth_organization_state(&state, &session.user_id).await?;
     let visible_organization_ids =
         visible_organization_ids_for_user(&organization_state, &session.user_id);
     let organization_id = payload.organization_id.trim();
@@ -2224,7 +2252,7 @@ async fn create_authenticated_oauth_client(
         .to_string();
     let created_at = current_timestamp();
 
-    organization_state.oauth_clients.push(OAuthClient {
+    let client = OAuthClient {
         id: id.clone(),
         organization_id: organization_id.to_string(),
         name: name.to_string(),
@@ -2234,12 +2262,56 @@ async fn create_authenticated_oauth_client(
         created_by_user_id: session.user_id.clone(),
         created_at: created_at.clone(),
         revoked_at: None,
+    };
+    let audit_metadata = serde_json::json!({
+        "name": name,
+        "redirect_uris": redirect_uris.clone(),
     });
-    state
-        .organization_store
-        .store_organization_state(organization_state)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(store) = &state.organization_auth_metadata_store {
+        store
+            .create_oauth_client(client)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let mut persisted_organization_state = match state.organization_store.organization_state().await {
+            Ok(state) => state,
+            Err(_) => {
+                let _ = store.delete_oauth_client(&id, organization_id).await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        append_oauth_client_audit_event(
+            &mut persisted_organization_state,
+            &session.user_id,
+            organization_id,
+            &id,
+            &created_at,
+            audit_metadata.clone(),
+        );
+        if let Err(_) = state
+            .organization_store
+            .store_organization_state(persisted_organization_state)
+            .await
+        {
+            let _ = store.delete_oauth_client(&id, organization_id).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    } else {
+        organization_state.oauth_clients.push(client);
+        append_oauth_client_audit_event(
+            &mut organization_state,
+            &session.user_id,
+            organization_id,
+            &id,
+            &created_at,
+            audit_metadata,
+        );
+        state
+            .organization_store
+            .store_organization_state(organization_state)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -2879,12 +2951,17 @@ fn audit_event_organization_ids_for_api_key(
     }
 
     let mut organization_ids: Vec<String> = if repo_scope.is_empty() {
-        organization_state
+        let scoped_ids: Vec<String> = organization_state
             .repo_permissions
             .iter()
             .filter(|binding| visible_organization_ids.contains(&binding.organization_id))
             .map(|binding| binding.organization_id.clone())
-            .collect()
+            .collect();
+        if scoped_ids.is_empty() {
+            visible_organization_ids.into_iter().collect()
+        } else {
+            scoped_ids
+        }
     } else {
         let repo_scope: HashSet<&str> = repo_scope.iter().map(String::as_str).collect();
         organization_state
@@ -3034,6 +3111,36 @@ fn append_api_key_audit_event(
     }
 }
 
+fn append_oauth_client_audit_event(
+    organization_state: &mut OrganizationState,
+    user_id: &str,
+    organization_id: &str,
+    target_id: &str,
+    occurred_at: &str,
+    metadata: serde_json::Value,
+) {
+    organization_state.audit_events.push(AuditEvent {
+        id: format!(
+            "audit_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: organization_id.to_string(),
+        actor: AuditActor {
+            user_id: Some(user_id.to_string()),
+            api_key_id: None,
+        },
+        action: "auth.oauth_client.created".into(),
+        target_type: "oauth_client".into(),
+        target_id: target_id.to_string(),
+        occurred_at: occurred_at.to_string(),
+        metadata,
+    });
+}
+
 async fn create_authenticated_api_key(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3041,11 +3148,9 @@ async fn create_authenticated_api_key(
 ) -> Result<(StatusCode, Json<CreateApiKeyResponse>), StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-    let mut organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut organization_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let visible_repo_ids: HashSet<String> =
         visible_repo_ids_for_user(&organization_state, &session.user_id)
             .into_iter()
@@ -3082,7 +3187,7 @@ async fn create_authenticated_api_key(
         .to_string();
     let created_at = current_timestamp();
 
-    organization_state.api_keys.push(sourcebot_models::ApiKey {
+    let api_key = sourcebot_models::ApiKey {
         id: id.clone(),
         user_id: session.user_id.clone(),
         name: name.to_string(),
@@ -3090,25 +3195,62 @@ async fn create_authenticated_api_key(
         created_at: created_at.clone(),
         revoked_at: None,
         repo_scope: repo_scope.clone(),
-    });
-    append_api_key_audit_event(
-        &mut organization_state,
-        &session.user_id,
-        &id,
-        &repo_scope,
-        "auth.api_key.created",
-        &id,
-        &created_at,
-        serde_json::json!({
-            "name": name,
-            "repo_scope": repo_scope,
-        }),
-    );
-    state
-        .organization_store
-        .store_organization_state(organization_state)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    };
+    if let Some(store) = &state.organization_auth_metadata_store {
+        store
+            .create_api_key(api_key)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let mut persisted_organization_state = match state.organization_store.organization_state().await {
+            Ok(state) => state,
+            Err(_) => {
+                let _ = store.delete_api_key(&id, &session.user_id).await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        append_api_key_audit_event(
+            &mut persisted_organization_state,
+            &session.user_id,
+            &id,
+            &repo_scope,
+            "auth.api_key.created",
+            &id,
+            &created_at,
+            serde_json::json!({
+                "name": name,
+                "repo_scope": repo_scope,
+            }),
+        );
+        if let Err(_) = state
+            .organization_store
+            .store_organization_state(persisted_organization_state)
+            .await
+        {
+            let _ = store.delete_api_key(&id, &session.user_id).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    } else {
+        organization_state.api_keys.push(api_key);
+        append_api_key_audit_event(
+            &mut organization_state,
+            &session.user_id,
+            &id,
+            &repo_scope,
+            "auth.api_key.created",
+            &id,
+            &created_at,
+            serde_json::json!({
+                "name": name,
+                "repo_scope": repo_scope,
+            }),
+        );
+        state
+            .organization_store
+            .store_organization_state(organization_state)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -3131,44 +3273,97 @@ async fn revoke_authenticated_api_key(
 ) -> Result<StatusCode, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-    let mut organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let Some(api_key) = organization_state
-        .api_keys
-        .iter_mut()
-        .find(|api_key| api_key.id == api_key_id && api_key.user_id == session.user_id)
-    else {
-        return Err(StatusCode::NOT_FOUND);
-    };
-    if api_key.revoked_at.is_some() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
     let revoked_at = current_timestamp();
-    let revoked_key_id = api_key.id.clone();
-    let revoked_key_name = api_key.name.clone();
-    let revoked_repo_scope = api_key.repo_scope.clone();
-    api_key.revoked_at = Some(revoked_at.clone());
-    append_api_key_audit_event(
-        &mut organization_state,
-        &session.user_id,
-        &revoked_key_id,
-        &revoked_repo_scope,
-        "auth.api_key.revoked",
-        &revoked_key_id,
-        &revoked_at,
-        serde_json::json!({
-            "name": revoked_key_name,
-        }),
-    );
-    state
-        .organization_store
-        .store_organization_state(organization_state)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if let Some(store) = &state.organization_auth_metadata_store {
+        let Some(api_key) = store
+            .api_key_by_id(&api_key_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        if api_key.user_id != session.user_id || api_key.revoked_at.is_some() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let revoked = store
+            .revoke_api_key(&api_key_id, &session.user_id, &revoked_at)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if !revoked {
+            return Err(StatusCode::NOT_FOUND);
+        }
+
+        let mut organization_state = match state.organization_store.organization_state().await {
+            Ok(state) => state,
+            Err(_) => {
+                let _ = store
+                    .restore_api_key_revocation(&api_key.id, &session.user_id, &revoked_at)
+                    .await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        append_api_key_audit_event(
+            &mut organization_state,
+            &session.user_id,
+            &api_key.id,
+            &api_key.repo_scope,
+            "auth.api_key.revoked",
+            &api_key.id,
+            &revoked_at,
+            serde_json::json!({
+                "name": api_key.name,
+            }),
+        );
+        if let Err(_) = state
+            .organization_store
+            .store_organization_state(organization_state)
+            .await
+        {
+            let _ = store
+                .restore_api_key_revocation(&api_key.id, &session.user_id, &revoked_at)
+                .await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    } else {
+        let mut organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let Some(api_key) = organization_state
+            .api_keys
+            .iter_mut()
+            .find(|api_key| api_key.id == api_key_id && api_key.user_id == session.user_id)
+        else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        if api_key.revoked_at.is_some() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+
+        let revoked_key_id = api_key.id.clone();
+        let revoked_key_name = api_key.name.clone();
+        let revoked_repo_scope = api_key.repo_scope.clone();
+        api_key.revoked_at = Some(revoked_at.clone());
+        append_api_key_audit_event(
+            &mut organization_state,
+            &session.user_id,
+            &revoked_key_id,
+            &revoked_repo_scope,
+            "auth.api_key.revoked",
+            &revoked_key_id,
+            &revoked_at,
+            serde_json::json!({
+                "name": revoked_key_name,
+            }),
+        );
+        state
+            .organization_store
+            .store_organization_state(organization_state)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -3629,11 +3824,9 @@ async fn visible_repo_ids_for_user_id(
     state: &AppState,
     user_id: &str,
 ) -> Result<HashSet<String>, StatusCode> {
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let organization_state = user_auth_organization_state(state, user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
     Ok(visible_repo_ids_for_user(&organization_state, user_id)
         .into_iter()
@@ -4868,7 +5061,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, repository_permission_bindings, repositories, connections, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -5790,6 +5983,886 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_api_key_routes_use_postgres_metadata_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let member_password_hash = Argon2::default()
+            .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&member_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_pg_visible', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_pg_visible', 'pg-visible', 'main', 'conn_pg_visible', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_pg_visible', '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let file_backed_visibility_state = serde_json::to_vec(&OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "local_user_member".into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-22T09:05:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: "local_user_member".into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                password_hash: None,
+                created_at: "2026-04-22T09:00:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_pg_visible".into(),
+                synced_at: "2026-04-22T09:06:00Z".into(),
+            }],
+            audit_events: vec![AuditEvent {
+                id: "audit_existing_api_key_event".into(),
+                organization_id: "org_acme".into(),
+                actor: AuditActor {
+                    user_id: Some("local_user_member".into()),
+                    api_key_id: None,
+                },
+                action: "auth.api_key.seeded".into(),
+                target_type: "api_key".into(),
+                target_id: "seeded_key".into(),
+                occurred_at: "2026-04-22T09:04:00Z".into(),
+                metadata: serde_json::json!({"seeded": true}),
+            }],
+            ..OrganizationState::default()
+        })
+        .unwrap();
+        let organization_state_path = unique_test_path("pg-auth-api-keys-empty-orgs");
+        fs::write(&organization_state_path, &file_backed_visibility_state).unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-api-keys-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-api-keys-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "member@example.com".into(),
+                            password: "api-key-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "Postgres Key".into(),
+                            repo_scope: vec![],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_payload: CreateApiKeyResponseBody = read_json(create_response).await;
+
+        let list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let list_payload: Vec<ApiKeyListItemResponseBody> = read_json(list_response).await;
+        assert_eq!(list_payload.len(), 1);
+        assert_eq!(list_payload[0].id, create_payload.id);
+        assert_eq!(list_payload[0].name, "Postgres Key");
+        assert!(list_payload[0].revoked_at.is_none());
+
+        let created_audit_events_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created_audit_events_response.status(), StatusCode::OK);
+        let created_audit_events: Vec<AuditEventListItemResponseBody> =
+            read_json(created_audit_events_response).await;
+        assert_eq!(created_audit_events.len(), 2);
+        assert!(created_audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.action == "auth.api_key.seeded"
+                && event.target_id == "seeded_key"
+        }));
+        let created_event = created_audit_events
+            .iter()
+            .find(|event| event.action == "auth.api_key.created")
+            .expect("postgres-backed create audit event present");
+        assert_eq!(created_event.organization_id, "org_acme");
+        assert_eq!(created_event.target_type, "api_key");
+        assert_eq!(created_event.target_id, create_payload.id);
+        assert_eq!(
+            created_event.actor.user_id.as_deref(),
+            Some("local_user_member")
+        );
+        assert_eq!(
+            created_event.actor.api_key_id.as_deref(),
+            Some(create_payload.id.as_str())
+        );
+        assert_eq!(
+            created_event.metadata,
+            serde_json::json!({
+                "name": "Postgres Key",
+                "repo_scope": []
+            })
+        );
+
+        let reloaded_state_path = unique_test_path("pg-auth-api-keys-empty-orgs-reloaded");
+        fs::write(
+            &reloaded_state_path,
+            fs::read(&organization_state_path).unwrap(),
+        )
+        .unwrap();
+        let reloaded_app = test_app_with_config(postgres_auth_metadata_test_config(
+            &reloaded_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+        let reloaded_list_response = reloaded_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reloaded_list_response.status(), StatusCode::OK);
+        let reloaded_list_payload: Vec<ApiKeyListItemResponseBody> =
+            read_json(reloaded_list_response).await;
+        assert_eq!(reloaded_list_payload.len(), 1);
+        assert_eq!(reloaded_list_payload[0].id, create_payload.id);
+
+        let revoke_response = reloaded_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/auth/api-keys/{}/revoke", create_payload.id))
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoke_response.status(), StatusCode::NO_CONTENT);
+
+        let persisted_revoked_at: Option<String> = sqlx::query_scalar(
+            "SELECT CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END FROM api_keys WHERE id = $1",
+        )
+        .bind(&create_payload.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(persisted_revoked_at.is_some());
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&reloaded_state_path).unwrap()).unwrap();
+        assert!(persisted_file.api_keys.is_empty());
+        assert_eq!(persisted_file.audit_events.len(), 3);
+        assert!(persisted_file
+            .audit_events
+            .iter()
+            .any(|event| event.action == "auth.api_key.seeded" && event.target_id == "seeded_key"));
+        assert!(persisted_file
+            .audit_events
+            .iter()
+            .any(|event| event.action == "auth.api_key.created" && event.target_id == create_payload.id));
+        assert!(persisted_file
+            .audit_events
+            .iter()
+            .any(|event| event.action == "auth.api_key.revoked" && event.target_id == create_payload.id));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(reloaded_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_routes_allow_scoped_repo_create_with_postgres_metadata_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let member_password_hash = Argon2::default()
+            .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_github_scoped_key', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_scoped_api_key', 'scoped-api-key', 'main', 'conn_github_scoped_key', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&member_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_scoped_api_key', '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-api-keys-scoped-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-api-keys-scoped-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-api-keys-scoped-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "member@example.com".into(),
+                            password: "api-key-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let create_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/api-keys")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateApiKeyRequestBody {
+                            name: "Postgres Scoped Key".into(),
+                            repo_scope: vec!["repo_scoped_api_key".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_payload: CreateApiKeyResponseBody = read_json(create_response).await;
+        assert_eq!(create_payload.repo_scope, vec!["repo_scoped_api_key".to_string()]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_unscoped_visibility_ignores_stale_file_permissions_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let member_password_hash = Argon2::default()
+            .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let api_key_secret = "pg-unscoped-secret";
+        let api_key_secret_hash = Argon2::default()
+            .hash_password(api_key_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_pg_visible', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_pg_visible', 'pg-visible', 'main', 'conn_pg_visible', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&member_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_pg_visible', '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, name, secret_hash, created_at, revoked_at, repo_scope) VALUES ($1, $2, $3, $4, $5::timestamptz, NULL, ARRAY[]::text[])",
+        )
+        .bind("api_key_pg_unscoped")
+        .bind("local_user_member")
+        .bind("Postgres Unscoped")
+        .bind(&api_key_secret_hash)
+        .bind("2026-04-22T10:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-api-key-unscoped-stale-orgs");
+        let stale_file_state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: "local_user_member".into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-22T09:05:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: "local_user_member".into(),
+                email: "member@example.com".into(),
+                name: "Member User".into(),
+                password_hash: None,
+                created_at: "2026-04-22T09:00:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_file_only_hidden".into(),
+                synced_at: "2026-04-22T09:07:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&stale_file_state).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-api-key-unscoped-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-api-key-unscoped-sessions-unused");
+        let config = postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        );
+        let app_state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_local_session_store(config.local_session_state_path.clone(), config.database_url.as_deref()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+
+        let visible_repo_ids = visible_search_repo_ids_for_request(
+            &app_state,
+            &bearer_headers(&format!("Bearer api_key_pg_unscoped:{api_key_secret}")),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            visible_repo_ids,
+            HashSet::from(["repo_pg_visible".to_string()])
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_api_key_bearer_uses_postgres_metadata_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_github_scoped_key', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_scoped_api_key', 'scoped-api-key', 'main', 'conn_github_scoped_key', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ('local_user_member', 'member@example.com', 'Member User', NULL, '2026-04-22T09:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_scoped_api_key', '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let api_key_secret = "pg-secret";
+        let api_key_secret_hash = Argon2::default()
+            .hash_password(api_key_secret.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            "INSERT INTO api_keys (id, user_id, name, secret_hash, created_at, revoked_at, repo_scope) VALUES ($1, $2, $3, $4, $5::timestamptz, NULL, $6::text[])",
+        )
+        .bind("api_key_pg_bearer")
+        .bind("local_user_member")
+        .bind("Postgres Bearer")
+        .bind(&api_key_secret_hash)
+        .bind("2026-04-22T10:00:00Z")
+        .bind(vec!["repo_scoped_api_key".to_string()])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-api-key-bearer-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-api-key-bearer-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-api-key-bearer-sessions-unused");
+        let config = postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        );
+        let app_state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_local_session_store(config.local_session_state_path.clone(), config.database_url.as_deref()),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+
+        let authenticated = authenticate_api_key_record(
+            &app_state,
+            &bearer_headers(&format!("Bearer api_key_pg_bearer:{api_key_secret}")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(authenticated.api_key_id, "api_key_pg_bearer");
+        assert_eq!(authenticated.user_id, "local_user_member");
+        assert_eq!(
+            authenticated.repo_scope,
+            vec!["repo_scoped_api_key".to_string()]
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let admin_password_hash = Argon2::default()
+            .hash_password(b"oauth-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_admin")
+        .bind("admin@example.com")
+        .bind("Admin User")
+        .bind(&admin_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-oauth-clients-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-oauth-clients-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-oauth-clients-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "oauth-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "org_acme".into(),
+                            name: "Acme Web".into(),
+                            redirect_uris: vec!["https://acme.example.com/callback".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_payload: CreateOAuthClientResponseBody = read_json(create_response).await;
+
+        let list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let list_payload: Vec<OAuthClientListItemResponseBody> = read_json(list_response).await;
+        assert_eq!(list_payload.len(), 1);
+        assert_eq!(list_payload[0].id, create_payload.id);
+        assert_eq!(list_payload[0].organization_id, "org_acme");
+
+        let persisted_redirect_uris: Vec<String> = sqlx::query_scalar(
+            "SELECT redirect_uris FROM oauth_clients WHERE id = $1",
+        )
+        .bind(&create_payload.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            persisted_redirect_uris,
+            vec!["https://acme.example.com/callback".to_string()]
+        );
+
+        let audit_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(audit_response.status(), StatusCode::OK);
+        let audit_payload: Vec<AuditEventListItemResponse> = read_json(audit_response).await;
+        assert_eq!(audit_payload.len(), 1);
+        assert_eq!(audit_payload[0].organization_id, "org_acme");
+        assert_eq!(audit_payload[0].action, "auth.oauth_client.created");
+        assert_eq!(audit_payload[0].target_type, "oauth_client");
+        assert_eq!(audit_payload[0].target_id, create_payload.id);
+        assert_eq!(
+            audit_payload[0].metadata,
+            serde_json::json!({
+                "name": "Acme Web",
+                "redirect_uris": ["https://acme.example.com/callback"],
+            })
+        );
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted_file.oauth_clients.is_empty());
+        assert_eq!(persisted_file.audit_events.len(), 1);
+        assert_eq!(persisted_file.audit_events[0].organization_id, "org_acme");
+        assert_eq!(persisted_file.audit_events[0].action, "auth.oauth_client.created");
+        assert_eq!(persisted_file.audit_events[0].target_type, "oauth_client");
+        assert_eq!(persisted_file.audit_events[0].target_id, create_payload.id);
+        assert_eq!(
+            persisted_file.audit_events[0].metadata,
+            serde_json::json!({
+                "name": "Acme Web",
+                "redirect_uris": ["https://acme.example.com/callback"],
+            })
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_hide_postgres_metadata_for_viewer_only_memberships_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let viewer_password_hash = Argon2::default()
+            .hash_password(b"oauth-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_viewer")
+        .bind("viewer@example.com")
+        .bind("Viewer User")
+        .bind(&viewer_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_viewer', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO oauth_clients (id, organization_id, name, client_id, client_secret_hash, redirect_uris, created_by_user_id, created_at, revoked_at) VALUES ('oauth_client_visible', 'org_acme', 'Acme Web App', 'client_visible', '$argon2id$visible', ARRAY['https://acme.example.com/callback']::text[], 'local_user_viewer', '2026-04-22T10:00:00Z'::timestamptz, NULL)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-oauth-clients-viewer-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-oauth-clients-viewer-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-oauth-clients-viewer-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "viewer@example.com".into(),
+                            password: "oauth-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let list_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let list_payload: Vec<OAuthClientListItemResponseBody> = read_json(list_response).await;
+        assert!(list_payload.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn invite_redeem_persists_postgres_backed_account_membership_and_invite_acceptance_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
@@ -6427,6 +7500,14 @@ mod tests {
             Self {
                 state: std::sync::Mutex::new(state),
                 fail_reads: false,
+                fail_writes,
+            }
+        }
+
+        fn unreadable(state: OrganizationState, fail_writes: bool) -> Self {
+            Self {
+                state: std::sync::Mutex::new(state),
+                fail_reads: true,
                 fail_writes,
             }
         }
@@ -10044,11 +11125,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auth_oauth_clients_lists_only_clients_for_organizations_visible_to_current_user_and_hides_secret_hash(
+    async fn auth_oauth_clients_lists_only_clients_for_admin_visible_organizations_and_hides_secret_hash(
     ) {
         let organization_state_path = unique_test_path("auth-oauth-clients-orgs");
         let local_session_state_path = unique_test_path("auth-oauth-clients-sessions");
-        let user_id = "local_user_member";
+        let user_id = "local_user_admin";
         let authorization =
             seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
         let state = OrganizationState {
@@ -10067,13 +11148,13 @@ mod tests {
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),
                 user_id: user_id.into(),
-                role: OrganizationRole::Viewer,
+                role: OrganizationRole::Admin,
                 joined_at: "2026-04-24T00:00:00Z".into(),
             }],
             accounts: vec![LocalAccount {
                 id: user_id.into(),
-                email: "member@example.com".into(),
-                name: "Member User".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
                 password_hash: None,
                 created_at: "2026-04-23T23:55:00Z".into(),
             }],
@@ -19013,6 +20094,242 @@ mod tests {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_api_key_create_rolls_back_when_audit_persistence_fails() {
+        let pool = pg_local_session_test_pool().await;
+        let password_hash = Argon2::default()
+            .hash_password(b"member-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-api-key-create-rollback-orgs");
+        let bootstrap_state_path = unique_test_path("pg-api-key-create-rollback-bootstrap");
+        let local_session_state_path = unique_test_path("pg-api-key-create-rollback-sessions");
+        let config = postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        );
+        let mut state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+        state.organization_store = Arc::new(FailingOrganizationStore::readable(
+            OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                }],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "local_user_member".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-22T09:05:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: "local_user_member".into(),
+                    email: "member@example.com".into(),
+                    name: "Member User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-22T09:00:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            },
+            true,
+        ));
+        state
+            .local_sessions
+            .store_local_session(LocalSession {
+                id: "seeded_pg_create_session".into(),
+                user_id: "local_user_member".into(),
+                secret_hash: Argon2::default()
+                    .hash_password(
+                        b"secret_for_local_user_member",
+                        &SaltString::generate(&mut OsRng),
+                    )
+                    .unwrap()
+                    .to_string(),
+                created_at: "2026-04-22T09:10:00Z".into(),
+            })
+            .await
+            .unwrap();
+
+        let response = create_authenticated_api_key(
+            State(state),
+            bearer_headers("Bearer seeded_pg_create_session:secret_for_local_user_member"),
+            Json(CreateApiKeyRequest {
+                name: "Rollback Key".into(),
+                repo_scope: vec![],
+            }),
+        )
+        .await;
+
+        assert!(matches!(response, Err(StatusCode::INTERNAL_SERVER_ERROR)));
+        let persisted_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM api_keys WHERE user_id = 'local_user_member' AND name = 'Rollback Key'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted_count, 0);
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_api_key_revoke_rolls_back_when_audit_persistence_fails() {
+        let pool = pg_local_session_test_pool().await;
+        let password_hash = Argon2::default()
+            .hash_password(b"member-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        let api_key_secret = "pg-rollback-secret";
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-api-key-revoke-rollback-orgs");
+        let bootstrap_state_path = unique_test_path("pg-api-key-revoke-rollback-bootstrap");
+        let local_session_state_path = unique_test_path("pg-api-key-revoke-rollback-sessions");
+        let config = postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        );
+        let mut state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+        state.organization_store = Arc::new(FailingOrganizationStore::readable(
+            OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                }],
+                memberships: vec![OrganizationMembership {
+                    organization_id: "org_acme".into(),
+                    user_id: "local_user_member".into(),
+                    role: OrganizationRole::Viewer,
+                    joined_at: "2026-04-22T09:05:00Z".into(),
+                }],
+                accounts: vec![LocalAccount {
+                    id: "local_user_member".into(),
+                    email: "member@example.com".into(),
+                    name: "Member User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-22T09:00:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            },
+            true,
+        ));
+        state
+            .local_sessions
+            .store_local_session(LocalSession {
+                id: "seeded_pg_revoke_session".into(),
+                user_id: "local_user_member".into(),
+                secret_hash: Argon2::default()
+                    .hash_password(
+                        b"secret_for_local_user_member",
+                        &SaltString::generate(&mut OsRng),
+                    )
+                    .unwrap()
+                    .to_string(),
+                created_at: "2026-04-22T09:10:00Z".into(),
+            })
+            .await
+            .unwrap();
+        let api_key = state
+            .organization_auth_metadata_store
+            .as_ref()
+            .unwrap()
+            .create_api_key(seeded_api_key(
+                "api_key_pg_revoke_rollback",
+                "local_user_member",
+                "Rollback Key",
+                api_key_secret,
+                &[],
+            ))
+            .await
+            .unwrap();
+
+        let response = revoke_authenticated_api_key(
+            State(state),
+            bearer_headers("Bearer seeded_pg_revoke_session:secret_for_local_user_member"),
+            Path(api_key.id.clone()),
+        )
+        .await;
+
+        assert!(matches!(response, Err(StatusCode::INTERNAL_SERVER_ERROR)));
+        let persisted_revoked_at: Option<String> = sqlx::query_scalar(
+            "SELECT CASE WHEN revoked_at IS NULL THEN NULL ELSE to_char(revoked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END FROM api_keys WHERE id = $1",
+        )
+        .bind(&api_key.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted_revoked_at, None);
+        pool.close().await;
     }
 
     #[tokio::test]
