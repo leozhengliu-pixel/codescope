@@ -1868,10 +1868,6 @@ async fn create_authenticated_members_invite(
     Json(payload): Json<CreateMembersInviteRequest>,
 ) -> Result<(StatusCode, Json<MembersOrganizationResponse>), StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    if state.organization_auth_metadata_store.is_some() {
-        return Err(StatusCode::NOT_IMPLEMENTED);
-    }
-
     let organization_id = payload.organization_id.trim();
     let email = payload.email.trim();
     let role = match payload.role.trim() {
@@ -1886,6 +1882,103 @@ async fn create_authenticated_members_invite(
         || email.chars().any(char::is_whitespace)
     {
         return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(store) = &state.organization_auth_metadata_store {
+        let admin_metadata = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let organization_state = organization_state_from_auth_metadata(admin_metadata);
+        if !user_is_organization_admin(&organization_state, &session.user_id, organization_id) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        let created_at_time = OffsetDateTime::now_utc();
+        let created_at = created_at_time
+            .format(&Rfc3339)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let expires_at = (created_at_time + time::Duration::days(7))
+            .format(&Rfc3339)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let invite = OrganizationInvite {
+            id: format!(
+                "invite_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id: organization_id.to_string(),
+            email: email.to_string(),
+            role,
+            invited_by_user_id: session.user_id.clone(),
+            created_at: created_at.clone(),
+            expires_at,
+            accepted_by_user_id: None,
+            accepted_at: None,
+        };
+        let created_invite = store
+            .create_invite(&invite)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+        let mut audit_state = match state.organization_store.organization_state().await {
+            Ok(state) => state,
+            Err(_) => {
+                let _ = store.delete_invite(&created_invite.id).await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        audit_state.audit_events.push(AuditEvent {
+            id: format!(
+                "audit_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id: organization_id.to_string(),
+            actor: AuditActor {
+                user_id: Some(session.user_id.clone()),
+                api_key_id: None,
+            },
+            action: "auth.member_invite.created".into(),
+            target_type: "organization_invite".into(),
+            target_id: created_invite.id.clone(),
+            occurred_at: created_at,
+            metadata: serde_json::json!({
+                "email": email,
+                "role": match &created_invite.role {
+                    OrganizationRole::Admin => "admin",
+                    OrganizationRole::Viewer => "viewer",
+                },
+            }),
+        });
+        if state
+            .organization_store
+            .store_organization_state(audit_state)
+            .await
+            .is_err()
+        {
+            let _ = store.delete_invite(&created_invite.id).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+
+        let refreshed_state = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map(organization_state_from_auth_metadata)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let organization = refreshed_state
+            .organizations
+            .iter()
+            .find(|organization| organization.id == organization_id)
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let response = members_organization_response(&refreshed_state, organization);
+        return Ok((StatusCode::CREATED, Json(response)));
     }
 
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
@@ -6612,19 +6705,36 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(create_response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let created_members_payload: MembersOrganizationResponseBody =
+            read_json(create_response).await;
+        assert_eq!(created_members_payload.organization.id, "org_acme");
+        assert!(created_members_payload
+            .invites
+            .iter()
+            .any(|invite| invite.email == "new-pending@example.com"
+                && invite.role == "viewer"
+                && invite.status == "pending"));
         let postgres_invite_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM organization_invites")
                 .fetch_one(&pool)
                 .await
-                .expect("count unchanged Postgres invites after file-backed create rejection");
-        assert_eq!(postgres_invite_count, 2);
+                .expect("count incremented Postgres invites after durable invite create");
+        assert_eq!(postgres_invite_count, 3);
+        let postgres_created_invite_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_invites WHERE organization_id = 'org_acme' AND email = 'new-pending@example.com' AND role = 'viewer' AND invited_by_user_id = 'local_user_admin' AND accepted_by_user_id IS NULL AND accepted_at IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("new invite persisted to Postgres");
+        assert_eq!(postgres_created_invite_count, 1);
 
         let members_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/auth/members")
-                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::AUTHORIZATION, &authorization)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -6636,7 +6746,7 @@ mod tests {
         assert_eq!(members_payload.len(), 1);
         assert_eq!(members_payload[0].organization.id, "org_acme");
         assert_eq!(members_payload[0].members.len(), 2);
-        assert_eq!(members_payload[0].invites.len(), 2);
+        assert_eq!(members_payload[0].invites.len(), 3);
         assert_eq!(
             members_payload[0].members[0].account.email,
             "admin@example.com"
@@ -6658,6 +6768,61 @@ mod tests {
             invite_status_by_email.get("accepted@example.com"),
             Some(&"accepted")
         );
+        assert_eq!(
+            invite_status_by_email.get("new-pending@example.com"),
+            Some(&"pending")
+        );
+
+        let hidden_create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/members/invites")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateInviteRequestBody {
+                            organization_id: "org_hidden".into(),
+                            email: "hidden@example.com".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_create_response.status(), StatusCode::UNAUTHORIZED);
+        let hidden_invite_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_invites WHERE email = 'hidden@example.com'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("hidden organization invite create must not insert a Postgres row");
+        assert_eq!(hidden_invite_count, 0);
+
+        let audit_events_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/audit-events")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(audit_events_response.status(), StatusCode::OK);
+        let audit_events: Vec<AuditEventListItemResponseBody> =
+            read_json(audit_events_response).await;
+        assert!(audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.action == "auth.member_invite.created"
+                && event.target_type == "organization_invite"
+                && event.metadata.get("email").and_then(|value| value.as_str())
+                    == Some("new-pending@example.com")
+                && event.metadata.get("role").and_then(|value| value.as_str()) == Some("viewer")
+        }));
 
         fs::remove_file(organization_state_path).unwrap();
         pool.close().await;

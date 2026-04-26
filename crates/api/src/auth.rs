@@ -290,6 +290,37 @@ impl PgOrganizationAuthMetadataStore {
         }))
     }
 
+    pub async fn create_invite(&self, invite: &OrganizationInvite) -> Result<OrganizationInvite> {
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, NULL, NULL)",
+        )
+        .bind(&invite.id)
+        .bind(&invite.organization_id)
+        .bind(&invite.email)
+        .bind(organization_role_as_str(&invite.role))
+        .bind(&invite.invited_by_user_id)
+        .bind(&invite.created_at)
+        .bind(&invite.expires_at)
+        .execute(&self.pool)
+        .await?;
+
+        let row = sqlx::query(
+            "SELECT id, organization_id, email, role, invited_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, accepted_by_user_id, CASE WHEN accepted_at IS NULL THEN NULL ELSE to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS accepted_at FROM organization_invites WHERE id = $1",
+        )
+        .bind(&invite.id)
+        .fetch_one(&self.pool)
+        .await?;
+        organization_invite_from_row(row)
+    }
+
+    pub async fn delete_invite(&self, invite_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM organization_invites WHERE id = $1")
+            .bind(invite_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn redeem_invite(
         &self,
         invite_id: &str,
