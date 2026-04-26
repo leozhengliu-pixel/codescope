@@ -5,48 +5,77 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e0d96f945ffdc2a3f9bc3d67bf078ed395f2b5bc
+  head: 10ceaf2aa52d4a14b764ee33693a06dc1815db36
 last_completed_task:
-  id: task90
-  title: Real indexing pipeline and index-status baseline
+  id: task91
+  title: Search contract hardening and saved-context lifecycle
   status: done
   summary: >-
-    Closed one meaningful Task 90 Phase B slice instead of splitting indexed-search
-    implementation, index-status API wiring, acceptance wording, and verification into
-    smaller paperwork-only runs. `sourcebot-search` now builds a real in-memory line
-    index once at API startup for configured local repository roots, serves search from
-    the prebuilt index without rewalking the filesystem per query, records per-repository
-    indexed/error status plus indexed-file, indexed-line, and skipped-item counts, and
-    exposes those counts at `/api/v1/repos/{repo_id}/index-status` behind the same
-    repository-visibility gate as browse/search. README and repository-operations
-    acceptance wording ground the bounded baseline while explicitly not claiming Tantivy,
-    a persistent/background-updated index, queue depth, retries, failure recovery,
-    frontend management controls, or production-grade indexing parity.
+    Closed one meaningful Task 91 Phase B slice instead of splitting saved-context
+    lifecycle implementation, search-contract hardening, acceptance wording, and
+    parity-report truth updates into smaller paperwork-only runs. `/api/v1/auth/search-contexts`
+    now supports authenticated create/list/delete for caller-owned saved contexts, and
+    `/api/v1/search?context_id=...` narrows results to that caller-owned context's
+    currently visible repository scope. Unknown, other-user, blank, or visible-empty
+    contexts fail closed, and an explicit `repo_id` outside the saved context scope is
+    rejected instead of broadening search. The acceptance and parity docs ground this as
+    a backend/API file-backed baseline without claiming frontend context-management UI,
+    SQL-backed context durability, richer grammar, relevance tuning, or stable pagination
+    parity.
   tests:
-    - cargo test -p sourcebot-search local_search_store -- --nocapture: passed (4 passed)
-    - cargo test -p sourcebot-api repository_index_status_reports_visible_repo_and_fails_closed_for_hidden_repo -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
-    - cargo test -p sourcebot-api search_api_key_filters_unscoped_results_to_repo_scope -- --nocapture: passed (1 bin test; lib selector matched 0 tests)
-    - cargo test -p sourcebot-search -- --nocapture: passed (9 passed)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture: passed (1 passed; 356 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_delete_removes_only_callers_own_context -- --nocapture: passed (1 passed; 356 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api search_context_id_narrows_results_and_explicit_repo_must_be_in_context -- --nocapture: RED failed as expected for blank `context_id` broadening search before the fix, then passed after fail-closed handling was added (1 passed; 356 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api search_context -- --nocapture: passed (6 passed; 351 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api search_ -- --nocapture: passed (16 passed; 341 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
+    - python3 raw-content doc truth checks for search acceptance and parity reports: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed one independent read-only post-implementation review; reviewer approved the startup-built in-memory line index, visibility-gated repository index-status route, search response compatibility, skipped-heavy-directory behavior, and bounded non-overclaiming docs with no blocking issues
-  commit: e0d96f945ffdc2a3f9bc3d67bf078ed395f2b5bc
-  next_task: task91
+    code: passed independent read-only re-review after fixing the reviewer-found blank-`context_id` broadening bug; reviewer approved caller-owned create/list/delete, visibility/API-key scope intersection, visible-empty fail-closed behavior, explicit repo/context narrowing, and bounded docs with no remaining blocking issues
+  commit: 10ceaf2aa52d4a14b764ee33693a06dc1815db36
+  next_task: task92
 current_task:
-  id: task91
+  id: task92
   parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Search contract hardening and saved-context lifecycle
+  title: Browse/source/commit/code-navigation parity polish
   status: pending
   summary: >-
-    Task 90 now establishes a bounded startup-built local index and truthful visible
-    repository index-status counts. The next meaningful Phase B closure should harden
-    the user-facing search contract on top of that baseline: filter grammar, pagination
-    or relevance behavior, saved-context lifecycle, and index-aware status handling,
-    while keeping the slice vertical and release-facing rather than falling back to a
-    paperwork-only audit.
+    Task 91 now provides a bounded backend/API saved-search-context lifecycle and
+    fail-closed context-aware search narrowing on top of the startup-built index baseline.
+    The next meaningful Phase B closure should advance browse/source/commit/code-navigation
+    parity with a vertical user-visible slice such as large/binary-file handling, richer
+    branch/revision behavior, source/commit UX polish, or multi-language code-navigation
+    correctness while avoiding another paperwork-only audit.
 history:
+  - id: task91
+    status: done
+    summary: >-
+      Closed one meaningful Task 91 Phase B slice instead of splitting saved-context
+      lifecycle implementation, search-contract hardening, acceptance wording, and
+      parity-report truth updates into smaller paperwork-only runs. `/api/v1/auth/search-contexts`
+      now supports authenticated create/list/delete for caller-owned saved contexts, and
+      `/api/v1/search?context_id=...` narrows results to that caller-owned context's
+      currently visible repository scope. Unknown, other-user, blank, or visible-empty
+      contexts fail closed, and explicit `repo_id` outside the saved context scope is
+      rejected instead of broadening search. Docs keep the claim bounded to backend/API
+      file-backed behavior, not frontend UI, SQL-backed durability, richer grammar,
+      relevance tuning, or stable pagination parity.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture: passed (1 passed; 356 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_search_contexts_delete_removes_only_callers_own_context -- --nocapture: passed (1 passed; 356 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api search_context_id_narrows_results_and_explicit_repo_must_be_in_context -- --nocapture: RED failed as expected for blank `context_id` broadening search before the fix, then passed after fail-closed handling was added (1 passed; 356 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api search_context -- --nocapture: passed (6 passed; 351 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api search_ -- --nocapture: passed (16 passed; 341 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 raw-content doc truth checks for search acceptance and parity reports: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing the reviewer-found blank-`context_id` broadening bug; reviewer approved caller-owned create/list/delete, visibility/API-key scope intersection, visible-empty fail-closed behavior, explicit repo/context narrowing, and bounded docs with no remaining blocking issues
+    commit: 10ceaf2aa52d4a14b764ee33693a06dc1815db36
+    next_task: task92
   - id: task90
     status: done
     summary: >-
