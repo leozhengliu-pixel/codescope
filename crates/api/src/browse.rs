@@ -75,6 +75,7 @@ pub struct BlobResponse {
     pub path: String,
     pub content: String,
     pub size_bytes: u64,
+    pub is_binary: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -103,6 +104,24 @@ pub struct ReferenceMatch {
     pub path: String,
     pub line_number: usize,
     pub line: String,
+}
+
+struct DecodedBlobContent {
+    content: String,
+    is_binary: bool,
+}
+
+fn decode_blob_content(bytes: Vec<u8>) -> DecodedBlobContent {
+    match String::from_utf8(bytes) {
+        Ok(content) => DecodedBlobContent {
+            content,
+            is_binary: false,
+        },
+        Err(_) => DecodedBlobContent {
+            content: String::new(),
+            is_binary: true,
+        },
+    }
 }
 
 #[derive(Clone, Default)]
@@ -426,31 +445,33 @@ impl BrowseStore for LocalBrowseStore {
             return Ok(None);
         };
 
-        let (content, size_bytes) = match revision {
+        let (content, size_bytes, is_binary) = match revision {
             Some(revision) => {
                 let Some(repo_root) = self.repo_roots.get(repo_id) else {
                     return Ok(None);
                 };
 
-                let Some(content) = run_git_show_blob(repo_root, revision, path)? else {
+                let Some(bytes) = run_git_show_blob(repo_root, revision, path)? else {
                     return Ok(None);
                 };
-                let size_bytes = content.len() as u64;
-                (content, size_bytes)
+                let size_bytes = bytes.len() as u64;
+                let blob_content = decode_blob_content(bytes);
+                (blob_content.content, size_bytes, blob_content.is_binary)
             }
             None => {
                 if !full_path.exists() || !full_path.is_file() {
                     return Ok(None);
                 }
 
-                let content = fs::read_to_string(&full_path)
+                let bytes = fs::read(&full_path)
                     .with_context(|| format!("failed to read file {}", full_path.display()))?;
                 let size_bytes = fs::metadata(&full_path)
                     .with_context(|| {
                         format!("failed to read metadata for {}", full_path.display())
                     })?
                     .len();
-                (content, size_bytes)
+                let blob_content = decode_blob_content(bytes);
+                (blob_content.content, size_bytes, blob_content.is_binary)
             }
         };
 
@@ -459,6 +480,7 @@ impl BrowseStore for LocalBrowseStore {
             path: path.to_string(),
             content,
             size_bytes,
+            is_binary,
         }))
     }
 
@@ -478,11 +500,15 @@ impl BrowseStore for LocalBrowseStore {
 
         let mut matches = Vec::new();
         for path in paths.into_iter().filter(|path| path.ends_with(".rs")) {
-            let Some(content) = run_git_show_blob(repo_root, revision, &path)? else {
+            let Some(bytes) = run_git_show_blob(repo_root, revision, &path)? else {
                 continue;
             };
+            let blob_content = decode_blob_content(bytes);
+            if blob_content.is_binary {
+                continue;
+            }
 
-            for (index, line) in content.lines().enumerate() {
+            for (index, line) in blob_content.content.lines().enumerate() {
                 if line.contains(symbol) {
                     matches.push(ReferenceMatch {
                         path: path.clone(),
@@ -533,6 +559,7 @@ impl BlobStore for BrowseBlobStoreAdapter {
                 path: blob.path,
                 content: blob.content,
                 size_bytes: blob.size_bytes,
+                is_binary: blob.is_binary,
             }))
     }
 }
@@ -573,7 +600,7 @@ impl GrepStore for BrowseGrepStoreAdapter {
     }
 }
 
-fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
+fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
     let object = format!("{revision}:{path}");
     let output = Command::new("git")
         .args(["show", &object])
@@ -582,9 +609,7 @@ fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<
         .with_context(|| format!("failed to run git show in {}", repo_root.display()))?;
 
     if output.status.success() {
-        return Ok(Some(
-            String::from_utf8(output.stdout).context("git output was not utf-8")?,
-        ));
+        return Ok(Some(output.stdout));
     }
 
     if git_object_not_found_output(&output) {
@@ -1026,6 +1051,48 @@ mod tests {
         assert_eq!(blob.path, "README.md");
         assert_eq!(blob.content, "hello world\n");
         assert_eq!(blob.size_bytes, 12);
+        assert!(!blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_returns_binary_blob_metadata_without_decoding_contents() {
+        let (store, root) = create_test_store();
+        fs::write(root.join("assets.bin"), [0xff, 0x00, 0x41, 0x42]).unwrap();
+
+        let blob = store.get_blob("repo_test", "assets.bin").unwrap().unwrap();
+
+        assert_eq!(blob.path, "assets.bin");
+        assert_eq!(blob.content, "");
+        assert_eq!(blob.size_bytes, 4);
+        assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_returns_binary_blob_metadata_at_revision() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-binary-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::write(root.join("assets.bin"), [0xff, 0x00, 0x41, 0x42]).unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let blob = store
+            .get_blob_at_revision("repo_test", "assets.bin", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(blob.path, "assets.bin");
+        assert_eq!(blob.content, "");
+        assert_eq!(blob.size_bytes, 4);
+        assert!(blob.is_binary);
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -1274,6 +1341,7 @@ mod tests {
                 path: "README.md".into(),
                 content: "hello world\n".into(),
                 size_bytes: 12,
+                is_binary: false,
             }
         );
 

@@ -4478,6 +4478,7 @@ mod tests {
         path: String,
         content: String,
         size_bytes: u64,
+        is_binary: bool,
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -21677,6 +21678,7 @@ mod tests {
         assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.path, "Cargo.toml");
         assert!(payload.content.contains("[workspace]"));
+        assert!(!payload.is_binary);
     }
 
     #[tokio::test]
@@ -21750,6 +21752,7 @@ mod tests {
         assert_eq!(payload.repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.path, "Cargo.toml");
         assert!(payload.content.contains("[workspace]"));
+        assert!(!payload.is_binary);
         assert!(payload.size_bytes > 0);
     }
 

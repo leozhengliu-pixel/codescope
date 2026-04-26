@@ -230,6 +230,7 @@ pub struct RepositoryBlob {
     pub path: String,
     pub content: String,
     pub size_bytes: u64,
+    pub is_binary: bool,
 }
 
 #[async_trait]
@@ -296,6 +297,7 @@ pub struct ReadFileResult {
     pub path: String,
     pub content: String,
     pub size_bytes: u64,
+    pub is_binary: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -555,6 +557,7 @@ impl RetrievalTool for ReadFileTool {
             path: blob.path,
             content: blob.content,
             size_bytes: blob.size_bytes,
+            is_binary: blob.is_binary,
         }))
     }
 }
@@ -1576,6 +1579,7 @@ mod tests {
                 path: "src/lib.rs".into(),
                 content: "pub fn demo() {}\n".into(),
                 size_bytes: 17,
+                is_binary: false,
             }),
         };
 
@@ -1602,6 +1606,51 @@ mod tests {
                 path: "src/lib.rs".into(),
                 content: "pub fn demo() {}\n".into(),
                 size_bytes: 17,
+                is_binary: false,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_tool_preserves_binary_blob_marker_for_active_repo() {
+        let tool = ReadFileTool::new("assets.bin");
+        let catalog = StaticCatalogStore {
+            repositories: Vec::new(),
+        };
+        let blobs = StaticBlobStore {
+            blob: Some(RepositoryBlob {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "assets.bin".into(),
+                content: String::new(),
+                size_bytes: 4,
+                is_binary: true,
+            }),
+        };
+
+        let result = tool
+            .run(
+                &catalog,
+                &NullTreeStore,
+                &blobs,
+                &NullGlobStore,
+                &NullGrepStore,
+                &RetrievalToolContext {
+                    active_repo_id: Some("repo_sourcebot_rewrite".into()),
+                    repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                    visible_repo_ids: vec!["repo_sourcebot_rewrite".into()],
+                },
+            )
+            .await
+            .expect("read_file should preserve binary metadata for active repository");
+
+        assert_eq!(
+            result,
+            RetrievalToolResult::ReadFile(ReadFileResult {
+                repo_id: "repo_sourcebot_rewrite".into(),
+                path: "assets.bin".into(),
+                content: String::new(),
+                size_bytes: 4,
+                is_binary: true,
             })
         );
     }
@@ -1618,6 +1667,7 @@ mod tests {
                 path: "secrets.txt".into(),
                 content: "do not leak\n".into(),
                 size_bytes: 12,
+                is_binary: false,
             }),
         };
 

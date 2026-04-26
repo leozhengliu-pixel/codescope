@@ -20,7 +20,7 @@
 4. File tree browsing supports nested directories without requiring a full repository clone in the browser.
 5. Browse loading failures keep repository detail visible and offer a focused retry affordance instead of collapsing the page.
 6. Empty directories render an explicit empty-state message without pretending a file is selected.
-7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats.
+7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; binary blobs expose metadata with an explicit binary flag instead of attempting lossy UTF-8 source rendering.
 8. Commit list is ordered consistently and supports pagination.
 9. Commit detail view exposes changed files and summary metadata.
 10. Diff view renders additions/deletions and handles renamed files.
@@ -32,7 +32,7 @@
 ## Edge cases
 - Large directories must be progressively loaded or paginated.
 - Missing files at a selected revision return a clear not-found response.
-- Binary files should expose metadata/download behavior instead of broken text rendering.
+- Binary files should expose metadata/download behavior instead of broken text rendering; the current backend/API baseline returns path and size metadata with `is_binary: true` and empty text content for non-UTF-8 local or revisioned blobs.
 - Huge diffs may be truncated with an explicit truncation indicator.
 
 ## Black-box examples
