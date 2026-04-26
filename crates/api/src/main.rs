@@ -1813,16 +1813,19 @@ async fn list_authenticated_repository_sync_jobs(
     headers: HeaderMap,
 ) -> Result<Json<Vec<RepositorySyncJobListItemResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    let organization_state = state
+    let job_state = state
         .organization_store
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let visibility_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let visible_organization_ids =
-        visible_organization_ids_for_user(&organization_state, &session.user_id);
+        visible_organization_ids_for_user(&visibility_state, &session.user_id);
     let visible_repository_bindings =
-        visible_repository_bindings_for_user(&organization_state, &session.user_id);
-    let mut jobs: Vec<_> = organization_state
+        visible_repository_bindings_for_user(&visibility_state, &session.user_id);
+    let mut jobs: Vec<_> = job_state
         .repository_sync_jobs
         .into_iter()
         .filter(|job| {
@@ -10764,6 +10767,152 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_use_postgres_repo_permissions_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
+        let password_hash = Argon2::default()
+            .hash_password(b"repo-sync-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_hidden', 'hidden', 'Hidden')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&password_hash)
+        .bind("2026-04-26T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-26T09:01:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_visible', 'Visible GitHub', 'github'), ('conn_hidden', 'Hidden GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_visible', 'visible', 'main', 'conn_visible', 'ready'), ('repo_hidden', 'hidden', 'main', 'conn_hidden', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_visible', '2026-04-26T09:02:00Z'::timestamptz), ('org_hidden', 'repo_hidden', '2026-04-26T09:02:30Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-repository-sync-jobs-orgs");
+        let file_backed_jobs = OrganizationState {
+            repository_sync_jobs: vec![
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible_pg_bound".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    connection_id: "conn_visible".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-26T09:10:00Z".into(),
+                    started_at: Some("2026-04-26T09:10:05Z".into()),
+                    finished_at: Some("2026-04-26T09:10:10Z".into()),
+                    error: None,
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_hidden_pg_bound".into(),
+                    organization_id: "org_hidden".into(),
+                    repository_id: "repo_hidden".into(),
+                    connection_id: "conn_hidden".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Failed,
+                    queued_at: "2026-04-26T09:11:00Z".into(),
+                    started_at: Some("2026-04-26T09:11:05Z".into()),
+                    finished_at: Some("2026-04-26T09:11:10Z".into()),
+                    error: Some("hidden failure".into()),
+                },
+            ],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&file_backed_jobs).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-repository-sync-jobs-bootstrap");
+        let local_session_state_path = unique_test_path("pg-auth-repository-sync-jobs-sessions");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "member@example.com".into(),
+                            password: "repo-sync-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        let authorization = format!(
+            "Bearer {}:{}",
+            login_payload.session_id, login_payload.session_secret
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/repository-sync-jobs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: Vec<RepositorySyncJobListItemResponseBody> = read_json(response).await;
+        let job_ids = payload
+            .iter()
+            .map(|job| job.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(job_ids, vec!["sync_visible_pg_bound"]);
+        assert_eq!(payload[0].organization_id, "org_acme");
+        assert_eq!(payload[0].repository_id, "repo_visible");
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
     }
 
     #[tokio::test]

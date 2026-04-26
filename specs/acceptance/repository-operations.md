@@ -26,14 +26,14 @@ This document creates the dedicated black-box acceptance home for repository syn
 - `/api/v1/repos/{repo_id}` returns repository detail that includes repository metadata plus `sync_state` and connection metadata.
 - `#/` in `web/src/App.tsx` renders repository cards with a visible sync-state badge.
 - `#/repos/:repoId` in `web/src/App.tsx` renders repository detail with a visible sync-state field.
-- `/api/v1/auth/repository-sync-jobs` returns authenticated read-only sync-job history filtered to the caller's currently visible `(organization_id, repository_id)` bindings and sorted newest-first.
-- The catalog-backed repo list/detail path still depends on `CatalogStore::{list_repositories,get_repository_detail}`; `PgCatalogStore` keeps both queries unimplemented, so persisted-catalog repository-status parity is not closed yet.
+- `/api/v1/auth/repository-sync-jobs` returns authenticated read-only sync-job history filtered to the caller's currently visible `(organization_id, repository_id)` bindings and sorted newest-first; when `DATABASE_URL` is configured, that filtering uses PostgreSQL-backed organization membership and repository-permission metadata even though the sync-job records themselves still come from the configured organization-state store.
+- The catalog-backed repo list/detail path now has bounded PostgreSQL reads for `/api/v1/repos` and repository detail lookup when `DATABASE_URL` is configured, but that does not yet close persisted index-status, retry, or full repository-operations parity.
 
 ## Inputs
 - Repository identifier for repo-detail visibility
 - Authenticated local-session context for repository sync-job history
 - Current repository catalog metadata including repository `sync_state`
-- Persisted organization-state sync-job records (`queued`, `running`, `succeeded`, `failed`) where available
+- Persisted organization-state sync-job records (`queued`, `running`, `succeeded`, `failed`) where available, filtered by the caller's live auth metadata
 
 ## Expected behavior
 1. Repository list surfaces show each visible repository's current `sync_state` as user-visible readiness metadata.
@@ -42,17 +42,17 @@ This document creates the dedicated black-box acceptance home for repository syn
 4. Sync-job history ordering is newest-first by queue time so operators/admins can inspect recent activity first.
 5. Sync-job responses expose operator-relevant status metadata including job id, organization/repository ids, status, timestamps, and error text when present.
 6. Hidden repositories and cross-org duplicate repository ids must not leak through sync-job history visibility.
-7. If the rewrite is running on the current Postgres catalog skeleton, repository list/detail parity for sync/index visibility is not yet considered complete simply because the in-memory path works.
+7. If the rewrite is running on the current bounded Postgres catalog read path, repository list/detail parity for sync/index visibility is not yet considered complete simply because catalog summaries/details are durable; persisted index-status and operator controls remain follow-up work.
 
 ## Permission behavior
 - Repository sync-job history requires an authenticated local session.
-- Users only see sync jobs whose organization membership and repository visibility both allow access.
+- Users only see sync jobs whose organization membership and repository visibility both allow access; with `DATABASE_URL`, those authorization bindings are read from PostgreSQL-backed auth metadata instead of trusting stale organization-state fixtures.
 - Unauthorized or hidden repository operations must fail closed rather than leaking existence through sync-job history or repo metadata.
 
 ## Edge cases
 - Duplicate repository ids across different organizations must still filter correctly by `(organization_id, repository_id)`.
 - Repositories can expose a coarse `sync_state` even while richer index-status and last-run details remain absent.
-- A configured `DATABASE_URL` does not itself prove repository-operations parity; the persisted catalog path must implement repo list/detail queries before status surfaces are considered durable.
+- A configured `DATABASE_URL` and bounded catalog reads do not by themselves prove repository-operations parity; persisted index-status, retry, failure-recovery, and operator-control surfaces remain open.
 - Sync-job history may show terminal failures while the repo list/detail UI still exposes only coarse readiness state.
 
 ## Black-box examples
@@ -64,7 +64,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 ## Deferred parity gaps locked by this spec
 This spec intentionally records the remaining gaps instead of over-claiming parity:
 
-1. **Persisted catalog parity is still blocked.** `PgCatalogStore::list_repositories()` and `PgCatalogStore::get_repository_detail()` remain unimplemented, so repo-status visibility is not yet truthful on the durable catalog path.
+1. **Persisted repository-operations parity is still partial.** `PgCatalogStore::list_repositories()` and `PgCatalogStore::get_repository_detail()` now provide bounded durable catalog reads, but persisted index-status, last-run/failure detail, retry, and management semantics are still incomplete.
 2. **Index-status parity is still incomplete.** The rewrite does not yet provide a truthful persisted index-status API equivalent for repository operations; task18b remains blocked on the same catalog prerequisite.
 3. **Frontend repository-operations parity is still shallow.** The current UI shows coarse sync-state badges/fields, but not last-run timestamps, queue depth, failure history, retry controls, or settings-level operator surfaces.
 4. **Worker/recovery parity is still incomplete.** The current worker slices only prove stub sync-job transitions and read-only visibility; real fetch/mirror execution, retries, recovery, and rescheduling remain deferred.
