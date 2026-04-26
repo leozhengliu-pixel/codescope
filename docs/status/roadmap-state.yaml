@@ -5,53 +5,81 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7a879c2a1626b6a35ba6fd871f3497196c9cfa93
+  head: d9a0c5bdeb461fc4ae414c217559811cffe0179b
 last_completed_task:
-  id: task87b2
-  title: Durable PostgreSQL local-account, membership, and invite metadata
+  id: task87c1
+  title: Durable PostgreSQL API-key and OAuth-client metadata
   status: done
   summary: >-
-    Closed one meaningful Task 87b2 auth/org slice instead of splitting PostgreSQL metadata
-    helpers, router wiring, focused SQLx regressions, and truthful docs into separate
-    paperwork runs. `crates/api/src/auth.rs` now provides a PostgreSQL-backed organization-auth
-    metadata store for local-account lookup, admin/user membership visibility, and invite
-    redemption with fail-closed duplicate/expired invite handling; `crates/api/src/main.rs`
-    routes `/api/v1/auth/login`, `/api/v1/auth/me`, `/api/v1/auth/members`,
-    `/api/v1/auth/linked-accounts`, and `/api/v1/auth/invite-redeem` through that durable
-    metadata path whenever `DATABASE_URL` is configured while preserving the file-backed
-    fallback without `DATABASE_URL`; and the `make sqlx-test` wrapper plus README/auth/parity
-    wording now ground that narrower shipped baseline without overclaiming API-key,
-    OAuth-client, catalog, connection, analytics, audit-event, or broader organization-aggregate
-    durability.
+    Closed one meaningful Task 87c auth/admin durability slice instead of splitting SQL
+    migration `0009`, PostgreSQL auth-metadata helpers, route wiring, focused SQLx/auth
+    regressions, and truthful docs into separate paperwork runs. `crates/api/src/auth.rs`
+    now stores and loads API-key and OAuth-client metadata from PostgreSQL, including
+    bearer-auth repo-scope validation and admin-visible OAuth-client inventory/create
+    behavior; `crates/api/src/main.rs` routes `/api/v1/auth/api-keys`,
+    `/api/v1/auth/api-keys/{id}/revoke`, API-key bearer auth, and
+    `/api/v1/auth/oauth-clients` through that durable path whenever `DATABASE_URL` is
+    configured while preserving the file-backed fallback without `DATABASE_URL`; and the
+    SQLx wrapper plus README/auth/parity wording now ground that narrower shipped baseline
+    without overclaiming catalog persistence, analytics/audit aggregates, repo-permission
+    durability, or broader whole-aggregate organization state.
   tests:
     - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_me_ -- --nocapture --test-threads=1: passed (9 passed)
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_login_ -- --nocapture --test-threads=1: passed (1 passed)
-    - sh scripts/check_local_metadata_env_contract.sh .: passed
-    - bash scripts/check_metadata_bootstrap_docs.sh: passed
-    - bash scripts/check_sqlx_test_workflow.sh: passed
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_ -- --nocapture --test-threads=1: passed (10 passed)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture --test-threads=1: passed (9 passed)
+    - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed)
     - git diff --check: passed
     - git diff --cached --check: passed
-    - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    - python3 added-lines security scan over `git diff --unified=0`: passed (3 test-fixture false positives only: `pg-unscoped-secret`, `pg-secret`, `pg-rollback-secret`; no production credential findings)
   review:
-    spec: passed one independent post-implementation review; reviewer confirmed the live Task 87b2 carry-over stays within the bounded plan by adding the PostgreSQL local-account/membership/invite metadata helper, routing only the targeted auth/org endpoints through it when `DATABASE_URL` is configured, and updating the verification/docs wording without widening into API-key, OAuth-client, catalog, or broader organization-aggregate work
-    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the live Task 87b2 diff after the focused SQLx/auth/doc-contract verification and only noted a non-blocking suggestion to document the `TEST_DATABASE_URL` requirement a bit more explicitly for ad hoc targeted runs
-  commit: 7a879c2a1626b6a35ba6fd871f3497196c9cfa93
-  next_task: task87c
+    spec: passed one independent post-implementation review; reviewer confirmed the live Task 87c carry-over matches the bounded plan, keeps docs truthful, and treats the `lib.rs` storage export plus repo-permission hydration as directly supportive rather than unrelated drift
+    code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the PostgreSQL API-key/OAuth-client durability diff, noted the simple secret-regex hits were test fixtures only, and raised only a non-blocking caution that the new `lib.rs` export slightly widens the crate's internal library surface
+  commit: d9a0c5bdeb461fc4ae414c217559811cffe0179b
+  next_task: task87c2
 current_task:
-  id: task87c
+  id: task87c2
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable API-key, OAuth-client, catalog, and remaining organization aggregates
+  title: Durable catalog runtime path and remaining organization aggregates
   status: pending
   summary: >-
-    Task 87b2 now makes the bounded local-account/membership/invite auth slice durable on
-    PostgreSQL, but truthful Task 87 closure still requires the remaining durable metadata
-    blockers that are currently deferred: API-key and OAuth-client storage/lifecycle, the lazy
-    PostgreSQL catalog/runtime path, and the remaining organization aggregates that still live in
-    file-backed whole-document state. The next meaningful closure should ship one bounded durable
-    slice from that remainder instead of reopening auth paperwork or jumping ahead to Task 88.
+    Task 87c1 now makes API-key and OAuth-client metadata durable on PostgreSQL, but
+    truthful Task 87 closure still requires the lazy PostgreSQL catalog/runtime path and
+    the remaining organization/auth aggregates that still live in file-backed whole-
+    document state, including repo-permission durability plus broader analytics/audit and
+    organization aggregate persistence. The next meaningful closure should ship one bounded
+    durable slice from that remainder instead of reopening API-key/OAuth paperwork or
+    jumping ahead to Task 88.
 history:
+  - id: task87c1
+    status: done
+    summary: >-
+      Closed one meaningful Task 87c auth/admin durability slice instead of splitting SQL
+      migration `0009`, PostgreSQL auth-metadata helpers, route wiring, focused SQLx/auth
+      regressions, and truthful docs into separate paperwork runs. `crates/api/src/auth.rs`
+      now stores and loads API-key and OAuth-client metadata from PostgreSQL, including
+      bearer-auth repo-scope validation and admin-visible OAuth-client inventory/create
+      behavior; `crates/api/src/main.rs` routes `/api/v1/auth/api-keys`,
+      `/api/v1/auth/api-keys/{id}/revoke`, API-key bearer auth, and
+      `/api/v1/auth/oauth-clients` through that durable path whenever `DATABASE_URL` is
+      configured while preserving the file-backed fallback without `DATABASE_URL`; and the
+      SQLx wrapper plus README/auth/parity wording now ground that narrower shipped baseline
+      without overclaiming catalog persistence, analytics/audit aggregates, repo-permission
+      durability, or broader whole-aggregate organization state.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_ -- --nocapture --test-threads=1: passed (10 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_ -- --nocapture --test-threads=1: passed (9 passed)
+      - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed)
+      - git diff --check: passed
+      - git diff --cached --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (3 test-fixture false positives only: `pg-unscoped-secret`, `pg-secret`, `pg-rollback-secret`; no production credential findings)
+    review:
+      spec: passed one independent post-implementation review; reviewer confirmed the live Task 87c carry-over matches the bounded plan, keeps docs truthful, and treats the `lib.rs` storage export plus repo-permission hydration as directly supportive rather than unrelated drift
+      code: approved by one independent post-implementation review; reviewer found no blocking security or logic defects in the PostgreSQL API-key/OAuth-client durability diff, noted the simple secret-regex hits were test fixtures only, and raised only a non-blocking caution that the new `lib.rs` export slightly widens the crate's internal library surface
+    commit: d9a0c5bdeb461fc4ae414c217559811cffe0179b
+    next_task: task87c2
   - id: task87b2
     status: done
     summary: >-
@@ -869,5 +897,6 @@ notes:
         splits. The governing roadmap is now
         `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; Task 86 closed that
         bootstrap/operator workflow, Task 87a closed the durable PostgreSQL local-session
-        slice, Task 87b1 closed the durable PostgreSQL bootstrap-admin slice, and the next
-        live work item is Task 87b2 rather than any archived pre-follow-on blocker thread.
+        slice, Task 87b1 closed the durable PostgreSQL bootstrap-admin slice, Task 87b2
+        closed the durable PostgreSQL local-account/membership/invite slice, and the next
+        live work item is Task 87c2 rather than any archived pre-follow-on blocker thread.
