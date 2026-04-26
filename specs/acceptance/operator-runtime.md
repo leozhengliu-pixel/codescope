@@ -1,19 +1,20 @@
 # Operator Runtime Acceptance
 
 ## Purpose
-This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API and one-shot worker.
+This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, bounded metadata readiness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API and one-shot worker.
 
 ## Scope
 This document covers:
 - `GET /healthz`
+- `GET /readyz`
 - `GET /api/v1/config`
 - the shared `SOURCEBOT_DATA_DIR` runtime-path contract
 - explicit per-file path overrides for bootstrap, local-session, and organization state
 - local bring-up with `make api` and `make worker`
 
 This document does **not** claim:
-- metadata migrations or durable metadata parity
-- readiness checks beyond the current liveness endpoint
+- complete metadata migration automation or durable metadata parity
+- readiness checks beyond file-backed metadata readiness plus PostgreSQL SQLx-migration-inventory reachability
 - supervised or continuously running workers
 - durable worker scheduling, retries, or orchestration
 - backup/restore workflows
@@ -61,6 +62,17 @@ then the service returns a successful liveness response suitable for confirming 
 
 This endpoint is the current liveness baseline only. It does not claim dependency readiness, migration readiness, or downstream health verification.
 
+### Readiness endpoint
+Given the API is running without `DATABASE_URL`,
+when the operator requests `GET /readyz`,
+then the service returns `200` with `metadata_backend: "file"` and no database block, proving the file-backed local runtime baseline is available.
+
+Given the API is running with `DATABASE_URL`,
+when the operator requests `GET /readyz`,
+then the service attempts a bounded PostgreSQL connection and reads the SQLx `_sqlx_migrations` inventory. It returns `200` with `metadata_backend: "postgres"`, `database.status: "ok"`, and an applied migration count when the migrated metadata database is reachable; otherwise it fails closed with `503`, `status: "degraded"`, and an error summary.
+
+This endpoint is a bounded local readiness baseline for metadata reachability and migration-inventory visibility only. It does not yet claim richer dependency health, background-worker readiness, production observability, or upgrade orchestration.
+
 ### Public config endpoint
 Given the API is running,
 when the operator requests `GET /api/v1/config`,
@@ -68,8 +80,8 @@ then the service returns public runtime config needed by the frontend bootstrap 
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain explicitly outside the shipped baseline documented here:
-- database schema migration workflows and durable metadata storage
-- readiness probes that verify dependencies or upgrade state
+- complete database schema migration automation and durable metadata storage parity
+- readiness probes beyond the bounded `/readyz` metadata-backend and SQLx migration-inventory check
 - supervised worker lifecycle management
 - durable worker metadata, retries, and resume loops
 - production metrics, tracing, alerting, and other production-grade observability

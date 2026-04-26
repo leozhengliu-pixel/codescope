@@ -84,9 +84,9 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite
    ```
-10. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
+10. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, checks `/healthz` plus the file-backed `/readyz` readiness baseline, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
 11. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
-12. `/healthz` and `/api/v1/config` define the current operator-visible runtime baseline. They do not yet claim dependency readiness, migration readiness, or production-grade observability.
+12. `/healthz`, `/readyz`, and `/api/v1/config` define the current operator-visible runtime baseline. `/readyz` reports file-backed metadata as ready when `DATABASE_URL` is unset, and when `DATABASE_URL` is configured it connects to PostgreSQL and fails closed with `503` unless the SQLx migration inventory is readable. This is a bounded local readiness check; it does not yet claim full dependency health, supervised-worker readiness, production-grade observability, or upgrade automation.
 
 ## Local operator maintenance baseline
 1. Capture a backup of the current file-backed runtime state before maintenance:

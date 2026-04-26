@@ -49,6 +49,7 @@ use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use storage::{build_catalog_store, DynCatalogStore};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::info;
@@ -76,6 +77,21 @@ static NEXT_ASK_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 struct HealthResponse {
     status: &'static str,
     service: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadyResponse {
+    status: &'static str,
+    service: String,
+    metadata_backend: &'static str,
+    database: Option<ReadyDatabaseStatus>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadyDatabaseStatus {
+    status: &'static str,
+    applied_migrations: Option<i64>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +192,7 @@ fn build_router(
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
         .route(
             "/api/v1/auth/bootstrap",
             get(get_bootstrap_status).post(create_bootstrap_admin),
@@ -856,6 +873,64 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "ok",
         service: state.config.service_name,
     })
+}
+
+async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<ReadyResponse>) {
+    let Some(database_url) = state.config.database_url.as_deref() else {
+        return (
+            StatusCode::OK,
+            Json(ReadyResponse {
+                status: "ok",
+                service: state.config.service_name,
+                metadata_backend: "file",
+                database: None,
+            }),
+        );
+    };
+
+    match postgres_migration_count(database_url).await {
+        Ok(applied_migrations) => (
+            StatusCode::OK,
+            Json(ReadyResponse {
+                status: "ok",
+                service: state.config.service_name,
+                metadata_backend: "postgres",
+                database: Some(ReadyDatabaseStatus {
+                    status: "ok",
+                    applied_migrations: Some(applied_migrations),
+                    error: None,
+                }),
+            }),
+        ),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ReadyResponse {
+                status: "degraded",
+                service: state.config.service_name,
+                metadata_backend: "postgres",
+                database: Some(ReadyDatabaseStatus {
+                    status: "error",
+                    applied_migrations: None,
+                    error: Some(error.to_string()),
+                }),
+            }),
+        ),
+    }
+}
+
+async fn postgres_migration_count(database_url: &str) -> anyhow::Result<i64> {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await?;
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await?;
+        pool.close().await;
+        Ok(count)
+    })
+    .await?
 }
 
 async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
@@ -9359,6 +9434,89 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn readyz_reports_file_backed_metadata_ready_without_database_url() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/readyz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: serde_json::Value = read_json(response).await;
+        assert_eq!(payload["status"], "ok");
+        assert_eq!(payload["service"], "sourcebot-api");
+        assert_eq!(payload["metadata_backend"], "file");
+        assert_eq!(payload["database"], serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn readyz_requires_migrated_postgres_metadata_when_database_url_is_configured() {
+        let pool = pg_local_session_test_pool().await;
+        let app = test_app_with_config(AppConfig {
+            database_url: Some(
+                env::var("TEST_DATABASE_URL")
+                    .expect("TEST_DATABASE_URL must be set for Postgres readiness tests"),
+            ),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/readyz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: serde_json::Value = read_json(response).await;
+        assert_eq!(payload["status"], "ok");
+        assert_eq!(payload["metadata_backend"], "postgres");
+        assert_eq!(payload["database"]["status"], "ok");
+        assert!(payload["database"]["applied_migrations"].as_u64().unwrap() >= 11);
+
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn readyz_fails_closed_when_configured_database_is_unavailable() {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for Postgres readiness tests")
+            .replace("/sourcebot_test", "/sourcebot_missing_readyz");
+
+        let app = test_app_with_config(AppConfig {
+            database_url: Some(database_url),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/readyz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let payload: serde_json::Value = read_json(response).await;
+        assert_eq!(payload["status"], "degraded");
+        assert_eq!(payload["metadata_backend"], "postgres");
+        assert_eq!(payload["database"]["status"], "error");
+        assert!(payload["database"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("sourcebot_missing_readyz"));
     }
 
     #[tokio::test]

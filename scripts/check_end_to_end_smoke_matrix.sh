@@ -96,6 +96,7 @@ run_id = os.environ.get("JSON_ASSERT_RUN_ID", "")
 
 checks = {
     "health_ok": lambda: data.get("status") == "ok" and data.get("service") == "sourcebot-api",
+    "ready_file_ok": lambda: data.get("status") == "ok" and data.get("service") == "sourcebot-api" and data.get("metadata_backend") == "file" and data.get("database") is None,
     "bootstrap_complete": lambda: data.get("bootstrap_required") is False,
     "login_has_session": lambda: data.get("user_id") == "local_user_bootstrap_admin" and bool(data.get("session_id")) and bool(data.get("session_secret")),
     "auth_me_admin": lambda: data.get("user_id") == "local_user_bootstrap_admin" and data.get("email") == "admin@example.com",
@@ -302,6 +303,7 @@ then
 fi
 
 health_response="$runtime_dir/health.json"
+ready_response="$runtime_dir/ready.json"
 bootstrap_response="$runtime_dir/bootstrap.json"
 login_response="$runtime_dir/login.json"
 auth_me_response="$runtime_dir/auth_me.json"
@@ -319,6 +321,8 @@ run_after_response="$runtime_dir/run_after.json"
 
 http_get_ok "$base_url/healthz" "$health_response"
 json_assert "$health_response" health_ok
+http_get_ok "$base_url/readyz" "$ready_response"
+json_assert "$ready_response" ready_file_ok
 
 bootstrap_request="$runtime_dir/bootstrap_request.json"
 login_request="$runtime_dir/login_request.json"
