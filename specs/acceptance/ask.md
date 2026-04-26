@@ -9,7 +9,8 @@
 - Hash-restored active thread continuity for follow-up asks
 - Authenticated thread list/detail/reopen flow on the dedicated chat route
 - Dedicated agent-run detail restoration plus related webhook/delivery-attempt visibility
-- Deferred: rename/delete/visibility management and richer review-agent management/retries/orchestration
+- Authenticated backend thread-title and thread-visibility update flow
+- Deferred: delete controls, frontend rename/visibility controls, and richer review-agent management/retries/orchestration
 
 ## Inputs
 - User prompt
@@ -26,14 +27,16 @@
 6. Changing the selected repository scope clears any restored `thread_id` before the next submission so follow-up asks do not silently reuse a thread created under a different scope.
 7. The dedicated `#/chat` route lists the caller's visible repo-scoped ask threads via authenticated thread-summary reads, restores a selected thread from the hash route, shows its prior messages, and lets the user continue that thread with `/api/v1/ask/completions` while keeping the route on `#/chat`. When `DATABASE_URL` is configured, the API-backed ask-thread store persists thread metadata and messages in PostgreSQL rather than process-local memory.
 8. Authenticated thread-detail reads fail closed for missing, hidden, or out-of-scope threads, and returned thread citations remain limited to repositories/files visible to the caller.
-9. The dedicated `#/agents` route lists visible review-agent runs from `/api/v1/auth/review-agent-runs`, restores an optional `run_id` from the hash, loads `/api/v1/auth/review-agent-runs/{run_id}` when selected, and then loads the related `/api/v1/auth/review-webhook-delivery-attempts/{attempt_id}` plus `/api/v1/auth/review-webhooks/{webhook_id}` detail views on the same page.
-10. Restored agent-run detail reads fail closed: if `/api/v1/auth/review-agent-runs/{run_id}` returns 404, the UI clears the selection and resets the route to `#/agents` instead of leaving a stale hidden run selected.
-11. Rename/delete/visibility controls plus richer review-agent management, retries, and orchestration remain explicitly deferred follow-up work.
+9. Authenticated `PATCH /api/v1/ask/threads/{thread_id}` lets the caller update a visible thread's title and private/shared visibility metadata, trims titles, rejects empty titles or unknown visibility labels, and fails closed for hidden or out-of-scope threads without widening repository access.
+10. The dedicated `#/agents` route lists visible review-agent runs from `/api/v1/auth/review-agent-runs`, restores an optional `run_id` from the hash, loads `/api/v1/auth/review-agent-runs/{run_id}` when selected, and then loads the related `/api/v1/auth/review-webhook-delivery-attempts/{attempt_id}` plus `/api/v1/auth/review-webhooks/{webhook_id}` detail views on the same page.
+11. Restored agent-run detail reads fail closed: if `/api/v1/auth/review-agent-runs/{run_id}` returns 404, the UI clears the selection and resets the route to `#/agents` instead of leaving a stale hidden run selected.
+12. Delete controls, frontend rename/visibility controls, and richer review-agent management, retries, and orchestration remain explicitly deferred follow-up work.
 
 ## Permission behavior
 - Citations must never link to repositories or files outside the caller's access.
 - Thread list/detail reads must never expose another caller's threads or hidden repository scope.
 - Shared thread visibility must not widen access to underlying repository content.
+- Thread metadata updates must reuse the same caller/repository visibility gate as thread detail reads before mutating title or visibility.
 
 ## Edge cases
 - Empty retrieval results may still produce a safe fallback answer that clearly states missing evidence.

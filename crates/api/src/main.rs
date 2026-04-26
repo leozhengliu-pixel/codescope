@@ -325,7 +325,10 @@ fn build_router(
         .route("/api/v1/search", get(search_repository_contents))
         .route("/api/v1/ask/completions", post(create_ask_completion))
         .route("/api/v1/ask/threads", get(list_ask_threads))
-        .route("/api/v1/ask/threads/{thread_id}", get(get_ask_thread))
+        .route(
+            "/api/v1/ask/threads/{thread_id}",
+            get(get_ask_thread).patch(update_ask_thread),
+        )
         .with_state(build_app_state(
             config,
             catalog,
@@ -4376,6 +4379,35 @@ fn ask_thread_summary_visible_to_request(
             .all(|repo_id| visible_repo_ids.contains(repo_id))
 }
 
+#[derive(Debug, Deserialize)]
+struct AskThreadUpdateRequest {
+    title: Option<String>,
+    visibility: Option<String>,
+}
+
+fn parse_ask_thread_visibility(value: &str) -> Result<AskThreadVisibility, StatusCode> {
+    match value.trim() {
+        "private" => Ok(AskThreadVisibility::Private),
+        "shared" => Ok(AskThreadVisibility::Shared),
+        _ => Err(StatusCode::BAD_REQUEST),
+    }
+}
+
+fn sanitize_ask_thread_response_citations(response: &mut AskThreadResponse) {
+    for message in &mut response.messages {
+        let filtered_citations =
+            filter_ask_citations_to_repo_scope(&message.citations, &response.repo_scope);
+        message.citations = filtered_citations.clone();
+        message.rendered_citations = filtered_citations
+            .iter()
+            .map(|citation| citation.rendered())
+            .collect();
+        for citation in &mut message.rendered_citations {
+            citation.display_label = format!("{}#{}", citation.path, citation.line_fragment);
+        }
+    }
+}
+
 async fn list_ask_threads(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -4409,18 +4441,61 @@ async fn get_ask_thread(
         .filter(|thread| ask_thread_visible_to_request(thread, &visible_repo_ids))
         .ok_or(StatusCode::NOT_FOUND)?;
     let mut response = AskThreadResponse::from(thread);
-    for message in &mut response.messages {
-        let filtered_citations =
-            filter_ask_citations_to_repo_scope(&message.citations, &response.repo_scope);
-        message.citations = filtered_citations.clone();
-        message.rendered_citations = filtered_citations
-            .iter()
-            .map(|citation| citation.rendered())
-            .collect();
-        for citation in &mut message.rendered_citations {
-            citation.display_label = format!("{}#{}", citation.path, citation.line_fragment);
+    sanitize_ask_thread_response_citations(&mut response);
+
+    Ok(Json(response))
+}
+
+async fn update_ask_thread(
+    State(state): State<AppState>,
+    Path(thread_id): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<AskThreadUpdateRequest>,
+) -> Result<Json<AskThreadResponse>, StatusCode> {
+    let (ask_user_id, visible_repo_ids) = ask_request_context(&state, &headers).await?;
+    let existing_thread = state
+        .ask_threads
+        .get_thread_for_user(&ask_user_id, &thread_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|thread| ask_thread_visible_to_request(thread, &visible_repo_ids))
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let title = match request.title.as_deref() {
+        Some(title) => {
+            let trimmed = title.trim();
+            if trimmed.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            Some(trimmed.to_string())
         }
+        None => None,
+    };
+    let visibility = request
+        .visibility
+        .as_deref()
+        .map(parse_ask_thread_visibility)
+        .transpose()?;
+    if title.is_none() && visibility.is_none() {
+        return Err(StatusCode::BAD_REQUEST);
     }
+
+    let updated_at = current_timestamp();
+    let updated_thread = state
+        .ask_threads
+        .update_thread_metadata_for_user(
+            &ask_user_id,
+            &existing_thread.id,
+            title.as_deref(),
+            visibility,
+            &updated_at,
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|thread| ask_thread_visible_to_request(thread, &visible_repo_ids))
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut response = AskThreadResponse::from(updated_thread);
+    sanitize_ask_thread_response_citations(&mut response);
 
     Ok(Json(response))
 }
@@ -4627,6 +4702,12 @@ mod tests {
         created_at: String,
         updated_at: String,
         messages: Vec<AskMessageResponseBody>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct AskThreadUpdateRequestBody {
+        title: Option<String>,
+        visibility: Option<String>,
     }
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -8857,6 +8938,160 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(missing_response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn ask_threads_patch_updates_title_and_visibility_for_visible_thread_only() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_patch_visible".into(),
+                session_id: "session_patch_visible".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Original thread title".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-26T08:00:00Z".into(),
+                updated_at: "2026-04-26T08:00:00Z".into(),
+                messages: vec![AskMessage {
+                    id: "msg_patch_user".into(),
+                    role: AskMessageRole::User,
+                    content: "rename this thread".into(),
+                    citations: vec![
+                        sourcebot_models::AskCitation {
+                            repo_id: "repo_sourcebot_rewrite".into(),
+                            path: "crates/api/src/main.rs".into(),
+                            revision: "deadbeef".into(),
+                            line_start: 40,
+                            line_end: 45,
+                        },
+                        sourcebot_models::AskCitation {
+                            repo_id: "repo_hidden".into(),
+                            path: "hidden.rs".into(),
+                            revision: "deadbeef".into(),
+                            line_start: 1,
+                            line_end: 2,
+                        },
+                    ],
+                }],
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_patch_hidden_repo".into(),
+                session_id: "session_patch_hidden_repo".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Hidden repo thread".into(),
+                repo_scope: vec!["repo_hidden".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-26T08:01:00Z".into(),
+                updated_at: "2026-04-26T08:01:00Z".into(),
+                messages: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let organization_state_path = unique_test_path("ask-threads-patch-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_ask_thread_store(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("ask-threads-patch-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("ask-threads-patch-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            ask_threads,
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/ask/threads/thread_patch_visible")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskThreadUpdateRequestBody {
+                            title: Some("Renamed release thread".into()),
+                            visibility: Some("shared".into()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: AskThreadResponseBody = read_json(response).await;
+        assert_eq!(payload.id, "thread_patch_visible");
+        assert_eq!(payload.title, "Renamed release thread");
+        assert_eq!(payload.visibility, "shared");
+        assert_ne!(payload.updated_at, "2026-04-26T08:00:00Z");
+        assert_eq!(payload.messages[0].content, "rename this thread");
+        assert_eq!(payload.messages[0].citations.len(), 1);
+        assert_eq!(
+            payload.messages[0].citations[0].repo_id,
+            "repo_sourcebot_rewrite"
+        );
+        assert_eq!(payload.messages[0].rendered_citations.len(), 1);
+        assert_eq!(
+            payload.messages[0].rendered_citations[0].display_label,
+            "crates/api/src/main.rs#L40-L45"
+        );
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/ask/threads/thread_patch_hidden_repo")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskThreadUpdateRequestBody {
+                            title: Some("Leaked hidden update".into()),
+                            visibility: Some("shared".into()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        let invalid_response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/ask/threads/thread_patch_visible")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&AskThreadUpdateRequestBody {
+                            title: Some("   ".into()),
+                            visibility: Some("organization".into()),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
