@@ -7,10 +7,12 @@ use sourcebot_core::{
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
-    BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
-    OrganizationState, RepositorySyncJob, ReviewAgentRunStatus,
+    BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState, Organization,
+    OrganizationInvite, OrganizationMembership, OrganizationRole, OrganizationState,
+    RepositorySyncJob, ReviewAgentRunStatus,
 };
 use sqlx::{postgres::PgPoolOptions, Row};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -52,6 +54,26 @@ pub struct PgLocalSessionStore {
 #[derive(Clone, Debug)]
 pub struct PgBootstrapStore {
     pool: sqlx::PgPool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PgOrganizationAuthMetadataStore {
+    pool: sqlx::PgPool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrganizationAuthMetadataState {
+    pub organizations: Vec<Organization>,
+    pub accounts: Vec<LocalAccount>,
+    pub memberships: Vec<OrganizationMembership>,
+    pub invites: Vec<OrganizationInvite>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedeemedInviteRecord {
+    pub account: LocalAccount,
+    pub membership: OrganizationMembership,
+    pub invite: OrganizationInvite,
 }
 
 #[derive(Debug)]
@@ -173,6 +195,346 @@ impl PgBootstrapStore {
             password_hash: row.get("password_hash"),
         }))
     }
+}
+
+impl PgOrganizationAuthMetadataStore {
+    pub fn connect_lazy(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
+    }
+
+    pub async fn local_account_by_email(&self, email: &str) -> Result<Option<LocalAccount>> {
+        let rows = sqlx::query(
+            "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE lower(email) = lower($1) ORDER BY id LIMIT 2",
+        )
+        .bind(email.trim())
+        .fetch_all(&self.pool)
+        .await?;
+
+        if rows.len() > 1 {
+            return Ok(None);
+        }
+
+        rows.into_iter()
+            .next()
+            .map(local_account_from_row)
+            .transpose()
+    }
+
+    pub async fn local_account_by_id(&self, user_id: &str) -> Result<Option<LocalAccount>> {
+        let row = sqlx::query(
+            "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(local_account_from_row).transpose()
+    }
+
+    pub async fn admin_organization_auth_metadata(
+        &self,
+        user_id: &str,
+    ) -> Result<OrganizationAuthMetadataState> {
+        let organization_ids = sqlx::query_scalar::<_, String>(
+            "SELECT organization_id FROM organization_memberships WHERE user_id = $1 AND role = 'admin' ORDER BY organization_id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        self.organization_auth_metadata_for_organization_ids(&organization_ids)
+            .await
+    }
+
+    pub async fn user_organization_auth_metadata(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<OrganizationAuthMetadataState>> {
+        let Some(account) = self.local_account_by_id(user_id).await? else {
+            return Ok(None);
+        };
+        let memberships = sqlx::query(
+            "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE user_id = $1 ORDER BY organization_id",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(organization_membership_from_row)
+        .collect::<Result<Vec<_>>>()?;
+        let organization_ids = memberships
+            .iter()
+            .map(|membership| membership.organization_id.clone())
+            .collect::<Vec<_>>();
+        let organizations = self.organizations_for_ids(&organization_ids).await?;
+
+        Ok(Some(OrganizationAuthMetadataState {
+            organizations,
+            accounts: vec![account],
+            memberships,
+            invites: vec![],
+        }))
+    }
+
+    pub async fn redeem_invite(
+        &self,
+        invite_id: &str,
+        email: &str,
+        name: &str,
+        password_hash: &str,
+        accepted_at: &str,
+        generated_user_id: &str,
+    ) -> Result<Option<RedeemedInviteRecord>> {
+        let mut tx = self.pool.begin().await?;
+        let Some(invite_row) = sqlx::query(
+            "SELECT id, organization_id, email, role, invited_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, accepted_by_user_id, CASE WHEN accepted_at IS NULL THEN NULL ELSE to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS accepted_at FROM organization_invites WHERE id = $1 FOR UPDATE",
+        )
+        .bind(invite_id)
+        .fetch_optional(&mut *tx)
+        .await? else {
+            return Ok(None);
+        };
+        let invite = organization_invite_from_row(invite_row)?;
+        let invite_expired = OffsetDateTime::parse(invite.expires_at.trim(), &Rfc3339)
+            .ok()
+            .map(|expires_at| expires_at < OffsetDateTime::now_utc())
+            .unwrap_or(true);
+        if !invite.email.eq_ignore_ascii_case(email)
+            || invite.accepted_by_user_id.is_some()
+            || invite.accepted_at.is_some()
+            || invite_expired
+        {
+            return Ok(None);
+        }
+
+        let account_rows = sqlx::query(
+            "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE lower(email) = lower($1) ORDER BY id LIMIT 2 FOR UPDATE",
+        )
+        .bind(email.trim())
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let account = if account_rows.len() > 1 {
+            return Ok(None);
+        } else if let Some(account_row) = account_rows.into_iter().next() {
+            let existing_account = local_account_from_row(account_row)?;
+            if existing_account.password_hash.is_some() {
+                return Ok(None);
+            }
+            let updated_name = if existing_account.name.trim().is_empty() {
+                name.trim().to_string()
+            } else {
+                existing_account.name.clone()
+            };
+            sqlx::query("UPDATE local_accounts SET name = $2, password_hash = $3 WHERE id = $1")
+                .bind(&existing_account.id)
+                .bind(&updated_name)
+                .bind(password_hash)
+                .execute(&mut *tx)
+                .await?;
+            LocalAccount {
+                id: existing_account.id,
+                email: existing_account.email,
+                name: updated_name,
+                password_hash: Some(password_hash.to_string()),
+                created_at: existing_account.created_at,
+            }
+        } else {
+            sqlx::query(
+                "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+            )
+            .bind(generated_user_id)
+            .bind(email.trim())
+            .bind(name.trim())
+            .bind(password_hash)
+            .bind(accepted_at)
+            .execute(&mut *tx)
+            .await?;
+            LocalAccount {
+                id: generated_user_id.to_string(),
+                email: email.trim().to_string(),
+                name: name.trim().to_string(),
+                password_hash: Some(password_hash.to_string()),
+                created_at: accepted_at.to_string(),
+            }
+        };
+
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ($1, $2, $3, $4::timestamptz) ON CONFLICT (organization_id, user_id) DO NOTHING",
+        )
+        .bind(&invite.organization_id)
+        .bind(&account.id)
+        .bind(organization_role_as_str(&invite.role))
+        .bind(accepted_at)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE organization_invites SET accepted_by_user_id = $2, accepted_at = $3::timestamptz WHERE id = $1",
+        )
+        .bind(invite_id)
+        .bind(&account.id)
+        .bind(accepted_at)
+        .execute(&mut *tx)
+        .await?;
+
+        let membership = sqlx::query(
+            "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
+        )
+        .bind(&invite.organization_id)
+        .bind(&account.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map(organization_membership_from_row)??;
+        let invite = sqlx::query(
+            "SELECT id, organization_id, email, role, invited_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, accepted_by_user_id, CASE WHEN accepted_at IS NULL THEN NULL ELSE to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS accepted_at FROM organization_invites WHERE id = $1",
+        )
+        .bind(invite_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map(organization_invite_from_row)??;
+
+        tx.commit().await?;
+
+        Ok(Some(RedeemedInviteRecord {
+            account,
+            membership,
+            invite,
+        }))
+    }
+
+    async fn organization_auth_metadata_for_organization_ids(
+        &self,
+        organization_ids: &[String],
+    ) -> Result<OrganizationAuthMetadataState> {
+        let organizations = self.organizations_for_ids(organization_ids).await?;
+        let memberships = if organization_ids.is_empty() {
+            vec![]
+        } else {
+            sqlx::query(
+                "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = ANY($1::text[]) ORDER BY organization_id, user_id",
+            )
+            .bind(organization_ids)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(organization_membership_from_row)
+            .collect::<Result<Vec<_>>>()?
+        };
+        let user_ids = memberships
+            .iter()
+            .map(|membership| membership.user_id.clone())
+            .collect::<Vec<_>>();
+        let accounts = self.accounts_for_ids(&user_ids).await?;
+        let invites = if organization_ids.is_empty() {
+            vec![]
+        } else {
+            sqlx::query(
+                "SELECT id, organization_id, email, role, invited_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, accepted_by_user_id, CASE WHEN accepted_at IS NULL THEN NULL ELSE to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS accepted_at FROM organization_invites WHERE organization_id = ANY($1::text[]) ORDER BY organization_id, id",
+            )
+            .bind(organization_ids)
+            .fetch_all(&self.pool)
+            .await?
+            .into_iter()
+            .map(organization_invite_from_row)
+            .collect::<Result<Vec<_>>>()?
+        };
+
+        Ok(OrganizationAuthMetadataState {
+            organizations,
+            accounts,
+            memberships,
+            invites,
+        })
+    }
+
+    async fn organizations_for_ids(&self, organization_ids: &[String]) -> Result<Vec<Organization>> {
+        if organization_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query(
+            "SELECT id, slug, name FROM organizations WHERE id = ANY($1::text[]) ORDER BY id",
+        )
+        .bind(organization_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(organization_from_row)
+        .collect()
+    }
+
+    async fn accounts_for_ids(&self, user_ids: &[String]) -> Result<Vec<LocalAccount>> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query(
+            "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE id = ANY($1::text[]) ORDER BY id",
+        )
+        .bind(user_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(local_account_from_row)
+        .collect()
+    }
+}
+
+fn organization_role_from_db(value: &str) -> Result<OrganizationRole> {
+    match value {
+        "admin" => Ok(OrganizationRole::Admin),
+        "viewer" => Ok(OrganizationRole::Viewer),
+        other => Err(anyhow!("unrecognized organization role: {other}")),
+    }
+}
+
+fn organization_role_as_str(role: &OrganizationRole) -> &'static str {
+    match role {
+        OrganizationRole::Admin => "admin",
+        OrganizationRole::Viewer => "viewer",
+    }
+}
+
+fn organization_from_row(row: sqlx::postgres::PgRow) -> Result<Organization> {
+    Ok(Organization {
+        id: row.get("id"),
+        slug: row.get("slug"),
+        name: row.get("name"),
+    })
+}
+
+fn local_account_from_row(row: sqlx::postgres::PgRow) -> Result<LocalAccount> {
+    Ok(LocalAccount {
+        id: row.get("id"),
+        email: row.get("email"),
+        name: row.get("name"),
+        password_hash: row.try_get("password_hash")?,
+        created_at: row.get("created_at"),
+    })
+}
+
+fn organization_membership_from_row(row: sqlx::postgres::PgRow) -> Result<OrganizationMembership> {
+    Ok(OrganizationMembership {
+        organization_id: row.get("organization_id"),
+        user_id: row.get("user_id"),
+        role: organization_role_from_db(&row.get::<String, _>("role"))?,
+        joined_at: row.get("joined_at"),
+    })
+}
+
+fn organization_invite_from_row(row: sqlx::postgres::PgRow) -> Result<OrganizationInvite> {
+    Ok(OrganizationInvite {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        email: row.get("email"),
+        role: organization_role_from_db(&row.get::<String, _>("role"))?,
+        invited_by_user_id: row.get("invited_by_user_id"),
+        created_at: row.get("created_at"),
+        expires_at: row.get("expires_at"),
+        accepted_by_user_id: row.try_get("accepted_by_user_id")?,
+        accepted_at: row.try_get("accepted_at")?,
+    })
 }
 
 impl FileOrganizationStore {
@@ -1246,6 +1608,255 @@ mod tests {
                 created_at: row.get("created_at"),
             })
             .collect()
+    }
+
+    async fn org_auth_metadata_test_pool() -> sqlx::PgPool {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for Postgres org-auth metadata tests");
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply catalog migrations");
+        sqlx::query(
+            "TRUNCATE TABLE sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset org auth metadata test tables");
+        pool
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_reads_local_account_by_email_and_id() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)",
+        )
+        .bind("org_acme")
+        .bind("acme")
+        .bind("Acme")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_alice")
+        .bind("alice@example.com")
+        .bind("Alice Admin")
+        .bind("$argon2id$alice-hash")
+        .bind("2026-04-22T12:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+
+        assert_eq!(
+            store
+                .local_account_by_email(" ALICE@example.com ")
+                .await
+                .unwrap(),
+            Some(LocalAccount {
+                id: "local_user_alice".into(),
+                email: "alice@example.com".into(),
+                name: "Alice Admin".into(),
+                password_hash: Some("$argon2id$alice-hash".into()),
+                created_at: "2026-04-22T12:00:00Z".into(),
+            })
+        );
+        assert_eq!(
+            store.local_account_by_id("local_user_alice").await.unwrap(),
+            Some(LocalAccount {
+                id: "local_user_alice".into(),
+                email: "alice@example.com".into(),
+                name: "Alice Admin".into(),
+                password_hash: Some("$argon2id$alice-hash".into()),
+                created_at: "2026-04-22T12:00:00Z".into(),
+            })
+        );
+        assert_eq!(store.local_account_by_email("missing@example.com").await.unwrap(), None);
+        assert_eq!(store.local_account_by_id("missing_user").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_fails_closed_for_case_insensitive_duplicate_local_account_emails(
+    ) {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_alice_lower', 'alice@example.com', 'Alice Lower', '$argon2id$alice-lower', '2026-04-22T12:00:00Z'::timestamptz),
+            ('local_user_alice_upper', 'ALICE@example.com', 'Alice Upper', '$argon2id$alice-upper', '2026-04-22T12:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+
+        assert_eq!(
+            store
+                .local_account_by_email("alice@example.com")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .local_account_by_email(" ALICE@example.com ")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_lists_admin_organizations_and_membership_rosters() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_tools', 'tools', 'Tools')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_member', 'member@example.com', 'Member User', '2026-04-22T09:05:00Z'::timestamptz),
+            ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz),
+            ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz),
+            ('org_tools', 'local_user_admin', 'viewer', '2026-04-22T09:12:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let snapshot = store
+            .admin_organization_auth_metadata("local_user_admin")
+            .await
+            .unwrap();
+
+        assert_eq!(snapshot.organizations.len(), 1);
+        assert_eq!(snapshot.organizations[0].id, "org_acme");
+        assert_eq!(snapshot.memberships.len(), 2);
+        assert_eq!(snapshot.invites.len(), 2);
+        assert_eq!(
+            snapshot
+                .memberships
+                .iter()
+                .map(|membership| membership.user_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["local_user_admin", "local_user_member"]
+        );
+        assert_eq!(
+            snapshot
+                .accounts
+                .iter()
+                .map(|account| account.email.as_str())
+                .collect::<Vec<_>>(),
+            vec!["admin@example.com", "member@example.com"]
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_accepts_invite_and_persists_account_membership_and_invite_acceptance() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz),
+            ('local_user_pending', 'invitee@example.com', '', '2026-04-22T09:30:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
+            ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let accepted = store
+            .redeem_invite(
+                "invite_pending",
+                "Invitee@example.com",
+                "Invited User",
+                "$argon2id$invite-hash",
+                "2026-04-22T12:30:00Z",
+                "local_user_generated",
+            )
+            .await
+            .unwrap()
+            .expect("invite accepted");
+
+        assert_eq!(accepted.account.id, "local_user_pending");
+        assert_eq!(accepted.account.name, "Invited User");
+        assert_eq!(accepted.account.password_hash, Some("$argon2id$invite-hash".into()));
+        assert_eq!(accepted.membership.organization_id, "org_acme");
+        assert_eq!(accepted.membership.user_id, "local_user_pending");
+        assert_eq!(accepted.invite.accepted_by_user_id, Some("local_user_pending".into()));
+        assert_eq!(accepted.invite.accepted_at, Some("2026-04-22T12:30:00Z".into()));
+
+        let persisted_account = sqlx::query(
+            "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE email = $1",
+        )
+        .bind("invitee@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted_account.get::<String, _>("id"), "local_user_pending");
+        assert_eq!(persisted_account.get::<String, _>("name"), "Invited User");
+        assert_eq!(persisted_account.get::<String, _>("password_hash"), "$argon2id$invite-hash");
+        assert_eq!(persisted_account.get::<String, _>("created_at"), "2026-04-22T09:30:00Z");
+
+        let persisted_membership = sqlx::query(
+            "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
+        )
+        .bind("org_acme")
+        .bind("local_user_pending")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted_membership.get::<String, _>("role"), "viewer");
+        assert_eq!(persisted_membership.get::<String, _>("joined_at"), "2026-04-22T12:30:00Z");
+
+        let persisted_invite = sqlx::query(
+            "SELECT accepted_by_user_id, to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS accepted_at FROM organization_invites WHERE id = $1",
+        )
+        .bind("invite_pending")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            persisted_invite.get::<String, _>("accepted_by_user_id"),
+            "local_user_pending"
+        );
+        assert_eq!(persisted_invite.get::<String, _>("accepted_at"), "2026-04-22T12:30:00Z");
     }
 
     #[tokio::test]

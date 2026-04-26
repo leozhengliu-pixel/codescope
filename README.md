@@ -51,8 +51,8 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```
 7. `make` auto-loads `.env`, so `.env.example` stays the runnable local metadata DB contract for both the local-only `sourcebot` bootstrap database and the dedicated `sourcebot_test` test database.
 8. `make sqlx-test-reset` uses `TEST_DATABASE_URL` plus the repo-local `.sqlx-cli` install root to drop, recreate, and re-migrate the deterministic local test database.
-9. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage, PostgreSQL-backed bootstrap-admin, and durable local-session test suite so local migration workflow verification uses one reproducible command.
-10. `make sqlx-test` now covers the storage migration-inventory/catalog fallback checks, the PostgreSQL-backed bootstrap store and `/api/v1/auth/bootstrap` + login regressions, plus the PostgreSQL-backed local-session store and login -> `/api/v1/auth/me` regression slice; bootstrap admin metadata now persists in PostgreSQL when DATABASE_URL is configured, while broader durable catalog/auth/org runtime parity remains a later roadmap slice.
+9. `make sqlx-test` wraps the deterministic reset plus the focused `sourcebot-api` metadata storage, PostgreSQL-backed bootstrap-admin, durable local-session, and PostgreSQL-backed local-account/membership/invite auth regressions so local migration workflow verification uses one reproducible command.
+10. `make sqlx-test` now covers the storage migration-inventory/catalog fallback checks, the PostgreSQL-backed bootstrap store and `/api/v1/auth/bootstrap` + login regressions, the PostgreSQL-backed local-session store and login -> `/api/v1/auth/me` regression slice, plus the durable PostgreSQL local-account lookup, linked-account membership, member-roster, and invite-redeem regressions; bootstrap-admin, invited-account login, auth-me identity restoration, member rosters, linked-account memberships, and invite acceptance now persist in PostgreSQL when `DATABASE_URL` is configured, while API keys, OAuth clients, connections, analytics, audit events, and the remaining whole-aggregate organization state remain later roadmap work.
 11. `make sqlx-test-reset` refuses non-local or non-`_test` databases so the destructive reset flow stays scoped to the dedicated local metadata test database.
 12. `make metadata-dev-bootstrap` is a local-only operator bootstrap helper that waits for local Postgres, ensures the dedicated test database exists, runs `make sqlx-migrate`, and then runs the focused `make sqlx-test` compatibility check.
 13. `make metadata-dev-bootstrap` does not mean the API already uses durable metadata by default; the current API still routes `DATABASE_URL` through an unimplemented lazy `PgCatalogStore` path, so this helper is only a local bootstrap-and-compatibility workflow today.
@@ -66,7 +66,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    - `bootstrap-state.json`
    - `local-sessions.json`
    - `organizations.json`
-3. When `DATABASE_URL` is configured, the API now persists local sessions durably in PostgreSQL and ignores `local-sessions.json` for active session reads/writes; bootstrap/admin and organization state still remain file-backed follow-up work.
+3. When `DATABASE_URL` is configured, the API now persists bootstrap-admin, local-session, local-account, membership, and invite-auth metadata durably in PostgreSQL for the bounded `/api/v1/auth/login`, `/api/v1/auth/me`, `/api/v1/auth/members`, `/api/v1/auth/linked-accounts`, and `/api/v1/auth/invite-redeem` slice, and ignores stale `bootstrap-state.json` / `local-sessions.json` / organization-auth fixture data for those PostgreSQL-backed reads; API keys, OAuth clients, connections, analytics, audit events, and the remaining whole-aggregate organization state still remain follow-up work.
 4. Optional explicit overrides still win for the file-backed state paths if you set `SOURCEBOT_BOOTSTRAP_STATE_PATH`, `SOURCEBOT_LOCAL_SESSION_STATE_PATH`, or `SOURCEBOT_ORGANIZATION_STATE_PATH`.
 5. Start the API with the repo-local `.env` contract:
    ```bash
@@ -125,7 +125,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    make metadata-restore BACKUP_DIR="$BACKUP_DIR"
    ```
 10. The metadata backup/restore helpers intentionally stay local-only for this baseline: they require `DATABASE_URL` to target `127.0.0.1` or `localhost`, validate a matching redacted manifest on restore, and rely on `pg_dump`/`psql` from the local operator environment.
-11. This maintenance baseline now covers the current file-backed runtime state plus the local Postgres metadata dump/restore workflow; notably, local sessions are durable in PostgreSQL when `DATABASE_URL` is configured, but broader durable auth/org/catalog/runtime parity still remains follow-up work.
+11. This maintenance baseline now covers the current file-backed runtime state plus the local Postgres metadata dump/restore workflow; notably, bootstrap-admin, local sessions, local accounts, memberships, and invite acceptance are durable in PostgreSQL when `DATABASE_URL` is configured, but API-key/OAuth-client durability, broader organization aggregates, catalog state, and the remaining runtime parity work still remain follow-up slices.
 
 ## License
 Current default: MIT.

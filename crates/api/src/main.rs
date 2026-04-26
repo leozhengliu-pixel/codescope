@@ -15,6 +15,7 @@ use ask::{
 use auth::{
     build_bootstrap_store, build_local_session_store, build_organization_store,
     try_build_local_session_store, DynBootstrapStore, DynLocalSessionStore, DynOrganizationStore,
+    OrganizationAuthMetadataState, PgOrganizationAuthMetadataStore,
 };
 use axum::{
     body::Bytes,
@@ -58,6 +59,7 @@ struct AppState {
     bootstrap: DynBootstrapStore,
     local_sessions: DynLocalSessionStore,
     organization_store: DynOrganizationStore,
+    organization_auth_metadata_store: Option<PgOrganizationAuthMetadataStore>,
     organization_state_write_lock: Arc<tokio::sync::Mutex<()>>,
     browse: DynBrowseStore,
     commits: DynCommitStore,
@@ -136,6 +138,12 @@ fn build_app_state(
     ask_threads: DynAskThreadStore,
 ) -> AppState {
     let organization_store = build_organization_store(config.organization_state_path.clone());
+    let organization_auth_metadata_store = config
+        .database_url
+        .as_deref()
+        .map(PgOrganizationAuthMetadataStore::connect_lazy)
+        .transpose()
+        .expect("organization auth metadata DATABASE_URL must be valid when configured");
 
     AppState {
         config,
@@ -143,6 +151,7 @@ fn build_app_state(
         bootstrap,
         local_sessions,
         organization_store,
+        organization_auth_metadata_store,
         organization_state_write_lock: Arc::new(tokio::sync::Mutex::new(())),
         browse,
         commits,
@@ -314,6 +323,104 @@ fn ask_thread_title_from_prompt(prompt: &str) -> String {
     const MAX_TITLE_CHARS: usize = 80;
 
     prompt.chars().take(MAX_TITLE_CHARS).collect()
+}
+
+fn organization_state_from_auth_metadata(
+    metadata: OrganizationAuthMetadataState,
+) -> OrganizationState {
+    OrganizationState {
+        organizations: metadata.organizations,
+        accounts: metadata.accounts,
+        memberships: metadata.memberships,
+        invites: metadata.invites,
+        ..OrganizationState::default()
+    }
+}
+
+async fn local_account_by_email(
+    state: &AppState,
+    email: &str,
+) -> Result<Option<LocalAccount>, StatusCode> {
+    if let Some(store) = &state.organization_auth_metadata_store {
+        return store
+            .local_account_by_email(email)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(organization_state
+        .accounts
+        .iter()
+        .find(|account| account.email.trim().eq_ignore_ascii_case(email))
+        .cloned())
+}
+
+async fn local_account_by_id(state: &AppState, user_id: &str) -> Result<Option<LocalAccount>, StatusCode> {
+    if let Some(store) = &state.organization_auth_metadata_store {
+        return store
+            .local_account_by_id(user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(organization_state
+        .accounts
+        .iter()
+        .find(|account| account.id == user_id)
+        .cloned())
+}
+
+async fn admin_auth_organization_state(
+    state: &AppState,
+    user_id: &str,
+) -> Result<OrganizationState, StatusCode> {
+    if let Some(store) = &state.organization_auth_metadata_store {
+        return store
+            .admin_organization_auth_metadata(user_id)
+            .await
+            .map(organization_state_from_auth_metadata)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn user_auth_organization_state(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<OrganizationState>, StatusCode> {
+    if let Some(store) = &state.organization_auth_metadata_store {
+        return store
+            .user_organization_auth_metadata(user_id)
+            .await
+            .map(|metadata| metadata.map(organization_state_from_auth_metadata))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if organization_state.accounts.iter().any(|account| account.id == user_id) {
+        Ok(Some(organization_state))
+    } else {
+        Ok(None)
+    }
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -830,7 +937,6 @@ async fn login_local_admin(
         return Err(StatusCode::CONFLICT);
     }
 
-    let normalized_email = email.to_ascii_lowercase();
     let authenticated_user_id = if let Some(bootstrap_state) = state
         .bootstrap
         .bootstrap_state()
@@ -845,15 +951,8 @@ async fn login_local_admin(
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
         LOCAL_BOOTSTRAP_ADMIN_USER_ID.to_string()
     } else {
-        let organization_state = state
-            .organization_store
-            .organization_state()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let account = organization_state
-            .accounts
-            .iter()
-            .find(|account| account.email.trim().eq_ignore_ascii_case(&normalized_email))
+        let account = local_account_by_email(&state, email)
+            .await?
             .ok_or(StatusCode::UNAUTHORIZED)?;
         let password_hash = account
             .password_hash
@@ -865,7 +964,7 @@ async fn login_local_admin(
         Argon2::default()
             .verify_password(password.as_bytes(), &password_hash)
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
-        account.id.clone()
+        account.id
     };
 
     let session_id = format!(
@@ -903,23 +1002,16 @@ async fn login_local_admin(
             created_at: bootstrap_state.initialized_at,
         }
     } else {
-        let organization_state = state
-            .organization_store
-            .organization_state()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let account = organization_state
-            .accounts
-            .iter()
-            .find(|account| account.id == authenticated_user_id)
+        let account = local_account_by_id(&state, &authenticated_user_id)
+            .await?
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
         LocalAccount {
-            id: account.id.clone(),
-            email: account.email.clone(),
-            name: account.name.clone(),
+            id: account.id,
+            email: account.email,
+            name: account.name,
             password_hash: None,
-            created_at: account.created_at.clone(),
+            created_at: account.created_at,
         }
     };
 
@@ -979,54 +1071,12 @@ async fn redeem_local_invite(
     let created_at = current_timestamp();
 
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-    let mut organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let invite_index = organization_state
-        .invites
-        .iter()
-        .position(|invite| invite.id == invite_id)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    let invite = &organization_state.invites[invite_index];
-    let invite_expired = OffsetDateTime::parse(invite.expires_at.trim(), &Rfc3339)
-        .ok()
-        .map(|expires_at| expires_at < OffsetDateTime::now_utc())
-        .unwrap_or(true);
-    if !invite.email.trim().eq_ignore_ascii_case(email)
-        || invite.accepted_at.is_some()
-        || invite.accepted_by_user_id.is_some()
-        || invite_expired
-        || !organization_state
-            .organizations
-            .iter()
-            .any(|organization| organization.id == invite.organization_id)
-    {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-    let invite_organization_id = invite.organization_id.clone();
-    let invite_role = invite.role.clone();
-
     let invite_password_hash = Argon2::default()
         .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .to_string();
 
-    let accepted_user_id = if let Some(existing_account) = organization_state
-        .accounts
-        .iter_mut()
-        .find(|account| account.email.trim().eq_ignore_ascii_case(email))
-    {
-        if existing_account.password_hash.is_some() {
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-        if existing_account.name.trim().is_empty() {
-            existing_account.name = name.to_string();
-        }
-        existing_account.password_hash = Some(invite_password_hash.clone());
-        existing_account.id.clone()
-    } else {
+    let accepted_user_id = if let Some(store) = &state.organization_auth_metadata_store {
         let generated_user_id = format!(
             "local_user_{}",
             SaltString::generate(&mut OsRng)
@@ -1035,48 +1085,138 @@ async fn redeem_local_invite(
                 .filter(|ch| ch.is_ascii_alphanumeric())
                 .collect::<String>()
         );
-        organization_state.accounts.push(LocalAccount {
-            id: generated_user_id.clone(),
-            email: email.to_string(),
-            name: name.to_string(),
-            password_hash: Some(invite_password_hash),
-            created_at: created_at.clone(),
-        });
-        generated_user_id
-    };
+        let redeemed = store
+            .redeem_invite(
+                invite_id,
+                email,
+                name,
+                &invite_password_hash,
+                &created_at,
+                &generated_user_id,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    if !organization_state.memberships.iter().any(|membership| {
-        membership.organization_id == invite_organization_id
-            && membership.user_id == accepted_user_id
-    }) {
-        organization_state.memberships.push(OrganizationMembership {
-            organization_id: invite_organization_id.clone(),
-            user_id: accepted_user_id.clone(),
-            role: invite_role,
-            joined_at: created_at.clone(),
-        });
-    }
-
-    organization_state.invites[invite_index].accepted_by_user_id = Some(accepted_user_id.clone());
-    organization_state.invites[invite_index].accepted_at = Some(created_at.clone());
-
-    let session_account = organization_state
-        .accounts
-        .iter()
-        .find(|account| account.id == accepted_user_id)
-        .map(|account| LocalAccount {
-            id: account.id.clone(),
-            email: account.email.clone(),
-            name: account.name.clone(),
+        let session_account = LocalAccount {
+            id: redeemed.account.id.clone(),
+            email: redeemed.account.email,
+            name: redeemed.account.name,
             password_hash: None,
-            created_at: account.created_at.clone(),
-        })
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    state
-        .local_sessions
-        .persist_local_session_account(session_account)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            created_at: redeemed.account.created_at,
+        };
+        state
+            .local_sessions
+            .persist_local_session_account(session_account)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        redeemed.account.id
+    } else {
+        let mut organization_state = state
+            .organization_store
+            .organization_state()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let invite_index = organization_state
+            .invites
+            .iter()
+            .position(|invite| invite.id == invite_id)
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let invite = &organization_state.invites[invite_index];
+        let invite_expired = OffsetDateTime::parse(invite.expires_at.trim(), &Rfc3339)
+            .ok()
+            .map(|expires_at| expires_at < OffsetDateTime::now_utc())
+            .unwrap_or(true);
+        if !invite.email.trim().eq_ignore_ascii_case(email)
+            || invite.accepted_at.is_some()
+            || invite.accepted_by_user_id.is_some()
+            || invite_expired
+            || !organization_state
+                .organizations
+                .iter()
+                .any(|organization| organization.id == invite.organization_id)
+        {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        let invite_organization_id = invite.organization_id.clone();
+        let invite_role = invite.role.clone();
+
+        let accepted_user_id = if let Some(existing_account) = organization_state
+            .accounts
+            .iter_mut()
+            .find(|account| account.email.trim().eq_ignore_ascii_case(email))
+        {
+            if existing_account.password_hash.is_some() {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+            if existing_account.name.trim().is_empty() {
+                existing_account.name = name.to_string();
+            }
+            existing_account.password_hash = Some(invite_password_hash.clone());
+            existing_account.id.clone()
+        } else {
+            let generated_user_id = format!(
+                "local_user_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            );
+            organization_state.accounts.push(LocalAccount {
+                id: generated_user_id.clone(),
+                email: email.to_string(),
+                name: name.to_string(),
+                password_hash: Some(invite_password_hash.clone()),
+                created_at: created_at.clone(),
+            });
+            generated_user_id
+        };
+
+        if !organization_state.memberships.iter().any(|membership| {
+            membership.organization_id == invite_organization_id
+                && membership.user_id == accepted_user_id
+        }) {
+            organization_state.memberships.push(OrganizationMembership {
+                organization_id: invite_organization_id.clone(),
+                user_id: accepted_user_id.clone(),
+                role: invite_role,
+                joined_at: created_at.clone(),
+            });
+        }
+
+        organization_state.invites[invite_index].accepted_by_user_id = Some(accepted_user_id.clone());
+        organization_state.invites[invite_index].accepted_at = Some(created_at.clone());
+
+        let session_account = organization_state
+            .accounts
+            .iter()
+            .find(|account| account.id == accepted_user_id)
+            .map(|account| LocalAccount {
+                id: account.id.clone(),
+                email: account.email.clone(),
+                name: account.name.clone(),
+                password_hash: None,
+                created_at: account.created_at.clone(),
+            })
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        state
+            .local_sessions
+            .persist_local_session_account(session_account)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if let Err(_) = state
+            .organization_store
+            .store_organization_state(organization_state)
+            .await
+        {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+
+        accepted_user_id
+    };
 
     let local_session = LocalSession {
         id: session_id.clone(),
@@ -1086,21 +1226,9 @@ async fn redeem_local_invite(
     };
     state
         .local_sessions
-        .store_local_session(local_session.clone())
+        .store_local_session(local_session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Err(_) = state
-        .organization_store
-        .store_organization_state(organization_state)
-        .await
-    {
-        state
-            .local_sessions
-            .delete_local_session(&local_session.id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
 
     Ok((
         StatusCode::CREATED,
@@ -1268,15 +1396,8 @@ async fn get_authenticated_local_admin(
         }));
     }
 
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let account = organization_state
-        .accounts
-        .iter()
-        .find(|account| account.id == session.user_id)
+    let account = local_account_by_id(&state, &session.user_id)
+        .await?
         .ok_or(StatusCode::UNAUTHORIZED)?;
     if account.email.trim().is_empty()
         || account.name.trim().is_empty()
@@ -1286,9 +1407,9 @@ async fn get_authenticated_local_admin(
     }
 
     Ok(Json(AuthMeResponse {
-        user_id: account.id.clone(),
-        email: account.email.clone(),
-        name: account.name.clone(),
+        user_id: account.id,
+        email: account.email,
+        name: account.name,
         session_id: session.id,
         created_at: session.created_at,
     }))
@@ -1578,13 +1699,8 @@ async fn list_authenticated_members(
     headers: HeaderMap,
 ) -> Result<Json<Vec<MembersOrganizationResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let admin_organization_ids =
-        admin_organization_ids_for_user(&organization_state, &session.user_id);
+    let organization_state = admin_auth_organization_state(&state, &session.user_id).await?;
+    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
 
     let payload: Vec<MembersOrganizationResponse> = organization_state
         .organizations
@@ -1601,11 +1717,9 @@ async fn list_authenticated_linked_accounts(
     headers: HeaderMap,
 ) -> Result<Json<LinkedAccountsResponse>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
-    let organization_state = state
-        .organization_store
-        .organization_state()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let organization_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
     let account = organization_state
         .accounts
         .iter()
@@ -4777,6 +4891,47 @@ mod tests {
         }
     }
 
+    fn postgres_auth_metadata_test_config(
+        organization_state_path: &std::path::Path,
+        bootstrap_state_path: &std::path::Path,
+        local_session_state_path: &std::path::Path,
+    ) -> AppConfig {
+        AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: bootstrap_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            database_url: Some(
+                env::var("TEST_DATABASE_URL").expect(
+                    "TEST_DATABASE_URL must be set for Postgres-backed auth metadata tests",
+                ),
+            ),
+            ..AppConfig::default()
+        }
+    }
+
+    async fn seed_postgres_bootstrap_admin(
+        pool: &sqlx::PgPool,
+        email: &str,
+        name: &str,
+        password: &str,
+    ) {
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+        .bind(email)
+        .bind(name)
+        .bind(&password_hash)
+        .bind("2026-04-22T08:00:00Z")
+        .execute(pool)
+        .await
+        .expect("seed bootstrap admin row in Postgres");
+    }
+
     #[tokio::test]
     async fn postgres_backed_bootstrap_status_uses_postgres_backed_bootstrap_admin_when_database_url_is_configured(
     ) {
@@ -5248,8 +5403,734 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn postgres_backed_local_account_login_and_auth_me_restore_from_postgres_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let local_password_hash = Argon2::default()
+            .hash_password(
+                b"correct horse battery staple",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_alice")
+        .bind("alice@example.com")
+        .bind("Alice Admin")
+        .bind(&local_password_hash)
+        .bind("2026-04-22T09:00:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_alice', 'admin', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-local-account-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-local-account-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-local-account-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "alice@example.com".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+        assert_eq!(login_payload.user_id, "local_user_alice");
+
+        let reloaded_org_state_path = unique_test_path("pg-local-account-empty-orgs-reloaded");
+        fs::write(
+            &reloaded_org_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let reloaded_app = test_app_with_config(postgres_auth_metadata_test_config(
+            &reloaded_org_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+        let me_response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(me_response.status(), StatusCode::OK);
+        let me_payload: AuthMeResponseBody = read_json(me_response).await;
+        assert_eq!(me_payload.user_id, "local_user_alice");
+        assert_eq!(me_payload.email, "alice@example.com");
+        assert_eq!(me_payload.name, "Alice Admin");
+        assert!(!local_session_state_path.exists());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(reloaded_org_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_backed_local_account_login_fails_closed_for_case_insensitive_duplicate_emails(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
+        let local_password_hash = Argon2::default()
+            .hash_password(
+                b"correct horse battery staple",
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_alice_lower', 'alice@example.com', 'Alice Lower', $1, '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_alice_upper', 'ALICE@example.com', 'Alice Upper', $1, '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .bind(&local_password_hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-local-account-duplicate-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-local-account-duplicate-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-local-account-duplicate-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "alice@example.com".into(),
+                            password: "correct horse battery staple".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::UNAUTHORIZED);
+
+        let persisted_session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .expect("no persisted Postgres sessions after duplicate-email login");
+        assert_eq!(persisted_session_count, 0);
+        assert!(!local_session_state_path.exists());
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let admin_password_hash = Argon2::default()
+            .hash_password(b"members-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_hidden', 'hidden', 'Hidden')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', $1, '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_member', 'member@example.com', 'Member User', NULL, '2026-04-22T09:05:00Z'::timestamptz),
+            ('local_user_inviter', 'inviter@example.com', 'Inviter User', NULL, '2026-04-22T08:55:00Z'::timestamptz)"
+        )
+        .bind(&admin_password_hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz),
+            ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz),
+            ('org_hidden', 'local_user_admin', 'viewer', '2026-04-22T09:12:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-members-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-members-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-members-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "admin@example.com".into(),
+                            password: "members-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let members_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/members")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(members_response.status(), StatusCode::OK);
+        let members_payload: Vec<MembersOrganizationResponseBody> = read_json(members_response).await;
+        assert_eq!(members_payload.len(), 1);
+        assert_eq!(members_payload[0].organization.id, "org_acme");
+        assert_eq!(members_payload[0].members.len(), 2);
+        assert_eq!(members_payload[0].invites.len(), 2);
+        assert_eq!(members_payload[0].members[0].account.email, "admin@example.com");
+        assert_eq!(members_payload[0].members[1].account.email, "member@example.com");
+        let invite_status_by_email = members_payload[0]
+            .invites
+            .iter()
+            .map(|invite| (invite.email.as_str(), invite.status.as_str()))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(invite_status_by_email.get("pending@example.com"), Some(&"pending"));
+        assert_eq!(invite_status_by_email.get("accepted@example.com"), Some(&"accepted"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn auth_linked_accounts_returns_postgres_backed_memberships_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        let member_password_hash = Argon2::default()
+            .hash_password(b"linked-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
+        )
+        .bind("local_user_member")
+        .bind("member@example.com")
+        .bind("Member User")
+        .bind(&member_password_hash)
+        .bind("2026-04-22T09:05:00Z")
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-linked-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-linked-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-linked-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let login_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&LoginRequest {
+                            email: "member@example.com".into(),
+                            password: "linked-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_response.status(), StatusCode::CREATED);
+        let login_payload: LoginResponseBody = read_json(login_response).await;
+
+        let linked_accounts_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/linked-accounts")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            login_payload.session_id, login_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(linked_accounts_response.status(), StatusCode::OK);
+        let linked_accounts_payload: LinkedAccountsResponseBody =
+            read_json(linked_accounts_response).await;
+        assert_eq!(linked_accounts_payload.identities.len(), 1);
+        assert_eq!(linked_accounts_payload.identities[0].email, "member@example.com");
+        assert_eq!(linked_accounts_payload.memberships.len(), 1);
+        assert_eq!(linked_accounts_payload.memberships[0].organization.id, "org_acme");
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_persists_postgres_backed_account_membership_and_invite_acceptance_when_database_url_is_configured(
+    ) {
+        let pool = pg_local_session_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-invite-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-invite-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-invite-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let redeem_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Invitee User".into(),
+                            password: "invite-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(redeem_response.status(), StatusCode::CREATED);
+        let redeem_payload: LoginResponseBody = read_json(redeem_response).await;
+
+        let persisted_account = sqlx::query(
+            "SELECT id, name, password_hash FROM local_accounts WHERE email = $1",
+        )
+        .bind("invitee@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let invited_user_id: String = persisted_account.get("id");
+        let invited_password_hash: String = persisted_account.get("password_hash");
+        assert_eq!(persisted_account.get::<String, _>("name"), "Invitee User");
+        assert_ne!(invited_password_hash, "invite-password");
+        assert!(invited_password_hash.starts_with("$argon2"));
+        assert_eq!(redeem_payload.user_id, invited_user_id);
+
+        let membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = $1",
+        )
+        .bind(&invited_user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(membership_count, 1);
+        let accepted_at: Option<String> = sqlx::query_scalar(
+            "SELECT to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM organization_invites WHERE id = 'invite_pending'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(accepted_at.is_some());
+
+        let reloaded_org_state_path = unique_test_path("pg-auth-invite-empty-orgs-reloaded");
+        fs::write(
+            &reloaded_org_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let reloaded_app = test_app_with_config(postgres_auth_metadata_test_config(
+            &reloaded_org_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+        let me_response = reloaded_app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/me")
+                    .header(
+                        header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}:{}",
+                            redeem_payload.session_id, redeem_payload.session_secret
+                        ),
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(me_response.status(), StatusCode::OK);
+        let me_payload: AuthMeResponseBody = read_json(me_response).await;
+        assert_eq!(me_payload.email, "invitee@example.com");
+        assert_eq!(me_payload.name, "Invitee User");
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(reloaded_org_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_rejects_expired_postgres_backed_invites_without_side_effects() {
+        let pool = pg_local_session_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-01T00:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_expired', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-01T00:05:00Z'::timestamptz, '2026-04-02T00:05:00Z'::timestamptz, NULL, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-expired-invite-empty-orgs");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+        let bootstrap_state_path = unique_test_path("pg-auth-expired-invite-bootstrap-unused");
+        let local_session_state_path = unique_test_path("pg-auth-expired-invite-sessions-unused");
+        let app = test_app_with_config(postgres_auth_metadata_test_config(
+            &organization_state_path,
+            &bootstrap_state_path,
+            &local_session_state_path,
+        ));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_expired".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Expired Invitee".into(),
+                            password: "replacement-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let account_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM local_accounts WHERE lower(email) = lower($1)",
+        )
+        .bind("invitee@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(account_count, 0);
+        let membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND lower(user_id) LIKE 'local_user_%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(membership_count, 0);
+        let accepted_by_user_id: Option<String> = sqlx::query_scalar(
+            "SELECT accepted_by_user_id FROM organization_invites WHERE id = 'invite_expired'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(accepted_by_user_id.is_none());
+        let session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(session_count, 0);
+        assert!(!local_session_state_path.is_file());
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn invite_redeem_fails_closed_for_case_insensitive_duplicate_postgres_accounts() {
+        let pool = pg_local_session_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('user_admin', 'admin@example.com', 'Admin User', '2026-04-20T23:55:00Z'::timestamptz),
+            ('local_user_invitee_lower', 'invitee@example.com', '', '2026-04-22T09:30:00Z'::timestamptz),
+            ('local_user_invitee_upper', 'INVITEE@example.com', '', '2026-04-22T09:31:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'user_admin', 'admin', '2026-04-21T00:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2026-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let organization_state_path = unique_test_path("pg-invite-redeem-duplicate-orgs");
+        let local_session_state_path = unique_test_path("pg-invite-redeem-duplicate-sessions");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("pg-invite-redeem-duplicate-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            database_url: Some(env::var("TEST_DATABASE_URL").expect(
+                "TEST_DATABASE_URL must be set for Postgres-backed invite duplicate tests",
+            )),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/invite-redeem")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&InviteRedeemRequest {
+                            invite_id: "invite_pending".into(),
+                            email: "invitee@example.com".into(),
+                            name: "Invited User".into(),
+                            password: "replacement-password".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let invitee_accounts: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM local_accounts WHERE lower(email) = lower($1)",
+        )
+        .bind("invitee@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(invitee_accounts, 2);
+        let membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND lower(user_id) LIKE 'local_user_invitee_%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(membership_count, 0);
+        let accepted_by_user_id: Option<String> = sqlx::query_scalar(
+            "SELECT accepted_by_user_id FROM organization_invites WHERE id = 'invite_pending'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(accepted_by_user_id.is_none());
+        let session_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(session_count, 0);
+        assert!(!local_session_state_path.exists());
+
+        fs::remove_file(organization_state_path).unwrap();
+        pool.close().await;
+    }
+
+    #[tokio::test]
     async fn invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me() {
         let pool = pg_local_session_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('user_admin', 'admin@example.com', 'Admin User', '2026-04-20T23:55:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'user_admin', 'admin', '2026-04-21T00:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2026-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
         let organization_state_path = unique_test_path("pg-invite-redeem-orgs");
         let local_session_state_path = unique_test_path("pg-invite-redeem-file-a");
         let poisoned_local_session_state_path = unique_test_path("pg-invite-redeem-file-b");
@@ -5260,39 +6141,7 @@ mod tests {
         .unwrap();
         fs::write(
             &organization_state_path,
-            serde_json::to_vec(&OrganizationState {
-                organizations: vec![Organization {
-                    id: "org_acme".into(),
-                    slug: "acme".into(),
-                    name: "Acme".into(),
-                }],
-                memberships: vec![OrganizationMembership {
-                    organization_id: "org_acme".into(),
-                    user_id: "user_admin".into(),
-                    role: OrganizationRole::Admin,
-                    joined_at: "2026-04-21T00:00:00Z".into(),
-                }],
-                accounts: vec![LocalAccount {
-                    id: "user_admin".into(),
-                    email: "admin@example.com".into(),
-                    name: "Admin User".into(),
-                    password_hash: None,
-                    created_at: "2026-04-20T23:55:00Z".into(),
-                }],
-                invites: vec![OrganizationInvite {
-                    id: "invite_pending".into(),
-                    organization_id: "org_acme".into(),
-                    email: "invitee@example.com".into(),
-                    role: OrganizationRole::Viewer,
-                    invited_by_user_id: "user_admin".into(),
-                    created_at: "2026-04-21T00:05:00Z".into(),
-                    expires_at: "2026-04-28T00:05:00Z".into(),
-                    accepted_by_user_id: None,
-                    accepted_at: None,
-                }],
-                ..OrganizationState::default()
-            })
-            .unwrap(),
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
         )
         .unwrap();
 
