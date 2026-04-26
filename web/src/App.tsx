@@ -992,6 +992,13 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [threadTitleInput, setThreadTitleInput] = useState('');
+  const [threadVisibilityInput, setThreadVisibilityInput] = useState('private');
+  const [metadataSubmitting, setMetadataSubmitting] = useState(false);
+  const [metadataMessage, setMetadataMessage] = useState<string | null>(null);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const selectedThreadIdRef = useRef<string | null>(initialThreadId);
+  const metadataRequestVersionRef = useRef(0);
   const chatRequestVersionRef = useRef(0);
   const restoredChatThreadUnavailableMessage = 'The restored chat thread is no longer available for this repository scope. Start a fresh chat.';
 
@@ -1053,11 +1060,18 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
   }, [initialRepoId, initialThreadId, repos, selectedRepoId, selectedThreadId]);
 
   useEffect(() => {
+    selectedThreadIdRef.current = selectedThreadId;
+  }, [selectedThreadId]);
+
+  useEffect(() => {
     setSelectedThreadId((currentThreadId) => {
       if (currentThreadId === initialThreadId) {
         return currentThreadId;
       }
       invalidateInFlightChatRequest();
+      metadataRequestVersionRef.current += 1;
+      selectedThreadIdRef.current = initialThreadId;
+      setMetadataSubmitting(false);
       setThreadDetail(null);
       setThreadDetailError(null);
       setSubmitError(null);
@@ -1087,6 +1101,10 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
         }
 
         setThreadDetail(detail);
+        setThreadTitleInput(detail.title);
+        setThreadVisibilityInput(detail.visibility);
+        setMetadataMessage(null);
+        setMetadataError(null);
         setSelectedRepoId(nextRepoId);
         setSubmitError(null);
         const targetHash = buildChatHash(nextRepoId, detail.id);
@@ -1128,9 +1146,14 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
 
   const handleStartFreshChat = () => {
     invalidateInFlightChatRequest();
+    metadataRequestVersionRef.current += 1;
+    selectedThreadIdRef.current = null;
+    setMetadataSubmitting(false);
     setSelectedThreadId(null);
     setThreadDetail(null);
     setThreadDetailError(null);
+    setMetadataMessage(null);
+    setMetadataError(null);
     setSubmitError(null);
     const fallbackRepoId = selectedRepoId || repos[0]?.id || null;
     if (fallbackRepoId) {
@@ -1139,6 +1162,74 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
     const targetHash = buildChatHash(fallbackRepoId, null);
     if (window.location.hash !== targetHash) {
       window.location.hash = targetHash;
+    }
+  };
+
+  const handleUpdateThreadMetadata = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!threadDetail || metadataSubmitting) {
+      return;
+    }
+
+    const nextTitle = threadTitleInput.trim();
+    if (nextTitle.length === 0) {
+      setMetadataMessage(null);
+      setMetadataError('Thread title cannot be empty.');
+      return;
+    }
+
+    const submittedThreadId = threadDetail.id;
+    const requestVersion = metadataRequestVersionRef.current + 1;
+    metadataRequestVersionRef.current = requestVersion;
+    setMetadataSubmitting(true);
+    setMetadataMessage(null);
+    setMetadataError(null);
+
+    try {
+      const updatedThread = await fetchJson<AskThreadDetail>(`/api/v1/ask/threads/${encodeURIComponent(submittedThreadId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: nextTitle,
+          visibility: threadVisibilityInput,
+        }),
+      });
+
+      setThreadSummaries((current) =>
+        current.map((summary) =>
+          summary.id === updatedThread.id
+            ? {
+                ...summary,
+                title: updatedThread.title,
+                visibility: updatedThread.visibility,
+                updated_at: updatedThread.updated_at,
+                message_count: updatedThread.messages.length,
+              }
+            : summary
+        )
+      );
+
+      const isCurrentMetadataRequest =
+        metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId;
+      if (!isCurrentMetadataRequest) {
+        return;
+      }
+
+      setThreadDetail(updatedThread);
+      setThreadTitleInput(updatedThread.title);
+      setThreadVisibilityInput(updatedThread.visibility);
+      setMetadataMessage('Thread metadata saved.');
+    } catch (metadataUpdateError) {
+      const isCurrentMetadataRequest =
+        metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId;
+      if (!isCurrentMetadataRequest) {
+        return;
+      }
+      setMetadataError(metadataUpdateError instanceof Error ? metadataUpdateError.message : 'Unknown thread metadata error');
+    } finally {
+      if (metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId) {
+        setMetadataSubmitting(false);
+      }
     }
   };
 
@@ -1290,6 +1381,9 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
                     type="button"
                     onClick={() => {
                       invalidateInFlightChatRequest();
+                      metadataRequestVersionRef.current += 1;
+                      selectedThreadIdRef.current = summary.id;
+                      setMetadataSubmitting(false);
                       const nextRepoId = summary.repo_scope[0] ?? selectedRepoId;
                       setSelectedRepoId(nextRepoId);
                       setSelectedThreadId(summary.id);
@@ -1341,7 +1435,31 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
 
           {threadDetail ? (
             <div style={{ display: 'grid', gap: 12 }}>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>{threadDetail.title}</div>
+              <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{threadDetail.title}</h3>
+              <div style={{ color: '#57606a' }}>Visibility: {threadDetail.visibility}</div>
+              <form style={{ ...detailCardStyle, display: 'grid', gap: 12 }} onSubmit={(event) => void handleUpdateThreadMetadata(event)}>
+                <div style={{ fontWeight: 700 }}>Thread metadata</div>
+                <div style={searchFormGridStyle}>
+                  <label style={fieldLabelStyle}>
+                    <span>Thread title</span>
+                    <input value={threadTitleInput} onChange={(event) => setThreadTitleInput(event.target.value)} style={inputStyle} />
+                  </label>
+                  <label style={fieldLabelStyle}>
+                    <span>Thread visibility</span>
+                    <select value={threadVisibilityInput} onChange={(event) => setThreadVisibilityInput(event.target.value)} style={inputStyle}>
+                      <option value="private">private</option>
+                      <option value="shared">shared</option>
+                    </select>
+                  </label>
+                </div>
+                <div>
+                  <button type="submit" style={primaryButtonStyle} disabled={metadataSubmitting || threadTitleInput.trim().length === 0}>
+                    {metadataSubmitting ? 'Saving…' : 'Save thread metadata'}
+                  </button>
+                </div>
+                {metadataMessage ? <div style={{ color: '#1a7f37' }}>{metadataMessage}</div> : null}
+                {metadataError ? <div style={{ color: '#cf222e' }}>Thread metadata failed: {metadataError}</div> : null}
+              </form>
               {threadDetail.messages.map((message) => (
                 <div key={message.id} style={{ ...detailCardStyle, display: 'grid', gap: 8 }}>
                   <div style={{ color: '#57606a', fontWeight: 600, textTransform: 'capitalize' }}>{message.role}</div>
