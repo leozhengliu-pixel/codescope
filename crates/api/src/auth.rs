@@ -9,7 +9,8 @@ use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
     ApiKey, BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
     OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-    OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRunStatus,
+    OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRun,
+    ReviewAgentRunStatus,
 };
 use sqlx::{postgres::PgPoolOptions, Row};
 use std::{
@@ -785,6 +786,41 @@ fn repository_sync_job_from_row(row: sqlx::postgres::PgRow) -> Result<Repository
 
 const REPOSITORY_SYNC_JOB_SELECT_COLUMNS: &str = "id, organization_id, repository_id, connection_id, status, to_char(queued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS queued_at, to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, error";
 
+fn review_agent_run_status_to_str(status: &ReviewAgentRunStatus) -> &'static str {
+    match status {
+        ReviewAgentRunStatus::Queued => "queued",
+        ReviewAgentRunStatus::Claimed => "claimed",
+        ReviewAgentRunStatus::Completed => "completed",
+        ReviewAgentRunStatus::Failed => "failed",
+    }
+}
+
+fn review_agent_run_status_from_str(status: &str) -> Result<ReviewAgentRunStatus> {
+    match status {
+        "queued" => Ok(ReviewAgentRunStatus::Queued),
+        "claimed" => Ok(ReviewAgentRunStatus::Claimed),
+        "completed" => Ok(ReviewAgentRunStatus::Completed),
+        "failed" => Ok(ReviewAgentRunStatus::Failed),
+        _ => Err(anyhow!("unknown review agent run status: {status}")),
+    }
+}
+
+fn review_agent_run_from_row(row: sqlx::postgres::PgRow) -> Result<ReviewAgentRun> {
+    Ok(ReviewAgentRun {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        webhook_id: row.get("webhook_id"),
+        delivery_attempt_id: row.get("delivery_attempt_id"),
+        connection_id: row.get("connection_id"),
+        repository_id: row.get("repository_id"),
+        review_id: row.get("review_id"),
+        status: review_agent_run_status_from_str(row.get::<&str, _>("status"))?,
+        created_at: row.get("created_at"),
+    })
+}
+
+const REVIEW_AGENT_RUN_SELECT_COLUMNS: &str = "id, organization_id, webhook_id, delivery_attempt_id, connection_id, repository_id, review_id, status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at";
+
 impl PgOrganizationStore {
     pub fn new(file_store: FileOrganizationStore, pool: sqlx::PgPool) -> Self {
         Self { file_store, pool }
@@ -803,6 +839,14 @@ impl PgOrganizationStore {
         );
         let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
         rows.into_iter().map(repository_sync_job_from_row).collect()
+    }
+
+    async fn review_agent_runs(&self) -> Result<Vec<ReviewAgentRun>> {
+        let sql = format!(
+            "SELECT {REVIEW_AGENT_RUN_SELECT_COLUMNS} FROM review_agent_runs ORDER BY created_at, id"
+        );
+        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        rows.into_iter().map(review_agent_run_from_row).collect()
     }
 
     async fn upsert_repository_sync_job<'e, E>(executor: E, job: RepositorySyncJob) -> Result<()>
@@ -839,6 +883,45 @@ impl PgOrganizationStore {
         .bind(job.started_at)
         .bind(job.finished_at)
         .bind(job.error)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
+    async fn upsert_review_agent_run<'e, E>(executor: E, run: ReviewAgentRun) -> Result<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO review_agent_runs (id, organization_id, webhook_id, delivery_attempt_id, connection_id, repository_id, review_id, status, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+             ON CONFLICT (id) DO UPDATE SET
+                organization_id = EXCLUDED.organization_id,
+                webhook_id = EXCLUDED.webhook_id,
+                delivery_attempt_id = EXCLUDED.delivery_attempt_id,
+                connection_id = EXCLUDED.connection_id,
+                repository_id = EXCLUDED.repository_id,
+                review_id = EXCLUDED.review_id,
+                status = EXCLUDED.status,
+                created_at = EXCLUDED.created_at
+             WHERE
+                (CASE review_agent_runs.status WHEN 'queued' THEN 0 WHEN 'claimed' THEN 1 ELSE 2 END)
+                  <= (CASE EXCLUDED.status WHEN 'queued' THEN 0 WHEN 'claimed' THEN 1 ELSE 2 END)
+                AND NOT (
+                    review_agent_runs.status IN ('completed', 'failed')
+                    AND EXCLUDED.status IN ('completed', 'failed')
+                    AND review_agent_runs.status <> EXCLUDED.status
+                )",
+        )
+        .bind(run.id)
+        .bind(run.organization_id)
+        .bind(run.webhook_id)
+        .bind(run.delivery_attempt_id)
+        .bind(run.connection_id)
+        .bind(run.repository_id)
+        .bind(run.review_id)
+        .bind(review_agent_run_status_to_str(&run.status))
+        .bind(run.created_at)
         .execute(executor)
         .await?;
         Ok(())
@@ -1205,17 +1288,22 @@ impl OrganizationStore for PgOrganizationStore {
     async fn organization_state(&self) -> Result<OrganizationState> {
         let mut state = self.file_store.organization_state().await?;
         state.repository_sync_jobs = self.repository_sync_jobs().await?;
+        state.review_agent_runs = self.review_agent_runs().await?;
         Ok(state)
     }
 
     async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
         let mut file_state = state.clone();
         file_state.repository_sync_jobs.clear();
+        file_state.review_agent_runs.clear();
         self.file_store.store_organization_state(file_state).await?;
 
         let mut transaction = self.pool.begin().await?;
         for job in state.repository_sync_jobs {
             Self::upsert_repository_sync_job(&mut *transaction, job).await?;
+        }
+        for run in state.review_agent_runs {
+            Self::upsert_review_agent_run(&mut *transaction, run).await?;
         }
         transaction.commit().await?;
         Ok(())
@@ -1284,21 +1372,53 @@ impl OrganizationStore for PgOrganizationStore {
     async fn claim_next_review_agent_run(
         &self,
     ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
-        self.file_store.claim_next_review_agent_run().await
+        let mut transaction = self.pool.begin().await?;
+        let sql = format!(
+            "UPDATE review_agent_runs SET status = 'claimed'
+             WHERE id = (
+                SELECT id FROM review_agent_runs
+                WHERE status = 'queued'
+                ORDER BY created_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+             )
+             RETURNING {REVIEW_AGENT_RUN_SELECT_COLUMNS}"
+        );
+        let row = sqlx::query(&sql).fetch_optional(&mut *transaction).await?;
+        transaction.commit().await?;
+        row.map(review_agent_run_from_row).transpose()
     }
 
     async fn complete_review_agent_run(
         &self,
         run_id: &str,
     ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
-        self.file_store.complete_review_agent_run(run_id).await
+        let sql = format!(
+            "UPDATE review_agent_runs SET status = 'completed'
+             WHERE id = $1 AND status = 'claimed'
+             RETURNING {REVIEW_AGENT_RUN_SELECT_COLUMNS}"
+        );
+        let row = sqlx::query(&sql)
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(review_agent_run_from_row).transpose()
     }
 
     async fn fail_review_agent_run(
         &self,
         run_id: &str,
     ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
-        self.file_store.fail_review_agent_run(run_id).await
+        let sql = format!(
+            "UPDATE review_agent_runs SET status = 'failed'
+             WHERE id = $1 AND status = 'claimed'
+             RETURNING {REVIEW_AGENT_RUN_SELECT_COLUMNS}"
+        );
+        let row = sqlx::query(&sql)
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(review_agent_run_from_row).transpose()
     }
 }
 
@@ -3122,6 +3242,232 @@ mod tests {
                 .unwrap()
                 .repository_sync_jobs,
             vec![completed]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    fn review_agent_run(
+        id: &str,
+        status: ReviewAgentRunStatus,
+        created_at: &str,
+    ) -> ReviewAgentRun {
+        ReviewAgentRun {
+            id: id.into(),
+            organization_id: "org_acme".into(),
+            webhook_id: "webhook_review_1".into(),
+            delivery_attempt_id: format!("delivery_attempt_{id}"),
+            connection_id: "conn_github".into(),
+            repository_id: "repo_sourcebot_rewrite".into(),
+            review_id: format!("review_{id}"),
+            status,
+            created_at: created_at.into(),
+        }
+    }
+
+    async fn review_agent_run_test_pool() -> sqlx::PgPool {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "TRUNCATE TABLE review_agent_runs, repository_permission_bindings, repositories, connections, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset review agent run test tables");
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert organization");
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_github', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert connection");
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ('repo_sourcebot_rewrite', 'sourcebot-rewrite', 'main', 'conn_github', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert repository");
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at) VALUES ('org_acme', 'repo_sourcebot_rewrite', '2026-04-26T10:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert repository permission binding");
+        pool
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_review_agent_runs_store_and_merge_postgres_runs() {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-review-agent-runs-state");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let fallback_run = review_agent_run(
+            "run_fallback",
+            ReviewAgentRunStatus::Queued,
+            "2026-04-25T00:09:00Z",
+        );
+        FileOrganizationStore::new(&path)
+            .store_organization_state(OrganizationState {
+                review_agent_runs: vec![fallback_run],
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "fallback".into(),
+                    name: "Fallback".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+        let pg_run = review_agent_run(
+            "run_postgres",
+            ReviewAgentRunStatus::Claimed,
+            "2026-04-25T00:10:00Z",
+        );
+        sqlx::query(
+            "INSERT INTO review_agent_runs (id, organization_id, webhook_id, delivery_attempt_id, connection_id, repository_id, review_id, status, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'claimed', $8::timestamptz)",
+        )
+        .bind(&pg_run.id)
+        .bind(&pg_run.organization_id)
+        .bind(&pg_run.webhook_id)
+        .bind(&pg_run.delivery_attempt_id)
+        .bind(&pg_run.connection_id)
+        .bind(&pg_run.repository_id)
+        .bind(&pg_run.review_id)
+        .bind(&pg_run.created_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(state.organizations[0].slug, "fallback");
+        assert_eq!(state.review_agent_runs, vec![pg_run.clone()]);
+
+        let stored_run = review_agent_run(
+            "run_stored",
+            ReviewAgentRunStatus::Queued,
+            "2026-04-25T00:11:00Z",
+        );
+        store
+            .store_organization_state(OrganizationState {
+                organizations: state.organizations,
+                review_agent_runs: vec![stored_run.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(persisted_file.review_agent_runs.is_empty());
+        assert_eq!(
+            store.organization_state().await.unwrap().review_agent_runs,
+            vec![pg_run, stored_run]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_review_agent_runs_claim_complete_fail_lifecycle_and_preserve_terminal(
+    ) {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-review-agent-runs-lifecycle");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let newer = review_agent_run(
+            "run_newer",
+            ReviewAgentRunStatus::Queued,
+            "2026-04-25T00:10:06Z",
+        );
+        let older = review_agent_run(
+            "run_oldest",
+            ReviewAgentRunStatus::Queued,
+            "2026-04-25T00:10:05Z",
+        );
+        let claimed_for_fail = review_agent_run(
+            "run_claimed_for_fail",
+            ReviewAgentRunStatus::Claimed,
+            "2026-04-25T00:10:04Z",
+        );
+        store
+            .store_organization_state(OrganizationState {
+                review_agent_runs: vec![newer.clone(), older.clone(), claimed_for_fail.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let claimed = store
+            .claim_next_review_agent_run()
+            .await
+            .unwrap()
+            .expect("claim queued review agent run");
+        assert_eq!(claimed.id, "run_oldest");
+        assert_eq!(claimed.status, ReviewAgentRunStatus::Claimed);
+        assert_eq!(
+            store.complete_review_agent_run("run_newer").await.unwrap(),
+            None
+        );
+        assert_eq!(
+            store.complete_review_agent_run("missing").await.unwrap(),
+            None
+        );
+
+        let completed = store
+            .complete_review_agent_run("run_oldest")
+            .await
+            .unwrap()
+            .expect("complete claimed run");
+        assert_eq!(completed.status, ReviewAgentRunStatus::Completed);
+        assert_eq!(
+            store.fail_review_agent_run("run_oldest").await.unwrap(),
+            None
+        );
+
+        let failed = store
+            .fail_review_agent_run("run_claimed_for_fail")
+            .await
+            .unwrap()
+            .expect("fail claimed run");
+        assert_eq!(failed.status, ReviewAgentRunStatus::Failed);
+
+        store
+            .store_organization_state(OrganizationState {
+                review_agent_runs: vec![
+                    ReviewAgentRun {
+                        status: ReviewAgentRunStatus::Queued,
+                        ..completed.clone()
+                    },
+                    ReviewAgentRun {
+                        status: ReviewAgentRunStatus::Completed,
+                        ..failed.clone()
+                    },
+                ],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let runs = store.organization_state().await.unwrap().review_agent_runs;
+        assert_eq!(
+            runs.iter()
+                .find(|run| run.id == "run_oldest")
+                .map(|run| &run.status),
+            Some(&ReviewAgentRunStatus::Completed)
+        );
+        assert_eq!(
+            runs.iter()
+                .find(|run| run.id == "run_claimed_for_fail")
+                .map(|run| &run.status),
+            Some(&ReviewAgentRunStatus::Failed)
+        );
+        assert_eq!(
+            runs.iter()
+                .find(|run| run.id == "run_newer")
+                .map(|run| &run.status),
+            Some(&ReviewAgentRunStatus::Queued)
         );
         fs::remove_file(path).unwrap();
     }

@@ -21,7 +21,7 @@ help:
 	  'make worker    - run sourcebot-worker' \
 	  'make sqlx-migrate - run SQLx database migrations for the metadata schema against DATABASE_URL' \
 	  'make sqlx-test-reset - drop, recreate, and re-migrate the deterministic test metadata database via TEST_DATABASE_URL' \
-	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata plus durable catalog/bootstrap/local-account/repo-permission/repository-sync-job/ask-thread/api-key/oauth-client auth tests' \
+	  'make sqlx-test - reset the deterministic test metadata database and run focused metadata plus durable catalog/bootstrap/local-account/repo-permission/repository-sync-job/review-agent-run/ask-thread/api-key/oauth-client auth tests' \
 	  'make metadata-dev-bootstrap - wait for local Postgres, ensure the dedicated test metadata database exists, run migrations, and run focused metadata compatibility tests' \
 	  'make runtime-backup - create a timestamped backup of the current local runtime state' \
 	  'make runtime-restore BACKUP_DIR=/path/to/backup - restore the local runtime state from a captured backup directory' \
