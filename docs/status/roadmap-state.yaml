@@ -5,53 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5dbfb03237bebb34daadf462427cc72fdce20bc5
+  head: d6c429edd4f4cfb4c12cc3df0b9af46d45b8aa1a
 last_completed_task:
-  id: task87c4
-  title: PostgreSQL-backed repository-sync-job lifecycle storage
+  id: task88a
+  title: PostgreSQL-backed ask-thread/message persistence
   status: done
   summary: >-
-    Closed one meaningful Task 87c4 durable organization/runtime slice instead of splitting
-    SQL migration `0010`, PostgreSQL organization-store wiring, atomic sync-job claim/complete
-    behavior, worker/API routing, SQLx wrapper coverage, and truthful docs/checkers into
-    smaller paperwork runs. `crates/api/src/auth.rs` now provides `PgOrganizationStore`
-    for repository-sync-job rows when `DATABASE_URL` is configured, keeps the broader
-    organization aggregate file-backed for fields not yet moved, preserves terminal sync-job
-    progress against stale whole-state writes, and offers a transactional claim-and-complete
-    path that avoids an observable intermediate `running` write for one-shot workers.
-    The new migration, API/worker wiring, README, Makefile, and checker updates ground this
-    bounded lifecycle baseline without overclaiming full organization aggregate, ask-thread,
-    review-agent, analytics/audit, local repository import, or provider runtime durability.
+    Closed the first meaningful Task 88 durable ask lifecycle slice instead of splitting
+    migration inventory, PostgreSQL ask-thread store wiring, SQLx wrapper coverage, and
+    acceptance/docs wording into smaller paperwork runs. `crates/api/src/ask.rs` now provides
+    `PgAskThreadStore` for ask-thread metadata and message arrays when `DATABASE_URL` is
+    configured, `crates/api/src/main.rs` selects that durable store at API startup, migration
+    `0011` adds bounded `ask_threads.messages` storage, and the README/Makefile/checker
+    contract now includes the focused ask-thread regression. This grounds durable thread
+    create/append/list/detail owner-scoped reads without overclaiming review-agent
+    persistence, richer ask/chat lifecycle parity, provider runtime behavior, analytics/audit,
+    local repository import, or full organization aggregate durability.
   tests:
     - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes`
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api pg_organization_store_ -- --nocapture --test-threads=1: passed (4 lib tests + 4 bin tests)
+    - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed after the expected RED failure exposed the missing 0011 inventory entry)
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_ask_thread_store_ -- --nocapture --test-threads=1: passed (1 passed)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
     - cargo fmt --check: passed
     - bash scripts/check_sqlx_test_workflow.sh .: passed
     - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
     - bash scripts/check_local_metadata_env_contract.sh .: passed
-    - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed one independent read-only post-implementation review; reviewer found the PostgreSQL-backed repository-sync-job lifecycle migration, `PgOrganizationStore` implementation, API/worker wiring, and docs/checker scope consistent with the bounded task and no blocking issues
-  commit: 5dbfb03237bebb34daadf462427cc72fdce20bc5
-  next_task: task88
+    code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed ask-thread/message migration, store implementation, startup selection, migration inventory, and docs/checker scope with no blocking issues
+  commit: d6c429edd4f4cfb4c12cc3df0b9af46d45b8aa1a
+  next_task: task88b
 current_task:
-  id: task88
+  id: task88b
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Durable ask-thread and review-agent persistence
+  title: Durable review-agent persistence
   status: pending
   summary: >-
-    Task 87c4 moves repository-sync-job lifecycle rows and worker claim/complete behavior
-    onto PostgreSQL while explicitly leaving ask-thread, review-agent, analytics/audit,
-    local repository import, provider runtime, and full organization aggregate durability
-    unclaimed. The next meaningful release-parity slice should start Task 88 by moving one
-    bounded ask-thread or review-agent persistence lifecycle onto durable metadata with
+    Task 88a moves ask-thread metadata and messages onto PostgreSQL when `DATABASE_URL` is
+    configured, but Task 88 is not complete: review-agent runs, delivery-attempt/runtime
+    status transitions, richer ask/chat lifecycle behavior, analytics/audit, provider runtime,
+    local repository import, and full organization aggregate durability remain unclaimed.
+    The next meaningful release-parity slice should continue Task 88 by moving one bounded
+    review-agent or delivery-attempt persistence lifecycle onto durable metadata with
     implementation, focused PostgreSQL tests, truthful docs/checkers, independent review,
-    commit, state update, and push in one run; avoid reopening Task 87 paperwork unless new
-    evidence shows a shipped durable-auth/catalog/sync-job regression.
+    commit, state update, and push in one run.
 history:
+  - id: task88a
+    status: done
+    summary: >-
+      Closed the first meaningful Task 88 durable ask lifecycle slice instead of splitting
+      migration inventory, PostgreSQL ask-thread store wiring, SQLx wrapper coverage, and
+      acceptance/docs wording into smaller paperwork runs. `crates/api/src/ask.rs` now provides
+      `PgAskThreadStore` for ask-thread metadata and message arrays when `DATABASE_URL` is
+      configured, `crates/api/src/main.rs` selects that durable store at API startup, migration
+      `0011` adds bounded `ask_threads.messages` storage, and the README/Makefile/checker
+      contract now includes the focused ask-thread regression. This grounds durable thread
+      create/append/list/detail owner-scoped reads without overclaiming review-agent
+      persistence, richer ask/chat lifecycle parity, provider runtime behavior, analytics/audit,
+      local repository import, or full organization aggregate durability.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed with server already running as `hermes`
+      - cargo test -p sourcebot-api --lib migration_inventory -- --nocapture: passed (1 passed after the expected RED failure exposed the missing 0011 inventory entry)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_ask_thread_store_ -- --nocapture --test-threads=1: passed (1 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - cargo fmt --check: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent read-only post-implementation review; reviewer approved the PostgreSQL-backed ask-thread/message migration, store implementation, startup selection, migration inventory, and docs/checker scope with no blocking issues
+    commit: d6c429edd4f4cfb4c12cc3df0b9af46d45b8aa1a
+    next_task: task88b
   - id: task87c4
     status: done
     summary: >-
