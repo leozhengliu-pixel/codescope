@@ -5,48 +5,79 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f55ee6826f46400fe4920a33604530d72b757a05
+  head: 566e046fa58b25fc6386ec1c6b1ab3aa5aa016f5
 last_completed_task:
-  id: task93a
-  title: Ask/chat backend thread metadata update lifecycle
+  id: task93b
+  title: Ask/chat frontend thread metadata controls
   status: done
   summary: >-
-    Closed one meaningful Task 93 Phase B backend/API slice instead of splitting
-    route wiring, permission validation, citation sanitization, focused Rust regression,
-    acceptance wording, and parity-report truth updates into smaller paperwork-only runs.
-    `PATCH /api/v1/ask/threads/{thread_id}` now lets an authenticated caller update a
-    currently visible ask thread's title and private/shared visibility metadata, trims
-    titles, rejects empty/no-op/unknown-visibility bodies, fails closed for hidden or
-    out-of-scope threads before mutating, and returns the same citation-sanitized thread
-    response shape as the existing detail read. Docs keep the claim bounded to backend
-    title/visibility metadata updates and explicitly defer delete plus frontend
-    rename/visibility controls, richer conversation UX, source-preview behavior, and
-    full ask/chat parity.
+    Closed one meaningful Task 93 Phase B frontend lifecycle slice instead of
+    splitting chat-route controls, stale-response hardening, focused Vitest
+    coverage, acceptance wording, and parity-report truth updates into smaller
+    paperwork-only runs. The dedicated `#/chat` route now lets a user rename
+    the selected visible ask thread and switch private/shared visibility through
+    the authenticated PATCH lifecycle API, refreshes the visible detail/header
+    and summary state from the sanitized response, keeps the hash pinned to the
+    same chat thread, and ignores stale metadata responses after the user switches
+    to another thread. Docs keep the claim bounded to focused frontend
+    rename/visibility controls and explicitly defer delete/archive lifecycle,
+    richer conversation/source-preview UX, streaming/progress states, and full
+    chat parity.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_patch_updates_title_and_visibility_for_visible_thread_only -- --nocapture: RED failed first with 405 before route implementation, RED failed again after independent review exposed unsanitized PATCH citations, then passed after the shared response-sanitization fix (1 passed; 359 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_ -- --nocapture: passed (4 passed; 356 filtered)
-    - cargo fmt --check: passed
+    - npm test -- --run src/App.test.tsx -t "chat route updates the selected thread title": passed (1 passed; 166 skipped)
+    - npm test -- --run src/App.test.tsx -t "chat route ignores stale thread metadata responses": passed (1 passed; 166 skipped)
+    - npm test -- --run src/App.test.tsx -t "chat route": passed (6 passed; 161 skipped)
+    - npm test -- --run src/App.test.tsx: passed (167 passed)
+    - npm run build: passed
     - git diff --check: passed
-    - python3 raw-content doc truth checks for ask acceptance, acceptance index, parity-gap report, and final audit wording: passed
+    - python3 raw-content doc truth checks for ask acceptance, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing the reviewer-found blocking issue that PATCH returned unsanitized persisted citations; reviewer approved the visibility gate, validation, shared citation-filtering helper, bounded regression, and scoped docs with no remaining blocking issues
-  commit: f55ee6826f46400fe4920a33604530d72b757a05
-  next_task: task93b
+    code: passed independent read-only review; reviewer approved stale PATCH response invalidation, request body/UI lifecycle correctness, bounded acceptance/parity wording, and absence of blocking React state, TypeScript, XSS/security, or scope-creep issues
+  commit: 566e046fa58b25fc6386ec1c6b1ab3aa5aa016f5
+  next_task: task93c
 current_task:
-  id: task93b
+  id: task93c
   parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Ask/chat lifecycle frontend controls and remaining conversation parity
+  title: Ask/chat delete/archive lifecycle or richer conversation parity
   status: pending
   summary: >-
-    Task 93a now provides the backend/API title and private/shared visibility update
-    baseline for currently visible ask threads without overclaiming delete or frontend
-    management parity. The next meaningful Task 93 closure should advance a user-visible
-    ask/chat lifecycle surface such as frontend rename/visibility controls backed by
-    the new PATCH route, a delete lifecycle with fail-closed visibility tests, richer
-    conversation presentation, source-preview behavior, or another bounded API/runtime
-    gap that can close with focused tests and truthful acceptance wording.
+    Task 93b now provides focused frontend title/private-shared visibility
+    controls on top of the backend PATCH baseline without overclaiming broader
+    chat parity. The next meaningful Task 93 closure should advance another
+    user-visible ask/chat lifecycle blocker such as delete/archive controls with
+    fail-closed visibility tests, richer conversation/source-preview behavior,
+    streaming/progress state handling, or another bounded API/runtime/UI gap that
+    can close with focused tests and truthful acceptance wording.
 history:
+  - id: task93b
+    status: done
+    summary: >-
+      Closed one meaningful Task 93 Phase B frontend lifecycle slice instead of
+      splitting chat-route controls, stale-response hardening, focused Vitest
+      coverage, acceptance wording, and parity-report truth updates into smaller
+      paperwork-only runs. The dedicated `#/chat` route now lets a user rename
+      the selected visible ask thread and switch private/shared visibility through
+      the authenticated PATCH lifecycle API, refreshes the visible detail/header
+      and summary state from the sanitized response, keeps the hash pinned to the
+      same chat thread, and ignores stale metadata responses after the user switches
+      to another thread. Docs keep the claim bounded to focused frontend
+      rename/visibility controls and explicitly defer delete/archive lifecycle,
+      richer conversation/source-preview UX, streaming/progress states, and full
+      chat parity.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "chat route updates the selected thread title": passed (1 passed; 166 skipped)
+      - npm test -- --run src/App.test.tsx -t "chat route ignores stale thread metadata responses": passed (1 passed; 166 skipped)
+      - npm test -- --run src/App.test.tsx -t "chat route": passed (6 passed; 161 skipped)
+      - npm test -- --run src/App.test.tsx: passed (167 passed)
+      - npm run build: passed
+      - git diff --check: passed
+      - python3 raw-content doc truth checks for ask acceptance, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved stale PATCH response invalidation, request body/UI lifecycle correctness, bounded acceptance/parity wording, and absence of blocking React state, TypeScript, XSS/security, or scope-creep issues
+    commit: 566e046fa58b25fc6386ec1c6b1ab3aa5aa016f5
+    next_task: task93c
   - id: task93a
     status: done
     summary: >-
