@@ -5,48 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0503b55138771774dd29c5924847d2d2a4c79e50
+  head: f55ee6826f46400fe4920a33604530d72b757a05
 last_completed_task:
-  id: task92
-  title: Browse/source/commit/code-navigation parity polish
+  id: task93a
+  title: Ask/chat backend thread metadata update lifecycle
   status: done
   summary: >-
-    Closed one meaningful Task 92 Phase B slice instead of splitting binary/source-view
-    contract alignment, focused Rust regressions, acceptance wording, and parity-report
-    truth updates into smaller paperwork-only runs. The backend blob contract now reports
-    non-UTF-8 local and revisioned blobs with path/size metadata, empty text content, and
-    `is_binary: true` instead of failing UTF-8 decoding or lossy-rendering source. The
-    retrieval-tool `ReadFileResult` carries the same marker, and revisioned reference
-    scanning skips binary blobs before iterating source lines. Docs keep the claim bounded
-    to backend/API binary metadata and explicitly defer frontend binary/download affordances,
-    large-file handling, syntax-highlighting depth, richer branch/ref UX, and full code-nav
-    parity.
+    Closed one meaningful Task 93 Phase B backend/API slice instead of splitting
+    route wiring, permission validation, citation sanitization, focused Rust regression,
+    acceptance wording, and parity-report truth updates into smaller paperwork-only runs.
+    `PATCH /api/v1/ask/threads/{thread_id}` now lets an authenticated caller update a
+    currently visible ask thread's title and private/shared visibility metadata, trims
+    titles, rejects empty/no-op/unknown-visibility bodies, fails closed for hidden or
+    out-of-scope threads before mutating, and returns the same citation-sanitized thread
+    response shape as the existing detail read. Docs keep the claim bounded to backend
+    title/visibility metadata updates and explicitly defer delete plus frontend
+    rename/visibility controls, richer conversation UX, source-preview behavior, and
+    full ask/chat parity.
   tests:
-    - cargo test -p sourcebot-core read_file_tool_returns_blob_contents_for_active_repo -- --nocapture: RED failed as expected before close-out because `ReadFileResult` lacked the `is_binary` field required by the binary/source-view contract alignment
-    - cargo test -p sourcebot-core read_file_tool_ -- --nocapture: passed (5 passed; 19 filtered)
-    - cargo test -p sourcebot-api local_browse_store_returns_binary_blob_metadata -- --nocapture: passed (2 bin tests; lib selector matched 0 tests)
-    - cargo test -p sourcebot-api repo_blob_returns_ -- --nocapture: passed (6 bin tests; lib selector matched 0 tests)
+    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_patch_updates_title_and_visibility_for_visible_thread_only -- --nocapture: RED failed first with 405 before route implementation, RED failed again after independent review exposed unsanitized PATCH citations, then passed after the shared response-sanitization fix (1 passed; 359 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_ -- --nocapture: passed (4 passed; 356 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 raw-content doc/state truth checks for browse acceptance, parity reports, and roadmap-state task92/task93/SHA wording: passed
+    - python3 raw-content doc truth checks for ask acceptance, acceptance index, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved consistent `is_binary` propagation across BlobResponse, RepositoryBlob, ReadFileResult, BrowseBlobStoreAdapter, local/revisioned byte reads, binary reference-scan skipping, and bounded docs with no blocking issues
-  commit: 0503b55138771774dd29c5924847d2d2a4c79e50
-  next_task: task93
+    code: passed independent read-only re-review after fixing the reviewer-found blocking issue that PATCH returned unsanitized persisted citations; reviewer approved the visibility gate, validation, shared citation-filtering helper, bounded regression, and scoped docs with no remaining blocking issues
+  commit: f55ee6826f46400fe4920a33604530d72b757a05
+  next_task: task93b
 current_task:
-  id: task93
+  id: task93b
   parent_task: phase-b-search-browse-and-ask-lifecycle-parity
-  title: Ask/chat lifecycle parity
+  title: Ask/chat lifecycle frontend controls and remaining conversation parity
   status: pending
   summary: >-
-    Task 92 now provides a bounded backend/API binary blob metadata baseline for local and
-    revisioned source retrieval without overclaiming frontend binary/download UX or large-file
-    parity. The next meaningful Phase B closure should advance ask/chat lifecycle parity with
-    a vertical user-visible slice such as thread rename/delete/visibility controls, richer
-    conversation presentation, source-preview behavior, or an API/runtime gap that can close
-    with focused tests and truthful acceptance wording.
+    Task 93a now provides the backend/API title and private/shared visibility update
+    baseline for currently visible ask threads without overclaiming delete or frontend
+    management parity. The next meaningful Task 93 closure should advance a user-visible
+    ask/chat lifecycle surface such as frontend rename/visibility controls backed by
+    the new PATCH route, a delete lifecycle with fail-closed visibility tests, richer
+    conversation presentation, source-preview behavior, or another bounded API/runtime
+    gap that can close with focused tests and truthful acceptance wording.
 history:
+  - id: task93a
+    status: done
+    summary: >-
+      Closed one meaningful Task 93 Phase B backend/API slice instead of splitting
+      route wiring, permission validation, citation sanitization, focused Rust regression,
+      acceptance wording, and parity-report truth updates into smaller paperwork-only runs.
+      `PATCH /api/v1/ask/threads/{thread_id}` now lets an authenticated caller update a
+      currently visible ask thread's title and private/shared visibility metadata, trims
+      titles, rejects empty/no-op/unknown-visibility bodies, fails closed for hidden or
+      out-of-scope threads before mutating, and returns the same citation-sanitized thread
+      response shape as the existing detail read. Docs keep the claim bounded to backend
+      title/visibility metadata updates and explicitly defer delete plus frontend
+      rename/visibility controls, richer conversation UX, source-preview behavior, and
+      full ask/chat parity.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_patch_updates_title_and_visibility_for_visible_thread_only -- --nocapture: RED failed first with 405 before route implementation, RED failed again after independent review exposed unsanitized PATCH citations, then passed after the shared response-sanitization fix (1 passed; 359 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api ask_threads_ -- --nocapture: passed (4 passed; 356 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 raw-content doc truth checks for ask acceptance, acceptance index, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing the reviewer-found blocking issue that PATCH returned unsanitized persisted citations; reviewer approved the visibility gate, validation, shared citation-filtering helper, bounded regression, and scoped docs with no remaining blocking issues
+    commit: f55ee6826f46400fe4920a33604530d72b757a05
+    next_task: task93b
   - id: task92
     status: done
     summary: >-
