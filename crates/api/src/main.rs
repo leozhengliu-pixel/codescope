@@ -137,7 +137,10 @@ fn build_app_state(
     search: DynSearchStore,
     ask_threads: DynAskThreadStore,
 ) -> AppState {
-    let organization_store = build_organization_store(config.organization_state_path.clone());
+    let organization_store = build_organization_store(
+        config.organization_state_path.clone(),
+        config.database_url.as_deref(),
+    );
     let organization_auth_metadata_store = config
         .database_url
         .as_deref()
@@ -361,7 +364,10 @@ async fn local_account_by_email(
         .cloned())
 }
 
-async fn local_account_by_id(state: &AppState, user_id: &str) -> Result<Option<LocalAccount>, StatusCode> {
+async fn local_account_by_id(
+    state: &AppState,
+    user_id: &str,
+) -> Result<Option<LocalAccount>, StatusCode> {
     if let Some(store) = &state.organization_auth_metadata_store {
         return store
             .local_account_by_id(user_id)
@@ -417,7 +423,11 @@ async fn user_auth_organization_state(
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if organization_state.accounts.iter().any(|account| account.id == user_id) {
+    if organization_state
+        .accounts
+        .iter()
+        .any(|account| account.id == user_id)
+    {
         Ok(Some(organization_state))
     } else {
         Ok(None)
@@ -1187,7 +1197,8 @@ async fn redeem_local_invite(
             });
         }
 
-        organization_state.invites[invite_index].accepted_by_user_id = Some(accepted_user_id.clone());
+        organization_state.invites[invite_index].accepted_by_user_id =
+            Some(accepted_user_id.clone());
         organization_state.invites[invite_index].accepted_at = Some(created_at.clone());
 
         let session_account = organization_state
@@ -1290,7 +1301,8 @@ async fn authenticate_api_key_record(
     headers: &HeaderMap,
 ) -> Result<AuthenticatedApiKeyRecord, StatusCode> {
     let (api_key_id, api_key_secret) = parse_bearer_token_id_secret(headers)?;
-    let (api_key, organization_state) = if let Some(store) = &state.organization_auth_metadata_store {
+    let (api_key, organization_state) = if let Some(store) = &state.organization_auth_metadata_store
+    {
         let api_key = if let Some(api_key) = store
             .api_key_by_id(&api_key_id)
             .await
@@ -1323,7 +1335,9 @@ async fn authenticate_api_key_record(
         };
         (api_key, organization_state)
     };
-    if !api_key_record_has_required_auth_fields(&api_key, &api_key_id) || api_key.revoked_at.is_some() {
+    if !api_key_record_has_required_auth_fields(&api_key, &api_key_id)
+        || api_key.revoked_at.is_some()
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -1726,7 +1740,8 @@ async fn list_authenticated_members(
 ) -> Result<Json<Vec<MembersOrganizationResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
     let organization_state = admin_auth_organization_state(&state, &session.user_id).await?;
-    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
+    let admin_organization_ids =
+        admin_organization_ids_for_user(&organization_state, &session.user_id);
 
     let payload: Vec<MembersOrganizationResponse> = organization_state
         .organizations
@@ -1872,7 +1887,8 @@ async fn list_authenticated_oauth_clients(
 ) -> Result<Json<Vec<OAuthClientListItemResponse>>, StatusCode> {
     let session = authenticate_local_session_record(&state, &headers).await?;
     let organization_state = admin_auth_organization_state(&state, &session.user_id).await?;
-    let admin_organization_ids = admin_organization_ids_for_user(&organization_state, &session.user_id);
+    let admin_organization_ids =
+        admin_organization_ids_for_user(&organization_state, &session.user_id);
     let oauth_clients = if let Some(store) = &state.organization_auth_metadata_store {
         let organization_ids = admin_organization_ids.iter().cloned().collect::<Vec<_>>();
         store
@@ -2276,13 +2292,14 @@ async fn create_authenticated_oauth_client(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let mut persisted_organization_state = match state.organization_store.organization_state().await {
-            Ok(state) => state,
-            Err(_) => {
-                let _ = store.delete_oauth_client(&id, organization_id).await;
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
+        let mut persisted_organization_state =
+            match state.organization_store.organization_state().await {
+                Ok(state) => state,
+                Err(_) => {
+                    let _ = store.delete_oauth_client(&id, organization_id).await;
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            };
         append_oauth_client_audit_event(
             &mut persisted_organization_state,
             &session.user_id,
@@ -3205,13 +3222,14 @@ async fn create_authenticated_api_key(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let mut persisted_organization_state = match state.organization_store.organization_state().await {
-            Ok(state) => state,
-            Err(_) => {
-                let _ = store.delete_api_key(&id, &session.user_id).await;
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
+        let mut persisted_organization_state =
+            match state.organization_store.organization_state().await {
+                Ok(state) => state,
+                Err(_) => {
+                    let _ = store.delete_api_key(&id, &session.user_id).await;
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            };
         append_api_key_audit_event(
             &mut persisted_organization_state,
             &session.user_id,
@@ -5064,7 +5082,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE oauth_clients, api_keys, sessions, repository_permission_bindings, repositories, connections, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, repository_sync_jobs, repository_permission_bindings, repositories, connections, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -5253,8 +5271,7 @@ mod tests {
         assert_ne!(persisted_password_hash, "correct horse battery staple");
         assert!(persisted_password_hash.starts_with("$argon2"));
         assert!(
-            OffsetDateTime::parse(&persisted_row.get::<String, _>("created_at"), &Rfc3339)
-                .is_ok()
+            OffsetDateTime::parse(&persisted_row.get::<String, _>("created_at"), &Rfc3339).is_ok()
         );
 
         let status_response = app
@@ -5343,13 +5360,12 @@ mod tests {
             }
         );
 
-        let persisted_row = sqlx::query(
-            "SELECT email, name, password_hash FROM local_accounts WHERE id = $1",
-        )
-        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
-        .fetch_one(&pool)
-        .await
-        .expect("read upgraded bootstrap admin row");
+        let persisted_row =
+            sqlx::query("SELECT email, name, password_hash FROM local_accounts WHERE id = $1")
+                .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                .fetch_one(&pool)
+                .await
+                .expect("read upgraded bootstrap admin row");
         let persisted_password_hash: String = persisted_row.get("password_hash");
         assert_eq!(persisted_row.get::<String, _>("email"), "admin@example.com");
         assert_eq!(persisted_row.get::<String, _>("name"), "Admin User");
@@ -5379,8 +5395,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn postgres_backed_bootstrap_create_returns_conflict_on_second_post_after_initialization(
-    ) {
+    async fn postgres_backed_bootstrap_create_returns_conflict_on_second_post_after_initialization()
+    {
         let pool = pg_local_session_test_pool().await;
         let bootstrap_state_path = unique_test_path("pg-bootstrap-conflict-unused");
         let local_session_state_path = unique_test_path("pg-bootstrap-conflict-sessions");
@@ -5602,7 +5618,13 @@ mod tests {
     async fn postgres_backed_local_account_login_and_auth_me_restore_from_postgres_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let local_password_hash = Argon2::default()
             .hash_password(
                 b"correct horse battery staple",
@@ -5610,10 +5632,12 @@ mod tests {
             )
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -5742,7 +5766,8 @@ mod tests {
         )
         .unwrap();
         let bootstrap_state_path = unique_test_path("pg-local-account-duplicate-bootstrap-unused");
-        let local_session_state_path = unique_test_path("pg-local-account-duplicate-sessions-unused");
+        let local_session_state_path =
+            unique_test_path("pg-local-account-duplicate-sessions-unused");
         let app = test_app_with_config(postgres_auth_metadata_test_config(
             &organization_state_path,
             &bootstrap_state_path,
@@ -5783,7 +5808,13 @@ mod tests {
     async fn auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let admin_password_hash = Argon2::default()
             .hash_password(b"members-password", &SaltString::generate(&mut OsRng))
             .unwrap()
@@ -5872,20 +5903,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(members_response.status(), StatusCode::OK);
-        let members_payload: Vec<MembersOrganizationResponseBody> = read_json(members_response).await;
+        let members_payload: Vec<MembersOrganizationResponseBody> =
+            read_json(members_response).await;
         assert_eq!(members_payload.len(), 1);
         assert_eq!(members_payload[0].organization.id, "org_acme");
         assert_eq!(members_payload[0].members.len(), 2);
         assert_eq!(members_payload[0].invites.len(), 2);
-        assert_eq!(members_payload[0].members[0].account.email, "admin@example.com");
-        assert_eq!(members_payload[0].members[1].account.email, "member@example.com");
+        assert_eq!(
+            members_payload[0].members[0].account.email,
+            "admin@example.com"
+        );
+        assert_eq!(
+            members_payload[0].members[1].account.email,
+            "member@example.com"
+        );
         let invite_status_by_email = members_payload[0]
             .invites
             .iter()
             .map(|invite| (invite.email.as_str(), invite.status.as_str()))
             .collect::<std::collections::HashMap<_, _>>();
-        assert_eq!(invite_status_by_email.get("pending@example.com"), Some(&"pending"));
-        assert_eq!(invite_status_by_email.get("accepted@example.com"), Some(&"accepted"));
+        assert_eq!(
+            invite_status_by_email.get("pending@example.com"),
+            Some(&"pending")
+        );
+        assert_eq!(
+            invite_status_by_email.get("accepted@example.com"),
+            Some(&"accepted")
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         pool.close().await;
@@ -5895,15 +5939,23 @@ mod tests {
     async fn auth_linked_accounts_returns_postgres_backed_memberships_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let member_password_hash = Argon2::default()
             .hash_password(b"linked-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -5977,9 +6029,15 @@ mod tests {
         let linked_accounts_payload: LinkedAccountsResponseBody =
             read_json(linked_accounts_response).await;
         assert_eq!(linked_accounts_payload.identities.len(), 1);
-        assert_eq!(linked_accounts_payload.identities[0].email, "member@example.com");
+        assert_eq!(
+            linked_accounts_payload.identities[0].email,
+            "member@example.com"
+        );
         assert_eq!(linked_accounts_payload.memberships.len(), 1);
-        assert_eq!(linked_accounts_payload.memberships[0].organization.id, "org_acme");
+        assert_eq!(
+            linked_accounts_payload.memberships[0].organization.id,
+            "org_acme"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         pool.close().await;
@@ -5988,15 +6046,23 @@ mod tests {
     #[tokio::test]
     async fn auth_api_key_routes_use_postgres_metadata_when_database_url_is_configured() {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let member_password_hash = Argon2::default()
             .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -6224,7 +6290,10 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(format!("/api/v1/auth/api-keys/{}/revoke", create_payload.id))
+                    .uri(format!(
+                        "/api/v1/auth/api-keys/{}/revoke",
+                        create_payload.id
+                    ))
                     .header(header::AUTHORIZATION, &authorization)
                     .body(Body::empty())
                     .unwrap(),
@@ -6253,11 +6322,13 @@ mod tests {
         assert!(persisted_file
             .audit_events
             .iter()
-            .any(|event| event.action == "auth.api_key.created" && event.target_id == create_payload.id));
+            .any(|event| event.action == "auth.api_key.created"
+                && event.target_id == create_payload.id));
         assert!(persisted_file
             .audit_events
             .iter()
-            .any(|event| event.action == "auth.api_key.revoked" && event.target_id == create_payload.id));
+            .any(|event| event.action == "auth.api_key.revoked"
+                && event.target_id == create_payload.id));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(reloaded_state_path).unwrap();
@@ -6265,17 +6336,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auth_api_key_routes_allow_scoped_repo_create_with_postgres_metadata_when_database_url_is_configured() {
+    async fn auth_api_key_routes_allow_scoped_repo_create_with_postgres_metadata_when_database_url_is_configured(
+    ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let member_password_hash = Argon2::default()
             .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO connections (id, name, kind) VALUES ('conn_github_scoped_key', 'GitHub', 'github')",
         )
@@ -6372,16 +6452,26 @@ mod tests {
 
         assert_eq!(create_response.status(), StatusCode::CREATED);
         let create_payload: CreateApiKeyResponseBody = read_json(create_response).await;
-        assert_eq!(create_payload.repo_scope, vec!["repo_scoped_api_key".to_string()]);
+        assert_eq!(
+            create_payload.repo_scope,
+            vec!["repo_scoped_api_key".to_string()]
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         pool.close().await;
     }
 
     #[tokio::test]
-    async fn auth_api_key_unscoped_visibility_ignores_stale_file_permissions_when_database_url_is_configured() {
+    async fn auth_api_key_unscoped_visibility_ignores_stale_file_permissions_when_database_url_is_configured(
+    ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let member_password_hash = Argon2::default()
             .hash_password(b"api-key-password", &SaltString::generate(&mut OsRng))
             .unwrap()
@@ -6391,10 +6481,12 @@ mod tests {
             .hash_password(api_key_secret.as_bytes(), &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO connections (id, name, kind) VALUES ('conn_pg_visible', 'GitHub', 'github')",
         )
@@ -6484,8 +6576,14 @@ mod tests {
         let app_state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
-            build_local_session_store(config.local_session_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6511,10 +6609,12 @@ mod tests {
     #[tokio::test]
     async fn auth_api_key_bearer_uses_postgres_metadata_when_database_url_is_configured() {
         let pool = pg_local_session_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO connections (id, name, kind) VALUES ('conn_github_scoped_key', 'GitHub', 'github')",
         )
@@ -6579,8 +6679,14 @@ mod tests {
         let app_state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
-            build_local_session_store(config.local_session_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
+            build_local_session_store(
+                config.local_session_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_browse_store(),
             build_commit_store(),
             build_search_store(),
@@ -6607,15 +6713,23 @@ mod tests {
     #[tokio::test]
     async fn auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured() {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let admin_password_hash = Argon2::default()
             .hash_password(b"oauth-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -6713,13 +6827,12 @@ mod tests {
         assert_eq!(list_payload[0].id, create_payload.id);
         assert_eq!(list_payload[0].organization_id, "org_acme");
 
-        let persisted_redirect_uris: Vec<String> = sqlx::query_scalar(
-            "SELECT redirect_uris FROM oauth_clients WHERE id = $1",
-        )
-        .bind(&create_payload.id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let persisted_redirect_uris: Vec<String> =
+            sqlx::query_scalar("SELECT redirect_uris FROM oauth_clients WHERE id = $1")
+                .bind(&create_payload.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(
             persisted_redirect_uris,
             vec!["https://acme.example.com/callback".to_string()]
@@ -6756,7 +6869,10 @@ mod tests {
         assert!(persisted_file.oauth_clients.is_empty());
         assert_eq!(persisted_file.audit_events.len(), 1);
         assert_eq!(persisted_file.audit_events[0].organization_id, "org_acme");
-        assert_eq!(persisted_file.audit_events[0].action, "auth.oauth_client.created");
+        assert_eq!(
+            persisted_file.audit_events[0].action,
+            "auth.oauth_client.created"
+        );
         assert_eq!(persisted_file.audit_events[0].target_type, "oauth_client");
         assert_eq!(persisted_file.audit_events[0].target_id, create_payload.id);
         assert_eq!(
@@ -6775,15 +6891,23 @@ mod tests {
     async fn auth_oauth_clients_hide_postgres_metadata_for_viewer_only_memberships_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
-        seed_postgres_bootstrap_admin(&pool, "bootstrap@example.com", "Bootstrap Admin", "bootstrap-password").await;
+        seed_postgres_bootstrap_admin(
+            &pool,
+            "bootstrap@example.com",
+            "Bootstrap Admin",
+            "bootstrap-password",
+        )
+        .await;
         let viewer_password_hash = Argon2::default()
             .hash_password(b"oauth-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -6814,8 +6938,10 @@ mod tests {
             serde_json::to_vec(&OrganizationState::default()).unwrap(),
         )
         .unwrap();
-        let bootstrap_state_path = unique_test_path("pg-auth-oauth-clients-viewer-bootstrap-unused");
-        let local_session_state_path = unique_test_path("pg-auth-oauth-clients-viewer-sessions-unused");
+        let bootstrap_state_path =
+            unique_test_path("pg-auth-oauth-clients-viewer-bootstrap-unused");
+        let local_session_state_path =
+            unique_test_path("pg-auth-oauth-clients-viewer-sessions-unused");
         let app = test_app_with_config(postgres_auth_metadata_test_config(
             &organization_state_path,
             &bootstrap_state_path,
@@ -6869,10 +6995,12 @@ mod tests {
     async fn invite_redeem_persists_postgres_backed_account_membership_and_invite_acceptance_when_database_url_is_configured(
     ) {
         let pool = pg_local_session_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz)",
         )
@@ -6923,13 +7051,12 @@ mod tests {
         assert_eq!(redeem_response.status(), StatusCode::CREATED);
         let redeem_payload: LoginResponseBody = read_json(redeem_response).await;
 
-        let persisted_account = sqlx::query(
-            "SELECT id, name, password_hash FROM local_accounts WHERE email = $1",
-        )
-        .bind("invitee@example.com")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let persisted_account =
+            sqlx::query("SELECT id, name, password_hash FROM local_accounts WHERE email = $1")
+                .bind("invitee@example.com")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         let invited_user_id: String = persisted_account.get("id");
         let invited_password_hash: String = persisted_account.get("password_hash");
         assert_eq!(persisted_account.get::<String, _>("name"), "Invitee User");
@@ -6993,10 +7120,12 @@ mod tests {
     #[tokio::test]
     async fn invite_redeem_rejects_expired_postgres_backed_invites_without_side_effects() {
         let pool = pg_local_session_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-01T00:00:00Z'::timestamptz)",
         )
@@ -7081,10 +7210,12 @@ mod tests {
     #[tokio::test]
     async fn invite_redeem_fails_closed_for_case_insensitive_duplicate_postgres_accounts() {
         let pool = pg_local_session_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES
             ('user_admin', 'admin@example.com', 'Admin User', '2026-04-20T23:55:00Z'::timestamptz),
@@ -7184,10 +7315,12 @@ mod tests {
     #[tokio::test]
     async fn invite_redeem_issues_postgres_backed_local_session_for_invited_account_and_auth_me() {
         let pool = pg_local_session_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('user_admin', 'admin@example.com', 'Admin User', '2026-04-20T23:55:00Z'::timestamptz)",
         )
@@ -7221,17 +7354,18 @@ mod tests {
         )
         .unwrap();
 
-        let config = AppConfig {
-            organization_state_path: organization_state_path.display().to_string(),
-            bootstrap_state_path: unique_test_path("pg-invite-redeem-bootstrap")
-                .display()
-                .to_string(),
-            local_session_state_path: local_session_state_path.display().to_string(),
-            database_url: Some(env::var("TEST_DATABASE_URL").expect(
-                "TEST_DATABASE_URL must be set for Postgres-backed local-session tests",
-            )),
-            ..AppConfig::default()
-        };
+        let config =
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("pg-invite-redeem-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                database_url: Some(env::var("TEST_DATABASE_URL").expect(
+                    "TEST_DATABASE_URL must be set for Postgres-backed local-session tests",
+                )),
+                ..AppConfig::default()
+            };
         let app = test_app_with_config(config.clone());
 
         let redeem_response = app
@@ -7260,26 +7394,24 @@ mod tests {
         assert!(redeem_payload.session_id.starts_with("local_session_"));
         assert!(!redeem_payload.session_secret.is_empty());
 
-        let persisted_account = sqlx::query(
-            "SELECT id, email, name FROM local_accounts WHERE id = $1",
-        )
-        .bind(&redeem_payload.user_id)
-        .fetch_one(&pool)
-        .await
-        .expect("persist invited local account for Postgres-backed session");
+        let persisted_account =
+            sqlx::query("SELECT id, email, name FROM local_accounts WHERE id = $1")
+                .bind(&redeem_payload.user_id)
+                .fetch_one(&pool)
+                .await
+                .expect("persist invited local account for Postgres-backed session");
         let persisted_account_email: String = persisted_account.get("email");
         let persisted_account_name: String = persisted_account.get("name");
         assert_eq!(persisted_account_email, "invitee@example.com");
         assert_eq!(persisted_account_name, "Invited Person");
 
-        let persisted_session_user_id: String = sqlx::query(
-            "SELECT user_id FROM sessions WHERE id = $1",
-        )
-        .bind(&redeem_payload.session_id)
-        .fetch_one(&pool)
-        .await
-        .expect("persist invited account session in Postgres")
-        .get("user_id");
+        let persisted_session_user_id: String =
+            sqlx::query("SELECT user_id FROM sessions WHERE id = $1")
+                .bind(&redeem_payload.session_id)
+                .fetch_one(&pool)
+                .await
+                .expect("persist invited account session in Postgres")
+                .get("user_id");
         assert_eq!(persisted_session_user_id, redeem_payload.user_id);
 
         let reloaded_app = test_app_with_config(AppConfig {
@@ -7879,7 +8011,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -8119,7 +8254,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -8598,7 +8736,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -8721,7 +8862,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -8853,7 +8997,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -8957,7 +9104,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -9060,7 +9210,10 @@ mod tests {
         let app = build_router(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -10824,39 +10977,16 @@ mod tests {
         .await
         .unwrap();
 
-        let organization_state_path = unique_test_path("pg-auth-repository-sync-jobs-orgs");
-        let file_backed_jobs = OrganizationState {
-            repository_sync_jobs: vec![
-                sourcebot_models::RepositorySyncJob {
-                    id: "sync_visible_pg_bound".into(),
-                    organization_id: "org_acme".into(),
-                    repository_id: "repo_visible".into(),
-                    connection_id: "conn_visible".into(),
-                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
-                    queued_at: "2026-04-26T09:10:00Z".into(),
-                    started_at: Some("2026-04-26T09:10:05Z".into()),
-                    finished_at: Some("2026-04-26T09:10:10Z".into()),
-                    error: None,
-                },
-                sourcebot_models::RepositorySyncJob {
-                    id: "sync_hidden_pg_bound".into(),
-                    organization_id: "org_hidden".into(),
-                    repository_id: "repo_hidden".into(),
-                    connection_id: "conn_hidden".into(),
-                    status: sourcebot_models::RepositorySyncJobStatus::Failed,
-                    queued_at: "2026-04-26T09:11:00Z".into(),
-                    started_at: Some("2026-04-26T09:11:05Z".into()),
-                    finished_at: Some("2026-04-26T09:11:10Z".into()),
-                    error: Some("hidden failure".into()),
-                },
-            ],
-            ..OrganizationState::default()
-        };
-        fs::write(
-            &organization_state_path,
-            serde_json::to_vec(&file_backed_jobs).unwrap(),
+        sqlx::query(
+            "INSERT INTO repository_sync_jobs (id, organization_id, repository_id, connection_id, status, queued_at, started_at, finished_at, error) VALUES
+             ('sync_visible_pg_bound', 'org_acme', 'repo_visible', 'conn_visible', 'succeeded', '2026-04-26T09:10:00Z'::timestamptz, '2026-04-26T09:10:05Z'::timestamptz, '2026-04-26T09:10:10Z'::timestamptz, NULL),
+             ('sync_hidden_pg_bound', 'org_hidden', 'repo_hidden', 'conn_hidden', 'failed', '2026-04-26T09:11:00Z'::timestamptz, '2026-04-26T09:11:05Z'::timestamptz, '2026-04-26T09:11:10Z'::timestamptz, 'hidden failure')",
         )
+        .execute(&pool)
+        .await
         .unwrap();
+
+        let organization_state_path = unique_test_path("pg-auth-repository-sync-jobs-orgs");
         let bootstrap_state_path = unique_test_path("pg-auth-repository-sync-jobs-bootstrap");
         let local_session_state_path = unique_test_path("pg-auth-repository-sync-jobs-sessions");
         let app = test_app_with_config(postgres_auth_metadata_test_config(
@@ -10911,7 +11041,7 @@ mod tests {
         assert_eq!(payload[0].organization_id, "org_acme");
         assert_eq!(payload[0].repository_id, "repo_visible");
 
-        fs::remove_file(organization_state_path).unwrap();
+        let _ = fs::remove_file(organization_state_path);
         pool.close().await;
     }
 
@@ -20088,7 +20218,10 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -20170,7 +20303,10 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -20252,10 +20388,12 @@ mod tests {
             .hash_password(b"member-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -20285,7 +20423,10 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),
@@ -20365,10 +20506,12 @@ mod tests {
             .unwrap()
             .to_string();
         let api_key_secret = "pg-rollback-secret";
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -20398,7 +20541,10 @@ mod tests {
         let mut state = build_app_state(
             config.clone(),
             Arc::new(InMemoryCatalogStore::seeded()),
-            build_bootstrap_store(config.bootstrap_state_path.clone(), config.database_url.as_deref()),
+            build_bootstrap_store(
+                config.bootstrap_state_path.clone(),
+                config.database_url.as_deref(),
+            ),
             build_local_session_store(
                 config.local_session_state_path.clone(),
                 config.database_url.as_deref(),

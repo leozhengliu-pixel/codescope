@@ -436,7 +436,9 @@ pub fn filter_ask_citations_to_repo_scope(
     citations
         .iter()
         .filter(|citation| {
-            repo_scope.iter().any(|repo_id| repo_id == &citation.repo_id)
+            repo_scope
+                .iter()
+                .any(|repo_id| repo_id == &citation.repo_id)
                 && citation_path_is_safe(&citation.path)
                 && !citation.revision.trim().is_empty()
         })
@@ -1313,7 +1315,8 @@ mod tests {
             },
         ];
 
-        let filtered = filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
+        let filtered =
+            filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].repo_id, "repo_sourcebot_rewrite");
@@ -1353,7 +1356,8 @@ mod tests {
             },
         ];
 
-        let filtered = filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
+        let filtered =
+            filter_ask_citations_to_repo_scope(&citations, &["repo_sourcebot_rewrite".into()]);
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].path, "src/main.rs");

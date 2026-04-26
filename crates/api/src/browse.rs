@@ -361,7 +361,8 @@ impl BrowseStore for LocalBrowseStore {
             return Ok(None);
         };
 
-        let Some(entries) = run_git_list_tree_entries_at_revision(repo_root, revision, path)? else {
+        let Some(entries) = run_git_list_tree_entries_at_revision(repo_root, revision, path)?
+        else {
             return Ok(None);
         };
 
@@ -606,7 +607,10 @@ fn run_git_list_tree_entries_at_revision(
     let treeish = if normalized_path.as_os_str().is_empty() {
         revision.to_string()
     } else {
-        format!("{revision}:{}", normalized_path.to_string_lossy().replace('\\', "/"))
+        format!(
+            "{revision}:{}",
+            normalized_path.to_string_lossy().replace('\\', "/")
+        )
     };
     let output = Command::new("git")
         .args(["ls-tree", &treeish])
@@ -815,7 +819,10 @@ mod tests {
     fn initialize_git_repo(repo_root: &Path) {
         git_in(repo_root, &["init"]);
         git_in(repo_root, &["config", "user.name", "Hermes Test"]);
-        git_in(repo_root, &["config", "user.email", "hermes-test@example.com"]);
+        git_in(
+            repo_root,
+            &["config", "user.email", "hermes-test@example.com"],
+        );
         git_in(repo_root, &["add", "-A"]);
         git_in(repo_root, &["commit", "-m", "base"]);
     }
@@ -914,7 +921,11 @@ mod tests {
         let root = fixture.root;
         initialize_git_repo(&root);
         git_in(&root, &["checkout", "-b", "feature/nested-revision-tree"]);
-        fs::write(root.join("src").join("revision.rs"), "pub fn revision() {}\n").unwrap();
+        fs::write(
+            root.join("src").join("revision.rs"),
+            "pub fn revision() {}\n",
+        )
+        .unwrap();
         git_in(&root, &["add", "-A"]);
         git_in(&root, &["commit", "-m", "nested feature"]);
 
@@ -924,8 +935,14 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        assert!(tree.entries.iter().any(|entry| entry.path == "src/revision.rs"));
-        assert!(tree.entries.iter().all(|entry| entry.path.starts_with("src/")));
+        assert!(tree
+            .entries
+            .iter()
+            .any(|entry| entry.path == "src/revision.rs"));
+        assert!(tree
+            .entries
+            .iter()
+            .all(|entry| entry.path.starts_with("src/")));
 
         fs::remove_dir_all(root).unwrap();
     }

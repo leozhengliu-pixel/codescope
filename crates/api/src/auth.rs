@@ -12,7 +12,6 @@ use sourcebot_models::{
     OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRunStatus,
 };
 use sqlx::{postgres::PgPoolOptions, Row};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -21,6 +20,7 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -58,6 +58,12 @@ pub struct PgBootstrapStore {
 
 #[derive(Clone, Debug)]
 pub struct PgOrganizationAuthMetadataStore {
+    pool: sqlx::PgPool,
+}
+
+#[derive(Clone, Debug)]
+pub struct PgOrganizationStore {
+    file_store: FileOrganizationStore,
     pool: sqlx::PgPool,
 }
 
@@ -451,13 +457,15 @@ impl PgOrganizationAuthMetadataStore {
     }
 
     pub async fn delete_api_key(&self, api_key_id: &str, user_id: &str) -> Result<bool> {
-        Ok(sqlx::query("DELETE FROM api_keys WHERE id = $1 AND user_id = $2")
-            .bind(api_key_id)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected()
-            == 1)
+        Ok(
+            sqlx::query("DELETE FROM api_keys WHERE id = $1 AND user_id = $2")
+                .bind(api_key_id)
+                .bind(user_id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+                == 1,
+        )
     }
 
     pub async fn revoke_api_key(
@@ -538,13 +546,15 @@ impl PgOrganizationAuthMetadataStore {
         oauth_client_id: &str,
         organization_id: &str,
     ) -> Result<bool> {
-        Ok(sqlx::query("DELETE FROM oauth_clients WHERE id = $1 AND organization_id = $2")
-            .bind(oauth_client_id)
-            .bind(organization_id)
-            .execute(&self.pool)
-            .await?
-            .rows_affected()
-            == 1)
+        Ok(
+            sqlx::query("DELETE FROM oauth_clients WHERE id = $1 AND organization_id = $2")
+                .bind(oauth_client_id)
+                .bind(organization_id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+                == 1,
+        )
     }
 
     async fn organization_auth_metadata_for_organization_ids(
@@ -596,7 +606,10 @@ impl PgOrganizationAuthMetadataStore {
         })
     }
 
-    async fn organizations_for_ids(&self, organization_ids: &[String]) -> Result<Vec<Organization>> {
+    async fn organizations_for_ids(
+        &self,
+        organization_ids: &[String],
+    ) -> Result<Vec<Organization>> {
         if organization_ids.is_empty() {
             return Ok(vec![]);
         }
@@ -735,6 +748,101 @@ fn oauth_client_from_row(row: sqlx::postgres::PgRow) -> Result<OAuthClient> {
         created_at: row.get("created_at"),
         revoked_at: row.try_get("revoked_at")?,
     })
+}
+
+fn repository_sync_job_status_to_str(status: &RepositorySyncJobStatus) -> &'static str {
+    match status {
+        RepositorySyncJobStatus::Queued => "queued",
+        RepositorySyncJobStatus::Running => "running",
+        RepositorySyncJobStatus::Succeeded => "succeeded",
+        RepositorySyncJobStatus::Failed => "failed",
+    }
+}
+
+fn repository_sync_job_status_from_str(status: &str) -> Result<RepositorySyncJobStatus> {
+    match status {
+        "queued" => Ok(RepositorySyncJobStatus::Queued),
+        "running" => Ok(RepositorySyncJobStatus::Running),
+        "succeeded" => Ok(RepositorySyncJobStatus::Succeeded),
+        "failed" => Ok(RepositorySyncJobStatus::Failed),
+        _ => Err(anyhow!("unknown repository sync job status: {status}")),
+    }
+}
+
+fn repository_sync_job_from_row(row: sqlx::postgres::PgRow) -> Result<RepositorySyncJob> {
+    Ok(RepositorySyncJob {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        repository_id: row.get("repository_id"),
+        connection_id: row.get("connection_id"),
+        status: repository_sync_job_status_from_str(row.get::<&str, _>("status"))?,
+        queued_at: row.get("queued_at"),
+        started_at: row.try_get("started_at")?,
+        finished_at: row.try_get("finished_at")?,
+        error: row.try_get("error")?,
+    })
+}
+
+const REPOSITORY_SYNC_JOB_SELECT_COLUMNS: &str = "id, organization_id, repository_id, connection_id, status, to_char(queued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS queued_at, to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, error";
+
+impl PgOrganizationStore {
+    pub fn new(file_store: FileOrganizationStore, pool: sqlx::PgPool) -> Self {
+        Self { file_store, pool }
+    }
+
+    pub fn connect_lazy(state_path: impl Into<PathBuf>, database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_lazy(database_url)?;
+        Ok(Self::new(FileOrganizationStore::new(state_path), pool))
+    }
+
+    async fn repository_sync_jobs(&self) -> Result<Vec<RepositorySyncJob>> {
+        let sql = format!(
+            "SELECT {REPOSITORY_SYNC_JOB_SELECT_COLUMNS} FROM repository_sync_jobs ORDER BY queued_at, id"
+        );
+        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        rows.into_iter().map(repository_sync_job_from_row).collect()
+    }
+
+    async fn upsert_repository_sync_job<'e, E>(executor: E, job: RepositorySyncJob) -> Result<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO repository_sync_jobs (id, organization_id, repository_id, connection_id, status, queued_at, started_at, finished_at, error)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9)
+             ON CONFLICT (id) DO UPDATE SET
+                organization_id = EXCLUDED.organization_id,
+                repository_id = EXCLUDED.repository_id,
+                connection_id = EXCLUDED.connection_id,
+                status = EXCLUDED.status,
+                queued_at = EXCLUDED.queued_at,
+                started_at = EXCLUDED.started_at,
+                finished_at = EXCLUDED.finished_at,
+                error = EXCLUDED.error
+             WHERE
+                (CASE repository_sync_jobs.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END)
+                  <= (CASE EXCLUDED.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END)
+                AND NOT (
+                    repository_sync_jobs.status IN ('succeeded', 'failed')
+                    AND EXCLUDED.status IN ('succeeded', 'failed')
+                    AND repository_sync_jobs.status <> EXCLUDED.status
+                )",
+        )
+        .bind(job.id)
+        .bind(job.organization_id)
+        .bind(job.repository_id)
+        .bind(job.connection_id)
+        .bind(repository_sync_job_status_to_str(&job.status))
+        .bind(job.queued_at)
+        .bind(job.started_at)
+        .bind(job.finished_at)
+        .bind(job.error)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
 }
 
 impl FileOrganizationStore {
@@ -960,13 +1068,12 @@ impl BootstrapStore for FileBootstrapStore {
 #[async_trait]
 impl BootstrapStore for PgBootstrapStore {
     async fn bootstrap_status(&self) -> Result<BootstrapStatus> {
-        let bootstrap_required = sqlx::query(
-            "SELECT 1 FROM local_accounts WHERE id = $1 AND password_hash IS NOT NULL",
-        )
-        .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
-        .fetch_optional(&self.pool)
-        .await?
-        .is_none();
+        let bootstrap_required =
+            sqlx::query("SELECT 1 FROM local_accounts WHERE id = $1 AND password_hash IS NOT NULL")
+                .bind(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                .fetch_optional(&self.pool)
+                .await?
+                .is_none();
 
         Ok(BootstrapStatus { bootstrap_required })
     }
@@ -1090,6 +1197,108 @@ impl LocalSessionStore for PgLocalSessionStore {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+}
+
+#[async_trait]
+impl OrganizationStore for PgOrganizationStore {
+    async fn organization_state(&self) -> Result<OrganizationState> {
+        let mut state = self.file_store.organization_state().await?;
+        state.repository_sync_jobs = self.repository_sync_jobs().await?;
+        Ok(state)
+    }
+
+    async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
+        let mut file_state = state.clone();
+        file_state.repository_sync_jobs.clear();
+        self.file_store.store_organization_state(file_state).await?;
+
+        let mut transaction = self.pool.begin().await?;
+        for job in state.repository_sync_jobs {
+            Self::upsert_repository_sync_job(&mut *transaction, job).await?;
+        }
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn store_repository_sync_job(&self, job: RepositorySyncJob) -> Result<()> {
+        Self::upsert_repository_sync_job(&self.pool, job).await
+    }
+
+    async fn claim_next_repository_sync_job(
+        &self,
+        started_at: &str,
+    ) -> Result<Option<RepositorySyncJob>> {
+        let mut transaction = self.pool.begin().await?;
+        let sql = format!(
+            "UPDATE repository_sync_jobs SET status = 'running', started_at = $1::timestamptz, finished_at = NULL, error = NULL
+             WHERE id = (
+                SELECT id FROM repository_sync_jobs
+                WHERE status = 'queued'
+                ORDER BY queued_at, id
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+             )
+             RETURNING {REPOSITORY_SYNC_JOB_SELECT_COLUMNS}"
+        );
+        let row = sqlx::query(&sql)
+            .bind(started_at)
+            .fetch_optional(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        row.map(repository_sync_job_from_row).transpose()
+    }
+
+    async fn claim_and_complete_next_repository_sync_job(
+        &self,
+        started_at: &str,
+        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+    ) -> Result<Option<RepositorySyncJob>> {
+        let mut transaction = self.pool.begin().await?;
+        let select_sql = format!(
+            "SELECT {REPOSITORY_SYNC_JOB_SELECT_COLUMNS} FROM repository_sync_jobs
+             WHERE status = 'queued'
+             ORDER BY queued_at, id
+             FOR UPDATE SKIP LOCKED
+             LIMIT 1"
+        );
+        let Some(row) = sqlx::query(&select_sql)
+            .fetch_optional(&mut *transaction)
+            .await?
+        else {
+            transaction.commit().await?;
+            return Ok(None);
+        };
+
+        let mut claimed_job = repository_sync_job_from_row(row)?;
+        claimed_job.status = RepositorySyncJobStatus::Running;
+        claimed_job.started_at = Some(started_at.to_owned());
+        claimed_job.finished_at = None;
+        claimed_job.error = None;
+        let completed_job = execute(claimed_job);
+        Self::upsert_repository_sync_job(&mut *transaction, completed_job.clone()).await?;
+        transaction.commit().await?;
+        Ok(Some(completed_job))
+    }
+
+    async fn claim_next_review_agent_run(
+        &self,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        self.file_store.claim_next_review_agent_run().await
+    }
+
+    async fn complete_review_agent_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        self.file_store.complete_review_agent_run(run_id).await
+    }
+
+    async fn fail_review_agent_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<sourcebot_models::ReviewAgentRun>> {
+        self.file_store.fail_review_agent_run(run_id).await
     }
 }
 
@@ -1239,8 +1448,26 @@ pub fn build_local_session_store(
         .expect("local session store DATABASE_URL must be valid")
 }
 
-pub fn build_organization_store(state_path: impl Into<PathBuf>) -> DynOrganizationStore {
-    Arc::new(FileOrganizationStore::new(state_path))
+pub fn try_build_organization_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> Result<DynOrganizationStore> {
+    if let Some(database_url) = database_url {
+        return Ok(Arc::new(PgOrganizationStore::connect_lazy(
+            state_path,
+            database_url,
+        )?));
+    }
+
+    Ok(Arc::new(FileOrganizationStore::new(state_path)))
+}
+
+pub fn build_organization_store(
+    state_path: impl Into<PathBuf>,
+    database_url: Option<&str>,
+) -> DynOrganizationStore {
+    try_build_organization_store(state_path, database_url)
+        .expect("organization store DATABASE_URL must be valid when configured")
 }
 
 #[cfg(test)]
@@ -1417,10 +1644,16 @@ mod tests {
             admin_name: "Bootstrap Admin".into(),
             password_hash: "$argon2id$bootstrap-hash".into(),
         };
-        store.initialize_bootstrap(upgraded_state.clone()).await.unwrap();
+        store
+            .initialize_bootstrap(upgraded_state.clone())
+            .await
+            .unwrap();
 
         assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
-        assert_eq!(store.bootstrap_state().await.unwrap(), Some(upgraded_state.clone()));
+        assert_eq!(
+            store.bootstrap_state().await.unwrap(),
+            Some(upgraded_state.clone())
+        );
         assert_eq!(
             persisted_bootstrap_row(&pool).await,
             Some((
@@ -1455,11 +1688,9 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(
-            error
-                .downcast_ref::<std::io::Error>()
-                .is_some_and(|io_error| io_error.kind() == ErrorKind::AlreadyExists)
-        );
+        assert!(error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io_error| io_error.kind() == ErrorKind::AlreadyExists));
         assert!(!store.bootstrap_status().await.unwrap().bootstrap_required);
         assert_eq!(store.bootstrap_state().await.unwrap(), Some(state.clone()));
         assert_eq!(
@@ -1834,15 +2065,13 @@ mod tests {
     #[tokio::test]
     async fn pg_org_auth_metadata_reads_local_account_by_email_and_id() {
         let pool = org_auth_metadata_test_pool().await;
-        sqlx::query(
-            "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)",
-        )
-        .bind("org_acme")
-        .bind("acme")
-        .bind("Acme")
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+            .bind("org_acme")
+            .bind("acme")
+            .bind("Acme")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ($1, $2, $3, $4, $5::timestamptz)",
         )
@@ -1880,13 +2109,22 @@ mod tests {
                 created_at: "2026-04-22T12:00:00Z".into(),
             })
         );
-        assert_eq!(store.local_account_by_email("missing@example.com").await.unwrap(), None);
-        assert_eq!(store.local_account_by_id("missing_user").await.unwrap(), None);
+        assert_eq!(
+            store
+                .local_account_by_email("missing@example.com")
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store.local_account_by_id("missing_user").await.unwrap(),
+            None
+        );
     }
 
     #[tokio::test]
-    async fn pg_org_auth_metadata_fails_closed_for_case_insensitive_duplicate_local_account_emails(
-    ) {
+    async fn pg_org_auth_metadata_fails_closed_for_case_insensitive_duplicate_local_account_emails()
+    {
         let pool = org_auth_metadata_test_pool().await;
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
@@ -1978,7 +2216,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pg_org_auth_metadata_user_snapshot_includes_repo_permissions_for_member_organizations() {
+    async fn pg_org_auth_metadata_user_snapshot_includes_repo_permissions_for_member_organizations()
+    {
         let pool = org_auth_metadata_test_pool().await;
         sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_tools', 'tools', 'Tools')")
             .execute(&pool)
@@ -2046,12 +2285,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pg_org_auth_metadata_accepts_invite_and_persists_account_membership_and_invite_acceptance() {
+    async fn pg_org_auth_metadata_accepts_invite_and_persists_account_membership_and_invite_acceptance(
+    ) {
         let pool = org_auth_metadata_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, created_at) VALUES
             ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz),
@@ -2084,11 +2326,20 @@ mod tests {
 
         assert_eq!(accepted.account.id, "local_user_pending");
         assert_eq!(accepted.account.name, "Invited User");
-        assert_eq!(accepted.account.password_hash, Some("$argon2id$invite-hash".into()));
+        assert_eq!(
+            accepted.account.password_hash,
+            Some("$argon2id$invite-hash".into())
+        );
         assert_eq!(accepted.membership.organization_id, "org_acme");
         assert_eq!(accepted.membership.user_id, "local_user_pending");
-        assert_eq!(accepted.invite.accepted_by_user_id, Some("local_user_pending".into()));
-        assert_eq!(accepted.invite.accepted_at, Some("2026-04-22T12:30:00Z".into()));
+        assert_eq!(
+            accepted.invite.accepted_by_user_id,
+            Some("local_user_pending".into())
+        );
+        assert_eq!(
+            accepted.invite.accepted_at,
+            Some("2026-04-22T12:30:00Z".into())
+        );
 
         let persisted_account = sqlx::query(
             "SELECT id, email, name, password_hash, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at FROM local_accounts WHERE email = $1",
@@ -2097,10 +2348,19 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(persisted_account.get::<String, _>("id"), "local_user_pending");
+        assert_eq!(
+            persisted_account.get::<String, _>("id"),
+            "local_user_pending"
+        );
         assert_eq!(persisted_account.get::<String, _>("name"), "Invited User");
-        assert_eq!(persisted_account.get::<String, _>("password_hash"), "$argon2id$invite-hash");
-        assert_eq!(persisted_account.get::<String, _>("created_at"), "2026-04-22T09:30:00Z");
+        assert_eq!(
+            persisted_account.get::<String, _>("password_hash"),
+            "$argon2id$invite-hash"
+        );
+        assert_eq!(
+            persisted_account.get::<String, _>("created_at"),
+            "2026-04-22T09:30:00Z"
+        );
 
         let persisted_membership = sqlx::query(
             "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
@@ -2111,7 +2371,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(persisted_membership.get::<String, _>("role"), "viewer");
-        assert_eq!(persisted_membership.get::<String, _>("joined_at"), "2026-04-22T12:30:00Z");
+        assert_eq!(
+            persisted_membership.get::<String, _>("joined_at"),
+            "2026-04-22T12:30:00Z"
+        );
 
         let persisted_invite = sqlx::query(
             "SELECT accepted_by_user_id, to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS accepted_at FROM organization_invites WHERE id = $1",
@@ -2124,7 +2387,10 @@ mod tests {
             persisted_invite.get::<String, _>("accepted_by_user_id"),
             "local_user_pending"
         );
-        assert_eq!(persisted_invite.get::<String, _>("accepted_at"), "2026-04-22T12:30:00Z");
+        assert_eq!(
+            persisted_invite.get::<String, _>("accepted_at"),
+            "2026-04-22T12:30:00Z"
+        );
     }
 
     async fn persisted_api_keys(pool: &sqlx::PgPool) -> Vec<ApiKey> {
@@ -2172,10 +2438,12 @@ mod tests {
     #[tokio::test]
     async fn pg_api_key_lists_one_users_keys_from_postgres() {
         let pool = org_auth_metadata_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
             ('local_user_admin', 'admin@example.com', 'Admin User', '$argon2id$admin', '2026-04-22T09:00:00Z'::timestamptz),
@@ -2225,10 +2493,12 @@ mod tests {
     #[tokio::test]
     async fn pg_api_key_authenticates_visible_repo_scope_and_revokes_durably() {
         let pool = org_auth_metadata_test_pool().await;
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ('local_user_member', 'member@example.com', 'Member User', '$argon2id$member', '2026-04-22T09:00:00Z'::timestamptz)",
         )
@@ -2267,13 +2537,20 @@ mod tests {
         assert_eq!(fetched, Some(created.clone()));
 
         store
-            .revoke_api_key("api_key_member", "local_user_member", "2026-04-23T00:00:00Z")
+            .revoke_api_key(
+                "api_key_member",
+                "local_user_member",
+                "2026-04-23T00:00:00Z",
+            )
             .await
             .unwrap();
 
         let persisted = persisted_api_keys(&pool).await;
         assert_eq!(persisted.len(), 1);
-        assert_eq!(persisted[0].revoked_at.as_deref(), Some("2026-04-23T00:00:00Z"));
+        assert_eq!(
+            persisted[0].revoked_at.as_deref(),
+            Some("2026-04-23T00:00:00Z")
+        );
     }
 
     #[tokio::test]
@@ -2407,8 +2684,10 @@ mod tests {
 
     #[test]
     fn try_build_local_session_store_rejects_invalid_database_url() {
-        let result =
-            try_build_local_session_store(unique_test_path("invalid-database-url"), Some("not a database url"));
+        let result = try_build_local_session_store(
+            unique_test_path("invalid-database-url"),
+            Some("not a database url"),
+        );
 
         assert!(result.is_err());
     }
@@ -2648,8 +2927,207 @@ mod tests {
         }
     }
 
+    async fn repository_sync_job_test_pool() -> sqlx::PgPool {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "TRUNCATE TABLE repository_sync_jobs, repository_permission_bindings, repositories, connections, organizations RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset repository sync job test tables");
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert organization");
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ('conn_github', 'GitHub', 'github')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert connection");
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES
+            ('repo_sync_job_queued', 'queued', 'main', 'conn_github', 'ready'),
+            ('repo_sync_job_updated', 'updated', 'main', 'conn_github', 'ready'),
+            ('repo_sync_job_oldest', 'oldest', 'main', 'conn_github', 'ready'),
+            ('repo_sync_job_newer', 'newer', 'main', 'conn_github', 'ready')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert repositories");
+        pool
+    }
+
     #[tokio::test]
-    async fn file_organization_store_stores_new_repository_sync_job_durably() {
+    async fn pg_organization_store_upserts_repository_sync_jobs_and_merges_them_into_state() {
+        let pool = repository_sync_job_test_pool().await;
+        let path = unique_test_path("pg-organization-store-upsert-repository-sync-job");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        store
+            .store_organization_state(OrganizationState {
+                organizations: vec![Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+        let queued = repository_sync_job(
+            "sync_job_queued",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:00Z",
+        );
+        let updated = RepositorySyncJob {
+            status: RepositorySyncJobStatus::Succeeded,
+            started_at: Some("2026-04-26T10:01:00Z".into()),
+            finished_at: Some("2026-04-26T10:02:00Z".into()),
+            ..queued.clone()
+        };
+
+        store.store_repository_sync_job(queued).await.unwrap();
+        store
+            .store_repository_sync_job(updated.clone())
+            .await
+            .unwrap();
+
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(state.organizations.len(), 1);
+        assert_eq!(state.repository_sync_jobs, vec![updated]);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_claims_oldest_queued_repository_sync_job_atomically() {
+        let pool = repository_sync_job_test_pool().await;
+        let path = unique_test_path("pg-organization-store-claim-repository-sync-job");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let older = repository_sync_job(
+            "sync_job_oldest",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:01:00Z",
+        );
+        let newer = repository_sync_job(
+            "sync_job_newer",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:02:00Z",
+        );
+        store.store_repository_sync_job(newer).await.unwrap();
+        store.store_repository_sync_job(older).await.unwrap();
+
+        let claimed = store
+            .claim_next_repository_sync_job("2026-04-26T10:03:00Z")
+            .await
+            .unwrap()
+            .expect("claim queued job");
+
+        assert_eq!(claimed.id, "sync_job_oldest");
+        assert_eq!(claimed.status, RepositorySyncJobStatus::Running);
+        assert_eq!(claimed.started_at.as_deref(), Some("2026-04-26T10:03:00Z"));
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(state.repository_sync_jobs[0], claimed);
+        assert_eq!(state.repository_sync_jobs[1].id, "sync_job_newer");
+        assert_eq!(
+            state.repository_sync_jobs[1].status,
+            RepositorySyncJobStatus::Queued
+        );
+        fs::remove_file(path).unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_claim_and_complete_persists_only_completed_state() {
+        let pool = repository_sync_job_test_pool().await;
+        let path = unique_test_path("pg-organization-store-claim-complete-repository-sync-job");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        store
+            .store_repository_sync_job(repository_sync_job(
+                "sync_job_queued",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:00:00Z",
+            ))
+            .await
+            .unwrap();
+
+        let completed = store
+            .claim_and_complete_next_repository_sync_job("2026-04-26T10:01:00Z", |job| {
+                RepositorySyncJob {
+                    status: RepositorySyncJobStatus::Failed,
+                    started_at: Some("2026-04-26T10:01:00Z".into()),
+                    finished_at: Some("2026-04-26T10:02:00Z".into()),
+                    error: Some("fetch failed".into()),
+                    ..job
+                }
+            })
+            .await
+            .unwrap()
+            .expect("claim and complete queued job");
+
+        assert_eq!(completed.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(completed.error.as_deref(), Some("fetch failed"));
+        assert_eq!(
+            store
+                .organization_state()
+                .await
+                .unwrap()
+                .repository_sync_jobs,
+            vec![completed]
+        );
+        let running_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM repository_sync_jobs WHERE status = 'running'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(running_count, 0);
+        fs::remove_file(path).unwrap_err();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_preserves_completed_repository_sync_job_when_stale_state_is_written(
+    ) {
+        let pool = repository_sync_job_test_pool().await;
+        let path = unique_test_path("pg-organization-store-preserve-completed-repository-sync-job");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let queued = repository_sync_job(
+            "sync_job_queued",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:00Z",
+        );
+        let completed = RepositorySyncJob {
+            status: RepositorySyncJobStatus::Succeeded,
+            started_at: Some("2026-04-26T10:01:00Z".into()),
+            finished_at: Some("2026-04-26T10:02:00Z".into()),
+            ..queued.clone()
+        };
+
+        store
+            .store_repository_sync_job(completed.clone())
+            .await
+            .unwrap();
+        store
+            .store_organization_state(OrganizationState {
+                repository_sync_jobs: vec![queued],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .organization_state()
+                .await
+                .unwrap()
+                .repository_sync_jobs,
+            vec![completed]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn file_organization_store_creates_new_repository_sync_job() {
         let path = unique_test_path("organization-store-new-repository-sync-job");
         let store = FileOrganizationStore::new(&path);
         let job = repository_sync_job(

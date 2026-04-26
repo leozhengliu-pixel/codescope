@@ -19,7 +19,10 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = AppConfig::from_env();
-    let store = build_organization_store(config.organization_state_path.clone());
+    let store = build_organization_store(
+        config.organization_state_path.clone(),
+        config.database_url.as_deref(),
+    );
     let review_agent_stub_outcome = match config.stub_review_agent_run_execution_outcome()? {
         StubReviewAgentRunExecutionOutcomeConfig::Completed => {
             StubReviewAgentRunExecutionOutcome::Completed
