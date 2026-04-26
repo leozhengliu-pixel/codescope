@@ -2,16 +2,15 @@ use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use sourcebot_core::{build_repository_detail, CatalogStore, ImportRepositoryResult};
 use sourcebot_models::{
-    seed_connections, seed_repositories, Connection, Repository, RepositoryDetail,
+    seed_connections, seed_repositories, Connection, ConnectionKind, Repository, RepositoryDetail,
     RepositorySummary, SyncState,
 };
-use sqlx::migrate::Migrator;
+use sqlx::{migrate::Migrator, Row};
 use std::{
     path::Path,
     process::Command,
     sync::{Arc, RwLock},
 };
-use tracing::warn;
 
 static CATALOG_MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
@@ -240,6 +239,43 @@ pub fn catalog_migrator() -> &'static Migrator {
     &CATALOG_MIGRATOR
 }
 
+fn parse_connection_kind(value: &str) -> Result<ConnectionKind> {
+    match value {
+        "github" => Ok(ConnectionKind::GitHub),
+        "gitlab" => Ok(ConnectionKind::GitLab),
+        "local" => Ok(ConnectionKind::Local),
+        other => anyhow::bail!("unknown catalog connection kind `{other}`"),
+    }
+}
+
+fn parse_sync_state(value: &str) -> Result<SyncState> {
+    match value {
+        "pending" => Ok(SyncState::Pending),
+        "ready" => Ok(SyncState::Ready),
+        "error" => Ok(SyncState::Error),
+        other => anyhow::bail!("unknown catalog sync state `{other}`"),
+    }
+}
+
+fn row_to_repository(row: &sqlx::postgres::PgRow) -> Result<Repository> {
+    Ok(Repository {
+        id: row.get("repo_id"),
+        name: row.get("repo_name"),
+        default_branch: row.get("default_branch"),
+        connection_id: row.get("connection_id"),
+        sync_state: parse_sync_state(row.get::<String, _>("sync_state").as_str())?,
+    })
+}
+
+fn row_to_connection(row: &sqlx::postgres::PgRow) -> Result<Connection> {
+    Ok(Connection {
+        id: row.get("connection_id"),
+        name: row.get("connection_name"),
+        kind: parse_connection_kind(row.get::<String, _>("connection_kind").as_str())?,
+        config: None,
+    })
+}
+
 #[allow(dead_code)]
 impl PgCatalogStore {
     pub async fn connect(database_url: &str) -> Result<Self> {
@@ -265,19 +301,35 @@ impl PgCatalogStore {
 #[async_trait]
 impl CatalogStore for PgCatalogStore {
     async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
-        anyhow::bail!(
-            "postgres catalog store list_repositories is not implemented yet for pool {}",
-            self.pool
-                .connect_options()
-                .get_database()
-                .unwrap_or("<unknown>")
+        let rows = sqlx::query(
+            "SELECT id AS repo_id, name AS repo_name, default_branch, connection_id, sync_state FROM repositories ORDER BY id",
         )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter()
+            .map(row_to_repository)
+            .map(|repository| repository.map(|repository| repository.summary()))
+            .collect()
     }
 
     async fn get_repository_detail(&self, repo_id: &str) -> Result<Option<RepositoryDetail>> {
-        anyhow::bail!(
-            "postgres catalog store get_repository_detail is not implemented yet for repo {repo_id}"
+        let Some(row) = sqlx::query(
+            "SELECT r.id AS repo_id, r.name AS repo_name, r.default_branch, r.connection_id, r.sync_state, c.name AS connection_name, c.kind AS connection_kind
+             FROM repositories r
+             INNER JOIN connections c ON c.id = r.connection_id
+             WHERE r.id = $1",
         )
+        .bind(repo_id)
+        .fetch_optional(&self.pool)
+        .await? else {
+            return Ok(None);
+        };
+
+        Ok(Some(RepositoryDetail {
+            repository: row_to_repository(&row)?,
+            connection: row_to_connection(&row)?,
+        }))
     }
 
     async fn import_local_repository(
@@ -295,10 +347,6 @@ impl CatalogStore for PgCatalogStore {
 
 pub async fn build_catalog_store(database_url: Option<&str>) -> Result<DynCatalogStore> {
     if let Some(database_url) = database_url {
-        warn!(
-            "DATABASE_URL is configured; using lazy PgCatalogStore skeleton until catalog queries are implemented"
-        );
-
         return Ok(Arc::new(PgCatalogStore::connect_lazy(database_url)?));
     }
 
@@ -309,6 +357,8 @@ pub async fn build_catalog_store(database_url: Option<&str>) -> Result<DynCatalo
 mod tests {
     use super::*;
     use sourcebot_models::{ConnectionKind, SyncState};
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
 
     #[test]
     fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_and_task87b1_local_account_password_hash(
@@ -606,10 +656,9 @@ mod tests {
             );
         }
 
-        let task87b2_up_migration = std::fs::read_to_string(
-            migration_dir.join("0008_local_account_password_hash.up.sql"),
-        )
-        .unwrap();
+        let task87b2_up_migration =
+            std::fs::read_to_string(migration_dir.join("0008_local_account_password_hash.up.sql"))
+                .unwrap();
 
         for expected_snippet in [
             "ALTER TABLE local_accounts",
@@ -718,18 +767,144 @@ mod tests {
             .any(|repository| repository.id == "repo_sourcebot_rewrite"));
     }
 
+    async fn pg_catalog_test_pool() -> sqlx::PgPool {
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for destructive Postgres catalog-store tests");
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("connect to Postgres test database");
+        catalog_migrator()
+            .run(&pool)
+            .await
+            .expect("apply catalog migrations");
+        sqlx::query(
+            "TRUNCATE TABLE delivery_attempts, review_agent_runs, repository_permission_bindings, repositories, connections RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset catalog test tables");
+        pool
+    }
+
     #[tokio::test]
-    async fn build_catalog_store_with_database_uses_postgres_catalog_store_path() {
-        let store = build_catalog_store(Some("postgres://sourcebot:***@127.0.0.1:5432/sourcebot"))
+    async fn pg_catalog_store_lists_repository_summaries_from_postgres() {
+        let pool = pg_catalog_test_pool().await;
+        sqlx::query("INSERT INTO connections (id, name, kind) VALUES ($1, $2, $3)")
+            .bind("conn_pg")
+            .bind("Postgres GitHub")
+            .bind("github")
+            .execute(&pool)
             .await
             .unwrap();
-        let error = store.list_repositories().await.unwrap_err();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind("repo_pg")
+        .bind("pg repo")
+        .bind("main")
+        .bind("conn_pg")
+        .bind("ready")
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        assert!(
-            error
-                .to_string()
-                .contains("postgres catalog store list_repositories is not implemented yet"),
-            "expected postgres-backed catalog store error, got: {error:?}"
+        let store = PgCatalogStore { pool };
+
+        assert_eq!(
+            store.list_repositories().await.unwrap(),
+            vec![RepositorySummary {
+                id: "repo_pg".into(),
+                name: "pg repo".into(),
+                default_branch: "main".into(),
+                sync_state: SyncState::Ready,
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_catalog_store_returns_repository_detail_with_connection_from_postgres() {
+        let pool = pg_catalog_test_pool().await;
+        sqlx::query("INSERT INTO connections (id, name, kind) VALUES ($1, $2, $3)")
+            .bind("conn_pg_detail")
+            .bind("Postgres Local")
+            .bind("local")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind("repo_pg_detail")
+        .bind("pg detail")
+        .bind("trunk")
+        .bind("conn_pg_detail")
+        .bind("pending")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgCatalogStore { pool };
+
+        assert_eq!(
+            store.get_repository_detail("repo_pg_detail").await.unwrap(),
+            Some(RepositoryDetail {
+                repository: Repository {
+                    id: "repo_pg_detail".into(),
+                    name: "pg detail".into(),
+                    default_branch: "trunk".into(),
+                    connection_id: "conn_pg_detail".into(),
+                    sync_state: SyncState::Pending,
+                },
+                connection: Connection {
+                    id: "conn_pg_detail".into(),
+                    name: "Postgres Local".into(),
+                    kind: ConnectionKind::Local,
+                    config: None,
+                },
+            })
+        );
+        assert_eq!(store.get_repository_detail("missing").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn pg_catalog_store_build_catalog_store_with_database_uses_postgres_catalog_store_path() {
+        let pool = pg_catalog_test_pool().await;
+        sqlx::query("INSERT INTO connections (id, name, kind) VALUES ($1, $2, $3)")
+            .bind("conn_build")
+            .bind("Build GitLab")
+            .bind("gitlab")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind("repo_build")
+        .bind("build repo")
+        .bind("main")
+        .bind("conn_build")
+        .bind("error")
+        .execute(&pool)
+        .await
+        .unwrap();
+        drop(pool);
+
+        let database_url = env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must be set for destructive Postgres catalog-store tests");
+        let store = build_catalog_store(Some(database_url.as_str()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.list_repositories().await.unwrap(),
+            vec![RepositorySummary {
+                id: "repo_build".into(),
+                name: "build repo".into(),
+                default_branch: "main".into(),
+                sync_state: SyncState::Error,
+            }]
         );
     }
 }

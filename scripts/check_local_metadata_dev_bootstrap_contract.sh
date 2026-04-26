@@ -37,6 +37,6 @@ require_line "$makefile" '^[[:space:]]+bash scripts/bootstrap_local_metadata_dev
 require_line "$readme" '^6\. Or run the single local metadata bootstrap wrapper:$' 'README metadata-dev-bootstrap step'
 require_line "$readme" '^   make metadata-dev-bootstrap$' 'README make metadata-dev-bootstrap command'
 require_line "$readme" '^12\. `make metadata-dev-bootstrap` is a local-only operator bootstrap helper that waits for local Postgres, ensures the dedicated test database exists, runs `make sqlx-migrate`, and then runs the focused `make sqlx-test` compatibility check\.$' 'README metadata-dev-bootstrap workflow note'
-require_line "$readme" '^13\. `make metadata-dev-bootstrap` does not mean the API already uses durable metadata by default; the current API still routes `DATABASE_URL` through an unimplemented lazy `PgCatalogStore` path, so this helper is only a local bootstrap-and-compatibility workflow today\.$' 'README metadata-dev-bootstrap truthful scope note'
+require_line "$readme" '^13\. `make metadata-dev-bootstrap` now exercises a bounded PostgreSQL catalog read path plus the durable auth metadata slices; catalog list/detail reads use PostgreSQL when `DATABASE_URL` is configured, while local repository import, connection management, analytics/audit aggregates, repo-permission sync, and broader organization aggregates still remain follow-up work\.$' 'README metadata-dev-bootstrap truthful scope note'
 
 printf 'local metadata dev bootstrap contract OK\n'

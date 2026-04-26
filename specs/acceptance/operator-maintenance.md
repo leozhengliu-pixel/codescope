@@ -63,7 +63,7 @@ then they:
 7. use `make runtime-restore BACKUP_DIR=/path/to/backup` if they need to restore the current file-backed runtime baseline
 8. use `make metadata-restore BACKUP_DIR=/path/to/backup` if they need to restore the current local metadata dump
 
-The `make metadata-dev-bootstrap` helper is intentionally local-only orchestration for the current metadata schema contract; it does **not** mean the API already uses durable metadata by default, because `DATABASE_URL` still routes through an unfinished lazy `PgCatalogStore` path rather than a shipped durable runtime baseline.
+The `make metadata-dev-bootstrap` helper is intentionally local-only orchestration for the current metadata schema contract; it now exercises bounded PostgreSQL catalog list/detail reads plus the durable auth metadata slices when `DATABASE_URL` is configured, but it still does **not** mean local repository import, connection management, analytics/audit aggregates, repo-permission sync, broader organization aggregates, or production-grade metadata durability are complete.
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain outside the shipped maintenance baseline:
