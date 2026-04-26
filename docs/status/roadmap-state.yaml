@@ -5,56 +5,81 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5c603e3802dfc208caa1fe82b8f591246dc71385
+  head: d1bb9e41b24ccce0fde6715215671b3066c3141f
 last_completed_task:
-  id: task87c2
-  title: Bounded PostgreSQL catalog list/detail reads
+  id: task87c3
+  title: PostgreSQL-backed repo-permission filtering for sync-job history
   status: done
   summary: >-
-    Closed one meaningful Task 87c2 durable-catalog slice instead of splitting the
-    PostgreSQL `PgCatalogStore` read implementation, focused catalog regressions, SQLx
-    wrapper wiring, and truthful operator/docs contract updates into separate paperwork
-    runs. `crates/api/src/storage.rs` now lists repository summaries and repository
-    details from PostgreSQL when `DATABASE_URL` is configured, keeps local import
-    explicitly unimplemented, and makes destructive catalog tests require
-    `TEST_DATABASE_URL`; `Makefile` extends `make sqlx-test` with the catalog selector
-    while preserving deterministic test-database wiring; and the README, operator
-    acceptance, parity-gap report, and paired checker scripts now ground the bounded
-    catalog read baseline without overclaiming local repository import, connection
-    management, analytics/audit aggregates, repo-permission sync, broader organization
-    aggregates, ask-thread, or review-agent durability.
+    Closed one meaningful Task 87c3 durable organization-auth slice instead of splitting
+    route authorization, a PostgreSQL-backed regression, SQLx wrapper wiring, and
+    acceptance/docs contract updates into smaller paperwork runs. `/api/v1/auth/repository-sync-jobs`
+    still reads sync-job records from the configured organization-state store, but when
+    `DATABASE_URL` is configured it now filters those records through PostgreSQL-backed
+    organization membership and `repository_permission_bindings` so stale file-backed
+    organization-auth fixtures cannot leak hidden repository jobs; `make sqlx-test` now
+    includes the focused `auth_repository_sync_jobs_` route family, and README plus
+    repository-operations acceptance wording ground this bounded permission-filtering
+    baseline without overclaiming full repo-permission sync lifecycle, persisted
+    index-status, retry/recovery, operator controls, or broader organization aggregates.
   tests:
-    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed
-    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api pg_catalog_store_ -- --nocapture --test-threads=1: passed (3 passed)
-    - DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api storage::tests -- --nocapture: passed (6 passed)
+    - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after stale local Postgres pid/socket recovery and restart as `hermes`
+    - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture --test-threads=1: passed (4 passed)
     - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
     - bash scripts/check_sqlx_test_workflow.sh .: passed
     - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
     - bash scripts/check_local_metadata_env_contract.sh .: passed
     - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
-    - rustfmt --edition 2021 --check crates/api/src/storage.rs: passed
     - git diff --check: passed
     - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
   review:
-    spec: passed independent review; reviewer confirmed the live Task 87c2 diff matches the bounded PostgreSQL catalog list/detail contract, keeps docs/checkers truthful, and stays within the directly coupled catalog/readiness surfaces
-    code: approved by independent re-review after the `TEST_DATABASE_URL` fail-closed adjustment; reviewer found no blocking security, logic, or spec issues and confirmed the deterministic test-database wiring closes the destructive-test safety concern
-  commit: 5c603e3802dfc208caa1fe82b8f591246dc71385
-  next_task: task87c3
+    code: passed one independent post-implementation review; reviewer confirmed the diff correctly separates file-backed sync-job records from PostgreSQL-backed visibility metadata, proves hidden jobs are filtered by live repository-permission bindings, and keeps Makefile/README/checker/spec wording within the bounded parity scope
+  commit: d1bb9e41b24ccce0fde6715215671b3066c3141f
+  next_task: task87c4
 current_task:
-  id: task87c3
+  id: task87c4
   parent_task: phase-a-durable-metadata-and-migration-backbone
-  title: Remaining durable organization aggregates and repo-permission sync
+  title: Remaining durable organization aggregates and repo-permission sync lifecycle
   status: pending
   summary: >-
-    Task 87c2 now ships bounded PostgreSQL catalog list/detail reads, but Task 87 still
-    is not a full durable metadata closure. The next meaningful release-parity slice
-    should move one remaining organization aggregate surface onto durable metadata, with
-    priority on repo-permission sync or another directly auth-visible aggregate that can
-    be implemented, focused-tested, documented, independently reviewed, committed, and
-    pushed in one run. Do not reopen API-key/OAuth-client or catalog-read paperwork, and
-    do not jump to Task 88 until the remaining Task 87 durable organization/runtime
-    blockers are explicitly closed or deferred with evidence.
+    Task 87c3 now proves one authenticated read path uses PostgreSQL-backed membership
+    and repository-permission bindings, but Task 87 still is not a full durable
+    organization-state closure. The next meaningful release-parity slice should move the
+    remaining repo-permission sync lifecycle or another auth-visible organization
+    aggregate off stale file-backed state, with implementation, focused PostgreSQL tests,
+    truthful docs/checkers, independent review, commit, state update, and push in one
+    run. Do not reopen API-key/OAuth-client/catalog paperwork, and do not jump to Task 88
+    until the remaining Task 87 durable organization/runtime blockers are explicitly
+    closed or deferred with evidence.
 history:
+  - id: task87c3
+    status: done
+    summary: >-
+      Closed one meaningful Task 87c3 durable organization-auth slice instead of splitting
+      route authorization, a PostgreSQL-backed regression, SQLx wrapper wiring, and
+      acceptance/docs contract updates into smaller paperwork runs. `/api/v1/auth/repository-sync-jobs`
+      still reads sync-job records from the configured organization-state store, but when
+      `DATABASE_URL` is configured it now filters those records through PostgreSQL-backed
+      organization membership and `repository_permission_bindings` so stale file-backed
+      organization-auth fixtures cannot leak hidden repository jobs; `make sqlx-test` now
+      includes the focused `auth_repository_sync_jobs_` route family, and README plus
+      repository-operations acceptance wording ground this bounded permission-filtering
+      baseline without overclaiming full repo-permission sync lifecycle, persisted
+      index-status, retry/recovery, operator controls, or broader organization aggregates.
+    tests:
+      - repo-local PostgreSQL preflight with bundled binaries plus `.env`-backed `DATABASE_URL` / `TEST_DATABASE_URL` connectivity probes: passed after stale local Postgres pid/socket recovery and restart as `hermes`
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_ -- --nocapture --test-threads=1: passed (4 passed)
+      - TEST_DATABASE_URL='postgres://sourcebot:***@127.0.0.1:5432/sourcebot_test' make sqlx-test: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_local_metadata_env_contract.sh .: passed
+      - bash scripts/check_local_metadata_dev_bootstrap_contract.sh .: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over `git diff --unified=0`: passed (0 findings)
+    review:
+      code: passed one independent post-implementation review; reviewer confirmed the diff correctly separates file-backed sync-job records from PostgreSQL-backed visibility metadata, proves hidden jobs are filtered by live repository-permission bindings, and keeps Makefile/README/checker/spec wording within the bounded parity scope
+    commit: d1bb9e41b24ccce0fde6715215671b3066c3141f
+    next_task: task87c4
   - id: task87c2
     status: done
     summary: >-
@@ -934,5 +959,8 @@ notes:
         `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; Task 86 closed that
         bootstrap/operator workflow, Task 87a closed the durable PostgreSQL local-session
         slice, Task 87b1 closed the durable PostgreSQL bootstrap-admin slice, Task 87b2
-        closed the durable PostgreSQL local-account/membership/invite slice, and the next
-        live work item is Task 87c2 rather than any archived pre-follow-on blocker thread.
+        closed the durable PostgreSQL local-account/membership/invite slice, Task 87c1
+        closed durable API-key/OAuth-client metadata, Task 87c2 closed bounded catalog
+        reads, Task 87c3 closed PostgreSQL-backed repository-permission filtering for
+        authenticated sync-job history, and the next live work item is Task 87c4 rather
+        than any archived pre-follow-on blocker thread.
