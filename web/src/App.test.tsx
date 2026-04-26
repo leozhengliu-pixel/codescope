@@ -769,6 +769,140 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/chat?repo_id=repo-2&thread_id=thread-2');
   });
 
+  it('chat route deletes the selected thread, clears the hash thread id, and removes it from the list', async () => {
+    window.location.hash = '#/chat?thread_id=thread-2';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([{ id: 'repo-2', name: 'beta-repo', default_branch: 'main', sync_state: 'ready' }]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          {
+            id: 'thread-2',
+            session_id: 'session-2',
+            title: 'Thread to delete',
+            repo_scope: ['repo-2'],
+            visibility: 'private',
+            updated_at: '2026-04-21T21:00:00Z',
+            message_count: 1,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2' && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2') {
+        return jsonResponse({
+          id: 'thread-2',
+          session_id: 'session-2',
+          user_id: 'user-1',
+          title: 'Thread to delete',
+          repo_scope: ['repo-2'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [{ id: 'msg-2', role: 'user', content: 'Delete me', citations: [], rendered_citations: [] }],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Delete me')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete thread' }));
+
+    await waitFor(() => expect(screen.queryByText('Delete me')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Thread to delete/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Active thread: thread-2')).not.toBeInTheDocument();
+    expect(screen.getByText('Thread deleted.')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-2');
+    expect(fetchMock.mock.calls.filter(([input, init]) => String(input) === '/api/v1/ask/threads/thread-2' && init?.method === 'DELETE')).toHaveLength(1);
+  });
+
+  it('chat route ignores stale delete responses after switching to a different thread', async () => {
+    window.location.hash = '#/chat?thread_id=thread-1';
+
+    const delayedDelete = deferredResponse();
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          { id: 'repo-1', name: 'alpha-repo', default_branch: 'main', sync_state: 'ready' },
+          { id: 'repo-2', name: 'beta-repo', default_branch: 'main', sync_state: 'ready' },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads') {
+        return jsonResponse([
+          { id: 'thread-1', session_id: 'session-1', title: 'Alpha thread', repo_scope: ['repo-1'], visibility: 'private', updated_at: '2026-04-21T20:00:00Z', message_count: 1 },
+          { id: 'thread-2', session_id: 'session-2', title: 'Beta thread', repo_scope: ['repo-2'], visibility: 'private', updated_at: '2026-04-21T21:00:00Z', message_count: 1 },
+        ]);
+      }
+
+      if (url === '/api/v1/ask/threads/thread-1' && init?.method === 'DELETE') {
+        return delayedDelete.promise;
+      }
+
+      if (url === '/api/v1/ask/threads/thread-1') {
+        return jsonResponse({
+          id: 'thread-1',
+          session_id: 'session-1',
+          user_id: 'user-1',
+          title: 'Alpha thread',
+          repo_scope: ['repo-1'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:00:00Z',
+          updated_at: '2026-04-21T20:00:00Z',
+          messages: [{ id: 'msg-1', role: 'user', content: 'Alpha question', citations: [], rendered_citations: [] }],
+        });
+      }
+
+      if (url === '/api/v1/ask/threads/thread-2') {
+        return jsonResponse({
+          id: 'thread-2',
+          session_id: 'session-2',
+          user_id: 'user-1',
+          title: 'Beta thread',
+          repo_scope: ['repo-2'],
+          visibility: 'private',
+          created_at: '2026-04-21T18:30:00Z',
+          updated_at: '2026-04-21T21:00:00Z',
+          messages: [{ id: 'msg-2', role: 'user', content: 'Beta question', citations: [], rendered_citations: [] }],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Alpha question')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete thread' }));
+    expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /Beta thread/ }));
+    expect(await screen.findByText('Beta question')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete thread' })).not.toBeDisabled();
+
+    delayedDelete.resolve(new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(screen.queryByText('Thread deleted.')).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Beta thread' })).toBeInTheDocument();
+    expect(screen.getByText('Beta question')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Alpha thread' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete thread' })).not.toBeDisabled();
+    expect(window.location.hash).toBe('#/chat?repo_id=repo-2&thread_id=thread-2');
+  });
+
   it('chat route ignores stale thread metadata responses after switching to a different thread', async () => {
     window.location.hash = '#/chat?thread_id=thread-1';
 

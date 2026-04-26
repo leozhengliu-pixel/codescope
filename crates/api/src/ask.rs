@@ -146,6 +146,26 @@ impl AskThreadStore for InMemoryAskThreadStore {
         Ok(Some(thread.clone()))
     }
 
+    async fn delete_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let mut threads = self
+            .threads
+            .write()
+            .map_err(|_| anyhow!("ask thread store lock poisoned"))?;
+
+        let Some(thread_index) = threads
+            .iter()
+            .position(|thread| thread.user_id == user_id && thread.id == thread_id)
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(threads.remove(thread_index)))
+    }
+
     async fn append_message_for_user(
         &self,
         user_id: &str,
@@ -465,6 +485,29 @@ impl AskThreadStore for PgAskThreadStore {
         .bind(title)
         .bind(visibility.as_ref().map(Self::visibility_label))
         .bind(updated_at)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.as_ref().map(Self::thread_from_row).transpose()
+    }
+
+    async fn delete_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>> {
+        let row = sqlx::query(
+            r#"
+            DELETE FROM ask_threads
+            WHERE user_id = $1 AND id = $2
+            RETURNING id, session_id, user_id, title, repo_scope, visibility,
+                      to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+                      to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at,
+                      messages
+            "#,
+        )
+        .bind(user_id)
+        .bind(thread_id)
         .fetch_optional(&self.pool)
         .await?;
 

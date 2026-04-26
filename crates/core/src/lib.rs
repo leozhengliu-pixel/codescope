@@ -845,6 +845,11 @@ pub trait AskThreadStore: Send + Sync {
         visibility: Option<sourcebot_models::AskThreadVisibility>,
         updated_at: &str,
     ) -> Result<Option<AskThread>>;
+    async fn delete_thread_for_user(
+        &self,
+        user_id: &str,
+        thread_id: &str,
+    ) -> Result<Option<AskThread>>;
     async fn append_message_for_user(
         &self,
         user_id: &str,

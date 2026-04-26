@@ -327,7 +327,9 @@ fn build_router(
         .route("/api/v1/ask/threads", get(list_ask_threads))
         .route(
             "/api/v1/ask/threads/{thread_id}",
-            get(get_ask_thread).patch(update_ask_thread),
+            get(get_ask_thread)
+                .patch(update_ask_thread)
+                .delete(delete_ask_thread),
         )
         .with_state(build_app_state(
             config,
@@ -4498,6 +4500,30 @@ async fn update_ask_thread(
     sanitize_ask_thread_response_citations(&mut response);
 
     Ok(Json(response))
+}
+
+async fn delete_ask_thread(
+    State(state): State<AppState>,
+    Path(thread_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    let (ask_user_id, visible_repo_ids) = ask_request_context(&state, &headers).await?;
+    let existing_thread = state
+        .ask_threads
+        .get_thread_for_user(&ask_user_id, &thread_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .filter(|thread| ask_thread_visible_to_request(thread, &visible_repo_ids))
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    state
+        .ask_threads
+        .delete_thread_for_user(&ask_user_id, &existing_thread.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
@@ -9092,6 +9118,137 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn ask_threads_delete_removes_only_authenticated_visible_thread() {
+        let ask_threads = Arc::new(InMemoryAskThreadStore::new());
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_delete_visible".into(),
+                session_id: "session_delete_visible".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Visible delete thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-26T09:00:00Z".into(),
+                updated_at: "2026-04-26T09:00:00Z".into(),
+                messages: vec![AskMessage {
+                    id: "msg_delete_user".into(),
+                    role: AskMessageRole::User,
+                    content: "delete this thread".into(),
+                    citations: Vec::new(),
+                }],
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_delete_hidden_repo".into(),
+                session_id: "session_delete_hidden_repo".into(),
+                user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
+                title: "Hidden repo delete thread".into(),
+                repo_scope: vec!["repo_hidden".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-26T09:01:00Z".into(),
+                updated_at: "2026-04-26T09:01:00Z".into(),
+                messages: Vec::new(),
+            })
+            .await
+            .unwrap();
+        ask_threads
+            .create_thread(AskThread {
+                id: "thread_delete_other_user".into(),
+                session_id: "session_delete_other_user".into(),
+                user_id: DEFAULT_ASK_USER_ID.into(),
+                title: "Other user delete thread".into(),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visibility: AskThreadVisibility::Private,
+                created_at: "2026-04-26T09:02:00Z".into(),
+                updated_at: "2026-04-26T09:02:00Z".into(),
+                messages: Vec::new(),
+            })
+            .await
+            .unwrap();
+        let organization_state_path = unique_test_path("ask-threads-delete-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_ask_thread_store(
+            AppConfig {
+                llm_provider: Some("stub".into()),
+                llm_model: Some("stub-model".into()),
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("ask-threads-delete-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("ask-threads-delete-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            ask_threads.clone(),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/ask/threads/thread_delete_visible")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, "thread_delete_visible")
+            .await
+            .unwrap()
+            .is_none());
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/ask/threads/thread_delete_hidden_repo")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+        assert!(ask_threads
+            .get_thread_for_user(LOCAL_BOOTSTRAP_ADMIN_USER_ID, "thread_delete_hidden_repo")
+            .await
+            .unwrap()
+            .is_some());
+
+        let other_user_response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/ask/threads/thread_delete_other_user")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_user_response.status(), StatusCode::NOT_FOUND);
+        assert!(ask_threads
+            .get_thread_for_user(DEFAULT_ASK_USER_ID, "thread_delete_other_user")
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]

@@ -997,6 +997,9 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
   const [metadataSubmitting, setMetadataSubmitting] = useState(false);
   const [metadataMessage, setMetadataMessage] = useState<string | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const selectedThreadIdRef = useRef<string | null>(initialThreadId);
   const metadataRequestVersionRef = useRef(0);
   const chatRequestVersionRef = useRef(0);
@@ -1072,6 +1075,7 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
       metadataRequestVersionRef.current += 1;
       selectedThreadIdRef.current = initialThreadId;
       setMetadataSubmitting(false);
+      setDeleteSubmitting(false);
       setThreadDetail(null);
       setThreadDetailError(null);
       setSubmitError(null);
@@ -1149,6 +1153,7 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
     metadataRequestVersionRef.current += 1;
     selectedThreadIdRef.current = null;
     setMetadataSubmitting(false);
+    setDeleteSubmitting(false);
     setSelectedThreadId(null);
     setThreadDetail(null);
     setThreadDetailError(null);
@@ -1229,6 +1234,62 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
     } finally {
       if (metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId) {
         setMetadataSubmitting(false);
+      }
+    }
+  };
+
+  const handleDeleteThread = async () => {
+    if (!threadDetail || deleteSubmitting) {
+      return;
+    }
+
+    const submittedThreadId = threadDetail.id;
+    const submittedRepoId = threadDetail.repo_scope[0] ?? selectedRepoId;
+    const requestVersion = metadataRequestVersionRef.current + 1;
+    metadataRequestVersionRef.current = requestVersion;
+    setDeleteSubmitting(true);
+    setDeleteMessage(null);
+    setDeleteError(null);
+    setMetadataMessage(null);
+    setMetadataError(null);
+
+    try {
+      const response = await authFetch(`/api/v1/ask/threads/${encodeURIComponent(submittedThreadId)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        throw new HttpError(response.status);
+      }
+
+      setThreadSummaries((current) => current.filter((summary) => summary.id !== submittedThreadId));
+
+      const isCurrentDeleteRequest = metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId;
+      if (!isCurrentDeleteRequest) {
+        return;
+      }
+
+      invalidateInFlightChatRequest();
+      selectedThreadIdRef.current = null;
+      setSelectedThreadId(null);
+      setThreadDetail(null);
+      setThreadDetailError(null);
+      setSubmitError(null);
+      setDeleteMessage('Thread deleted.');
+      const fallbackRepoId = submittedRepoId || selectedRepoId || repos[0]?.id || null;
+      if (fallbackRepoId) {
+        setSelectedRepoId(fallbackRepoId);
+      }
+      const targetHash = buildChatHash(fallbackRepoId, null);
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
+    } catch (threadDeleteError) {
+      const isCurrentDeleteRequest = metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId;
+      if (!isCurrentDeleteRequest) {
+        return;
+      }
+      setDeleteError(threadDeleteError instanceof Error ? threadDeleteError.message : 'Unknown thread delete error');
+    } finally {
+      if (metadataRequestVersionRef.current === requestVersion && selectedThreadIdRef.current === submittedThreadId) {
+        setDeleteSubmitting(false);
       }
     }
   };
@@ -1384,6 +1445,7 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
                       metadataRequestVersionRef.current += 1;
                       selectedThreadIdRef.current = summary.id;
                       setMetadataSubmitting(false);
+                      setDeleteSubmitting(false);
                       const nextRepoId = summary.repo_scope[0] ?? selectedRepoId;
                       setSelectedRepoId(nextRepoId);
                       setSelectedThreadId(summary.id);
@@ -1432,6 +1494,8 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
           {threadDetailLoading ? <div style={{ color: '#57606a' }}>Loading thread…</div> : null}
           {threadDetailError ? <div style={{ color: '#cf222e' }}>Failed to load thread: {threadDetailError}</div> : null}
           {submitError ? <div style={{ color: '#cf222e' }}>Chat failed: {submitError}</div> : null}
+          {deleteMessage ? <div style={{ color: '#1a7f37' }}>{deleteMessage}</div> : null}
+          {deleteError ? <div style={{ color: '#cf222e' }}>Thread delete failed: {deleteError}</div> : null}
 
           {threadDetail ? (
             <div style={{ display: 'grid', gap: 12 }}>
@@ -1460,6 +1524,11 @@ function ChatPage({ initialRepoId, initialThreadId }: { initialRepoId: string; i
                 {metadataMessage ? <div style={{ color: '#1a7f37' }}>{metadataMessage}</div> : null}
                 {metadataError ? <div style={{ color: '#cf222e' }}>Thread metadata failed: {metadataError}</div> : null}
               </form>
+              <div>
+                <button type="button" style={secondaryButtonStyle} onClick={() => void handleDeleteThread()} disabled={deleteSubmitting}>
+                  {deleteSubmitting ? 'Deleting…' : 'Delete thread'}
+                </button>
+              </div>
               {threadDetail.messages.map((message) => (
                 <div key={message.id} style={{ ...detailCardStyle, display: 'grid', gap: 8 }}>
                   <div style={{ color: '#57606a', fontWeight: 600, textTransform: 'capitalize' }}>{message.role}</div>
