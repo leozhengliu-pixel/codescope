@@ -10,7 +10,7 @@ use sourcebot_models::{
     ApiKey, BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
     OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
     OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRun,
-    ReviewAgentRunStatus,
+    ReviewAgentRunStatus, ReviewWebhookDeliveryAttempt,
 };
 use sqlx::{postgres::PgPoolOptions, Row};
 use std::{
@@ -819,7 +819,23 @@ fn review_agent_run_from_row(row: sqlx::postgres::PgRow) -> Result<ReviewAgentRu
     })
 }
 
+fn review_webhook_delivery_attempt_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<ReviewWebhookDeliveryAttempt> {
+    Ok(ReviewWebhookDeliveryAttempt {
+        id: row.get("id"),
+        webhook_id: row.get("webhook_id"),
+        connection_id: row.get("connection_id"),
+        repository_id: row.get("repository_id"),
+        event_type: row.get("event_type"),
+        review_id: row.get("review_id"),
+        external_event_id: row.get("external_event_id"),
+        accepted_at: row.get("accepted_at"),
+    })
+}
+
 const REVIEW_AGENT_RUN_SELECT_COLUMNS: &str = "id, organization_id, webhook_id, delivery_attempt_id, connection_id, repository_id, review_id, status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at";
+const REVIEW_WEBHOOK_DELIVERY_ATTEMPT_SELECT_COLUMNS: &str = "id, webhook_id, connection_id, repository_id, event_type, review_id, external_event_id, CASE WHEN MOD(EXTRACT(MICROSECONDS FROM accepted_at)::int, 1000000) = 0 THEN to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') ELSE regexp_replace(to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), '0+Z$', 'Z') END AS accepted_at";
 
 impl PgOrganizationStore {
     pub fn new(file_store: FileOrganizationStore, pool: sqlx::PgPool) -> Self {
@@ -839,6 +855,16 @@ impl PgOrganizationStore {
         );
         let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
         rows.into_iter().map(repository_sync_job_from_row).collect()
+    }
+
+    async fn review_webhook_delivery_attempts(&self) -> Result<Vec<ReviewWebhookDeliveryAttempt>> {
+        let sql = format!(
+            "SELECT {REVIEW_WEBHOOK_DELIVERY_ATTEMPT_SELECT_COLUMNS} FROM delivery_attempts ORDER BY accepted_at, id"
+        );
+        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        rows.into_iter()
+            .map(review_webhook_delivery_attempt_from_row)
+            .collect()
     }
 
     async fn review_agent_runs(&self) -> Result<Vec<ReviewAgentRun>> {
@@ -922,6 +948,38 @@ impl PgOrganizationStore {
         .bind(run.review_id)
         .bind(review_agent_run_status_to_str(&run.status))
         .bind(run.created_at)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
+    async fn upsert_review_webhook_delivery_attempt<'e, E>(
+        executor: E,
+        attempt: ReviewWebhookDeliveryAttempt,
+    ) -> Result<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO delivery_attempts (id, webhook_id, connection_id, repository_id, event_type, review_id, external_event_id, accepted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)
+             ON CONFLICT (id) DO UPDATE SET
+                webhook_id = EXCLUDED.webhook_id,
+                connection_id = EXCLUDED.connection_id,
+                repository_id = EXCLUDED.repository_id,
+                event_type = EXCLUDED.event_type,
+                review_id = EXCLUDED.review_id,
+                external_event_id = EXCLUDED.external_event_id,
+                accepted_at = EXCLUDED.accepted_at",
+        )
+        .bind(attempt.id)
+        .bind(attempt.webhook_id)
+        .bind(attempt.connection_id)
+        .bind(attempt.repository_id)
+        .bind(attempt.event_type)
+        .bind(attempt.review_id)
+        .bind(attempt.external_event_id)
+        .bind(attempt.accepted_at)
         .execute(executor)
         .await?;
         Ok(())
@@ -1288,6 +1346,7 @@ impl OrganizationStore for PgOrganizationStore {
     async fn organization_state(&self) -> Result<OrganizationState> {
         let mut state = self.file_store.organization_state().await?;
         state.repository_sync_jobs = self.repository_sync_jobs().await?;
+        state.review_webhook_delivery_attempts = self.review_webhook_delivery_attempts().await?;
         state.review_agent_runs = self.review_agent_runs().await?;
         Ok(state)
     }
@@ -1295,17 +1354,22 @@ impl OrganizationStore for PgOrganizationStore {
     async fn store_organization_state(&self, state: OrganizationState) -> Result<()> {
         let mut file_state = state.clone();
         file_state.repository_sync_jobs.clear();
+        file_state.review_webhook_delivery_attempts.clear();
         file_state.review_agent_runs.clear();
-        self.file_store.store_organization_state(file_state).await?;
 
         let mut transaction = self.pool.begin().await?;
         for job in state.repository_sync_jobs {
             Self::upsert_repository_sync_job(&mut *transaction, job).await?;
         }
+        for attempt in state.review_webhook_delivery_attempts {
+            Self::upsert_review_webhook_delivery_attempt(&mut *transaction, attempt).await?;
+        }
         for run in state.review_agent_runs {
             Self::upsert_review_agent_run(&mut *transaction, run).await?;
         }
         transaction.commit().await?;
+
+        self.file_store.store_organization_state(file_state).await?;
         Ok(())
     }
 
@@ -3297,6 +3361,159 @@ mod tests {
         .await
         .expect("insert repository permission binding");
         pool
+    }
+
+    fn review_webhook_delivery_attempt(
+        id: &str,
+        accepted_at: &str,
+    ) -> ReviewWebhookDeliveryAttempt {
+        ReviewWebhookDeliveryAttempt {
+            id: id.into(),
+            webhook_id: "webhook_review_1".into(),
+            connection_id: "conn_github".into(),
+            repository_id: "repo_sourcebot_rewrite".into(),
+            event_type: "pull_request_review".into(),
+            review_id: format!("review_{id}"),
+            external_event_id: format!("event_{id}"),
+            accepted_at: accepted_at.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_delivery_attempts_store_and_merge_postgres_attempts() {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-delivery-attempts-state");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let fallback_attempt =
+            review_webhook_delivery_attempt("attempt_fallback", "2026-04-25T00:09:00Z");
+        FileOrganizationStore::new(&path)
+            .store_organization_state(OrganizationState {
+                review_webhook_delivery_attempts: vec![fallback_attempt],
+                review_webhooks: vec![ReviewWebhook {
+                    id: "webhook_review_1".into(),
+                    organization_id: "org_acme".into(),
+                    connection_id: "conn_github".into(),
+                    repository_id: "repo_sourcebot_rewrite".into(),
+                    events: vec!["pull_request".into()],
+                    secret_hash: "$argon2id$v=19$m=19456,t=2,p=1$review$hash".into(),
+                    created_by_user_id: "local_user_bootstrap_admin".into(),
+                    created_at: "2026-04-19T10:05:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+        let pg_attempt =
+            review_webhook_delivery_attempt("attempt_postgres", "2026-04-25T00:10:00Z");
+        sqlx::query(
+            "INSERT INTO delivery_attempts (id, webhook_id, connection_id, repository_id, event_type, review_id, external_event_id, accepted_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz)",
+        )
+        .bind(&pg_attempt.id)
+        .bind(&pg_attempt.webhook_id)
+        .bind(&pg_attempt.connection_id)
+        .bind(&pg_attempt.repository_id)
+        .bind(&pg_attempt.event_type)
+        .bind(&pg_attempt.review_id)
+        .bind(&pg_attempt.external_event_id)
+        .bind(&pg_attempt.accepted_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(
+            state.review_webhook_delivery_attempts,
+            vec![pg_attempt.clone()]
+        );
+
+        let stored_attempt =
+            review_webhook_delivery_attempt("attempt_stored", "2026-04-25T00:11:00Z");
+        store
+            .store_organization_state(OrganizationState {
+                review_webhook_delivery_attempts: vec![stored_attempt.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(persisted_file.review_webhook_delivery_attempts.is_empty());
+        assert_eq!(
+            store
+                .organization_state()
+                .await
+                .unwrap()
+                .review_webhook_delivery_attempts,
+            vec![pg_attempt, stored_attempt]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_delivery_attempts_preserve_fractional_accepted_at() {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-delivery-attempts-fractional");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool);
+        let attempt =
+            review_webhook_delivery_attempt("attempt_fractional", "2026-04-25T00:10:00.123456Z");
+
+        store
+            .store_organization_state(OrganizationState {
+                review_webhook_delivery_attempts: vec![attempt.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .organization_state()
+                .await
+                .unwrap()
+                .review_webhook_delivery_attempts,
+            vec![attempt]
+        );
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_delivery_attempts_preserve_file_fallback_when_pg_upsert_fails() {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-delivery-attempts-upsert-failure");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool);
+        let existing_attempt =
+            review_webhook_delivery_attempt("attempt_existing", "2026-04-25T00:09:00Z");
+        FileOrganizationStore::new(&path)
+            .store_organization_state(OrganizationState {
+                review_webhook_delivery_attempts: vec![existing_attempt.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+        let invalid_attempt = ReviewWebhookDeliveryAttempt {
+            repository_id: "missing_repo".into(),
+            connection_id: "missing_connection".into(),
+            ..review_webhook_delivery_attempt("attempt_invalid", "2026-04-25T00:10:00Z")
+        };
+
+        let error = store
+            .store_organization_state(OrganizationState {
+                review_webhook_delivery_attempts: vec![invalid_attempt],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("delivery_attempts"));
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            persisted_file.review_webhook_delivery_attempts,
+            vec![existing_attempt]
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]
