@@ -248,7 +248,8 @@ fn build_router(
         )
         .route(
             "/api/v1/auth/repository-sync-jobs",
-            get(list_authenticated_repository_sync_jobs),
+            get(list_authenticated_repository_sync_jobs)
+                .post(create_authenticated_repository_sync_job),
         )
         .route(
             "/api/v1/auth/audit-events",
@@ -748,6 +749,12 @@ struct CreateConnectionRequest {
 struct ImportLocalRepositoryRequest {
     connection_id: String,
     path: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct CreateRepositorySyncJobRequest {
+    organization_id: String,
+    repository_id: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -2763,6 +2770,74 @@ async fn list_authenticated_audit_events(
             .filter(|audit_event| visible_organization_ids.contains(&audit_event.organization_id))
             .map(audit_event_list_item_response)
             .collect(),
+    ))
+}
+
+async fn create_authenticated_repository_sync_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateRepositorySyncJobRequest>,
+) -> Result<(StatusCode, Json<RepositorySyncJobListItemResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let organization_id = payload.organization_id.trim();
+    let repository_id = payload.repository_id.trim();
+    if organization_id.is_empty() || repository_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let visibility_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if !user_is_organization_admin(&visibility_state, &session.user_id, organization_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let visible_repository_bindings =
+        visible_repository_bindings_for_user(&visibility_state, &session.user_id);
+    if !visible_repository_bindings
+        .contains(&(organization_id.to_string(), repository_id.to_string()))
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let repository_detail = state
+        .catalog
+        .get_repository_detail(repository_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let queued_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let job = RepositorySyncJob {
+        id: format!(
+            "repo_sync_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: organization_id.to_string(),
+        repository_id: repository_id.to_string(),
+        connection_id: repository_detail.repository.connection_id,
+        status: sourcebot_models::RepositorySyncJobStatus::Queued,
+        queued_at,
+        started_at: None,
+        finished_at: None,
+        error: None,
+    };
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    state
+        .organization_store
+        .store_repository_sync_job(job.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(repository_sync_job_list_item_response(job)),
     ))
 }
 
@@ -5669,6 +5744,12 @@ mod tests {
         started_at: Option<String>,
         finished_at: Option<String>,
         error: Option<String>,
+    }
+
+    #[derive(Debug, Serialize)]
+    struct CreateRepositorySyncJobRequestBody {
+        organization_id: String,
+        repository_id: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -13808,6 +13889,206 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_create_queues_visible_repository_for_admin() {
+        let organization_state_path = unique_test_path("auth-repository-sync-jobs-create-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-create-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_catalog(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(InMemoryCatalogStore::new(
+                vec![sourcebot_models::Repository {
+                    id: "repo_visible".into(),
+                    name: "visible".into(),
+                    default_branch: "main".into(),
+                    connection_id: "conn_local_acme".into(),
+                    sync_state: sourcebot_models::SyncState::Ready,
+                }],
+                vec![Connection {
+                    id: "conn_local_acme".into(),
+                    name: "Acme Local".into(),
+                    kind: ConnectionKind::Local,
+                    config: Some(ConnectionConfig::Local {
+                        repo_path: "/srv/git/acme".into(),
+                    }),
+                }],
+            )),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateRepositorySyncJobRequestBody {
+                            organization_id: "org_acme".into(),
+                            repository_id: "repo_visible".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload: RepositorySyncJobListItemResponseBody = read_json(response).await;
+        assert!(payload.id.starts_with("repo_sync_"));
+        assert_eq!(payload.organization_id, "org_acme");
+        assert_eq!(payload.repository_id, "repo_visible");
+        assert_eq!(payload.connection_id, "conn_local_acme");
+        assert_eq!(payload.status, "queued");
+        assert!(payload.started_at.is_none());
+        assert!(payload.finished_at.is_none());
+        assert!(payload.error.is_none());
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state.repository_sync_jobs.len(), 1);
+        assert_eq!(persisted_state.repository_sync_jobs[0].id, payload.id);
+        assert_eq!(
+            persisted_state.repository_sync_jobs[0].queued_at,
+            payload.queued_at
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_create_fails_closed_for_non_admin_without_mutation() {
+        let organization_state_path =
+            unique_test_path("auth-repository-sync-jobs-create-non-admin-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-create-non-admin-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_catalog(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(InMemoryCatalogStore::new(
+                vec![sourcebot_models::Repository {
+                    id: "repo_visible".into(),
+                    name: "visible".into(),
+                    default_branch: "main".into(),
+                    connection_id: "conn_local_acme".into(),
+                    sync_state: sourcebot_models::SyncState::Ready,
+                }],
+                vec![Connection {
+                    id: "conn_local_acme".into(),
+                    name: "Acme Local".into(),
+                    kind: ConnectionKind::Local,
+                    config: Some(ConnectionConfig::Local {
+                        repo_path: "/srv/git/acme".into(),
+                    }),
+                }],
+            )),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateRepositorySyncJobRequestBody {
+                            organization_id: "org_acme".into(),
+                            repository_id: "repo_visible".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted_state.repository_sync_jobs.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
     }
 
     #[tokio::test]
