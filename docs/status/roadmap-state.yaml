@@ -5,36 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 90e3fa3eb1454cd5e30426daba64eaec95e071f9
+  head: 89e6e329852d97a15cab0c4597bfd2c8b1cd01d7
 last_completed_task:
-  id: task96v
-  title: Local Git snapshot path preservation for whitespace-tracked files
+  id: task96w
+  title: Local import queued worker handoff sync-history visibility
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime robustness slice by preserving
-    significant leading, trailing, and surrounding spaces in Git-tracked local
-    repository paths during successful repository-sync snapshot materialization.
-    Local content discovery now uses NUL-delimited `git ls-tree -rz --name-only
-    HEAD` output instead of newline splitting plus `trim()`, so a tracked path
-    such as ` spaced fixture .txt` is copied into the repo-local
-    `.sourcebot/local-sync/.../snapshot/` tree with its exact visible whitespace
-    preserved. The closure keeps the release claim narrow: it hardens bounded
-    local tracked `HEAD` manifest/snapshot materialization and terminal status
-    evidence; it is not real provider fetch/import/reindex, broad retry/backoff,
-    supervised scheduling, durable/background indexing, or full
+    Closed one bounded Task 96 provider/runtime UI visibility slice by making
+    the authenticated `#/settings/connections` local-import flow refetch
+    `/api/v1/auth/repository-sync-jobs` after a successful local repository
+    import, so the queued worker handoff becomes visible on the same local
+    connection card from the real API inventory instead of a synthetic row. The
+    sync-history refresh is request-version guarded so a slow initial history
+    response cannot overwrite the post-import refresh, and a post-import refresh
+    failure now preserves already visible history rows while surfacing the
+    scoped error. The release claim remains narrow: this improves authenticated
+    local import handoff/history visibility only, not real provider
+    fetch/import/reindex execution, durable/background indexing, broad
+    retry/backoff, scheduling/supervision, provider discovery, or full
     provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-worker snapshots_tracked_paths_with_surrounding_spaces -- --nocapture: red first on the whitespace-tracked file producing a failed terminal job, then passed (1 matched lib test; other worker targets 0)
-    - cargo test -p sourcebot-worker: passed (27 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
-    - cargo fmt --check: passed
-    - git diff --check: passed
-    - python3 added-lines security scan over git diff: passed (0 findings)
+    - npm test -- --run src/App.test.tsx -t "refreshes local repository sync history": passed (1 matched, 176 skipped before the preservation regression was added)
+    - npm test -- --run src/App.test.tsx -t "keeps refreshed local import sync history": passed (1 matched, 176 skipped before the preservation regression was added)
+    - npm test -- --run src/App.test.tsx -t "preserves existing local import sync history": red first on hidden preserved rows under syncJobsError, then passed (1 matched, 177 skipped)
+    - npm test -- --run src/App.test.tsx -t "local import": passed (7 matched, 171 skipped)
+    - npm test -- --run src/App.test.tsx: passed (178 tests)
+    - npm run build: passed
+    - git diff --check, docs marker check, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking NUL-delimited parsing, path-preservation, snapshot safety, regression-coverage, security, or bounded-claim issues remained. Reviewer suggestions were non-blocking parser-unit-test/setup-diagnostic follow-ups, and noted non-UTF-8 exact byte preservation remains outside this whitespace-focused closure.
-  commit: 90e3fa3eb1454cd5e30426daba64eaec95e071f9
-  next_task: task96w
+    code: passed independent read-only re-review after fixing the reviewer-found preserveOnError/UI-rendering blocker; no blocking stale-response, preservation, docs-claim, security, or test-coverage issues remained
+  commit: 89e6e329852d97a15cab0c4597bfd2c8b1cd01d7
+  next_task: task96x
 current_task:
-  id: task96w
+  id: task96x
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -45,19 +48,20 @@ current_task:
     revision/current-branch and tracked-content discovery, PostgreSQL catalog
     persistence for one explicitly requested local import, authenticated local
     import-to-worker handoff with durable repository visibility plus one queued
-    sync job, persisted terminal revision/branch/content-count metadata,
-    authenticated API/UI visibility for that terminal metadata, a bounded
-    repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
-    materialization that now preserves significant whitespace in tracked path
-    names, settings UI visibility for local manifest/snapshot artifact paths,
-    requested-repo local snapshot search fallback, requested-repo local snapshot
-    index-status fallback, no-revision tree/blob browse fallback, no-revision
-    definitions/references code-navigation fallback under the caller-authorized
-    organization/repository boundary, bounded stale `running` repository-sync
-    lease recovery before each repository-sync claim, and one bounded automatic
-    stale-lease replay after an additional one-hour backoff. Practical
-    provider/runtime parity still needs a next meaningful closure that turns
-    local/provider jobs into broader real fetch/import/reindex or
+    sync job, settings UI refetch/visibility for that queued handoff after a
+    successful local import, persisted terminal revision/branch/content-count
+    metadata, authenticated API/UI visibility for that terminal metadata, a
+    bounded repo-local tracked-content manifest, bounded tracked `HEAD`
+    snapshot materialization that preserves significant whitespace in tracked
+    path names, settings UI visibility for local manifest/snapshot artifact
+    paths, requested-repo local snapshot search fallback, requested-repo local
+    snapshot index-status fallback, no-revision tree/blob browse fallback,
+    no-revision definitions/references code-navigation fallback under the
+    caller-authorized organization/repository boundary, bounded stale `running`
+    repository-sync lease recovery before each repository-sync claim, and one
+    bounded automatic stale-lease replay after an additional one-hour backoff.
+    Practical provider/runtime parity still needs a next meaningful closure
+    that turns local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -66,6 +70,29 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96w
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime UI visibility slice by
+      refetching authenticated repository-sync history after a successful local
+      repository import so the queued worker handoff appears on the same local
+      connection card from the real API inventory. The slice also guards slow
+      initial history responses from overwriting the post-import refresh and
+      preserves already visible history rows when the post-import refresh fails,
+      while keeping real provider fetch/import/reindex, durable/background
+      indexing, broad retry/backoff, scheduling/supervision, and full
+      provider/runtime parity as follow-up work.
+    tests:
+      - npm test -- --run src/App.test.tsx -t "refreshes local repository sync history": passed
+      - npm test -- --run src/App.test.tsx -t "keeps refreshed local import sync history": passed
+      - npm test -- --run src/App.test.tsx -t "preserves existing local import sync history": red first, then passed
+      - npm test -- --run src/App.test.tsx -t "local import": passed
+      - npm test -- --run src/App.test.tsx and npm run build: passed
+      - git diff --check, docs marker check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only re-review after fixing the preserveOnError/UI-rendering blocker; no blocking stale-response, preservation, docs-claim, security, or coverage issues remained
+    commit: 89e6e329852d97a15cab0c4597bfd2c8b1cd01d7
+    next_task: task96x
   - id: task96v
     status: done
     summary: >-
