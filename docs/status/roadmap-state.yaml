@@ -5,32 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 95b0bfdeab8b916ca5c934e4fe6729712605b083
+  head: 9a8f75a01256f9a518516ec1a520bb37cf6a1ee8
 last_completed_task:
-  id: task96y
-  title: Artifact-backed requested-repo local sync search fallback
+  id: task96z
+  title: Artifact-backed requested-repo local sync index-status fallback
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime search slice by making
-    requested-repo `/api/v1/search?repo_id=...` fallback load the latest
-    successful authorized local sync `search-index.json` artifact when present
-    instead of rewalking the mutable snapshot tree. The existing
-    caller-authorized organization/repository boundary, primary search-store
-    precedence, and pre-artifact snapshot fallback remain intact. The release
-    claim stays narrow: artifact-backed local requested-repo search/status only,
-    not real provider fetch/import/reindex execution, durable/background
-    indexing, broad retry/backoff, supervision, or full provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime status slice by making
+    requested-repo `/api/v1/repos/{repo_id}/index-status` fallback load the
+    latest successful authorized local sync `search-index.json` artifact when
+    present instead of rewalking the mutable snapshot tree. Search and
+    index-status now share fail-closed artifact handling: a present malformed
+    artifact returns `500`, while snapshot traversal remains only for
+    pre-artifact rows where the artifact path is absent. The existing primary
+    startup-store precedence and caller-authorized organization/repository
+    boundary remain intact. The release claim stays narrow: artifact-backed
+    local requested-repo search/status plus snapshot browse/code-navigation
+    fallback only, not real provider fetch/import/reindex execution,
+    durable/background indexing, broad retry/backoff, supervision, or full
+    provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-api search_uses_latest_successful_local_sync_search_index_artifact_for_visible_requested_repo -- --nocapture: failed red first with 0 results, then passed (1 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (5 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed (2 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed (3 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (7 matched in main target; lib target 0 tests)
     - cargo fmt --check && git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking artifact path-safety, auth-boundary, hidden-org leakage, failure-propagation, test, or bounded-doc-claim issues remained
-  commit: 95b0bfdeab8b916ca5c934e4fe6729712605b083
-  next_task: task96z
+    code: passed independent read-only re-review after fixing artifact fail-closed alignment for both search and index-status; no blocking auth-boundary, primary-precedence, artifact-failure, path-safety, or bounded-claim issues remained
+  commit: 9a8f75a01256f9a518516ec1a520bb37cf6a1ee8
+  next_task: task96aa
 current_task:
-  id: task96z
+  id: task96aa
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -47,16 +52,17 @@ current_task:
     bounded repo-local tracked-content manifest, bounded tracked `HEAD`
     snapshot materialization that preserves significant whitespace in tracked
     path names, a sibling repo-local `search-index.json` artifact that can be
-    loaded without rewalking the snapshot, requested-repo search fallback that
-    prefers that artifact when present, settings UI visibility for local
-    manifest/snapshot artifact paths, requested-repo local snapshot index-status
-    fallback, no-revision tree/blob browse fallback, no-revision
-    definitions/references code-navigation fallback under the caller-authorized
-    organization/repository boundary, bounded stale `running` repository-sync
-    lease recovery before each repository-sync claim, and one bounded automatic
-    stale-lease replay after an additional one-hour backoff. Practical
-    provider/runtime parity still needs a next meaningful closure that turns
-    local/provider jobs into broader real fetch/import/reindex or
+    loaded without rewalking the snapshot, requested-repo search fallback and
+    index-status fallback that prefer that artifact when present while failing
+    closed on malformed present artifacts and falling back to snapshot traversal
+    only for pre-artifact rows, settings UI visibility for local
+    manifest/snapshot artifact paths, no-revision tree/blob browse fallback,
+    no-revision definitions/references code-navigation fallback under the
+    caller-authorized organization/repository boundary, bounded stale `running`
+    repository-sync lease recovery before each repository-sync claim, and one
+    bounded automatic stale-lease replay after an additional one-hour backoff.
+    Practical provider/runtime parity still needs a next meaningful closure
+    that turns local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -65,6 +71,28 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96z
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime status slice by making
+      requested-repo index-status fallback load the latest successful authorized
+      local sync `search-index.json` artifact when present instead of rewalking
+      the mutable snapshot tree. Search and index-status now share fail-closed
+      artifact handling: malformed present artifacts return `500`, while
+      snapshot traversal remains only for pre-artifact rows. The existing
+      visibility boundary, primary-store precedence, and bounded claim language
+      remain intact; real provider fetch/import/reindex, durable/background
+      indexing, broad retry/backoff, supervision, and full provider/runtime
+      parity remain follow-up work.
+    tests:
+      - cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed
+      - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed
+      - cargo test -p sourcebot-api local_sync -- --nocapture: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only re-review after fixing artifact fail-closed alignment for both search and index-status; no blocking auth-boundary, primary-precedence, artifact-failure, path-safety, or bounded-claim issues remained
+    commit: 9a8f75a01256f9a518516ec1a520bb37cf6a1ee8
+    next_task: task96aa
   - id: task96y
     status: done
     summary: >-
