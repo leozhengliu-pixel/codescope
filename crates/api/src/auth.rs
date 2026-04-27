@@ -319,14 +319,37 @@ impl PgOrganizationAuthMetadataStore {
         user_id: &str,
         role: &OrganizationRole,
     ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let current_role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM organization_memberships WHERE organization_id = $1 AND user_id = $2 FOR UPDATE",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(current_role) = current_role else {
+            tx.commit().await?;
+            return Ok(false);
+        };
+        let admin_rows = sqlx::query(
+            "SELECT user_id FROM organization_memberships WHERE organization_id = $1 AND role = 'admin' FOR UPDATE",
+        )
+        .bind(organization_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        if current_role == "admin" && *role != OrganizationRole::Admin && admin_rows.len() <= 1 {
+            tx.commit().await?;
+            return Ok(false);
+        }
         let result = sqlx::query(
             "UPDATE organization_memberships SET role = $3 WHERE organization_id = $1 AND user_id = $2",
         )
         .bind(organization_id)
         .bind(user_id)
         .bind(organization_role_as_str(role))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -356,9 +379,22 @@ impl PgOrganizationAuthMetadataStore {
         .map(organization_membership_from_row)
         .transpose()?;
 
-        if membership.is_none() {
+        let Some(membership) = membership else {
             tx.commit().await?;
             return Ok(None);
+        };
+
+        if membership.role == OrganizationRole::Admin {
+            let admin_rows = sqlx::query(
+                "SELECT user_id FROM organization_memberships WHERE organization_id = $1 AND role = 'admin' FOR UPDATE",
+            )
+            .bind(organization_id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if admin_rows.len() <= 1 {
+                tx.commit().await?;
+                return Ok(None);
+            }
         }
 
         let result = sqlx::query(
@@ -371,7 +407,7 @@ impl PgOrganizationAuthMetadataStore {
         tx.commit().await?;
 
         if result.rows_affected() == 1 {
-            Ok(membership)
+            Ok(Some(membership))
         } else {
             Ok(None)
         }
@@ -2492,6 +2528,81 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(accepted_invites, 1);
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_rejects_last_admin_demotion_without_mutation() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_admin', 'admin@example.com', 'Admin User', '2026-04-22T09:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+
+        assert!(!store
+            .update_member_role("org_acme", "local_user_admin", &OrganizationRole::Viewer)
+            .await
+            .unwrap());
+        let remaining_role: String = sqlx::query_scalar(
+            "SELECT role FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_admin'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_role, "admin");
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_rejects_last_admin_removal_without_mutation() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_admin', 'admin@example.com', 'Admin User', '2026-04-22T09:00:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+
+        assert!(store
+            .remove_member("org_acme", "local_user_admin")
+            .await
+            .unwrap()
+            .is_none());
+        let remaining_membership: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_admin' AND role = 'admin'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining_membership, 1);
     }
 
     #[tokio::test]

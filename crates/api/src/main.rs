@@ -2111,6 +2111,14 @@ async fn remove_authenticated_member(
         }) {
             return Err(StatusCode::UNAUTHORIZED);
         }
+        if member_removal_blocked_by_admin_policy(
+            &organization_state,
+            &session.user_id,
+            user_id,
+            organization_id,
+        ) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
         let organization = organization_state
             .organizations
             .iter()
@@ -2201,6 +2209,14 @@ async fn remove_authenticated_member(
             membership.organization_id == organization_id && membership.user_id == user_id
         })
         .ok_or(StatusCode::UNAUTHORIZED)?;
+    if member_removal_blocked_by_admin_policy(
+        &organization_state,
+        &session.user_id,
+        user_id,
+        organization_id,
+    ) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let membership = organization_state.memberships.remove(membership_index);
     let removed_role = match membership.role {
         OrganizationRole::Admin => "admin",
@@ -2282,6 +2298,14 @@ async fn update_authenticated_member_role(
             .find(|organization| organization.id == organization_id)
             .cloned()
             .ok_or(StatusCode::UNAUTHORIZED)?;
+        if member_role_update_blocked_by_admin_policy(
+            &organization_state,
+            user_id,
+            organization_id,
+            &role,
+        ) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
         let occurred_at = OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -2374,22 +2398,30 @@ async fn update_authenticated_member_role(
         .find(|organization| organization.id == organization_id)
         .cloned()
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let membership = organization_state
+    let membership_index = organization_state
         .memberships
-        .iter_mut()
-        .find(|membership| {
+        .iter()
+        .position(|membership| {
             membership.organization_id == organization_id && membership.user_id == user_id
         })
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let previous_role = match membership.role {
+    let previous_role = match organization_state.memberships[membership_index].role {
         OrganizationRole::Admin => "admin",
         OrganizationRole::Viewer => "viewer",
     };
+    if member_role_update_blocked_by_admin_policy(
+        &organization_state,
+        user_id,
+        organization_id,
+        &role,
+    ) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let new_role = match role {
         OrganizationRole::Admin => "admin",
         OrganizationRole::Viewer => "viewer",
     };
-    membership.role = role;
+    organization_state.memberships[membership_index].role = role;
     let occurred_at = OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -3890,6 +3922,56 @@ fn user_is_organization_admin(
         membership.user_id == user_id
             && membership.organization_id == organization_id
             && membership.role == OrganizationRole::Admin
+    })
+}
+
+fn organization_admin_count(
+    organization_state: &OrganizationState,
+    organization_id: &str,
+) -> usize {
+    organization_state
+        .memberships
+        .iter()
+        .filter(|membership| {
+            membership.organization_id == organization_id
+                && membership.role == OrganizationRole::Admin
+        })
+        .count()
+}
+
+fn member_removal_blocked_by_admin_policy(
+    organization_state: &OrganizationState,
+    actor_user_id: &str,
+    target_user_id: &str,
+    organization_id: &str,
+) -> bool {
+    if actor_user_id == target_user_id {
+        return true;
+    }
+
+    organization_state.memberships.iter().any(|membership| {
+        membership.organization_id == organization_id
+            && membership.user_id == target_user_id
+            && membership.role == OrganizationRole::Admin
+            && organization_admin_count(organization_state, organization_id) <= 1
+    })
+}
+
+fn member_role_update_blocked_by_admin_policy(
+    organization_state: &OrganizationState,
+    target_user_id: &str,
+    organization_id: &str,
+    new_role: &OrganizationRole,
+) -> bool {
+    if *new_role == OrganizationRole::Admin {
+        return false;
+    }
+
+    organization_state.memberships.iter().any(|membership| {
+        membership.organization_id == organization_id
+            && membership.user_id == target_user_id
+            && membership.role == OrganizationRole::Admin
+            && organization_admin_count(organization_state, organization_id) <= 1
     })
 }
 
@@ -6392,6 +6474,118 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_members_role_update_rejects_last_admin_self_demotion() {
+        let organization_state_path =
+            unique_test_path("members-role-update-last-admin-organizations");
+        write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-role-update-last-admin-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-role-update-last-admin-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/auth/members/local_user_bootstrap_admin/role")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&UpdateMemberRoleRequestBody {
+                            organization_id: "org_acme".into(),
+                            role: "viewer".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let persisted_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert_eq!(
+            persisted_state
+                .memberships
+                .iter()
+                .find(|membership| {
+                    membership.organization_id == "org_acme"
+                        && membership.user_id == LOCAL_BOOTSTRAP_ADMIN_USER_ID
+                })
+                .map(|membership| &membership.role),
+            Some(&OrganizationRole::Admin)
+        );
+        assert!(!persisted_state
+            .audit_events
+            .iter()
+            .any(|event| event.action == "auth.member_role.updated"));
+    }
+
+    #[tokio::test]
+    async fn auth_members_remove_rejects_self_or_last_admin_removal() {
+        let organization_state_path = unique_test_path("members-remove-last-admin-organizations");
+        write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-remove-last-admin-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-remove-last-admin-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/local_user_bootstrap_admin")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: "org_acme".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let persisted_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert!(persisted_state.memberships.iter().any(|membership| {
+            membership.organization_id == "org_acme"
+                && membership.user_id == LOCAL_BOOTSTRAP_ADMIN_USER_ID
+                && membership.role == OrganizationRole::Admin
+        }));
+        assert!(!persisted_state
+            .audit_events
+            .iter()
+            .any(|event| event.action == "auth.member.removed"));
+    }
+
+    #[tokio::test]
     async fn auth_members_remove_deletes_member_for_admin_visible_org_only() {
         let organization_state_path = unique_test_path("members-remove-organizations");
         write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
@@ -8009,6 +8203,33 @@ mod tests {
         .await
         .expect("hidden organization role remains unchanged");
         assert_eq!(hidden_role, "viewer");
+
+        let self_remove_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/local_user_admin")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: "org_acme".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(self_remove_response.status(), StatusCode::BAD_REQUEST);
+        let self_membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_admin'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("self-removal fail-closed path keeps the admin membership");
+        assert_eq!(self_membership_count, 1);
 
         let audit_events_response = app
             .oneshot(
