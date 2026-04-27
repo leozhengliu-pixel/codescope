@@ -17,7 +17,8 @@
 2. References lookup returns a deduplicated, navigable list of usages.
 3. Navigation requests are revision-aware and stable for a given indexed revision.
 4. Unsupported languages fail gracefully with a capability message instead of a server error.
-5. Symbol results link back to browseable source locations.
+5. Symbol results link back to browseable source locations using the effective source revision.
+6. When no explicit revision is requested and the primary browse/code-navigation store has no blob for an otherwise visible repository, definitions and references may fall back to the latest successful authorized local sync snapshot, using that terminal sync revision in response metadata and generated browse links.
 
 ## Permission behavior
 - Definitions and references only return locations inside repositories the caller can access.

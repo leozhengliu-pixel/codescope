@@ -4851,6 +4851,7 @@ async fn get_repository_blob(
 
 async fn get_repository_definitions(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(repo_id): Path<String>,
     Query(query): Query<DefinitionsQuery>,
 ) -> Result<Json<DefinitionsResponse>, StatusCode> {
@@ -4875,11 +4876,41 @@ async fn get_repository_definitions(
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
     let response_revision = Some(effective_revision.to_string());
 
-    let blob = state
+    let primary_blob = state
         .browse
         .get_blob_at_revision(&repo_id, path, Some(effective_revision))
-        .map_err(map_browse_error_to_status)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_browse_error_to_status)?;
+    let blob = if let Some(blob) = primary_blob {
+        blob
+    } else if requested_revision.is_none() {
+        if !headers.contains_key(header::AUTHORIZATION) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let (user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+        if !visible_repo_ids.contains(&repo_id) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let Some(snapshot_context) =
+            local_sync_snapshot_browse_context_for_repo(&state, &user_id, &repo_id).await?
+        else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        let snapshot_revision = snapshot_context.revision.clone();
+        let blob = snapshot_context
+            .browse
+            .get_blob_at_revision(&repo_id, path, None)
+            .map_err(map_browse_error_to_status)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        return Ok(Json(build_definitions_response(
+            repo_id,
+            path,
+            symbol,
+            &snapshot_revision,
+            blob,
+        )));
+    } else {
+        return Err(StatusCode::NOT_FOUND);
+    };
 
     let response = match extract_symbols(path, &blob.content) {
         sourcebot_search::SymbolExtraction::Supported { symbols } => {
@@ -4928,6 +4959,7 @@ async fn get_repository_definitions(
 
 async fn get_repository_references(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(repo_id): Path<String>,
     Query(query): Query<ReferencesQuery>,
 ) -> Result<Json<ReferencesResponse>, StatusCode> {
@@ -4952,43 +4984,152 @@ async fn get_repository_references(
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
     let response_revision = Some(effective_revision.to_string());
 
-    let blob = state
+    let primary_blob = state
         .browse
         .get_blob_at_revision(&repo_id, path, Some(effective_revision))
-        .map_err(map_browse_error_to_status)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(map_browse_error_to_status)?;
 
-    let response = match extract_symbols(path, &blob.content) {
-        sourcebot_search::SymbolExtraction::Supported { .. } => {
-            let references = state
-                .browse
-                .find_text_references_at_revision(&repo_id, symbol, effective_revision)
-                .map_err(map_browse_error_to_status)?
-                .ok_or(StatusCode::NOT_FOUND)?;
-            let references =
-                build_reference_responses(&repo_id, Some(effective_revision), references);
+    let response = if let Some(blob) = primary_blob {
+        match extract_symbols(path, &blob.content) {
+            sourcebot_search::SymbolExtraction::Supported { .. } => {
+                let references = state
+                    .browse
+                    .find_text_references_at_revision(&repo_id, symbol, effective_revision)
+                    .map_err(map_browse_error_to_status)?
+                    .ok_or(StatusCode::NOT_FOUND)?;
+                let references =
+                    build_reference_responses(&repo_id, Some(effective_revision), references);
 
-            ReferencesResponse::Supported {
-                repo_id,
-                path: path.to_string(),
-                revision: response_revision.clone(),
-                symbol: symbol.to_string(),
-                references,
+                ReferencesResponse::Supported {
+                    repo_id,
+                    path: path.to_string(),
+                    revision: response_revision.clone(),
+                    symbol: symbol.to_string(),
+                    references,
+                }
+            }
+            sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
+                ReferencesResponse::Unsupported {
+                    repo_id,
+                    path: path.to_string(),
+                    revision: response_revision,
+                    symbol: symbol.to_string(),
+                    capability,
+                    references: Vec::new(),
+                }
             }
         }
-        sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
-            ReferencesResponse::Unsupported {
-                repo_id,
-                path: path.to_string(),
-                revision: response_revision,
-                symbol: symbol.to_string(),
-                capability,
-                references: Vec::new(),
+    } else if requested_revision.is_none() {
+        if !headers.contains_key(header::AUTHORIZATION) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let (user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+        if !visible_repo_ids.contains(&repo_id) {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        let Some(snapshot_context) =
+            local_sync_snapshot_browse_context_for_repo(&state, &user_id, &repo_id).await?
+        else {
+            return Err(StatusCode::NOT_FOUND);
+        };
+        let snapshot_revision = snapshot_context.revision.clone();
+        let blob = snapshot_context
+            .browse
+            .get_blob_at_revision(&repo_id, path, None)
+            .map_err(map_browse_error_to_status)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+        match extract_symbols(path, &blob.content) {
+            sourcebot_search::SymbolExtraction::Supported { .. } => {
+                let references = snapshot_context
+                    .browse
+                    .grep(&repo_id, symbol)
+                    .map_err(map_browse_error_to_status)?
+                    .ok_or(StatusCode::NOT_FOUND)?
+                    .matches
+                    .into_iter()
+                    .map(|hit| ReferenceMatch {
+                        path: hit.path,
+                        line_number: hit.line_number,
+                        line: hit.line,
+                    })
+                    .collect();
+                let references =
+                    build_reference_responses(&repo_id, Some(&snapshot_revision), references);
+
+                ReferencesResponse::Supported {
+                    repo_id,
+                    path: path.to_string(),
+                    revision: Some(snapshot_revision),
+                    symbol: symbol.to_string(),
+                    references,
+                }
+            }
+            sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
+                ReferencesResponse::Unsupported {
+                    repo_id,
+                    path: path.to_string(),
+                    revision: Some(snapshot_revision),
+                    symbol: symbol.to_string(),
+                    capability,
+                    references: Vec::new(),
+                }
             }
         }
+    } else {
+        return Err(StatusCode::NOT_FOUND);
     };
 
     Ok(Json(response))
+}
+
+fn build_definitions_response(
+    repo_id: String,
+    path: &str,
+    symbol: &str,
+    revision: &str,
+    blob: BlobResponse,
+) -> DefinitionsResponse {
+    match extract_symbols(path, &blob.content) {
+        sourcebot_search::SymbolExtraction::Supported { symbols } => {
+            let definitions = symbols
+                .into_iter()
+                .filter(|candidate| candidate.name == symbol)
+                .map(|candidate| DefinitionResponse {
+                    browse_url: build_definition_browse_url(
+                        &repo_id,
+                        &candidate.path,
+                        Some(revision),
+                        candidate.range.start_line,
+                    ),
+                    path: candidate.path,
+                    name: candidate.name,
+                    kind: candidate.kind,
+                    range: DefinitionRangeResponse {
+                        start_line: candidate.range.start_line,
+                        end_line: candidate.range.end_line,
+                    },
+                })
+                .collect();
+
+            DefinitionsResponse::Supported {
+                repo_id,
+                path: path.to_string(),
+                revision: Some(revision.to_string()),
+                symbol: symbol.to_string(),
+                definitions,
+            }
+        }
+        sourcebot_search::SymbolExtraction::Unsupported { capability, .. } => {
+            DefinitionsResponse::Unsupported {
+                repo_id,
+                path: path.to_string(),
+                revision: Some(revision.to_string()),
+                symbol: symbol.to_string(),
+                capability,
+                definitions: Vec::new(),
+            }
+        }
+    }
 }
 
 fn build_definition_browse_url(
@@ -5264,11 +5405,28 @@ async fn get_repository_index_status(
     Ok(Json(status))
 }
 
+struct LocalSyncSnapshotBrowseContext {
+    browse: LocalBrowseStore,
+    revision: String,
+}
+
 async fn local_sync_snapshot_browse_store_for_repo(
     state: &AppState,
     user_id: &str,
     repo_id: &str,
 ) -> Result<Option<LocalBrowseStore>, StatusCode> {
+    Ok(
+        local_sync_snapshot_browse_context_for_repo(state, user_id, repo_id)
+            .await?
+            .map(|context| context.browse),
+    )
+}
+
+async fn local_sync_snapshot_browse_context_for_repo(
+    state: &AppState,
+    user_id: &str,
+    repo_id: &str,
+) -> Result<Option<LocalSyncSnapshotBrowseContext>, StatusCode> {
     let organization_state = state
         .organization_store
         .organization_state()
@@ -5279,19 +5437,19 @@ async fn local_sync_snapshot_browse_store_for_repo(
     if authorized_organization_ids.is_empty() {
         return Ok(None);
     }
-    let Some(snapshot_path) =
-        latest_local_sync_snapshot_path(&organization_state, repo_id, &authorized_organization_ids)
+    let Some(snapshot) =
+        latest_local_sync_snapshot(&organization_state, repo_id, &authorized_organization_ids)
     else {
         return Ok(None);
     };
-    if !snapshot_path.is_dir() {
+    if !snapshot.path.is_dir() {
         return Ok(None);
     }
 
-    Ok(Some(LocalBrowseStore::new(HashMap::from([(
-        repo_id.to_string(),
-        snapshot_path,
-    )]))))
+    Ok(Some(LocalSyncSnapshotBrowseContext {
+        browse: LocalBrowseStore::new(HashMap::from([(repo_id.to_string(), snapshot.path)])),
+        revision: snapshot.revision,
+    }))
 }
 
 async fn local_sync_snapshot_index_status_for_repo(
@@ -5454,11 +5612,25 @@ fn authorized_organization_ids_for_repo(
         .collect()
 }
 
+struct LocalSyncSnapshot {
+    path: std::path::PathBuf,
+    revision: String,
+}
+
 fn latest_local_sync_snapshot_path(
     organization_state: &OrganizationState,
     repo_id: &str,
     authorized_organization_ids: &HashSet<String>,
 ) -> Option<std::path::PathBuf> {
+    latest_local_sync_snapshot(organization_state, repo_id, authorized_organization_ids)
+        .map(|snapshot| snapshot.path)
+}
+
+fn latest_local_sync_snapshot(
+    organization_state: &OrganizationState,
+    repo_id: &str,
+    authorized_organization_ids: &HashSet<String>,
+) -> Option<LocalSyncSnapshot> {
     let latest_successful_job = organization_state
         .repository_sync_jobs
         .iter()
@@ -5489,8 +5661,8 @@ fn latest_local_sync_snapshot_path(
         return None;
     };
 
-    Some(
-        std::path::Path::new(repo_path)
+    Some(LocalSyncSnapshot {
+        path: std::path::Path::new(repo_path)
             .join(".sourcebot")
             .join("local-sync")
             .join(local_sync_artifact_path_component(
@@ -5503,7 +5675,8 @@ fn latest_local_sync_snapshot_path(
                 &latest_successful_job.id,
             ))
             .join("snapshot"),
-    )
+        revision: latest_successful_job.synced_revision.clone()?,
+    })
 }
 
 fn local_sync_artifact_path_component(component: &str) -> String {
@@ -26558,6 +26731,251 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot() {
+        let repo_root = unique_test_path("code-nav-local-snapshot-repo-root");
+        let snapshot_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn local_sync_code_nav_marker() {}\nfn caller() { local_sync_code_nav_marker(); }\n",
+        )
+        .unwrap();
+        let hidden_repo_root = unique_test_path("code-nav-hidden-local-snapshot-repo-root");
+        let hidden_snapshot_root = hidden_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_hidden")
+            .join("repo_local_import")
+            .join("job_hidden_newer")
+            .join("snapshot");
+        fs::create_dir_all(hidden_snapshot_root.join("src")).unwrap();
+        fs::write(
+            hidden_snapshot_root.join("src").join("lib.rs"),
+            "pub fn hidden_org_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("code-nav-local-snapshot-orgs");
+        let local_session_state_path = unique_test_path("code-nav-local-snapshot-sessions");
+        let user_id = "user_local_snapshot_code_nav";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_local_import", "repo_other_visible"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state.connections.push(Connection {
+            id: "conn_hidden".into(),
+            name: "Hidden local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: hidden_repo_root.display().to_string(),
+            }),
+        });
+        let scoped_key_value = "scoped-code-nav-secret";
+        let scoped_key_value_hash = Argon2::default()
+            .hash_password(
+                scoped_key_value.as_bytes(),
+                &SaltString::generate(&mut OsRng),
+            )
+            .unwrap()
+            .to_string();
+        organization_state.api_keys.push(ApiKey {
+            id: "key_code_nav_scoped".into(),
+            user_id: user_id.into(),
+            name: "Scoped code navigation key".into(),
+            secret_hash: scoped_key_value_hash,
+            created_at: "2026-04-21T00:11:00Z".into(),
+            revoked_at: None,
+            repo_scope: vec!["repo_other_visible".into()],
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_hidden_newer".into(),
+                organization_id: "org_hidden".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_hidden".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("hidden999".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let definitions_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/definitions?path=src/lib.rs&symbol=local_sync_code_nav_marker")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(definitions_response.status(), StatusCode::OK);
+        let definitions_payload: DefinitionsResponse = read_json(definitions_response).await;
+        let DefinitionsResponse::Supported {
+            revision,
+            definitions,
+            ..
+        } = definitions_payload
+        else {
+            panic!("expected supported snapshot definitions response");
+        };
+        assert_eq!(revision.as_deref(), Some("abc123"));
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].path, "src/lib.rs");
+        assert!(definitions[0].browse_url.contains("revision=abc123#L1"));
+        let hidden_definition_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/definitions?path=src/lib.rs&symbol=hidden_org_marker")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_definition_response.status(), StatusCode::OK);
+        let hidden_definition_payload: DefinitionsResponse =
+            read_json(hidden_definition_response).await;
+        let DefinitionsResponse::Supported { definitions, .. } = hidden_definition_payload else {
+            panic!("expected supported visible snapshot definitions response");
+        };
+        assert!(definitions.is_empty());
+
+        let references_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/references?path=src/lib.rs&symbol=local_sync_code_nav_marker")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(references_response.status(), StatusCode::OK);
+        let references_payload: ReferencesResponse = read_json(references_response).await;
+        let ReferencesResponse::Supported {
+            revision,
+            references,
+            ..
+        } = references_payload
+        else {
+            panic!("expected supported snapshot references response");
+        };
+        assert_eq!(revision.as_deref(), Some("abc123"));
+        assert!(references.iter().any(|reference| {
+            reference.path == "src/lib.rs"
+                && reference.line.contains("caller")
+                && reference.browse_url.contains("revision=abc123#L2")
+        }));
+
+        let scoped_api_key_authorization = format!("Bearer key_code_nav_scoped:{scoped_key_value}");
+        let scoped_key_definitions_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/definitions?path=src/lib.rs&symbol=local_sync_code_nav_marker")
+                    .header(header::AUTHORIZATION, scoped_api_key_authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            scoped_key_definitions_response.status(),
+            StatusCode::NOT_FOUND
+        );
+        let scoped_key_references_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/references?path=src/lib.rs&symbol=local_sync_code_nav_marker")
+                    .header(header::AUTHORIZATION, scoped_api_key_authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            scoped_key_references_response.status(),
+            StatusCode::NOT_FOUND
+        );
+
+        let explicit_revision_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/definitions?path=src/lib.rs&symbol=local_sync_code_nav_marker&revision=HEAD")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(explicit_revision_response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+        fs::remove_dir_all(hidden_repo_root).unwrap();
     }
 
     #[tokio::test]
