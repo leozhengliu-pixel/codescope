@@ -15,6 +15,7 @@ sourcebot-api = { path = "../api" }
 sourcebot-core = { path = "../core" }
 sourcebot-config = { path = "../config" }
 sourcebot-models = { path = "../models" }
+sourcebot-search = { path = "../search" }
 
 [dev-dependencies]
 serde_json.workspace = true

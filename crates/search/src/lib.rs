@@ -94,11 +94,17 @@ pub struct LocalSearchStore {
     index_statuses: HashMap<String, RepositoryIndexStatus>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct IndexedLine {
     path: String,
     line_number: usize,
     line: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedIndexArtifact {
+    indexed_lines: Vec<IndexedLine>,
+    index_status: RepositoryIndexStatus,
 }
 
 impl LocalSearchStore {
@@ -122,6 +128,71 @@ impl LocalSearchStore {
             SOURCEBOT_REWRITE_REPO_ID.to_string(),
             PathBuf::from(SOURCEBOT_REWRITE_ROOT),
         )]))
+    }
+
+    pub fn from_index_artifact(repo_id: &str, artifact_path: &Path) -> Result<Self> {
+        let artifact_bytes = fs::read(artifact_path).with_context(|| {
+            format!(
+                "failed to read local search index artifact {}",
+                artifact_path.display()
+            )
+        })?;
+        let mut artifact: PersistedIndexArtifact = serde_json::from_slice(&artifact_bytes)
+            .with_context(|| {
+                format!(
+                    "failed to parse local search index artifact {}",
+                    artifact_path.display()
+                )
+            })?;
+        artifact.index_status.repo_id = repo_id.to_string();
+
+        Ok(Self {
+            repo_roots: HashMap::from([(repo_id.to_string(), PathBuf::new())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: HashMap::from([(repo_id.to_string(), artifact.indexed_lines)]),
+            index_statuses: HashMap::from([(repo_id.to_string(), artifact.index_status)]),
+        })
+    }
+
+    pub fn write_index_artifact(&self, repo_id: &str, artifact_path: &Path) -> Result<()> {
+        let indexed_lines = self
+            .indexed_lines
+            .get(repo_id)
+            .cloned()
+            .with_context(|| format!("missing search index for repository {repo_id}"))?;
+        let index_status = self
+            .index_statuses
+            .get(repo_id)
+            .cloned()
+            .with_context(|| format!("missing index status for repository {repo_id}"))?;
+        let artifact = PersistedIndexArtifact {
+            indexed_lines,
+            index_status,
+        };
+        if let Some(parent) = artifact_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create local search index artifact directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        let tmp_path = artifact_path.with_extension("json.tmp");
+        let artifact_json =
+            serde_json::to_vec(&artifact).context("failed to serialize search index artifact")?;
+        fs::write(&tmp_path, artifact_json).with_context(|| {
+            format!(
+                "failed to write local search index artifact {}",
+                tmp_path.display()
+            )
+        })?;
+        fs::rename(&tmp_path, artifact_path).with_context(|| {
+            format!(
+                "failed to finalize local search index artifact {}",
+                artifact_path.display()
+            )
+        })?;
+        Ok(())
     }
 
     pub fn with_max_file_size_bytes(mut self, max_file_size_bytes: u64) -> Self {
@@ -656,6 +727,42 @@ mod tests {
         assert_eq!(status.indexed_line_count, 3);
         assert_eq!(status.skipped_file_count, 4);
         assert_eq!(status.error, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_can_round_trip_persisted_index_artifact_without_rewalking_snapshot() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        fs::write(root.join("README.md"), "new_marker_after_artifact\n").unwrap();
+
+        let artifact_store =
+            LocalSearchStore::from_index_artifact("repo_test", &artifact_path).unwrap();
+
+        let original_response = artifact_store
+            .search("build_router", Some("repo_test"))
+            .unwrap();
+        assert!(original_response
+            .results
+            .iter()
+            .any(|result| result.path == "README.md"
+                && result.line == "build_router is documented here"));
+        let post_artifact_response = artifact_store
+            .search("new_marker_after_artifact", Some("repo_test"))
+            .unwrap();
+        assert!(post_artifact_response.results.is_empty());
+        let status = artifact_store
+            .repository_index_status("repo_test")
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.indexed_file_count, 2);
+        assert_eq!(status.indexed_line_count, 3);
+        assert_eq!(status.skipped_file_count, 4);
 
         fs::remove_dir_all(root).unwrap();
     }

@@ -4,6 +4,7 @@ use sourcebot_models::{
     ConnectionConfig, OrganizationState, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
 };
 use std::{
+    collections::HashMap,
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
@@ -311,6 +312,7 @@ fn run_local_repository_sync_execution(
                 timeout,
             )?;
             write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
+            write_local_repository_sync_search_index(repo_path, job)?;
             tracing::info!(
                 repo_path = %repo_path,
                 head = %head,
@@ -454,6 +456,56 @@ fn safe_tracked_content_relative_path(content_path: &str) -> Result<PathBuf, Str
             "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: tracked content path cannot be snapshotted safely: {content_path:?}"
         ))
     }
+}
+
+fn write_local_repository_sync_search_index(
+    repo_path: &str,
+    job: &RepositorySyncJob,
+) -> Result<(), String> {
+    let manifest_path = local_repository_sync_manifest_path(repo_path, job);
+    let job_dir = manifest_path.parent().ok_or_else(|| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local sync manifest path has no parent"
+        )
+    })?;
+    let snapshot_path = job_dir.join("snapshot");
+    let artifact_path = job_dir.join("search-index.json");
+    let search_store = sourcebot_search::LocalSearchStore::new(HashMap::from([(
+        job.repository_id.clone(),
+        snapshot_path,
+    )]));
+    let index_status = sourcebot_search::SearchStore::repository_index_status(
+        &search_store,
+        &job.repository_id,
+    )
+    .map_err(|error| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to inspect local search index status: {error}"
+        )
+    })?
+    .ok_or_else(|| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: missing local search index status for repository {}",
+            job.repository_id
+        )
+    })?;
+    if index_status.status != sourcebot_search::RepositoryIndexState::Indexed {
+        return Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local search index artifact could not be built for repository {}: {}",
+            job.repository_id,
+            index_status
+                .error
+                .unwrap_or_else(|| "index status was not indexed".to_owned())
+        ));
+    }
+    search_store
+        .write_index_artifact(&job.repository_id, &artifact_path)
+        .map_err(|error| {
+            format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to persist local search index artifact {}: {error}",
+                artifact_path.display()
+            )
+        })
 }
 
 fn write_local_repository_sync_manifest(
@@ -824,6 +876,7 @@ mod tests {
         Connection, ConnectionConfig, ConnectionKind, OrganizationState, RepositorySyncJob,
         RepositorySyncJobStatus, ReviewAgentRun, ReviewAgentRunStatus,
     };
+    use sourcebot_search::SearchStore;
     use std::{
         fs,
         os::unix::fs::PermissionsExt,
@@ -2163,6 +2216,38 @@ mod tests {
             !snapshot_dir.join("untracked.txt").exists(),
             "snapshot should contain only tracked HEAD content"
         );
+        let search_index_path = manifest_path
+            .parent()
+            .expect("manifest path should have a job directory")
+            .join("search-index.json");
+        assert!(
+            search_index_path.is_file(),
+            "successful local sync should persist a bounded search-index artifact"
+        );
+        fs::write(
+            snapshot_dir.join("README.md"),
+            "changed after search index\n",
+        )
+        .unwrap();
+        let search_index = sourcebot_search::LocalSearchStore::from_index_artifact(
+            "repo_sync_job_local_valid",
+            &search_index_path,
+        )
+        .unwrap();
+        assert!(search_index
+            .search("local repo sync fixture", Some("repo_sync_job_local_valid"))
+            .unwrap()
+            .results
+            .iter()
+            .any(|result| result.path == "README.md"));
+        assert!(search_index
+            .search(
+                "changed after search index",
+                Some("repo_sync_job_local_valid")
+            )
+            .unwrap()
+            .results
+            .is_empty());
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], completed_job);

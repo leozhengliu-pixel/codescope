@@ -1444,6 +1444,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1457,6 +1458,7 @@ dependencies = [
  "sourcebot-config",
  "sourcebot-core",
  "sourcebot-models",
+ "sourcebot-search",
  "time",
  "tokio",
  "tracing",
