@@ -5,55 +5,77 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b3fd90a5f2b6dea3f6073b49125cd8db0d1ec8c9
+  head: e20131bfc10fb28158d4e8d3a216aabc82c222a3
 last_completed_task:
-  id: task96c
-  title: Manual repository-sync retry baseline
+  id: task96d
+  title: One-shot repository-sync worker terminal observability
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime hardening slice instead of
-    splitting retry-route behavior, fail-closed authz ordering regressions,
-    acceptance wording, parity-audit synchronization, PostgreSQL-backed route
-    family verification, and review into paperwork-only runs. Authenticated
-    organization admins can now POST
-    `/api/v1/auth/repository-sync-jobs/{job_id}/retry` for an admin-visible
-    failed repository-sync job to append a fresh queued retry with the same
-    organization, repository, and catalog-derived connection while preserving
-    the original terminal history row. Hidden/cross-org jobs fail closed before
-    terminal status checks, visible non-admin jobs fail closed before terminal
-    status checks, non-failed visible admin targets return conflict without
-    mutation, and docs keep the release claim bounded to manual backend retry
-    rather than automated backoff, real provider fetch/import execution,
-    supervised scheduling, frontend controls, durable index status, or full
-    provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime observability slice instead
+    of splitting worker log fields, focused smoke coverage, README/runtime
+    acceptance wording, parity-report synchronization, and review into
+    paperwork-only runs. The one-shot worker now records repository-sync
+    terminal job context for operator triage when processing the bounded stub
+    path: job id, organization id, repository id, connection id, terminal
+    status, and failure reason when one exists. The claim remains deliberately
+    narrow: this improves the current one-shot/stub runtime baseline and does
+    not claim real provider fetch/import execution, automated retry/backoff,
+    continuous scheduling, supervision, frontend controls, durable index status,
+    or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_retry -- --nocapture: passed (4 passed; 374 filtered)
-    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (10 passed; 368 filtered)
+    - cargo test -p sourcebot-worker --test repository_sync_claim_smoke -- --nocapture: passed (2 passed; 0 failed)
+    - cargo test -p sourcebot-worker worker -- --nocapture: passed (1 worker unit test, 14 integration smoke tests, and one 0-test bin target)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 doc truth-marker checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
+    - python3 doc truth-marker checks for README, worker-runtime acceptance, parity-gap report, and final parity audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved retry-route authentication, visibility-before-status ordering for hidden non-failed jobs, admin-before-status ordering for visible non-admin non-failed jobs, no-mutation failure paths, terminal-history preservation, and bounded manual-retry docs, with only non-blocking notes about practically negligible retry-id collision risk and docs wording that was tightened from generic retries to automated retries/backoff before commit
-  commit: b3fd90a5f2b6dea3f6073b49125cd8db0d1ec8c9
-  next_task: task96d
+    code: passed independent read-only final review; reviewer approved the bounded scope, repository-sync terminal log fields, smoke-test assertions for job/org/repo/connection/status/failure reason, and docs that keep real execution, retries, supervision, scheduling, and durable parity deferred, with only non-blocking notes about future log redaction and empty error-field semantics for successful jobs
+  commit: e20131bfc10fb28158d4e8d3a216aabc82c222a3
+  next_task: task96e
 current_task:
-  id: task96d
+  id: task96e
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider sync retry and worker execution hardening beyond manual backend retry
+  title: Real provider/runtime execution beyond one-shot stub sync jobs
   status: pending
   summary: >-
-    Task 96c adds a fail-closed manual backend retry surface for failed
-    repository-sync jobs, but practical provider/runtime parity still needs a
-    meaningful next closure that moves retry/progress beyond manually appending
-    queued stub jobs. The next Task 96 slice should target a bounded real
-    provider/runtime blocker such as worker-side retry/backoff semantics,
-    duplicate-claim prevention/recovery, durable progress/error bookkeeping, or
-    a real generic/local Git fetch/import tick while keeping docs explicit that
-    broad provider discovery, daemonized supervision, frontend controls, durable
-    index status, and full provider parity remain follow-up.
+    Task 96a through Task 96d now cover authenticated manual enqueue, manual
+    retry, smoke-proven one-shot stub progress, and richer terminal log context
+    for repository-sync jobs. Practical provider/runtime parity still needs a
+    meaningful next closure that moves beyond stubbed terminal outcomes toward
+    real provider execution or stronger worker runtime guarantees. Prefer a
+    bounded vertical slice such as generic/local Git fetch/import execution for
+    queued jobs, duplicate-claim/recovery hardening, durable progress/error
+    bookkeeping visible through authenticated sync history, or worker-side
+    retry/backoff semantics while keeping broad host-provider discovery,
+    daemonized supervision, frontend controls, durable index status, and full
+    provider parity explicit follow-up work.
 history:
+  - id: task96d
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime observability slice instead
+      of splitting worker log fields, focused smoke coverage, README/runtime
+      acceptance wording, parity-report synchronization, and review into
+      paperwork-only runs. The one-shot worker now records repository-sync
+      terminal job context for operator triage when processing the bounded stub
+      path: job id, organization id, repository id, connection id, terminal
+      status, and failure reason when one exists. The claim remains deliberately
+      narrow: this improves the current one-shot/stub runtime baseline and does
+      not claim real provider fetch/import execution, automated retry/backoff,
+      continuous scheduling, supervision, frontend controls, durable index status,
+      or full provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker --test repository_sync_claim_smoke -- --nocapture: passed (2 passed; 0 failed)
+      - cargo test -p sourcebot-worker worker -- --nocapture: passed (1 worker unit test, 14 integration smoke tests, and one 0-test bin target)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 doc truth-marker checks for README, worker-runtime acceptance, parity-gap report, and final parity audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only final review; reviewer approved the bounded scope, repository-sync terminal log fields, smoke-test assertions for job/org/repo/connection/status/failure reason, and docs that keep real execution, retries, supervision, scheduling, and durable parity deferred, with only non-blocking notes about future log redaction and empty error-field semantics for successful jobs
+    commit: e20131bfc10fb28158d4e8d3a216aabc82c222a3
+    next_task: task96e
   - id: task96c
     status: done
     summary: >-
