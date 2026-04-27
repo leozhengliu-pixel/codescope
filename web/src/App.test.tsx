@@ -4340,6 +4340,9 @@ describe('App', () => {
             started_at: '2026-04-18T12:01:00Z',
             finished_at: '2026-04-18T12:02:00Z',
             error: null,
+            synced_revision: 'abc123def4567890',
+            synced_branch: 'main',
+            synced_content_file_count: 7,
           },
         ]);
       }
@@ -4363,6 +4366,9 @@ describe('App', () => {
     expect(githubLatestSyncSummary).toBeInTheDocument();
     expect(within(githubLatestSyncSummary!).getByText('succeeded')).toBeInTheDocument();
     expect(within(githubLatestSyncSummary!).getByText('repo-newer · 2026-04-18T12:00:00Z')).toBeInTheDocument();
+    expect(within(githubCard!).getByText('Revision: abc123def4567890')).toBeInTheDocument();
+    expect(within(githubCard!).getByText('Current branch: main')).toBeInTheDocument();
+    expect(within(githubCard!).getByText('Tracked content files: 7')).toBeInTheDocument();
     expect(within(githubCard!).getByText('Error: Older failure')).toBeInTheDocument();
 
     const gitlabCard = screen.getByText('GitLab Mirror').closest('article');

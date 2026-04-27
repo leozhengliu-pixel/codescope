@@ -410,6 +410,9 @@ type RepositorySyncJob = {
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
+  synced_revision?: string | null;
+  synced_branch?: string | null;
+  synced_content_file_count?: number | null;
 };
 
 type CreateAuthConnectionRequest = {
@@ -3852,6 +3855,11 @@ function SettingsConnectionsPage() {
                           <div>Queued at: {syncJob.queued_at}</div>
                           <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
                           <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>
+                          {syncJob.synced_revision ? <div>Revision: {syncJob.synced_revision}</div> : null}
+                          {syncJob.synced_branch ? <div>Current branch: {syncJob.synced_branch}</div> : null}
+                          {syncJob.synced_content_file_count != null ? (
+                            <div>Tracked content files: {syncJob.synced_content_file_count}</div>
+                          ) : null}
                           <a
                             href={`#/repos/${encodeURIComponent(syncJob.repository_id)}`}
                             aria-label={`Open repository detail for ${syncJob.repository_id}`}

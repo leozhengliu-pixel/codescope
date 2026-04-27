@@ -578,6 +578,9 @@ struct RepositorySyncJobListItemResponse {
     started_at: Option<String>,
     finished_at: Option<String>,
     error: Option<String>,
+    synced_revision: Option<String>,
+    synced_branch: Option<String>,
+    synced_content_file_count: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -3793,6 +3796,9 @@ fn repository_sync_job_list_item_response(
         started_at: job.started_at,
         finished_at: job.finished_at,
         error: job.error,
+        synced_revision: job.synced_revision,
+        synced_branch: job.synced_branch,
+        synced_content_file_count: job.synced_content_file_count,
     }
 }
 
@@ -5891,6 +5897,9 @@ mod tests {
         started_at: Option<String>,
         finished_at: Option<String>,
         error: Option<String>,
+        synced_revision: Option<String>,
+        synced_branch: Option<String>,
+        synced_content_file_count: Option<i64>,
     }
 
     #[derive(Debug, Serialize)]
@@ -14680,14 +14689,14 @@ mod tests {
                     organization_id: "org_acme".into(),
                     repository_id: "repo_visible".into(),
                     connection_id: "conn_visible".into(),
-                    status: sourcebot_models::RepositorySyncJobStatus::Failed,
+                    status: sourcebot_models::RepositorySyncJobStatus::Succeeded,
                     queued_at: "2026-04-21T00:10:00Z".into(),
                     started_at: Some("2026-04-21T00:10:05Z".into()),
                     finished_at: Some("2026-04-21T00:10:10Z".into()),
-                    error: Some("explicit stub failure".into()),
-                    synced_revision: None,
-                    synced_branch: None,
-                    synced_content_file_count: None,
+                    error: None,
+                    synced_revision: Some("abc123def456".into()),
+                    synced_branch: Some("main".into()),
+                    synced_content_file_count: Some(7),
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_hidden_org".into(),
@@ -14749,7 +14758,7 @@ mod tests {
         assert_eq!(payload[0].organization_id, "org_acme");
         assert_eq!(payload[0].repository_id, "repo_visible");
         assert_eq!(payload[0].connection_id, "conn_visible");
-        assert_eq!(payload[0].status, "failed");
+        assert_eq!(payload[0].status, "succeeded");
         assert_eq!(payload[0].queued_at, "2026-04-21T00:10:00Z");
         assert_eq!(
             payload[0].started_at.as_deref(),
@@ -14759,7 +14768,10 @@ mod tests {
             payload[0].finished_at.as_deref(),
             Some("2026-04-21T00:10:10Z")
         );
-        assert_eq!(payload[0].error.as_deref(), Some("explicit stub failure"));
+        assert!(payload[0].error.is_none());
+        assert_eq!(payload[0].synced_revision.as_deref(), Some("abc123def456"));
+        assert_eq!(payload[0].synced_branch.as_deref(), Some("main"));
+        assert_eq!(payload[0].synced_content_file_count, Some(7));
         assert_eq!(payload[1].id, "sync_visible_older");
         assert_eq!(payload[1].status, "queued");
         assert_eq!(payload[1].queued_at, "2026-04-21T00:08:00Z");
