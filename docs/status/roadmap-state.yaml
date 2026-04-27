@@ -5,56 +5,93 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5684bc0af62c0e3ee9e8e73d1aab45eaa7d26e89
+  head: 91ec3ab0f41878b2249c11e19d288db3bb435b17
 last_completed_task:
-  id: task94c
-  title: Durable PostgreSQL members invite creation baseline
+  id: task94d
+  title: Pending member invite cancellation baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94c durable auth/admin lifecycle slice instead of
-    splitting PostgreSQL invite creation, audit visibility, settings/auth
-    acceptance wording, parity-report updates, focused SQL-backed route coverage,
-    and independent review into smaller paperwork-only runs. `POST
-    /api/v1/auth/members/invites` now uses PostgreSQL auth metadata when
-    `DATABASE_URL` is configured instead of returning `501`; authenticated
-    admins can create pending invite rows for administered organizations, hidden
-    and non-admin organizations still fail closed without inserts, the response
-    is built from the durable members roster, and `auth.member_invite.created`
-    remains visible through the shipped file-backed audit-events surface with
-    rollback/delete on audit read/write failure. Docs keep the claim bounded:
-    email delivery, resend/cancel, role editing, member removal, durable
-    audit-event storage, broader org/member CRUD, and full lifecycle parity
-    remain follow-up work.
+    Closed one meaningful Task 94d auth/admin lifecycle slice instead of
+    splitting backend pending-invite cancellation, PostgreSQL conditional-delete
+    hardening, settings UI controls, acceptance wording, parity-report updates,
+    focused SQL-backed/file-backed route coverage, and independent review into
+    smaller paperwork-only runs. Authenticated local-session admins can now
+    cancel pending invites for administered organizations through `DELETE
+    /api/v1/auth/members/invites/{invite_id}`; accepted, hidden, missing, and
+    unauthorized invites fail closed without deletion; PostgreSQL-backed
+    cancellation uses a conditional pending-only delete and preserves shipped
+    file-backed `auth.member_invite.cancelled` audit visibility; and the
+    `#/settings/members` panel exposes cancel controls only for pending invite
+    rows. Docs keep the claim bounded: email delivery, resend workflow, role
+    editing, member removal, durable audit-event storage, broader org/member
+    CRUD, and full lifecycle parity remain follow-up work.
   tests:
     - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: RED failed before implementation with 501 vs expected 201 (0 passed; 1 failed; 361 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_create -- --nocapture --test-threads=1: passed (1 passed; 361 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (5 passed; 357 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_cancel -- --nocapture --test-threads=1: passed (1 passed; 363 filtered)
+    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_deletes_only_pending_invites -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 59/363 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (6 passed; 358 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
+    - npm test -- --run src/App.test.tsx -t "cancels a pending member invite": passed (1 passed; 171 skipped)
+    - npm test -- --run src/App.test.tsx -t "members": passed (5 passed; 167 skipped)
+    - npm test -- --run src/App.test.tsx: passed (172 passed)
+    - npm run build: passed after correcting stale root-owned web/dist asset ownership
     - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only final review after coupled docs updates; reviewer approved admin authorization before insert, parameterized SQL, fail-closed hidden/non-admin behavior without inserts, refreshed PostgreSQL member responses, file-backed audit visibility with best-effort rollback on audit failures, and bounded docs with no blocking security or logic issues
-  commit: 5684bc0af62c0e3ee9e8e73d1aab45eaa7d26e89
-  next_task: task94d
+    code: passed independent read-only re-review after fixing reviewer-found blockers; reviewer approved the pending-only PostgreSQL conditional delete, route-level auth/admin visibility gates, file-backed audit visibility ordering with best-effort audit rollback on durable delete failure, pending-only settings UI controls, parameterized SQL, and bounded docs with no remaining blocking issues
+  commit: 91ec3ab0f41878b2249c11e19d288db3bb435b17
+  next_task: task94e
 current_task:
-  id: task94d
+  id: task94e
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity beyond invite-create
+  title: Continue auth/admin lifecycle parity beyond invite cancellation
   status: pending
   summary: >-
-    Task 94c removes the PostgreSQL-backed members invite-create 501 fallback
-    and proves bounded durable invite row creation plus shipped audit visibility,
-    but Task 94 remains partial. The next meaningful closure should continue
-    Phase C with another admin-visible auth lifecycle blocker that can close with
-    implementation, focused verification, truthful docs, and independent review,
-    such as invite cancel/resend UX, member role editing/removal, durable
-    audit-event storage for auth/admin mutations, richer org/member CRUD,
-    durable permission-sync behavior, or a pivot to the larger Task 95 external
-    provider sign-in slice if that is the higher-value unblocked release blocker.
-    Do not claim full org/member lifecycle parity yet.
+    Task 94d adds bounded pending-invite cancellation on top of the durable
+    invite-create baseline, but Task 94 remains partial. The next meaningful
+    closure should continue Phase C with another admin-visible auth lifecycle
+    blocker that can close with implementation, focused verification, truthful
+    docs, and independent review, such as invite resend/email-delivery plumbing,
+    member role editing/removal, durable audit-event storage for auth/admin
+    mutations, richer org/member CRUD, durable permission-sync behavior, or a
+    pivot to Task 95 external-provider sign-in if that is the higher-value
+    unblocked release blocker. Do not claim full org/member lifecycle parity yet.
 history:
+  - id: task94d
+    status: done
+    summary: >-
+      Closed one meaningful Task 94d auth/admin lifecycle slice instead of
+      splitting backend pending-invite cancellation, PostgreSQL conditional-delete
+      hardening, settings UI controls, acceptance wording, parity-report updates,
+      focused SQL-backed/file-backed route coverage, and independent review into
+      smaller paperwork-only runs. Authenticated local-session admins can now
+      cancel pending invites for administered organizations through `DELETE
+      /api/v1/auth/members/invites/{invite_id}`; accepted, hidden, missing, and
+      unauthorized invites fail closed without deletion; PostgreSQL-backed
+      cancellation uses a conditional pending-only delete and preserves shipped
+      file-backed `auth.member_invite.cancelled` audit visibility; and the
+      `#/settings/members` panel exposes cancel controls only for pending invite
+      rows. Docs keep the claim bounded: email delivery, resend workflow, role
+      editing, member removal, durable audit-event storage, broader org/member
+      CRUD, and full lifecycle parity remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_cancel -- --nocapture --test-threads=1: passed (1 passed; 363 filtered)
+      - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_deletes_only_pending_invites -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 59/363 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (6 passed; 358 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - npm test -- --run src/App.test.tsx -t "cancels a pending member invite": passed (1 passed; 171 skipped)
+      - npm test -- --run src/App.test.tsx -t "members": passed (5 passed; 167 skipped)
+      - npm test -- --run src/App.test.tsx: passed (172 passed)
+      - npm run build: passed after correcting stale root-owned web/dist asset ownership
+      - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing reviewer-found blockers; reviewer approved the pending-only PostgreSQL conditional delete, route-level auth/admin visibility gates, file-backed audit visibility ordering with best-effort audit rollback on durable delete failure, pending-only settings UI controls, parameterized SQL, and bounded docs with no remaining blocking issues
+    commit: 91ec3ab0f41878b2249c11e19d288db3bb435b17
+    next_task: task94e
   - id: task94c
     status: done
     summary: >-
