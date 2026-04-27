@@ -5,42 +5,48 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7eec1e88c2af8dcf7c5175cab35806f2c1e3236e
+  head: b2994e806faae44328a7ef02f7be53605815e9a2
 last_completed_task:
-  id: task96s
-  title: Stale repository-sync running-job lease recovery
+  id: task96t
+  title: Bounded worker multi-tick runtime loop
   status: done
   summary: >-
-    Closed one meaningful Task 96/98 provider-runtime queue-recovery slice by
-    making the one-shot repository-sync worker recover stale `running` sync jobs
-    before claiming more work. A repository-sync job whose `started_at` timestamp
-    is at least one hour old is now marked `failed` with `finished_at` and an
-    operator-visible lease-expiry error before the tick claims the next queued
-    job; fresh running jobs remain untouched, and the queued job still advances
-    through the existing claim/complete path. README, worker-runtime,
-    generic-local-git, parity-gap, and final-audit wording now call this bounded
-    one-shot stale-running lease recovery while keeping automated retry/backoff,
-    scheduling, supervision, real provider fetch/import/reindex execution,
-    durable/background indexing, and full provider/runtime parity explicit
-    follow-up work.
+    Closed one meaningful Task 96/98 worker-runtime closure by preserving the
+    default one-tick local worker baseline while adding explicit operator-bound
+    multi-tick execution through `SOURCEBOT_WORKER_MAX_TICKS` and
+    `SOURCEBOT_WORKER_IDLE_SLEEP_MS`. The worker now logs configured bounded
+    runtime controls, repeats the existing priority-ordered tick path up to the
+    configured positive tick count, sleeps only after no-work ticks when an idle
+    sleep is configured, fails closed on invalid or zero bounded-loop
+    configuration before mutating state, and logs bounded runtime completion
+    before exit. README, worker-runtime, operator-runtime, generic-local-git,
+    acceptance index/journeys, parity-gap, and final-audit wording now describe
+    this as a bounded local/operator-controlled repeat-tick baseline while
+    preserving real fetch/import/reindex, automated retry/backoff, production
+    scheduling/supervision, durable worker metadata, and full provider/runtime
+    parity as follow-up work.
   tests:
-    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_recovers_stale_running_jobs_before_claiming_next -- --nocapture: passed (1 matched lib test; smoke/bin targets 0)
-    - cargo test -p sourcebot-worker: passed (23 lib tests, 5 explicit completed stub smoke tests, 1 invalid stub outcome smoke test, 4 no-work idle smoke tests, 2 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-worker worker_binary_bounded_runtime_processes_multiple_repository_sync_jobs_when_tick_limit_is_configured -- --nocapture: passed (1 matched repository-sync claim smoke test; other targets 0)
+    - cargo test -p sourcebot-worker invalid -- --nocapture: passed (2 matched invalid config smoke tests; zero-tick test intentionally did not match this selector)
+    - cargo test -p sourcebot-worker zero_tick -- --nocapture: passed (1 matched invalid config smoke test)
+    - cargo test -p sourcebot-worker worker_binary_logs_runtime_baseline_and_no_work_path -- --nocapture: passed (1 matched logging smoke test)
+    - cargo test -p sourcebot-worker: passed (23 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
     - python3 added-lines security scan over git diff: passed (0 findings)
   review:
-    code: passed independent read-only review; no blocking security, logic, queue-semantics, path-safety, or bounded-claim issues found. Reviewer suggestions were non-blocking, and the stale recovery assertion was tightened to require the operator-visible error prefix.
-  commit: 7eec1e88c2af8dcf7c5175cab35806f2c1e3236e
-  next_task: task96t
+    code: passed independent read-only review; no blocking security, logic, bounded-loop, fail-closed config, priority/no-work, stale-recovery, or bounded-claim issues remained. One non-blocking README logging wording issue was patched before commit; non-Unicode env coverage was noted as optional follow-up because the code handles `VarError::NotUnicode` fail-closed.
+  commit: b2994e806faae44328a7ef02f7be53605815e9a2
+  next_task: task96u
 current_task:
-  id: task96t
+  id: task96u
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
   summary: >-
-    Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
-    progress, terminal worker log context, timeout-bounded local-Git preflight,
+    Task 96 now has authenticated manual enqueue/retry, smoke-proven default
+    one-tick worker progress, explicit bounded multi-tick worker execution,
+    terminal worker log context, timeout-bounded local-Git preflight,
     revision/current-branch and tracked-content discovery, PostgreSQL catalog
     persistence for one explicitly requested local import, authenticated local
     import-to-worker handoff with durable repository visibility plus one queued
@@ -52,16 +58,38 @@ current_task:
     snapshot index-status fallback, no-revision tree/blob browse fallback,
     no-revision definitions/references code-navigation fallback under the
     caller-authorized organization/repository boundary, and bounded stale
-    `running` repository-sync lease recovery before the next claim. Practical
-    provider/runtime parity still needs a next meaningful closure that turns
-    local/provider jobs into broader real fetch/import/reindex or
+    `running` repository-sync lease recovery before each repository-sync claim.
+    Practical provider/runtime parity still needs a next meaningful closure that
+    turns local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, automated retry/backoff semantics, duplicate-claim recovery
-    beyond one-shot stale lease failure, supervised scheduling, provider
+    beyond bounded one-shot lease failure, supervised scheduling, provider
     discovery, or deeper frontend/operator controls while keeping recursive
     import, durable index status, and full provider/runtime parity explicit
     follow-up work.
 history:
+  - id: task96t
+    status: done
+    summary: >-
+      Closed one meaningful Task 96/98 worker-runtime closure by adding an
+      explicit operator-bounded multi-tick worker loop while preserving the
+      default one-tick baseline. `SOURCEBOT_WORKER_MAX_TICKS` now bounds repeat
+      ticks, `SOURCEBOT_WORKER_IDLE_SLEEP_MS` controls no-work sleeps, invalid
+      bounded-loop configuration fails closed before mutation, and docs keep the
+      claim narrow: bounded local repeat-tick execution, not automated
+      retry/backoff, daemonization, production scheduling/supervision, real
+      provider fetch/import/reindex, durable/background indexing, or full
+      provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker worker_binary_bounded_runtime_processes_multiple_repository_sync_jobs_when_tick_limit_is_configured -- --nocapture: passed
+      - cargo test -p sourcebot-worker invalid -- --nocapture and cargo test -p sourcebot-worker zero_tick -- --nocapture: passed
+      - cargo test -p sourcebot-worker worker_binary_logs_runtime_baseline_and_no_work_path -- --nocapture: passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking bounded-loop, fail-closed config, priority/no-work, stale-recovery, security, or bounded-claim issues remained
+    commit: b2994e806faae44328a7ef02f7be53605815e9a2
+    next_task: task96u
   - id: task96s
     status: done
     summary: >-
