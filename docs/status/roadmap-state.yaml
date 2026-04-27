@@ -5,36 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7747e0d2b87dbb9cf07bffe7449c5e2083dfc06f
+  head: 66fe9ff1b36efc26b22f7ef71d517ea5870de027
 last_completed_task:
-  id: task96n
-  title: Local repository-sync artifact path visibility
+  id: task96o
+  title: Requested-repo local sync snapshot search fallback
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime operator-visibility slice by
-    showing deterministic local sync artifact locations in the authenticated
-    settings connection sync-history UI for successful local repository-sync
-    rows. The UI now derives the repo-local manifest and sibling snapshot paths
-    using the same bounded path-component sanitizer as the worker and renders
-    them as plain text only for successful local jobs with terminal revision
-    metadata. The claim remains bounded to local operator artifact visibility; it
-    is not real provider fetch/import/reindex execution, automated retry/backoff,
-    supervision, durable index status, or full provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime search slice by allowing an
+    explicitly scoped `/api/v1/search?repo_id=...` request to fall back to the
+    latest successful local repository-sync snapshot when the startup search
+    store has no indexed rows for that visible repository. The fallback stays
+    bounded to requested-repo searches, derives eligible snapshots from the
+    caller-authorized `(organization_id, repository_id)` boundary, reuses the
+    existing local-sync artifact sanitizer for snapshot paths, and returns no
+    fallback for broad search, hidden repos, non-local jobs, or missing
+    snapshots. The claim remains bounded local snapshot search/status only: no
+    real provider fetch/import/reindex execution, durable/background indexing,
+    automated retry/backoff, supervision, or full provider/runtime parity is
+    claimed.
   tests:
-    - npm test -- --run src/App.test.tsx -t "local sync artifact paths": red first on absent artifact-path text, then passed (1 matched test)
-    - npm test -- --run src/App.test.tsx -t "repository sync": passed (3 matched tests)
-    - npm test -- --run src/App.test.tsx: passed (175 tests)
-    - npm run build: passed
+    - cargo test -p sourcebot-api search_local_sync_snapshot_fallback_stays_inside_authorized_organization_scope -- --nocapture: red first on hidden-org duplicate repo snapshot selection, then passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-api search_ -- --nocapture: passed (18 matched main.rs tests; lib target 0)
+    - cargo fmt --check: passed
     - git diff --check: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; no blocking security, path-safety, UI scope, or bounded-claim issues remained
-  commit: 7747e0d2b87dbb9cf07bffe7449c5e2083dfc06f
-  next_task: task96o
+    code: passed independent read-only review; no blocking auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
+  commit: 66fe9ff1b36efc26b22f7ef71d517ea5870de027
+  next_task: task96p
 current_task:
-  id: task96o
+  id: task96p
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider/runtime real fetch-import or reindex execution follow-up
+  title: Provider/runtime real fetch-import, reindex, or background indexing follow-up
   status: pending
   summary: >-
     Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
@@ -45,15 +47,36 @@ current_task:
     sync job, persisted terminal revision/branch/content-count metadata,
     authenticated API/UI visibility for that terminal metadata, a bounded
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
-    materialization, and settings UI visibility for local manifest/snapshot
-    artifact paths. Practical provider/runtime parity still needs a next
-    meaningful closure that turns queued local/provider jobs into a broader real
-    fetch/import/reindex execution path with durable progress/error bookkeeping,
-    retry/backoff semantics, duplicate-claim recovery, supervised scheduling,
-    provider discovery, or deeper frontend/operator controls while keeping
-    recursive import, durable index status, and full provider/runtime parity
-    explicit follow-up work.
+    materialization, settings UI visibility for local manifest/snapshot artifact
+    paths, and requested-repo local snapshot search fallback under the
+    caller-authorized organization/repository boundary. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    local/provider jobs into broader real fetch/import/reindex or
+    durable/background indexing behavior with durable progress/error
+    bookkeeping, retry/backoff semantics, duplicate-claim recovery, supervised
+    scheduling, provider discovery, or deeper frontend/operator controls while
+    keeping recursive import, durable index status, and full provider/runtime
+    parity explicit follow-up work.
 history:
+  - id: task96o
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime search slice by letting an
+      explicitly scoped requested-repo search use the latest successful local
+      sync snapshot when the startup search store has no rows for that visible
+      repository. The fallback is gated by the caller-authorized
+      `(organization_id, repository_id)` boundary and remains bounded local
+      snapshot search/status only: no real provider fetch/import/reindex,
+      durable/background indexing, automated retry/backoff, supervision, or full
+      provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-api search_local_sync_snapshot_fallback_stays_inside_authorized_organization_scope -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
+    commit: 66fe9ff1b36efc26b22f7ef71d517ea5870de027
+    next_task: task96p
   - id: task96n
     status: done
     summary: >-
