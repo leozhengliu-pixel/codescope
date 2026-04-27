@@ -112,6 +112,10 @@ checks = {
     "runs_after_contains_completed": lambda: isinstance(data, list) and any(item.get("id") == run_id and item.get("status") == "completed" for item in data),
     "run_after_completed": lambda: data.get("id") == run_id and data.get("status") == "completed",
     "organization_state_completed": lambda: any(item.get("id") == run_id and item.get("status") == "completed" for item in data.get("review_agent_runs", [])),
+    "repository_sync_job_queued": lambda: data.get("organization_id") == "org_acme" and data.get("repository_id") == "repo_sourcebot_rewrite" and data.get("connection_id") == "conn_local" and data.get("status") == "queued" and bool(data.get("queued_at")) and data.get("started_at") is None and data.get("finished_at") is None and data.get("error") is None,
+    "repository_sync_jobs_contains_queued": lambda: isinstance(data, list) and any(item.get("id") == os.environ.get("JSON_ASSERT_SYNC_JOB_ID", "") and item.get("status") == "queued" for item in data),
+    "repository_sync_jobs_contains_succeeded": lambda: isinstance(data, list) and any(item.get("id") == os.environ.get("JSON_ASSERT_SYNC_JOB_ID", "") and item.get("status") == "succeeded" and item.get("started_at") and item.get("finished_at") and item.get("error") is None for item in data),
+    "organization_state_sync_succeeded": lambda: any(item.get("id") == os.environ.get("JSON_ASSERT_SYNC_JOB_ID", "") and item.get("status") == "succeeded" and item.get("started_at") and item.get("finished_at") and item.get("error") is None for item in data.get("repository_sync_jobs", [])),
 }
 
 if check_name not in checks:
@@ -239,7 +243,8 @@ state = {
     ],
     "review_webhooks": [],
     "review_webhook_delivery_attempts": [],
-    "review_agent_runs": []
+    "review_agent_runs": [],
+    "repository_sync_jobs": []
 }
 with open(path, 'w', encoding='utf-8') as fh:
     json.dump(state, fh)
@@ -318,6 +323,9 @@ runs_before_response="$runtime_dir/runs_before.json"
 run_before_response="$runtime_dir/run_before.json"
 runs_after_response="$runtime_dir/runs_after.json"
 run_after_response="$runtime_dir/run_after.json"
+create_sync_job_response="$runtime_dir/create_sync_job.json"
+sync_jobs_before_response="$runtime_dir/sync_jobs_before.json"
+sync_jobs_after_response="$runtime_dir/sync_jobs_after.json"
 
 http_get_ok "$base_url/healthz" "$health_response"
 json_assert "$health_response" health_ok
@@ -329,11 +337,12 @@ login_request="$runtime_dir/login_request.json"
 ask_request="$runtime_dir/ask_request.json"
 create_webhook_request="$runtime_dir/create_webhook_request.json"
 intake_request="$runtime_dir/intake_request.json"
+create_sync_job_request="$runtime_dir/create_sync_job_request.json"
 
-python3 - "$bootstrap_request" "$login_request" "$ask_request" "$create_webhook_request" "$intake_request" <<'PY'
+python3 - "$bootstrap_request" "$login_request" "$ask_request" "$create_webhook_request" "$intake_request" "$create_sync_job_request" <<'PY'
 import json
 import sys
-bootstrap_path, login_path, ask_path, webhook_path, intake_path = sys.argv[1:6]
+bootstrap_path, login_path, ask_path, webhook_path, intake_path, sync_job_path = sys.argv[1:7]
 with open(bootstrap_path, 'w', encoding='utf-8') as fh:
     json.dump({"email": "admin@example.com", "name": "Admin User", "password": "hunter2"}, fh)
 with open(login_path, 'w', encoding='utf-8') as fh:
@@ -357,6 +366,11 @@ with open(intake_path, 'w', encoding='utf-8') as fh:
         "repository_id": "repo_demo_docs",
         "review_id": "review_task84_smoke",
         "external_event_id": "event_task84_smoke"
+    }, fh)
+with open(sync_job_path, 'w', encoding='utf-8') as fh:
+    json.dump({
+        "organization_id": "org_acme",
+        "repository_id": "repo_sourcebot_rewrite"
     }, fh)
 PY
 
@@ -467,4 +481,40 @@ JSON_ASSERT_RUN_ID="$run_id" json_assert "$run_after_response" run_after_complet
 JSON_ASSERT_RUN_ID="$run_id" json_assert "$organization_state_path" organization_state_completed
 echo "[review-agent] worker completed queued run"
 
-echo "SMOKE MATRIX PASS: auth integrations search ask review-agent"
+http_json POST "$base_url/api/v1/auth/repository-sync-jobs" 201 "$create_sync_job_response" "$auth_header" "$create_sync_job_request"
+json_assert "$create_sync_job_response" repository_sync_job_queued
+sync_job_id=$(python3 - "$create_sync_job_response" <<'PY'
+import json
+import sys
+with open(sys.argv[1], 'r', encoding='utf-8') as fh:
+    data = json.load(fh)
+print(data['id'])
+PY
+)
+http_json GET "$base_url/api/v1/auth/repository-sync-jobs" 200 "$sync_jobs_before_response" "$auth_header"
+JSON_ASSERT_SYNC_JOB_ID="$sync_job_id" json_assert "$sync_jobs_before_response" repository_sync_jobs_contains_queued
+echo "[repository-sync] queued job visible before worker"
+
+set +e
+(
+  cd "$repo_root"
+  SOURCEBOT_DATA_DIR="$runtime_dir" \
+  SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded \
+  "$worker_bin"
+) >"$worker_log" 2>&1
+worker_status=$?
+set -e
+if [[ $worker_status -ne 0 ]]; then
+  echo "sourcebot-worker exited with status $worker_status while processing repository sync" >&2
+  if [[ -f "$worker_log" ]]; then
+    printf 'worker log:\n%s\n' "$(<"$worker_log")" >&2
+  fi
+  exit "$worker_status"
+fi
+
+http_json GET "$base_url/api/v1/auth/repository-sync-jobs" 200 "$sync_jobs_after_response" "$auth_header"
+JSON_ASSERT_SYNC_JOB_ID="$sync_job_id" json_assert "$sync_jobs_after_response" repository_sync_jobs_contains_succeeded
+JSON_ASSERT_SYNC_JOB_ID="$sync_job_id" json_assert "$organization_state_path" organization_state_sync_succeeded
+echo "[repository-sync] worker completed queued sync job"
+
+echo "SMOKE MATRIX PASS: auth integrations search ask review-agent repository-sync"

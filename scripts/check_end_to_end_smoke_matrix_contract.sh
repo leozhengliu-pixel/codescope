@@ -25,7 +25,7 @@ combined_file=$(mktemp)
 trap 'rm -f "$stdout_file" "$stderr_file" "$combined_file"' EXIT INT TERM
 cat "$stdout_file" "$stderr_file" >"$combined_file"
 
-for marker in auth integrations search ask review-agent "SMOKE MATRIX PASS"; do
+for marker in auth integrations search ask review-agent "[repository-sync] worker completed queued sync job" "SMOKE MATRIX PASS"; do
   if ! grep -Fq "$marker" "$combined_file"; then
     echo "FAIL: missing smoke marker '$marker'" >&2
     echo "--- stdout ---" >&2
