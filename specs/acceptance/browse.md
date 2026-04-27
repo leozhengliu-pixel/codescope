@@ -17,10 +17,10 @@
 1. Repository list returns only repositories visible to the caller.
 2. Repository detail shows key metadata, default branch, sync/index status, and a branch/tag/revision control that can keep the repo route stable while reloading browse and commit panels for the selected revision.
 3. Repository detail loading failures keep the route stable with a clear retry affordance and a contextual way back to the repository list or dedicated search results.
-4. File tree browsing supports nested directories without requiring a full repository clone in the browser.
+4. File tree browsing supports nested directories without requiring a full repository clone in the browser; for a visible repository with a successful local sync snapshot and no startup browse-store tree, no-revision tree reads may fall back to that latest caller-authorized snapshot.
 5. Browse loading failures keep repository detail visible and offer a focused retry affordance instead of collapsing the page.
 6. Empty directories render an explicit empty-state message without pretending a file is selected.
-7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; binary blobs expose metadata with an explicit binary flag instead of attempting lossy UTF-8 source rendering.
+7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; for a visible repository with a successful local sync snapshot and no startup browse-store blob, no-revision blob reads may fall back to that latest caller-authorized snapshot; binary blobs expose metadata with an explicit binary flag instead of attempting lossy UTF-8 source rendering.
 8. Commit list is ordered consistently and supports pagination.
 9. Commit detail view exposes changed files and summary metadata.
 10. Diff view renders additions/deletions and handles renamed files.

@@ -25,7 +25,10 @@ use axum::{
     routing::{delete, get, patch, post, put},
     Json, Router,
 };
-use browse::{build_browse_store, BlobResponse, DynBrowseStore, ReferenceMatch, TreeResponse};
+use browse::{
+    build_browse_store, BlobResponse, BrowseStore, DynBrowseStore, LocalBrowseStore,
+    ReferenceMatch, TreeResponse,
+};
 use commits::{
     build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse,
     DynCommitStore,
@@ -4782,13 +4785,29 @@ async fn get_repository_tree(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let tree = state
+    if let Some(tree) = state
         .browse
         .get_tree_at_revision(&repo_id, &query.path, revision)
         .map_err(|_| StatusCode::NOT_FOUND)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        return Ok(Json(tree));
+    }
 
-    Ok(Json(tree))
+    if revision.is_none() {
+        let (user_id, _) = search_request_context(&state, &headers).await?;
+        if let Some(snapshot_browse) =
+            local_sync_snapshot_browse_store_for_repo(&state, &user_id, &repo_id).await?
+        {
+            if let Some(tree) = snapshot_browse
+                .get_tree_at_revision(&repo_id, &query.path, None)
+                .map_err(|_| StatusCode::NOT_FOUND)?
+            {
+                return Ok(Json(tree));
+            }
+        }
+    }
+
+    Err(StatusCode::NOT_FOUND)
 }
 
 async fn get_repository_blob(
@@ -4805,13 +4824,29 @@ async fn get_repository_blob(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let blob = state
+    if let Some(blob) = state
         .browse
         .get_blob_at_revision(&repo_id, &query.path, revision)
         .map_err(map_browse_error_to_status)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        return Ok(Json(blob));
+    }
 
-    Ok(Json(blob))
+    if revision.is_none() {
+        let (user_id, _) = search_request_context(&state, &headers).await?;
+        if let Some(snapshot_browse) =
+            local_sync_snapshot_browse_store_for_repo(&state, &user_id, &repo_id).await?
+        {
+            if let Some(blob) = snapshot_browse
+                .get_blob_at_revision(&repo_id, &query.path, None)
+                .map_err(map_browse_error_to_status)?
+            {
+                return Ok(Json(blob));
+            }
+        }
+    }
+
+    Err(StatusCode::NOT_FOUND)
 }
 
 async fn get_repository_definitions(
@@ -5227,6 +5262,36 @@ async fn get_repository_index_status(
         .await?
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(status))
+}
+
+async fn local_sync_snapshot_browse_store_for_repo(
+    state: &AppState,
+    user_id: &str,
+    repo_id: &str,
+) -> Result<Option<LocalBrowseStore>, StatusCode> {
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let authorized_organization_ids =
+        authorized_organization_ids_for_repo(&organization_state, user_id, repo_id);
+    if authorized_organization_ids.is_empty() {
+        return Ok(None);
+    }
+    let Some(snapshot_path) =
+        latest_local_sync_snapshot_path(&organization_state, repo_id, &authorized_organization_ids)
+    else {
+        return Ok(None);
+    };
+    if !snapshot_path.is_dir() {
+        return Ok(None);
+    }
+
+    Ok(Some(LocalBrowseStore::new(HashMap::from([(
+        repo_id.to_string(),
+        snapshot_path,
+    )]))))
 }
 
 async fn local_sync_snapshot_index_status_for_repo(
@@ -26374,6 +26439,121 @@ mod tests {
         assert_eq!(payload.indexed_line_count, 1);
         assert_eq!(payload.skipped_file_count, 0);
         assert_eq!(payload.error, None);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_tree_and_blob_fall_back_to_authorized_local_sync_snapshot() {
+        let repo_root = unique_test_path("browse-local-snapshot-repo-root");
+        let snapshot_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(snapshot_root.join("README.md"), "# Local snapshot\n").unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn local_sync_browse_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("browse-local-snapshot-orgs");
+        let local_session_state_path = unique_test_path("browse-local-snapshot-sessions");
+        let user_id = "user_local_snapshot_browse";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(2),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let tree_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/tree?path=")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(tree_response.status(), StatusCode::OK);
+        let tree_payload: TreeResponse = read_json(tree_response).await;
+        assert_eq!(tree_payload.repo_id, "repo_local_import");
+        assert_eq!(tree_payload.path, "");
+        assert!(tree_payload
+            .entries
+            .iter()
+            .any(|entry| entry.name == "README.md" && entry.kind == "file"));
+        assert!(tree_payload
+            .entries
+            .iter()
+            .any(|entry| entry.name == "src" && entry.kind == "dir"));
+
+        let blob_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/blob?path=src/lib.rs")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blob_response.status(), StatusCode::OK);
+        let blob_payload: BlobResponse = read_json(blob_response).await;
+        assert_eq!(blob_payload.repo_id, "repo_local_import");
+        assert_eq!(blob_payload.path, "src/lib.rs");
+        assert_eq!(
+            blob_payload.content,
+            "pub fn local_sync_browse_marker() {}\n"
+        );
+        assert_eq!(blob_payload.size_bytes, 37);
+        assert!(!blob_payload.is_binary);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
