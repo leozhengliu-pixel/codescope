@@ -5,39 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a9ada442a90b459151d3e702fef81a4b76646e55
+  head: 90e3fa3eb1454cd5e30426daba64eaec95e071f9
 last_completed_task:
-  id: task96u
-  title: Bounded automatic stale-lease replay for repository-sync jobs
+  id: task96v
+  title: Local Git snapshot path preservation for whitespace-tracked files
   status: done
   summary: >-
-    Closed one meaningful Task 96/98 worker-runtime recovery slice by adding
-    one bounded automatic replay for repository-sync jobs that were failed by
-    stale-running lease recovery. Each repository-sync tick now recovers stale
-    running jobs, then may queue exactly one `_auto_retry_1` replacement only
-    for stale-lease recovery failures whose `finished_at` is at least one lease
-    timeout old, while preserving the original failed terminal job, clearing
-    runtime/result metadata on the replacement, skipping auto-retry source jobs,
-    and suppressing duplicate replacements for the same
-    organization/repository/connection target including queued/running jobs,
-    same-pass retry jobs, and prior terminal auto-retry history. README,
-    worker-runtime, generic-local-git, and parity-gap wording keep the claim
-    bounded: one stale-lease replay, not broad retry/backoff, production
-    scheduling/supervision, real provider fetch/import/reindex, durable
-    background indexing, or full provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime robustness slice by preserving
+    significant leading, trailing, and surrounding spaces in Git-tracked local
+    repository paths during successful repository-sync snapshot materialization.
+    Local content discovery now uses NUL-delimited `git ls-tree -rz --name-only
+    HEAD` output instead of newline splitting plus `trim()`, so a tracked path
+    such as ` spaced fixture .txt` is copied into the repo-local
+    `.sourcebot/local-sync/.../snapshot/` tree with its exact visible whitespace
+    preserved. The closure keeps the release claim narrow: it hardens bounded
+    local tracked `HEAD` manifest/snapshot materialization and terminal status
+    evidence; it is not real provider fetch/import/reindex, broad retry/backoff,
+    supervised scheduling, durable/background indexing, or full
+    provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-worker stale_lease -- --nocapture: passed (3 matched lib tests; other filtered worker targets 0)
-    - cargo test -p sourcebot-worker terminal_retry_for_same_target -- --nocapture: passed (1 matched lib test; other filtered worker targets 0)
-    - cargo test -p sourcebot-worker: passed (26 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-worker snapshots_tracked_paths_with_surrounding_spaces -- --nocapture: red first on the whitespace-tracked file producing a failed terminal job, then passed (1 matched lib test; other worker targets 0)
+    - cargo test -p sourcebot-worker: passed (27 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
     - python3 added-lines security scan over git diff: passed (0 findings)
   review:
-    code: passed independent read-only review; no blocking stale-lease replay, duplicate-suppression, fail-closed timestamp, reset-field, security, or bounded-claim issues remained. One informational note recorded that `_auto_retry_` remains the bounded naming marker rather than separate metadata.
-  commit: a9ada442a90b459151d3e702fef81a4b76646e55
-  next_task: task96v
+    code: passed independent read-only review; no blocking NUL-delimited parsing, path-preservation, snapshot safety, regression-coverage, security, or bounded-claim issues remained. Reviewer suggestions were non-blocking parser-unit-test/setup-diagnostic follow-ups, and noted non-UTF-8 exact byte preservation remains outside this whitespace-focused closure.
+  commit: 90e3fa3eb1454cd5e30426daba64eaec95e071f9
+  next_task: task96w
 current_task:
-  id: task96v
+  id: task96w
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -51,15 +48,16 @@ current_task:
     sync job, persisted terminal revision/branch/content-count metadata,
     authenticated API/UI visibility for that terminal metadata, a bounded
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
-    materialization, settings UI visibility for local manifest/snapshot artifact
-    paths, requested-repo local snapshot search fallback, requested-repo local
-    snapshot index-status fallback, no-revision tree/blob browse fallback,
-    no-revision definitions/references code-navigation fallback under the
-    caller-authorized organization/repository boundary, bounded stale `running`
-    repository-sync lease recovery before each repository-sync claim, and one
-    bounded automatic stale-lease replay after an additional one-hour backoff.
-    Practical provider/runtime parity still needs a next meaningful closure that
-    turns local/provider jobs into broader real fetch/import/reindex or
+    materialization that now preserves significant whitespace in tracked path
+    names, settings UI visibility for local manifest/snapshot artifact paths,
+    requested-repo local snapshot search fallback, requested-repo local snapshot
+    index-status fallback, no-revision tree/blob browse fallback, no-revision
+    definitions/references code-navigation fallback under the caller-authorized
+    organization/repository boundary, bounded stale `running` repository-sync
+    lease recovery before each repository-sync claim, and one bounded automatic
+    stale-lease replay after an additional one-hour backoff. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -68,6 +66,25 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96v
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime robustness slice by switching
+      local tracked-content discovery to NUL-delimited `git ls-tree -rz
+      --name-only HEAD`, preserving significant leading/trailing/surrounding
+      spaces in tracked file names during repo-local snapshot materialization.
+      The slice keeps the claim bounded to local tracked `HEAD`
+      manifest/snapshot robustness and does not claim real provider
+      fetch/import/reindex, broad retry/backoff, supervised scheduling,
+      durable/background indexing, or full provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker snapshots_tracked_paths_with_surrounding_spaces -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking NUL-delimited parsing, path-preservation, snapshot safety, regression, security, or bounded-claim issues remained
+    commit: 90e3fa3eb1454cd5e30426daba64eaec95e071f9
+    next_task: task96w
   - id: task96u
     status: done
     summary: >-
