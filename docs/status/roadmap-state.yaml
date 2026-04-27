@@ -5,37 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9a8f75a01256f9a518516ec1a520bb37cf6a1ee8
+  head: 0377af550b1790332523f551367b34f9389b6e36
 last_completed_task:
-  id: task96z
-  title: Artifact-backed requested-repo local sync index-status fallback
+  id: task96aa
+  title: Bounded requested-repo local Git commit-history fallback
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime status slice by making
-    requested-repo `/api/v1/repos/{repo_id}/index-status` fallback load the
-    latest successful authorized local sync `search-index.json` artifact when
-    present instead of rewalking the mutable snapshot tree. Search and
-    index-status now share fail-closed artifact handling: a present malformed
-    artifact returns `500`, while snapshot traversal remains only for
-    pre-artifact rows where the artifact path is absent. The existing primary
-    startup-store precedence and caller-authorized organization/repository
-    boundary remain intact. The release claim stays narrow: artifact-backed
-    local requested-repo search/status plus snapshot browse/code-navigation
-    fallback only, not real provider fetch/import/reindex execution,
-    durable/background indexing, broad retry/backoff, supervision, or full
-    provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime repository-operations slice by
+    allowing authenticated no-revision commit list/detail/diff reads to fall
+    back to the latest successful caller-authorized local sync job when the
+    primary commit store has no seeded history for a visible repository. The
+    fallback preserves primary-store precedence, requires the existing
+    search/auth request context so API-key repo scopes still apply, selects jobs
+    by the caller-authorized organization/repository boundary, fails closed on
+    duplicate connection-id ambiguity, and uses timeout-bounded Git execution on
+    the request path. The release claim stays narrow: bounded local-Git
+    commit-history visibility only, not real provider fetch/import/reindex,
+    durable/background indexing, broad retry/backoff, worker supervision, or
+    full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed (2 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed (3 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (7 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api repo_commits -- --nocapture: passed (6 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api local_commit_store -- --nocapture: passed (6 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (9 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api repo_commit -- --nocapture: passed (12 matched in main target; lib target 0 tests)
     - cargo fmt --check && git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only re-review after fixing artifact fail-closed alignment for both search and index-status; no blocking auth-boundary, primary-precedence, artifact-failure, path-safety, or bounded-claim issues remained
-  commit: 9a8f75a01256f9a518516ec1a520bb37cf6a1ee8
-  next_task: task96aa
+    code: passed independent read-only review; no blocking auth-scope, primary-precedence, duplicate-connection, bounded-Git-execution, security, or bounded-claim issues remained
+  commit: 0377af550b1790332523f551367b34f9389b6e36
+  next_task: task96ab
 current_task:
-  id: task96aa
+  id: task96ab
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -52,17 +52,18 @@ current_task:
     bounded repo-local tracked-content manifest, bounded tracked `HEAD`
     snapshot materialization that preserves significant whitespace in tracked
     path names, a sibling repo-local `search-index.json` artifact that can be
-    loaded without rewalking the snapshot, requested-repo search fallback and
+    loaded without rewalking the snapshot, requested-repo search and
     index-status fallback that prefer that artifact when present while failing
     closed on malformed present artifacts and falling back to snapshot traversal
     only for pre-artifact rows, settings UI visibility for local
     manifest/snapshot artifact paths, no-revision tree/blob browse fallback,
-    no-revision definitions/references code-navigation fallback under the
-    caller-authorized organization/repository boundary, bounded stale `running`
-    repository-sync lease recovery before each repository-sync claim, and one
-    bounded automatic stale-lease replay after an additional one-hour backoff.
-    Practical provider/runtime parity still needs a next meaningful closure
-    that turns local/provider jobs into broader real fetch/import/reindex or
+    no-revision definitions/references code-navigation fallback, bounded
+    local-Git commit list/detail/diff fallback under the caller-authorized
+    organization/repository boundary, bounded stale `running` repository-sync
+    lease recovery before each repository-sync claim, and one bounded automatic
+    stale-lease replay after an additional one-hour backoff. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -71,6 +72,29 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96aa
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime repository-operations slice by
+      letting authenticated no-revision commit list/detail/diff reads fall back
+      to the latest successful caller-authorized local Git sync job when the
+      primary commit store has no seeded history for the visible repository.
+      The fallback preserves primary-store precedence, API-key repo-scope
+      filtering, caller-authorized organization/repository selection,
+      duplicate-connection fail-closed behavior, and timeout-bounded Git
+      execution. Real provider fetch/import/reindex, durable/background
+      indexing, broad retry/backoff, supervision, and full provider/runtime
+      parity remain follow-up work.
+    tests:
+      - cargo test -p sourcebot-api repo_commits -- --nocapture: passed
+      - cargo test -p sourcebot-api local_commit_store -- --nocapture: passed
+      - cargo test -p sourcebot-api local_sync -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_commit -- --nocapture: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking auth-scope, primary-precedence, duplicate-connection, bounded-Git-execution, security, or bounded-claim issues remained
+    commit: 0377af550b1790332523f551367b34f9389b6e36
+    next_task: task96ab
   - id: task96z
     status: done
     summary: >-
