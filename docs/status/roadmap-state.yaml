@@ -5,72 +5,78 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: adc3c81d27b5bab13a1bd19904250db0eaadf613
+  head: fc8db4f7420b2bfac0ae29fc0e3d8dd1a5a258cd
 last_completed_task:
-  id: task96ac
-  title: Bounded repository-sync active duplicate suppression
+  id: task96ad
+  title: Bounded Generic Git repository-sync metadata probe
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime queue-safety slice by making
-    authenticated admin manual repository-sync enqueue and failed-job retry fail
-    closed with `409 Conflict` when a queued or running job already exists for
-    the same organization/repository/connection target. The implementation
-    derives target identity from catalog/job state, performs the active-job
-    check under the organization-state write lock immediately before appending,
-    preserves terminal failed/succeeded history rows, and leaves no-mutation
-    conflict evidence in focused route regressions. The release claim remains
-    narrow: active duplicate suppression for bounded manual enqueue/retry, not
-    real provider fetch/import/reindex, broad automated retry/backoff, worker
-    supervision, durable/background indexing, or full provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime runtime slice by making
+    repository-sync jobs tied to configured `generic_git` connections run a
+    timeout-bounded real `git ls-remote --heads -- <base_url>` probe before
+    stub outcomes. Reachable remotes with at least one advertised branch now
+    persist terminal revision/current-branch metadata only, while unreachable,
+    empty, no-branch, or option-like base URLs fail closed with the
+    operator-visible `generic Git repository sync execution failed` prefix.
+    The worker drains child stdout/stderr while waiting so large remote head
+    listings do not deadlock, and the release claim remains narrow: Generic Git
+    metadata probing only, not clone/fetch/import/reindex execution, content
+    counts, local artifacts, durable/background indexing, supervision, broad
+    retry/backoff, provider discovery, or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-core repository_sync_active_target_helper_matches_only_queued_or_running_same_target -- --nocapture: passed (1 matched)
-    - cargo test -p sourcebot-api auth_repository_sync_jobs_create_rejects_duplicate_queued_target_without_mutation -- --nocapture: passed (1 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api auth_repository_sync_jobs_retry_rejects_when_active_target_exists_without_mutation -- --nocapture: passed (1 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api auth_repository_sync_jobs -- --nocapture: passed after repo-local PostgreSQL preflight with `.env` as hermes (12 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed (5 matched in lib target; other worker targets 0 tests)
+    - cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture: passed (16 matched in lib target; other worker targets 0 tests)
+    - cargo test -p sourcebot-worker: passed (32 lib tests, 17 integration/smoke tests, 0 doc tests)
     - cargo fmt --check, git diff --check, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking authz/check-ordering, no-mutation, retry-history preservation, race semantics for the current bounded store path, security, or bounded-doc-claim issues remained
-  commit: adc3c81d27b5bab13a1bd19904250db0eaadf613
-  next_task: task96ad
+    code: passed independent read-only review; no blocking path/shell safety, option-injection, timeout/output-drain, fail-closed, metadata-only, security, or bounded-doc-claim issues remained
+  commit: fc8db4f7420b2bfac0ae29fc0e3d8dd1a5a258cd
+  next_task: task97
 current_task:
-  id: task96ad
-  parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
+  id: task97
+  parent_task: phase-d-runtime-interoperability-and-release-closure
+  title: MCP runtime, auth, and end-to-end contract parity
   status: pending
   summary: >-
-    Task 96 now has authenticated manual enqueue/retry with active duplicate
-    suppression, smoke-proven default one-tick worker progress, explicit bounded
-    multi-tick worker execution, terminal worker log context, timeout-bounded
-    local-Git preflight, revision/current-branch and tracked-content discovery,
-    PostgreSQL catalog persistence for one explicitly requested local import,
-    authenticated local import-to-worker handoff with durable repository
-    visibility plus one queued sync job, settings UI refetch/visibility for
-    that queued handoff after a successful local import, persisted terminal
-    revision/branch/content-count metadata, authenticated API/UI visibility for
-    that terminal metadata, a bounded repo-local tracked-content manifest,
-    bounded tracked `HEAD` snapshot materialization that preserves significant
-    whitespace in tracked path names, a sibling repo-local `search-index.json`
-    artifact that can be loaded without rewalking the snapshot, requested-repo
-    search and index-status fallback that prefer that artifact when present
-    while failing closed on malformed present artifacts and falling back to
-    snapshot traversal only for pre-artifact rows, unscoped/search-context search
-    fallback across caller-visible repositories using the same artifact path,
-    settings UI visibility for local manifest/snapshot artifact paths,
-    no-revision tree/blob browse fallback, no-revision definitions/references
-    code-navigation fallback, bounded local-Git commit list/detail/diff fallback
-    under the caller-authorized organization/repository boundary, bounded stale
-    `running` repository-sync lease recovery before each repository-sync claim,
-    and one bounded automatic stale-lease replay after an additional one-hour
-    backoff. Practical provider/runtime parity still needs a next meaningful
-    closure that turns local/provider jobs into broader real fetch/import/reindex
-    or durable/background indexing behavior with durable progress/error
-    bookkeeping, broad automated retry/backoff semantics, duplicate-claim
-    recovery beyond bounded one-shot lease failure plus one stale-lease replay,
-    supervised scheduling, provider discovery, or deeper frontend/operator
-    controls while keeping recursive import, durable index status, and full
-    provider/runtime parity explicit follow-up work.
+    Task 96 now includes bounded provider/runtime progress across local import,
+    manual repository-sync enqueue/retry with active duplicate suppression,
+    one-tick and explicitly bounded multi-tick worker execution, stale running
+    lease recovery, one bounded stale-lease replay, local-Git terminal metadata
+    plus local-only manifest/snapshot/search-index artifacts and authenticated
+    search/browse/code-navigation/commit fallback surfaces, and Generic Git
+    remote revision/current-branch metadata probing via timeout-bounded
+    `git ls-remote --heads -- <base_url>`. The remaining release-parity work
+    should move to the next highest-value blocker: MCP runtime/auth/end-to-end
+    contract parity. Provider/runtime gaps remain explicit follow-up work rather
+    than a completed full-parity claim: no broad provider discovery,
+    clone/fetch/import/reindex execution, durable/background indexing,
+    production scheduling/supervision, broad retry/backoff, or full
+    provider/runtime parity is claimed.
 
 history:
+  - id: task96ad
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime runtime slice by making
+      configured Generic Git repository-sync jobs run a timeout-bounded real
+      `git ls-remote --heads -- <base_url>` metadata probe before stub outcomes.
+      Reachable remotes with at least one advertised branch persist terminal
+      revision/current-branch metadata only; unreachable, empty, no-branch, or
+      option-like base URLs fail closed with the operator-visible `generic Git
+      repository sync execution failed` prefix. The worker drains stdout/stderr
+      while waiting to avoid deadlock on large head listings, and Generic Git
+      still does not claim clone/fetch/import/reindex, content-file counts,
+      local artifacts, durable/background indexing, broad retry/backoff,
+      supervision, provider discovery, or full provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed
+      - cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture: passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking path/shell safety, option-injection, timeout/output-drain, fail-closed, metadata-only, security, or bounded-doc-claim issues remained
+    commit: fc8db4f7420b2bfac0ae29fc0e3d8dd1a5a258cd
+    next_task: task97
   - id: task96ac
     status: done
     summary: >-
