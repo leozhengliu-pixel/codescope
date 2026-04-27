@@ -5,38 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 510976064b0a5c2e7cd9e8f89a97990bafc7163e
+  head: 277eb0d79218f2867f66e57f8bff256900238140
 last_completed_task:
-  id: task96k-api-ui
-  title: Expose local repository-sync terminal metadata in authenticated history
+  id: task96l
+  title: Local repository-sync tracked-content manifest baseline
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime visibility slice by carrying
-    the already-persisted local repository-sync terminal metadata through the
-    authenticated sync-history API and the settings connection sync-history UI.
-    Existing visibility filtering remains unchanged, nullable synced revision,
-    current branch, and tracked-content file-count fields now serialize in the
-    API response, and the UI renders those fields only when returned. The release
-    claim remains bounded to read-only authenticated visibility of local Git
-    metadata/status; it is not real provider fetch/import/reindex execution,
-    retry/backoff, supervision, durable index status, or full provider/runtime
-    parity.
+    Closed one meaningful Task 96 provider/runtime worker slice by having
+    successful local repository-sync jobs materialize a deterministic repo-local
+    tracked-content manifest after the existing timeout-bounded Git preflight,
+    HEAD, tracked-path, and current-branch probes pass. The manifest is written
+    under `.sourcebot/local-sync/<organization_id>/<repository_id>/<job_id>/`,
+    uses sanitized dynamic path components, records the synced revision/current
+    branch/tracked paths from `git ls-tree -r --name-only HEAD`, excludes
+    untracked files, and fails closed before terminal success if manifest writes
+    cannot be finalized. The release claim remains bounded to local Git
+    content-discovery/manifest status; it is not provider fetch/import/reindex
+    execution, retry/backoff, supervision, durable index status, or full
+    provider/runtime parity.
   tests:
+    - cargo test -p sourcebot-worker local_sync_manifest_path_components_cannot_escape_manifest_root -- --nocapture: passed (1 test matched; bin/smoke targets 0-test filtered)
     - cargo fmt --check: passed
-    - cargo test -p sourcebot-api auth_repository_sync_jobs_list_only_jobs_visible_to_current_user_newest_first -- --nocapture: passed (1 main test; lib target 0-test selector)
-    - npm test -- --run src/App.test.tsx -t "renders each connection's repository sync history newest-first": passed (1 test matched)
-    - npm test -- --run src/App.test.tsx -t "repository sync": passed (2 tests matched)
-    - npm run build: passed
+    - cargo test -p sourcebot-worker -- --nocapture: passed (22 worker lib tests, 14 worker smoke tests, 0 doctests)
     - git diff --check: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer found no blocking security, logic, auth-scope, nullability, test, or claim-boundary issues, with non-blocking notes that UI assertions are card-scoped and metadata truthfulness relies on persisted job data.
-  commit: 510976064b0a5c2e7cd9e8f89a97990bafc7163e
-  next_task: task96l
+    code: passed independent read-only review; reviewer found no blocking security, logic, path-safety, failure-propagation, test, or bounded-claim issues
+  commit: 277eb0d79218f2867f66e57f8bff256900238140
+  next_task: task96m
 current_task:
-  id: task96l
+  id: task96m
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider/runtime real fetch-import execution baseline
+  title: Provider/runtime real fetch-import or reindex execution follow-up
   status: pending
   summary: >-
     Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
@@ -44,16 +44,39 @@ current_task:
     revision/current-branch and tracked-content discovery, PostgreSQL catalog
     persistence for one explicitly requested local import, authenticated local
     import-to-worker handoff with durable repository visibility plus one queued
-    sync job, persisted terminal revision/branch/content-count metadata for
-    successful local jobs, and authenticated API/UI visibility for that terminal
-    metadata. Practical provider/runtime parity still needs a next meaningful
-    closure that moves queued local/provider jobs beyond status/metadata
-    persistence into a real bounded fetch/import or reindex execution path with
-    durable progress/error bookkeeping, retry/backoff semantics,
-    duplicate-claim recovery, supervised scheduling, provider discovery, or
-    frontend/operator controls while keeping recursive import, durable index
-    status, and full provider/runtime parity explicit follow-up work.
+    sync job, persisted terminal revision/branch/content-count metadata,
+    authenticated API/UI visibility for that terminal metadata, and a bounded
+    repo-local tracked-content manifest for successful local sync jobs. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    queued local/provider jobs into an actual bounded fetch/import/reindex
+    execution path with durable progress/error bookkeeping, retry/backoff
+    semantics, duplicate-claim recovery, supervised scheduling, provider
+    discovery, or frontend/operator controls while keeping recursive import,
+    durable index status, and full provider/runtime parity explicit follow-up
+    work.
 history:
+  - id: task96l
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime worker slice by writing a
+      deterministic repo-local tracked-content manifest for successful local
+      repository-sync jobs after bounded Git preflight, HEAD, tracked-path, and
+      current-branch probes pass. Dynamic manifest path components are sanitized,
+      the manifest records revision/current branch/tracked HEAD paths while
+      excluding untracked files, and manifest write/finalize failures stay on the
+      fail-closed local sync execution path before terminal success is persisted.
+      The claim remains bounded manifest/status evidence only: no real provider
+      fetch/import/reindex execution, automated retry/backoff, supervision,
+      durable index status, or full provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-worker local_sync_manifest_path_components_cannot_escape_manifest_root -- --nocapture: passed
+      - cargo fmt --check: passed
+      - cargo test -p sourcebot-worker -- --nocapture: passed
+      - git diff --check and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking security, path-safety, failure-propagation, or bounded-claim issues remained
+    commit: 277eb0d79218f2867f66e57f8bff256900238140
+    next_task: task96m
   - id: task96k-api-ui
     status: done
     summary: >-
