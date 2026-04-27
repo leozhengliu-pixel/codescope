@@ -93,6 +93,69 @@ async fn worker_binary_claims_oldest_queued_repository_sync_job_and_persists_stu
 }
 
 #[tokio::test]
+async fn worker_binary_bounded_runtime_processes_multiple_repository_sync_jobs_when_tick_limit_is_configured(
+) {
+    let path = unique_test_path("bounded-repository-sync-runtime-smoke");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            repository_sync_jobs: vec![
+                repository_sync_job(
+                    "sync_job_oldest",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:01:00Z",
+                ),
+                repository_sync_job(
+                    "sync_job_newer",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:02:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .env("SOURCEBOT_WORKER_MAX_TICKS", "2")
+        .env("SOURCEBOT_WORKER_IDLE_SLEEP_MS", "0")
+        .output()
+        .expect("worker binary should run");
+
+    assert!(
+        output.status.success(),
+        "bounded worker runtime should exit cleanly after configured ticks"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("completed configured bounded worker runtime"),
+        "worker log should make bounded runtime completion operator-visible: {stderr}"
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    assert_eq!(persisted.repository_sync_jobs.len(), 2);
+    assert_eq!(persisted.repository_sync_jobs[0].id, "sync_job_oldest");
+    assert_eq!(
+        persisted.repository_sync_jobs[0].status,
+        RepositorySyncJobStatus::Succeeded
+    );
+    assert!(persisted.repository_sync_jobs[0].started_at.is_some());
+    assert!(persisted.repository_sync_jobs[0].finished_at.is_some());
+    assert_eq!(persisted.repository_sync_jobs[1].id, "sync_job_newer");
+    assert_eq!(
+        persisted.repository_sync_jobs[1].status,
+        RepositorySyncJobStatus::Succeeded
+    );
+    assert!(persisted.repository_sync_jobs[1].started_at.is_some());
+    assert!(persisted.repository_sync_jobs[1].finished_at.is_some());
+
+    fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn worker_binary_persists_stub_failed_repository_sync_status_when_explicitly_configured() {
     let path = unique_test_path("explicit-failed-repository-sync-outcome-smoke");
     let store = FileOrganizationStore::new(&path);

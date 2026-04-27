@@ -1,7 +1,7 @@
 # Operator Runtime Acceptance
 
 ## Purpose
-This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, bounded metadata readiness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API and one-shot worker.
+This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, bounded metadata readiness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API plus the default one-tick/explicit bounded multi-tick worker.
 
 ## Scope
 This document covers:
@@ -50,9 +50,9 @@ when the operator runs:
 ```bash
 make worker
 ```
-then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes at most one worker tick, and exits.
+then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes one worker tick by default, and exits. Operators may explicitly set `SOURCEBOT_WORKER_MAX_TICKS=<positive integer>` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` to run a bounded multi-tick loop before exit.
 
-This worker baseline is intentionally limited to one-shot local bring-up. It is not a supervised background service contract.
+This worker baseline is intentionally limited to default one-tick local bring-up plus an explicit bounded multi-tick loop. It is not a supervised background service contract.
 
 ## Observable runtime behavior
 ### Liveness endpoint

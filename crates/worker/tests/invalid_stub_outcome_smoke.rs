@@ -32,7 +32,68 @@ fn review_agent_run(id: &str, status: ReviewAgentRunStatus, created_at: &str) ->
 #[tokio::test]
 async fn worker_binary_rejects_invalid_stub_outcome_without_mutating_state() {
     let path = unique_test_path("invalid-stub-outcome-smoke");
-    let store = FileOrganizationStore::new(&path);
+    let store = store_with_queued_review_run(&path).await;
+
+    let output = worker_command(&path)
+        .env("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME", "bogus")
+        .output()
+        .expect("worker binary should run");
+
+    assert!(!output.status.success(), "worker should fail closed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME"));
+    assert!(stderr.contains("bogus"));
+
+    assert_review_run_still_queued(&store).await;
+
+    fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn worker_binary_rejects_zero_tick_limit_without_mutating_state() {
+    let path = unique_test_path("zero-tick-limit-smoke");
+    let store = store_with_queued_review_run(&path).await;
+
+    let output = worker_command(&path)
+        .env("SOURCEBOT_WORKER_MAX_TICKS", "0")
+        .output()
+        .expect("worker binary should run");
+
+    assert!(!output.status.success(), "worker should fail closed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SOURCEBOT_WORKER_MAX_TICKS"));
+    assert!(stderr.contains("greater than zero"));
+
+    assert_review_run_still_queued(&store).await;
+
+    fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn worker_binary_rejects_invalid_idle_sleep_without_mutating_state() {
+    let path = unique_test_path("invalid-idle-sleep-smoke");
+    let store = store_with_queued_review_run(&path).await;
+
+    let output = worker_command(&path)
+        .env("SOURCEBOT_WORKER_IDLE_SLEEP_MS", "-1")
+        .output()
+        .expect("worker binary should run");
+
+    assert!(!output.status.success(), "worker should fail closed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("SOURCEBOT_WORKER_IDLE_SLEEP_MS"));
+    assert!(stderr.contains("unsigned integer"));
+
+    assert_review_run_still_queued(&store).await;
+
+    fs::remove_file(path).unwrap();
+}
+
+async fn store_with_queued_review_run(path: &std::path::Path) -> FileOrganizationStore {
+    let store = FileOrganizationStore::new(path);
     store
         .store_organization_state(OrganizationState {
             review_agent_runs: vec![review_agent_run(
@@ -44,26 +105,21 @@ async fn worker_binary_rejects_invalid_stub_outcome_without_mutating_state() {
         })
         .await
         .unwrap();
+    store
+}
 
+fn worker_command(path: &std::path::Path) -> Command {
     let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
         .expect("cargo should expose the built sourcebot-worker binary path");
-    let output = Command::new(worker_bin)
-        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
-        .env("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME", "bogus")
-        .output()
-        .expect("worker binary should run");
+    let mut command = Command::new(worker_bin);
+    command.env("SOURCEBOT_ORGANIZATION_STATE_PATH", path);
+    command
+}
 
-    assert!(!output.status.success(), "worker should fail closed");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME"));
-    assert!(stderr.contains("bogus"));
-
+async fn assert_review_run_still_queued(store: &FileOrganizationStore) {
     let persisted = store.organization_state().await.unwrap();
     assert_eq!(
         persisted.review_agent_runs[0].status,
         ReviewAgentRunStatus::Queued
     );
-
-    fs::remove_file(path).unwrap();
 }

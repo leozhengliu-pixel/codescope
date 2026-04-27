@@ -146,8 +146,8 @@ async fn worker_binary_logs_runtime_baseline_and_no_work_path() {
         "stderr should include the resolved repository-sync stub outcome: {stderr}"
     );
     assert!(
-        stderr.contains("one-shot runtime"),
-        "stderr should explicitly describe the worker as one-shot runtime behavior: {stderr}"
+        stderr.contains("max_ticks=1") && stderr.contains("idle_sleep_ms=1000"),
+        "stderr should include the configured default bounded runtime controls: {stderr}"
     );
     assert!(
         stderr.contains("no queued review-agent run or repository sync job available"),
