@@ -18,7 +18,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 
 ## Scope
 - Public repository list and repository detail sync-state visibility
-- Authenticated repository sync-job history visibility plus a bounded admin enqueue control for already visible repositories
+- Authenticated repository sync-job history visibility plus bounded admin enqueue/retry controls for already visible repositories
 - Visible-repository index-status counts for the bounded startup-built local in-memory search index
 - Operator/admin-facing expectations for repository readiness, failure visibility, and deferred parity gaps
 
@@ -27,7 +27,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 - `/api/v1/repos/{repo_id}` returns repository detail that includes repository metadata plus `sync_state` and connection metadata.
 - `#/` in `web/src/App.tsx` renders repository cards with a visible sync-state badge.
 - `#/repos/:repoId` in `web/src/App.tsx` renders repository detail with a visible sync-state field.
-- `/api/v1/auth/repository-sync-jobs` returns authenticated sync-job history filtered to the caller's currently visible `(organization_id, repository_id)` bindings and sorted newest-first; when `DATABASE_URL` is configured, that filtering uses PostgreSQL-backed organization membership and repository-permission metadata even though the sync-job records themselves still come from the configured organization-state store. The same route now accepts a bounded admin-only `POST` for an already visible repository and persists a queued repository-sync job with the catalog-derived connection id.
+`/api/v1/auth/repository-sync-jobs` returns authenticated sync-job history filtered to the caller's currently visible `(organization_id, repository_id)` bindings and sorted newest-first; when `DATABASE_URL` is configured, that filtering uses PostgreSQL-backed organization membership and repository-permission metadata even though the sync-job records themselves still come from the configured organization-state store. The same route now accepts a bounded admin-only `POST` for an already visible repository, derives `connection_id` from the catalog detail instead of caller input, and appends a queued job without letting non-admin callers mutate the queue. `POST /api/v1/auth/repository-sync-jobs/{job_id}/retry` requeues admin-visible failed jobs by appending a fresh queued job while preserving the original terminal history row.
 - `/api/v1/repos/{repo_id}/index-status` returns the search store's current startup-built local in-memory index status for visible repositories, including indexed file count, indexed line count, skipped file count, and error text when startup indexing failed for that repo. Hidden or unknown repositories fail closed with `404` through the same repository-visibility gate as browse/search.
 - The catalog-backed repo list/detail path now has bounded PostgreSQL reads for `/api/v1/repos` and repository detail lookup when `DATABASE_URL` is configured, and the search store now exposes truthful in-memory index counts, but that does not yet close persisted index-status, retry, or full repository-operations parity.
 
@@ -41,7 +41,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 ## Expected behavior
 1. Repository list surfaces show each visible repository's current `sync_state` as user-visible readiness metadata.
 2. Repository detail surfaces show repository metadata plus the same `sync_state` without requiring a separate operator-only page.
-3. Authenticated repository sync-job history is available from an endpoint that returns only jobs visible to the current user and lets organization admins enqueue a queued sync job only for an already visible repository.
+3. Authenticated repository sync-job history is available from an endpoint that returns only jobs visible to the current user and lets organization admins enqueue a queued sync job only for an already visible repository or append a queued retry for an already visible failed job.
 4. Sync-job history ordering is newest-first by queue time so operators/admins can inspect recent activity first.
 5. Sync-job responses expose operator-relevant status metadata including job id, organization/repository ids, status, timestamps, and error text when present.
 6. Hidden repositories and cross-org duplicate repository ids must not leak through sync-job history visibility.
@@ -57,9 +57,9 @@ This document creates the dedicated black-box acceptance home for repository syn
 
 ## Edge cases
 - Duplicate repository ids across different organizations must still filter correctly by `(organization_id, repository_id)`.
-- Non-admin sync-job creation attempts fail closed without mutating persisted sync-job state.
+- Non-admin sync-job creation/retry attempts and non-failed retry targets fail closed without mutating persisted sync-job state.
 - Repositories can expose a coarse `sync_state` alongside the bounded in-memory search index-status counts; those are separate surfaces and neither should be treated as the other's source of truth.
-- A configured `DATABASE_URL`, bounded catalog reads, and the startup-built in-memory index-status endpoint do not by themselves prove repository-operations parity; persisted index-status, background reindexing, queue depth, retry, failure-recovery, and operator-control surfaces remain open.
+- A configured `DATABASE_URL`, bounded catalog reads, the startup-built in-memory index-status endpoint, and the manual failed-job retry endpoint do not by themselves prove repository-operations parity; persisted index-status, background reindexing, queue depth, automated retry/backoff, failure-recovery, and operator-control surfaces remain open.
 - Sync-job history may show terminal failures while the repo list/detail UI still exposes only coarse readiness state.
 - Startup indexing skips ignored directories, binary files, and oversize files and records counts, but it does not rescan changed files until the API/search store is rebuilt.
 
@@ -67,16 +67,16 @@ This document creates the dedicated black-box acceptance home for repository syn
 - Opening `#/` shows repository cards with visible sync-state badges such as `ready`, `pending`, or `error`.
 - Opening `#/repos/:repoId` shows the repository detail panel with a sync-state field and connection metadata.
 - An authenticated user calling `/api/v1/auth/repository-sync-jobs` receives only the newest-first jobs for repositories they can currently access.
-- An authenticated organization admin can post `{"organization_id":"org_acme","repository_id":"repo_visible"}` to `/api/v1/auth/repository-sync-jobs` and receive a `queued` job whose `connection_id` comes from the visible repository's catalog detail.
+- An authenticated organization admin can post `{"organization_id":"org_acme","repository_id":"repo_visible"}` to `/api/v1/auth/repository-sync-jobs` and receive a `queued` job whose `connection_id` comes from the visible repository's catalog detail; for a visible failed job, the admin can post to `/api/v1/auth/repository-sync-jobs/{job_id}/retry` and receive a fresh queued retry while the failed history row remains unchanged.
 - A user who loses repository visibility no longer sees that repository's sync jobs in the authenticated history endpoint.
 - An authenticated user calling `/api/v1/repos/{repo_id}/index-status` for a visible repository receives the current startup-built in-memory index counts; the same call for a hidden repository returns `404`.
 
 ## Deferred parity gaps locked by this spec
 This spec intentionally records the remaining gaps instead of over-claiming parity:
 
-1. **Persisted repository-operations parity is still partial.** `PgCatalogStore::list_repositories()` and `PgCatalogStore::get_repository_detail()` now provide bounded durable catalog reads, and the search store exposes startup-built in-memory index counts, but persisted index-status, last-run/failure detail, retry, and management semantics are still incomplete.
+1. **Persisted repository-operations parity is still partial.** `PgCatalogStore::list_repositories()` and `PgCatalogStore::get_repository_detail()` now provide bounded durable catalog reads, the search store exposes startup-built in-memory index counts, and admins can manually requeue visible failed jobs, but persisted index-status, richer last-run/failure detail, automated retry/backoff, and management semantics are still incomplete.
 2. **Index-status parity is still bounded.** The rewrite now provides a truthful search-store-backed index-status API for the local startup-built in-memory index, but not a Tantivy-backed, persisted, background-updated, retry-aware, queue-depth-aware, or production-grade repository indexing surface.
-3. **Frontend repository-operations parity is still shallow.** The current UI shows coarse sync-state badges/fields, but not last-run timestamps, queue depth, failure history, retry controls, or settings-level operator surfaces.
+3. **Frontend repository-operations parity is still shallow.** The current UI shows coarse sync-state badges/fields and read-only history, but not last-run timestamps, queue depth, failure history management, retry controls, or settings-level operator surfaces.
 4. **Worker/recovery parity is still incomplete.** The current worker slices only prove stub sync-job transitions and read-only visibility; real fetch/mirror execution, retries, recovery, and rescheduling remain deferred.
 5. **Settings/admin navigation parity is still incomplete.** The rewrite has a limited `#/settings/connections` settings shell, but it still lacks a broader auth/admin/settings route family that exposes repository operations as a first-class management surface.
 

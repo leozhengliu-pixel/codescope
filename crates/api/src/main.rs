@@ -252,6 +252,10 @@ fn build_router(
                 .post(create_authenticated_repository_sync_job),
         )
         .route(
+            "/api/v1/auth/repository-sync-jobs/{job_id}/retry",
+            post(retry_authenticated_repository_sync_job),
+        )
+        .route(
             "/api/v1/auth/audit-events",
             get(list_authenticated_audit_events),
         )
@@ -2838,6 +2842,84 @@ async fn create_authenticated_repository_sync_job(
     Ok((
         StatusCode::CREATED,
         Json(repository_sync_job_list_item_response(job)),
+    ))
+}
+
+async fn retry_authenticated_repository_sync_job(
+    State(state): State<AppState>,
+    Path(job_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, Json<RepositorySyncJobListItemResponse>), StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let requested_job_id = job_id.trim();
+    if requested_job_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let visibility_state = user_auth_organization_state(&state, &session.user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let job_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let retry_source_job = job_state
+        .repository_sync_jobs
+        .iter()
+        .find(|job| job.id == requested_job_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let visible_repository_bindings =
+        visible_repository_bindings_for_user(&visibility_state, &session.user_id);
+    if !visible_repository_bindings.contains(&(
+        retry_source_job.organization_id.clone(),
+        retry_source_job.repository_id.clone(),
+    )) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if !user_is_organization_admin(
+        &visibility_state,
+        &session.user_id,
+        &retry_source_job.organization_id,
+    ) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if retry_source_job.status != sourcebot_models::RepositorySyncJobStatus::Failed {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let queued_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let retry_job = RepositorySyncJob {
+        id: format!(
+            "repo_sync_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: retry_source_job.organization_id.clone(),
+        repository_id: retry_source_job.repository_id.clone(),
+        connection_id: retry_source_job.connection_id.clone(),
+        status: sourcebot_models::RepositorySyncJobStatus::Queued,
+        queued_at,
+        started_at: None,
+        finished_at: None,
+        error: None,
+    };
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    state
+        .organization_store
+        .store_repository_sync_job(retry_job.clone())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(repository_sync_job_list_item_response(retry_job)),
     ))
 }
 
@@ -13993,6 +14075,347 @@ mod tests {
             persisted_state.repository_sync_jobs[0].queued_at,
             payload.queued_at
         );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_retry_requeues_failed_visible_job_for_admin_without_overwriting_terminal_history(
+    ) {
+        let organization_state_path = unique_test_path("auth-repository-sync-jobs-retry-orgs");
+        let local_session_state_path = unique_test_path("auth-repository-sync-jobs-retry-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let failed_job = sourcebot_models::RepositorySyncJob {
+            id: "sync_failed".into(),
+            organization_id: "org_acme".into(),
+            repository_id: "repo_visible".into(),
+            connection_id: "conn_local_acme".into(),
+            status: sourcebot_models::RepositorySyncJobStatus::Failed,
+            queued_at: "2026-04-26T10:01:00Z".into(),
+            started_at: Some("2026-04-26T10:02:00Z".into()),
+            finished_at: Some("2026-04-26T10:03:00Z".into()),
+            error: Some("provider timed out".into()),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            repository_sync_jobs: vec![failed_job.clone()],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs/sync_failed/retry")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let payload: RepositorySyncJobListItemResponseBody = read_json(response).await;
+        assert!(payload.id.starts_with("repo_sync_"));
+        assert_ne!(payload.id, "sync_failed");
+        assert_eq!(payload.organization_id, "org_acme");
+        assert_eq!(payload.repository_id, "repo_visible");
+        assert_eq!(payload.connection_id, "conn_local_acme");
+        assert_eq!(payload.status, "queued");
+        assert!(payload.started_at.is_none());
+        assert!(payload.finished_at.is_none());
+        assert!(payload.error.is_none());
+
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state.repository_sync_jobs.len(), 2);
+        assert_eq!(persisted_state.repository_sync_jobs[0], failed_job);
+        assert_eq!(persisted_state.repository_sync_jobs[1].id, payload.id);
+        assert_eq!(
+            persisted_state.repository_sync_jobs[1].queued_at,
+            payload.queued_at
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_retry_rejects_visible_non_admin_without_mutation() {
+        let organization_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-viewer-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-viewer-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let failed_job = sourcebot_models::RepositorySyncJob {
+            id: "sync_failed".into(),
+            organization_id: "org_acme".into(),
+            repository_id: "repo_visible".into(),
+            connection_id: "conn_local_acme".into(),
+            status: sourcebot_models::RepositorySyncJobStatus::Failed,
+            queued_at: "2026-04-26T10:01:00Z".into(),
+            started_at: Some("2026-04-26T10:02:00Z".into()),
+            finished_at: Some("2026-04-26T10:03:00Z".into()),
+            error: Some("provider timed out".into()),
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            repository_sync_jobs: vec![failed_job.clone()],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs/sync_failed/retry")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state.repository_sync_jobs, vec![failed_job]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_retry_hidden_non_failed_job_returns_not_found_without_mutation(
+    ) {
+        let organization_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-hidden-nonfailed-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-hidden-nonfailed-sessions");
+        let user_id = "local_user_admin";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let hidden_job = sourcebot_models::RepositorySyncJob {
+            id: "sync_hidden_running".into(),
+            organization_id: "org_hidden".into(),
+            repository_id: "repo_hidden".into(),
+            connection_id: "conn_hidden".into(),
+            status: sourcebot_models::RepositorySyncJobStatus::Running,
+            queued_at: "2026-04-26T10:01:00Z".into(),
+            started_at: Some("2026-04-26T10:02:00Z".into()),
+            finished_at: None,
+            error: None,
+        };
+        let state = OrganizationState {
+            organizations: vec![
+                Organization {
+                    id: "org_acme".into(),
+                    slug: "acme".into(),
+                    name: "Acme".into(),
+                },
+                Organization {
+                    id: "org_hidden".into(),
+                    slug: "hidden".into(),
+                    name: "Hidden".into(),
+                },
+            ],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Admin,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            repository_sync_jobs: vec![hidden_job.clone()],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs/sync_hidden_running/retry")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state.repository_sync_jobs, vec![hidden_job]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_repository_sync_jobs_retry_visible_non_admin_non_failed_job_returns_forbidden_without_mutation(
+    ) {
+        let organization_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-viewer-nonfailed-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-repository-sync-jobs-retry-viewer-nonfailed-sessions");
+        let user_id = "local_user_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let running_job = sourcebot_models::RepositorySyncJob {
+            id: "sync_running".into(),
+            organization_id: "org_acme".into(),
+            repository_id: "repo_visible".into(),
+            connection_id: "conn_local_acme".into(),
+            status: sourcebot_models::RepositorySyncJobStatus::Running,
+            queued_at: "2026-04-26T10:01:00Z".into(),
+            started_at: Some("2026-04-26T10:02:00Z".into()),
+            finished_at: None,
+            error: None,
+        };
+        let state = OrganizationState {
+            organizations: vec![Organization {
+                id: "org_acme".into(),
+                slug: "acme".into(),
+                name: "Acme".into(),
+            }],
+            memberships: vec![OrganizationMembership {
+                organization_id: "org_acme".into(),
+                user_id: user_id.into(),
+                role: OrganizationRole::Viewer,
+                joined_at: "2026-04-26T10:00:00Z".into(),
+            }],
+            accounts: vec![LocalAccount {
+                id: user_id.into(),
+                email: "viewer@example.com".into(),
+                name: "Viewer User".into(),
+                password_hash: None,
+                created_at: "2026-04-26T09:55:00Z".into(),
+            }],
+            repo_permissions: vec![RepositoryPermissionBinding {
+                organization_id: "org_acme".into(),
+                repository_id: "repo_visible".into(),
+                synced_at: "2026-04-26T10:01:00Z".into(),
+            }],
+            repository_sync_jobs: vec![running_job.clone()],
+            ..OrganizationState::default()
+        };
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repository-sync-jobs/sync_running/retry")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let persisted_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(persisted_state.repository_sync_jobs, vec![running_job]);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
