@@ -5,56 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5bd9df285342704f13e1616cfdd324ffa6029b34
+  head: c156d86e3c3d40b8cfb9de39a50dbc0095927525
 last_completed_task:
-  id: task96g
-  title: Bounded local-Git repository-sync metadata execution
+  id: task96h
+  title: Real repository-sync content execution baseline
   status: done
   summary: >-
     Closed one meaningful Task 96 provider/runtime execution slice by moving the
-    local repository-sync worker baseline beyond working-tree preflight and into
-    bounded real Git metadata probes. Jobs tied to configured `local`
-    connections still fail closed for missing, invalid, bare, or hung working
-    trees through the existing `local repository sync preflight failed` path, and
-    now also run `git -C <repo_path> rev-parse HEAD` plus `git -C <repo_path>
-    symbolic-ref --short HEAD` before success. Empty or detached local
-    repositories fail closed with `local repository sync execution failed`, while
-    a real local Git repository with readable current revision/current branch
-    metadata can still complete successfully even when the old stub failure
-    outcome is configured. The closure synchronizes README, worker-runtime,
-    generic/local Git, parity-gap, and final-audit wording so the claim remains
-    metadata/status only: no real fetch/import/reindex, automated retry/backoff,
-    supervision, durable index progress, or full provider/runtime parity is
-    claimed.
+    local repository-sync worker baseline beyond revision/current-branch metadata
+    probes into bounded tracked-content discovery. Jobs tied to configured
+    `local` connections now run `git -C <repo_path> ls-tree -r --name-only HEAD`
+    after the existing working-tree and HEAD checks; empty-tree repositories with
+    a valid commit fail closed with `local repository sync execution failed`
+    instead of recording success, while repositories with at least one tracked
+    content path continue to the current-branch probe and bounded terminal
+    success path. The closure synchronizes README, worker-runtime, generic/local
+    Git, parity-gap, and final-audit wording so the release claim remains narrow:
+    content discovery/status only, not real fetch/import/reindex, automated
+    retry/backoff, supervision, durable index progress, or full provider/runtime
+    parity.
   tests:
-    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_empty_local_git_repository_path -- --nocapture: passed (1 passed; 19 filtered in worker lib, remaining targets 0-test)
-    - cargo test -p sourcebot-worker local_git_repository_path -- --nocapture: passed (3 worker lib tests: bare, empty, and real local repository; remaining targets 0-test)
-    - cargo test -p sourcebot-worker: passed (20 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_local_git_repository_without_tracked_content -- --nocapture: passed (1 passed; 20 filtered in worker lib, remaining targets 0-test)
+    - cargo test -p sourcebot-worker: passed (21 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit current-branch metadata wording: passed
+    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit content-discovery wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the bounded `rev-parse HEAD` and `symbolic-ref --short HEAD` metadata probes after local working-tree preflight, preserved preflight-vs-execution failure prefixes, empty/detached fail-closed behavior, existing bare/real local coverage, current-branch wording correction, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
-  commit: 5bd9df285342704f13e1616cfdd324ffa6029b34
-  next_task: task96h
+    code: passed independent read-only review; reviewer approved the bounded `git ls-tree -r --name-only HEAD` content-discovery probe, empty-tree fail-closed terminal error, non-zero/timeout/execution-error handling through the existing execution-failure paths, success logging of tracked content count, focused empty-tree regression, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
+  commit: c156d86e3c3d40b8cfb9de39a50dbc0095927525
+  next_task: task96i
 current_task:
-  id: task96h
+  id: task96i
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Real repository-sync content execution baseline
+  title: Repository-sync real content import handoff baseline
   status: pending
   summary: >-
     Task 96 now covers authenticated manual enqueue/retry, smoke-proven one-shot
     progress, terminal worker log context, local-Git working-tree validation,
-    timeout-bounded preflight failure handling, and bounded current
-    revision/current-branch metadata probes. Practical provider/runtime parity
-    still needs a next meaningful closure that moves from metadata/status probes
-    toward real fetch/import/reindex execution, durable progress/error
-    bookkeeping, worker-side retry/backoff semantics, duplicate-claim recovery,
-    or supervised scheduling while keeping broad host-provider discovery,
-    frontend controls, durable index status, and full provider/runtime parity
-    explicit follow-up work.
+    timeout-bounded preflight failure handling, bounded current
+    revision/current-branch metadata probes, and fail-closed tracked-content
+    discovery for empty-tree repositories. Practical provider/runtime parity still
+    needs a next meaningful closure that moves from content discovery/status into
+    real fetch/import/reindex behavior, durable progress/error bookkeeping,
+    worker-side retry/backoff semantics, duplicate-claim recovery, or supervised
+    scheduling while keeping broad host-provider discovery, frontend controls,
+    durable index status, and full provider/runtime parity explicit follow-up
+    work.
 history:
+  - id: task96h
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime execution slice by moving
+      the local repository-sync worker baseline beyond revision/current-branch
+      metadata probes into bounded tracked-content discovery. Jobs tied to
+      configured `local` connections now run `git -C <repo_path> ls-tree -r
+      --name-only HEAD` after the existing working-tree and HEAD checks;
+      empty-tree repositories with a valid commit fail closed with `local
+      repository sync execution failed` instead of recording success, while
+      repositories with at least one tracked content path continue to the
+      current-branch probe and bounded terminal success path. The claim remains
+      content discovery/status only: no real fetch/import/reindex, automated
+      retry/backoff, supervision, durable index progress, or full
+      provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_local_git_repository_without_tracked_content -- --nocapture: passed (1 passed; 20 filtered in worker lib, remaining targets 0-test)
+      - cargo test -p sourcebot-worker: passed (21 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit content-discovery wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the bounded `git ls-tree -r --name-only HEAD` content-discovery probe, empty-tree fail-closed terminal error, non-zero/timeout/execution-error handling through the existing execution-failure paths, success logging of tracked content count, focused empty-tree regression, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
+    commit: c156d86e3c3d40b8cfb9de39a50dbc0095927525
+    next_task: task96i
   - id: task96g
     status: done
     summary: >-
