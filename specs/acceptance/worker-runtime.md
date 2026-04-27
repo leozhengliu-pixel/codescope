@@ -32,7 +32,7 @@ This document defines the current clean-room acceptance contract for the `source
 - `SOURCEBOT_ORGANIZATION_STATE_PATH` may explicitly override the organization-state file path.
 - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME` currently supports `completed` and `failed`.
 - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME` currently supports `succeeded` and `failed`.
-- Worker logs plus authenticated sync-history responses are the current runtime-baseline evidence for startup resolution, no-work exits, stub terminal outcomes, and bounded repository-sync progress after an admin enqueues a visible repository job.
+- Worker logs plus authenticated sync-history responses are the current runtime-baseline evidence for startup resolution, no-work exits, stub terminal outcomes, and bounded repository-sync progress after an admin enqueues a visible repository job; repository-sync terminal logs include the job id, organization id, repository id, connection id, status, and failure reason when one exists so operators can triage the bounded stub worker path without querying the state file first.
 
 ## Explicit deferrals
 The current worker runtime acceptance does **not** claim:

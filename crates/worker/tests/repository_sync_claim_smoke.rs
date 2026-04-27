@@ -120,6 +120,20 @@ async fn worker_binary_persists_stub_failed_repository_sync_status_when_explicit
         output.status.success(),
         "worker should accept explicit failed repository sync stub outcomes"
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for expected in [
+        "sync_job_oldest",
+        "org_acme",
+        "repo_sourcebot_rewrite",
+        "conn_github",
+        "Failed",
+        "repository sync stub execution configured to fail",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "worker log should include {expected:?} for operator triage: {stderr}"
+        );
+    }
 
     let persisted = store.organization_state().await.unwrap();
     assert_eq!(persisted.repository_sync_jobs.len(), 1);

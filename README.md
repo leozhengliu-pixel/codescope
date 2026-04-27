@@ -76,7 +76,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make worker
    ```
-7. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, and then exits.
+7. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, logs repository-sync terminal job identifiers and failure reasons when a sync job is processed, and then exits.
 8. Optional worker-only stub controls for the current baseline are:
    - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
    - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`

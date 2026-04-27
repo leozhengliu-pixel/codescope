@@ -62,7 +62,11 @@ async fn main() -> anyhow::Result<()> {
         ),
         Some(WorkerTickOutcome::RepositorySyncJob(job)) => info!(
             repository_sync_job_id = %job.id,
+            organization_id = %job.organization_id,
+            repository_id = %job.repository_id,
+            connection_id = %job.connection_id,
             status = ?job.status,
+            error = job.error.as_deref().unwrap_or(""),
             "recorded repository-sync terminal status after stub worker execution for the one-shot runtime baseline"
         ),
         None => info!("no queued review-agent run or repository sync job available"),
