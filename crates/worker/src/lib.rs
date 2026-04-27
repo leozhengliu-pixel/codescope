@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs,
+    io::{self, Read},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
@@ -20,6 +21,8 @@ const LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX: &str =
     "local repository sync preflight failed";
 const LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
     "local repository sync execution failed";
+const GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
+    "generic Git repository sync execution failed";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
@@ -134,6 +137,12 @@ pub fn execute_claimed_repository_sync_job_stub_at(
     stub_outcome: StubRepositorySyncJobExecutionOutcome,
     finished_at: &str,
 ) -> RepositorySyncJob {
+    if let Some(generic_git_result) =
+        complete_generic_git_repository_sync_job_if_applicable(state, &job, finished_at)
+    {
+        return generic_git_result;
+    }
+
     if let Some(local_result) =
         complete_local_repository_sync_job_if_applicable(state, &job, finished_at)
     {
@@ -154,6 +163,107 @@ pub fn execute_claimed_repository_sync_job_stub_at(
             Some(REPOSITORY_SYNC_STUB_FAILURE_ERROR.to_string()),
         ),
     }
+}
+
+fn complete_generic_git_repository_sync_job_if_applicable(
+    state: &OrganizationState,
+    job: &RepositorySyncJob,
+    finished_at: &str,
+) -> Option<RepositorySyncJob> {
+    complete_generic_git_repository_sync_job_with_git_command_if_applicable(
+        state,
+        job,
+        finished_at,
+        OsStr::new("git"),
+        LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT,
+    )
+}
+
+fn complete_generic_git_repository_sync_job_with_git_command_if_applicable(
+    state: &OrganizationState,
+    job: &RepositorySyncJob,
+    finished_at: &str,
+    git_command: &OsStr,
+    timeout: Duration,
+) -> Option<RepositorySyncJob> {
+    let connection = state
+        .connections
+        .iter()
+        .find(|connection| connection.id == job.connection_id)?;
+    let Some(ConnectionConfig::GenericGit { base_url }) = &connection.config else {
+        return None;
+    };
+
+    match run_generic_git_repository_sync_execution(git_command, base_url, timeout) {
+        Ok(execution) => {
+            let mut completed_job = complete_repository_sync_job(
+                job,
+                RepositorySyncJobStatus::Succeeded,
+                finished_at,
+                None,
+            );
+            completed_job.synced_revision = Some(execution.revision);
+            completed_job.synced_branch = Some(execution.branch);
+            completed_job.synced_content_file_count = None;
+            Some(completed_job)
+        }
+        Err(error) => Some(complete_repository_sync_job(
+            job,
+            RepositorySyncJobStatus::Failed,
+            finished_at,
+            Some(error),
+        )),
+    }
+}
+
+struct GenericGitRepositorySyncExecution {
+    revision: String,
+    branch: String,
+}
+
+fn run_generic_git_repository_sync_execution(
+    git_command: &OsStr,
+    base_url: &str,
+    timeout: Duration,
+) -> Result<GenericGitRepositorySyncExecution, String> {
+    let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
+        Ok(Some(output)) if output.status.success() => output,
+        Ok(Some(output)) => return Err(generic_git_failure_detail("git ls-remote --heads", &output)),
+        Ok(None) => {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads timed out after {}ms",
+                timeout.as_millis()
+            ))
+        }
+        Err(error) => {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"
+            ))
+        }
+    };
+
+    parse_git_ls_remote_heads(&output.stdout).ok_or_else(|| {
+        format!(
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no branch refs"
+        )
+    })
+}
+
+fn parse_git_ls_remote_heads(stdout: &[u8]) -> Option<GenericGitRepositorySyncExecution> {
+    String::from_utf8_lossy(stdout).lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        let revision = fields.next()?;
+        let reference = fields.next()?;
+        let branch = reference.strip_prefix("refs/heads/")?;
+        if revision.is_empty() || branch.is_empty() {
+            None
+        } else {
+            Some(GenericGitRepositorySyncExecution {
+                revision: revision.to_owned(),
+                branch: branch.to_owned(),
+            })
+        }
+    })
 }
 
 fn complete_local_repository_sync_job_if_applicable(
@@ -725,6 +835,32 @@ fn git_failure_detail(command: &str, output: &Output) -> String {
     format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
 }
 
+fn generic_git_failure_detail(command: &str, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let detail = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("{command} exited with status {}", output.status)
+    };
+    format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
+}
+
+fn run_git_ls_remote_heads(
+    git_command: &OsStr,
+    base_url: &str,
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
+    let child = Command::new(git_command)
+        .args(["ls-remote", "--heads", "--", base_url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    wait_for_child_output_with_timeout(child, timeout)
+}
+
 fn run_git_working_tree_preflight(
     git_command: &OsStr,
     repo_path: &str,
@@ -744,26 +880,65 @@ fn run_git_command(
     args: &[&str],
     timeout: Duration,
 ) -> std::io::Result<Option<Output>> {
-    let mut child = Command::new(git_command)
+    let child = Command::new(git_command)
         .arg("-C")
         .arg(repo_path)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    wait_for_child_output_with_timeout(child, timeout)
+}
+
+fn wait_for_child_output_with_timeout(
+    mut child: std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
+    let stdout_reader = child.stdout.take().map(spawn_pipe_reader);
+    let stderr_reader = child.stderr.take().map(spawn_pipe_reader);
     let started_at = Instant::now();
 
     loop {
-        if child.try_wait()?.is_some() {
-            return child.wait_with_output().map(Some);
+        if let Some(status) = child.try_wait()? {
+            let stdout = join_pipe_reader(stdout_reader)?;
+            let stderr = join_pipe_reader(stderr_reader)?;
+            return Ok(Some(Output {
+                status,
+                stdout,
+                stderr,
+            }));
         }
         if started_at.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
+            let _ = join_pipe_reader(stdout_reader);
+            let _ = join_pipe_reader(stderr_reader);
             return Ok(None);
         }
         let remaining = timeout.saturating_sub(started_at.elapsed());
         thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
+fn spawn_pipe_reader<R>(mut reader: R) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut output = Vec::new();
+        reader.read_to_end(&mut output)?;
+        Ok(output)
+    })
+}
+
+fn join_pipe_reader(
+    handle: Option<thread::JoinHandle<std::io::Result<Vec<u8>>>>,
+) -> std::io::Result<Vec<u8>> {
+    match handle {
+        Some(handle) => handle
+            .join()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "child pipe reader panicked"))?,
+        None => Ok(Vec::new()),
     }
 }
 
@@ -860,12 +1035,13 @@ mod tests {
         claim_next_review_agent_run_from_store,
         complete_local_repository_sync_job_with_git_command_if_applicable,
         execute_claimed_repository_sync_job_stub_at, execute_claimed_review_agent_run_stub,
-        persist_stub_review_agent_run_execution_outcome, run_repository_sync_claim_tick,
-        run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
-        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
-        WorkerTickOutcome,
+        persist_stub_review_agent_run_execution_outcome, run_generic_git_repository_sync_execution,
+        run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
+        safe_manifest_path_component, StubRepositorySyncJobExecutionOutcome,
+        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
     };
     use crate::{
+        GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX,
         REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX, REPOSITORY_SYNC_STUB_FAILURE_ERROR,
     };
     use anyhow::Result;
@@ -878,6 +1054,7 @@ mod tests {
     };
     use sourcebot_search::SearchStore;
     use std::{
+        ffi::OsStr,
         fs,
         os::unix::fs::PermissionsExt,
         process::Command,
@@ -1093,6 +1270,28 @@ mod tests {
             kind: ConnectionKind::Local,
             config: Some(ConnectionConfig::Local {
                 repo_path: repo_path.into(),
+            }),
+        }
+    }
+
+    fn generic_git_repository_sync_job(
+        id: &str,
+        status: RepositorySyncJobStatus,
+        queued_at: &str,
+    ) -> RepositorySyncJob {
+        RepositorySyncJob {
+            connection_id: "conn_generic_git".into(),
+            ..repository_sync_job(id, status, queued_at)
+        }
+    }
+
+    fn generic_git_connection(base_url: impl Into<String>) -> Connection {
+        Connection {
+            id: "conn_generic_git".into(),
+            name: "Generic Git fixture".into(),
+            kind: ConnectionKind::GenericGit,
+            config: Some(ConnectionConfig::GenericGit {
+                base_url: base_url.into(),
             }),
         }
     }
@@ -2045,6 +2244,272 @@ mod tests {
         assert_eq!(persisted.repository_sync_jobs[0], failed_job);
 
         fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_succeeds_for_reachable_generic_git_remote_metadata_only(
+    ) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bare_repo_path = repo_path.with_extension("git");
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("README.md"), "generic git sync fixture\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "initial generic fixture"])
+            .output()
+            .expect("git commit should run");
+        Command::new("git")
+            .args(["clone", "--bare"])
+            .arg(&repo_path)
+            .arg(&bare_repo_path)
+            .output()
+            .expect("git clone --bare should run");
+
+        let expected_head = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .expect("git rev-parse should run")
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![generic_git_connection(bare_repo_path.display().to_string())],
+            repository_sync_jobs: vec![generic_git_repository_sync_job(
+                "sync_job_generic_git_valid",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let completed_job =
+            run_repository_sync_claim_tick(&store, StubRepositorySyncJobExecutionOutcome::Failed)
+                .await
+                .unwrap()
+                .expect("queued generic Git repository sync job should be terminally recorded");
+
+        assert_eq!(completed_job.id, "sync_job_generic_git_valid");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert_eq!(completed_job.error, None);
+        assert_eq!(
+            completed_job.synced_revision.as_deref(),
+            Some(expected_head.as_str())
+        );
+        assert_eq!(completed_job.synced_branch.as_deref(), Some("master"));
+        assert_eq!(completed_job.synced_content_file_count, None);
+        assert!(
+            !bare_repo_path.join(".sourcebot").exists(),
+            "generic Git metadata probe must not claim local manifest/snapshot/search-index artifacts"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], completed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+        fs::remove_dir_all(bare_repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_empty_generic_git_remote() {
+        let bare_repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-empty-generic-git-repo-{}.git",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        Command::new("git")
+            .args(["init", "--bare"])
+            .arg(&bare_repo_path)
+            .output()
+            .expect("git init --bare should run");
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![generic_git_connection(bare_repo_path.display().to_string())],
+            repository_sync_jobs: vec![generic_git_repository_sync_job(
+                "sync_job_generic_git_empty",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued empty generic Git repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_generic_git_empty");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
+            "empty generic Git remote should produce operator-visible failure detail: {failed_job:?}"
+        );
+        assert_eq!(failed_job.synced_revision, None);
+        assert_eq!(failed_job.synced_branch, None);
+        assert_eq!(failed_job.synced_content_file_count, None);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(bare_repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_unreachable_generic_git_remote() {
+        let missing_remote_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-missing-generic-git-repo-{}.git",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![generic_git_connection(
+                missing_remote_path.display().to_string(),
+            )],
+            repository_sync_jobs: vec![generic_git_repository_sync_job(
+                "sync_job_generic_git_unreachable",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued unreachable generic Git repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_generic_git_unreachable");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
+            "unreachable generic Git remote should produce operator-visible failure detail: {failed_job:?}"
+        );
+        assert_eq!(failed_job.synced_revision, None);
+        assert_eq!(failed_job.synced_branch, None);
+        assert_eq!(failed_job.synced_content_file_count, None);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+    }
+
+    #[test]
+    fn generic_git_remote_option_like_base_url_fails_closed() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("git"),
+            "--upload-pack=/bin/echo",
+            Duration::from_secs(2),
+        ) {
+            Ok(_) => {
+                panic!("option-like Generic Git base_url must not be interpreted as git flags")
+            }
+            Err(error) => error,
+        };
+
+        assert!(
+            error.starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
+            "option-like base_url should fail closed with operator-visible prefix: {error}"
+        );
+    }
+
+    #[test]
+    fn generic_git_remote_with_many_heads_does_not_deadlock_on_piped_output() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-many-heads-generic-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bare_repo_path = repo_path.with_extension("git");
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("README.md"), "many heads fixture\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "many heads fixture"])
+            .output()
+            .expect("git commit should run");
+        for index in 0..3_000 {
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .args(["branch", &format!("branch-{index}")])
+                .output()
+                .expect("git branch should run");
+        }
+        Command::new("git")
+            .args(["clone", "--bare"])
+            .arg(&repo_path)
+            .arg(&bare_repo_path)
+            .output()
+            .expect("git clone --bare should run");
+
+        let execution = run_generic_git_repository_sync_execution(
+            OsStr::new("git"),
+            &bare_repo_path.display().to_string(),
+            Duration::from_secs(2),
+        )
+        .expect("large Generic Git head listings should be drained while waiting for process exit");
+
+        assert!(!execution.revision.is_empty());
+        assert!(!execution.branch.is_empty());
+
+        fs::remove_dir_all(repo_path).unwrap();
+        fs::remove_dir_all(bare_repo_path).unwrap();
     }
 
     #[tokio::test]
