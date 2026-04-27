@@ -7,7 +7,11 @@ use sourcebot_worker::{
     run_worker_tick, StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
     WorkerTickOutcome,
 };
-use std::{env, time::Duration};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tracing::info;
 
 #[tokio::main]
@@ -43,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
 
     let max_ticks = worker_max_ticks_from_env()?;
     let idle_sleep = worker_idle_sleep_from_env()?;
+    let status_path = worker_status_path_from_env()?;
 
     info!(
         organization_state_path = %config.organization_state_path,
@@ -50,8 +55,18 @@ async fn main() -> anyhow::Result<()> {
         repository_sync_stub_outcome = ?repository_sync_stub_outcome,
         max_ticks,
         idle_sleep_ms = idle_sleep.as_millis(),
+        worker_status_path = status_path.as_ref().map(|path| path.display().to_string()).as_deref().unwrap_or(""),
         "worker runtime baseline resolved"
     );
+
+    let mut last_tick = 0;
+    let mut last_outcome = "not_started".to_string();
+    let mut last_work_item_id: Option<String> = None;
+    let mut last_work_item_status: Option<String> = None;
+
+    if let Some(path) = status_path.as_ref() {
+        write_worker_status_snapshot(path, max_ticks, 0, 0, &last_outcome, None, None, false)?;
+    }
 
     for tick in 1..=max_ticks {
         let outcome = run_worker_tick(
@@ -60,25 +75,39 @@ async fn main() -> anyhow::Result<()> {
             repository_sync_stub_outcome,
         )
         .await?;
+        last_tick = tick;
 
         match outcome {
-            Some(WorkerTickOutcome::ReviewAgentRun(run)) => info!(
-                tick,
-                review_agent_run_id = %run.id,
-                status = ?run.status,
-                "recorded review-agent run terminal status after worker execution"
-            ),
-            Some(WorkerTickOutcome::RepositorySyncJob(job)) => info!(
-                tick,
-                repository_sync_job_id = %job.id,
-                organization_id = %job.organization_id,
-                repository_id = %job.repository_id,
-                connection_id = %job.connection_id,
-                status = ?job.status,
-                error = job.error.as_deref().unwrap_or(""),
-                "recorded repository-sync terminal status after worker execution"
-            ),
+            Some(WorkerTickOutcome::ReviewAgentRun(run)) => {
+                last_outcome = "review_agent_run".to_string();
+                last_work_item_id = Some(run.id.clone());
+                last_work_item_status = Some(format!("{:?}", run.status));
+                info!(
+                    tick,
+                    review_agent_run_id = %run.id,
+                    status = ?run.status,
+                    "recorded review-agent run terminal status after worker execution"
+                )
+            }
+            Some(WorkerTickOutcome::RepositorySyncJob(job)) => {
+                last_outcome = "repository_sync_job".to_string();
+                last_work_item_id = Some(job.id.clone());
+                last_work_item_status = Some(format!("{:?}", job.status));
+                info!(
+                    tick,
+                    repository_sync_job_id = %job.id,
+                    organization_id = %job.organization_id,
+                    repository_id = %job.repository_id,
+                    connection_id = %job.connection_id,
+                    status = ?job.status,
+                    error = job.error.as_deref().unwrap_or(""),
+                    "recorded repository-sync terminal status after worker execution"
+                )
+            }
             None => {
+                last_outcome = "no_work".to_string();
+                last_work_item_id = None;
+                last_work_item_status = None;
                 info!(
                     tick,
                     "no queued review-agent run or repository sync job available"
@@ -90,6 +119,19 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    if let Some(path) = status_path.as_ref() {
+        write_worker_status_snapshot(
+            path,
+            max_ticks,
+            max_ticks,
+            last_tick,
+            &last_outcome,
+            last_work_item_id.as_deref(),
+            last_work_item_status.as_deref(),
+            true,
+        )?;
+    }
+
     info!(max_ticks, "completed configured bounded worker runtime");
 
     Ok(())
@@ -97,6 +139,53 @@ async fn main() -> anyhow::Result<()> {
 
 fn worker_max_ticks_from_env() -> anyhow::Result<u64> {
     parse_positive_u64_env("SOURCEBOT_WORKER_MAX_TICKS", 1)
+}
+
+fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
+    match env::var("SOURCEBOT_WORKER_STATUS_PATH") {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must not be empty when set");
+            }
+            Ok(Some(PathBuf::from(trimmed)))
+        }
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(env::VarError::NotUnicode(_)) => {
+            anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must be valid unicode")
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_worker_status_snapshot(
+    path: &Path,
+    max_ticks: u64,
+    ticks_completed: u64,
+    last_tick: u64,
+    last_outcome: &str,
+    last_work_item_id: Option<&str>,
+    last_work_item_status: Option<&str>,
+    completed: bool,
+) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    let payload = serde_json::json!({
+        "schema_version": 1,
+        "completed": completed,
+        "max_ticks": max_ticks,
+        "ticks_completed": ticks_completed,
+        "last_tick": last_tick,
+        "last_outcome": last_outcome,
+        "last_work_item_id": last_work_item_id,
+        "last_work_item_status": last_work_item_status,
+    });
+    fs::write(path, serde_json::to_vec_pretty(&payload)?)?;
+    Ok(())
 }
 
 fn worker_idle_sleep_from_env() -> anyhow::Result<Duration> {

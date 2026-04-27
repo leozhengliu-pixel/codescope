@@ -63,6 +63,16 @@ fn run_worker(path: &Path) -> std::process::Output {
         .expect("worker binary should run")
 }
 
+fn run_worker_with_status_path(path: &Path, status_path: &Path) -> std::process::Output {
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", path)
+        .env("SOURCEBOT_WORKER_STATUS_PATH", status_path)
+        .output()
+        .expect("worker binary should run")
+}
+
 fn run_worker_with_failed_repository_sync(path: &Path) -> std::process::Output {
     let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
         .expect("cargo should expose the built sourcebot-worker binary path");
@@ -155,6 +165,42 @@ async fn worker_binary_logs_runtime_baseline_and_no_work_path() {
     );
 
     fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn worker_binary_writes_supervisor_status_snapshot_for_no_work_tick() {
+    let path = unique_test_path("worker-runtime-status-organizations");
+    let status_path = unique_test_path("worker-runtime-status-snapshot");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let output = run_worker_with_status_path(&path, &status_path);
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly after writing supervisor status: stderr={}",
+        normalized_log_output(&output.stderr)
+    );
+
+    let status: serde_json::Value = serde_json::from_slice(
+        &fs::read(&status_path).expect("worker should write supervisor status snapshot"),
+    )
+    .expect("supervisor status should be JSON");
+    assert_eq!(status["schema_version"], 1);
+    assert_eq!(status["completed"], true);
+    assert_eq!(status["max_ticks"], 1);
+    assert_eq!(status["ticks_completed"], 1);
+    assert_eq!(status["last_tick"], 1);
+    assert_eq!(status["last_outcome"], "no_work");
+    assert_eq!(status["last_work_item_id"], serde_json::Value::Null);
+    assert_eq!(status["last_work_item_status"], serde_json::Value::Null);
+
+    fs::remove_file(path).unwrap();
+    fs::remove_file(status_path).unwrap();
 }
 
 #[tokio::test]
