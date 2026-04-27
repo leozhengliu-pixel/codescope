@@ -78,6 +78,7 @@ pub async fn run_repository_sync_claim_tick(
 ) -> Result<Option<RepositorySyncJob>> {
     let now = current_timestamp();
     recover_stale_running_repository_sync_jobs(store, &now).await?;
+    requeue_old_stale_repository_sync_lease_failures(store, &now).await?;
     let started_at = current_timestamp();
     let execute = match stub_outcome {
         StubRepositorySyncJobExecutionOutcome::Succeeded => {
@@ -504,6 +505,84 @@ async fn recover_stale_running_repository_sync_jobs(
     Ok(())
 }
 
+async fn requeue_old_stale_repository_sync_lease_failures(
+    store: &dyn OrganizationStore,
+    now: &str,
+) -> Result<()> {
+    let mut state = store.organization_state().await?;
+    if requeue_old_stale_repository_sync_lease_failures_in_state(&mut state, now) {
+        store.store_organization_state(state).await?;
+    }
+    Ok(())
+}
+
+fn requeue_old_stale_repository_sync_lease_failures_in_state(
+    state: &mut OrganizationState,
+    now: &str,
+) -> bool {
+    let Ok(now_time) = OffsetDateTime::parse(now, &Rfc3339) else {
+        return false;
+    };
+    let mut retry_jobs = Vec::new();
+    for job in &state.repository_sync_jobs {
+        if job.status != RepositorySyncJobStatus::Failed
+            || job.id.contains("_auto_retry_")
+            || !job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with(REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX)
+        {
+            continue;
+        }
+        let Some(finished_at) = job.finished_at.as_deref() else {
+            continue;
+        };
+        let Ok(finished_at) = OffsetDateTime::parse(finished_at, &Rfc3339) else {
+            continue;
+        };
+        if now_time - finished_at < REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT {
+            continue;
+        }
+        let retry_id = format!("{}_auto_retry_1", job.id);
+        let has_replacement_for_target = |existing: &RepositorySyncJob| {
+            existing.id == retry_id
+                || (existing.organization_id == job.organization_id
+                    && existing.repository_id == job.repository_id
+                    && existing.connection_id == job.connection_id
+                    && (existing.id.contains("_auto_retry_")
+                        || matches!(
+                            existing.status,
+                            RepositorySyncJobStatus::Queued | RepositorySyncJobStatus::Running
+                        )))
+        };
+        if state
+            .repository_sync_jobs
+            .iter()
+            .any(has_replacement_for_target)
+            || retry_jobs.iter().any(has_replacement_for_target)
+        {
+            continue;
+        }
+        let mut retry = job.clone();
+        retry.id = retry_id;
+        retry.status = RepositorySyncJobStatus::Queued;
+        retry.queued_at = now.to_string();
+        retry.started_at = None;
+        retry.finished_at = None;
+        retry.error = None;
+        retry.synced_revision = None;
+        retry.synced_branch = None;
+        retry.synced_content_file_count = None;
+        retry_jobs.push(retry);
+    }
+    if retry_jobs.is_empty() {
+        return false;
+    }
+    state.repository_sync_jobs.extend(retry_jobs);
+    true
+}
+
 fn fail_stale_running_repository_sync_jobs(state: &mut OrganizationState, now: &str) -> bool {
     let Ok(now) = OffsetDateTime::parse(now, &Rfc3339) else {
         return false;
@@ -731,7 +810,9 @@ mod tests {
         StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
         WorkerTickOutcome,
     };
-    use crate::REPOSITORY_SYNC_STUB_FAILURE_ERROR;
+    use crate::{
+        REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX, REPOSITORY_SYNC_STUB_FAILURE_ERROR,
+    };
     use anyhow::Result;
     use async_trait::async_trait;
     use sourcebot_api::auth::FileOrganizationStore;
@@ -1469,6 +1550,146 @@ mod tests {
         assert_eq!(fresh_job.status, RepositorySyncJobStatus::Running);
         assert_eq!(fresh_job.finished_at, None);
         assert_eq!(fresh_job.error, None);
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_requeues_old_stale_lease_failure_once_before_claiming()
+    {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            repository_sync_jobs: vec![repository_sync_job(
+                "sync_job_stale_running",
+                RepositorySyncJobStatus::Failed,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+        {
+            let mut state = store.state.lock().unwrap();
+            state.repository_sync_jobs[0].finished_at = Some("2026-04-26T11:05:00Z".to_string());
+            state.repository_sync_jobs[0].error = Some(format!(
+                "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX}: started_at 2026-04-26T10:01:00Z exceeded 3600000ms lease"
+            ));
+        }
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("old stale-lease failure should be automatically retried and claimed");
+
+        assert_eq!(completed_job.id, "sync_job_stale_running_auto_retry_1");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs.len(), 2);
+        assert_eq!(
+            persisted.repository_sync_jobs[0].status,
+            RepositorySyncJobStatus::Failed
+        );
+        assert_eq!(persisted.repository_sync_jobs[1], completed_job);
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_requeues_only_one_stale_lease_failure_for_same_target()
+    {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            repository_sync_jobs: vec![
+                repository_sync_job(
+                    "sync_job_stale_running_a",
+                    RepositorySyncJobStatus::Failed,
+                    "2026-04-26T10:01:00Z",
+                ),
+                repository_sync_job(
+                    "sync_job_stale_running_b",
+                    RepositorySyncJobStatus::Failed,
+                    "2026-04-26T10:02:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+        {
+            let mut state = store.state.lock().unwrap();
+            for job in &mut state.repository_sync_jobs {
+                job.repository_id = "repo_shared_target".into();
+                job.finished_at = Some("2026-04-26T11:05:00Z".to_string());
+                job.error = Some(format!(
+                    "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX}: started_at 2026-04-26T10:01:00Z exceeded 3600000ms lease"
+                ));
+            }
+        }
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("one old stale-lease failure should be retried and claimed");
+
+        assert_eq!(completed_job.repository_id, "repo_shared_target");
+        let persisted = store.organization_state().await.unwrap();
+        let replacement_jobs = persisted
+            .repository_sync_jobs
+            .iter()
+            .filter(|job| job.id.contains("_auto_retry_"))
+            .count();
+        assert_eq!(replacement_jobs, 1, "only one replacement may be queued or claimed for the same organization/repository/connection target");
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_does_not_replay_stale_lease_failure_after_terminal_retry_for_same_target(
+    ) {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            repository_sync_jobs: vec![
+                repository_sync_job(
+                    "sync_job_stale_running_a",
+                    RepositorySyncJobStatus::Failed,
+                    "2026-04-26T10:01:00Z",
+                ),
+                repository_sync_job(
+                    "sync_job_stale_running_a_auto_retry_1",
+                    RepositorySyncJobStatus::Succeeded,
+                    "2026-04-26T12:10:00Z",
+                ),
+                repository_sync_job(
+                    "sync_job_stale_running_b",
+                    RepositorySyncJobStatus::Failed,
+                    "2026-04-26T10:02:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+        {
+            let mut state = store.state.lock().unwrap();
+            for job in &mut state.repository_sync_jobs {
+                job.repository_id = "repo_shared_target".into();
+                job.finished_at = Some("2026-04-26T11:05:00Z".to_string());
+            }
+            state.repository_sync_jobs[0].error = Some(format!(
+                "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX}: started_at 2026-04-26T10:01:00Z exceeded 3600000ms lease"
+            ));
+            state.repository_sync_jobs[1].error = None;
+            state.repository_sync_jobs[2].error = Some(format!(
+                "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX}: started_at 2026-04-26T10:02:00Z exceeded 3600000ms lease"
+            ));
+        }
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(completed_job, None);
+        let persisted = store.organization_state().await.unwrap();
+        let replacement_jobs = persisted
+            .repository_sync_jobs
+            .iter()
+            .filter(|job| job.id.contains("_auto_retry_"))
+            .count();
+        assert_eq!(replacement_jobs, 1, "terminal auto-retry history for the same target must suppress repeated automatic replay");
     }
 
     #[tokio::test]
