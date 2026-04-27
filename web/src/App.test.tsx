@@ -11865,6 +11865,263 @@ describe('App', () => {
     });
   });
 
+  it('refreshes local repository sync history after a successful local import queues worker handoff', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let syncJobsFetchCount = 0;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        syncJobsFetchCount += 1;
+        if (syncJobsFetchCount === 1) {
+          return jsonResponse([]);
+        }
+
+        return jsonResponse([
+          {
+            id: 'job-imported-repo-77',
+            organization_id: 'org-1',
+            repository_id: 'repo-77',
+            connection_id: 'conn-2',
+            status: 'queued',
+            queued_at: '2026-04-27T18:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'queued',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+    expect(within(localCard!).getByText('No repository sync jobs found for this connection.')).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(localCard!).getAllByText('Repository id: repo-77')).toHaveLength(2);
+    });
+    expect(await within(localCard!).findByText(/Queued at:\s*2026-04-27T18:00:00Z/)).toBeInTheDocument();
+    const refreshedSyncRow = within(localCard!).getByLabelText('Repository sync history row for repo-77 (queued)');
+    expect(within(refreshedSyncRow).getByText('Status')).toBeInTheDocument();
+    expect(within(refreshedSyncRow).getByText('queued')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(syncJobsFetchCount).toBe(2);
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/repository-sync-jobs');
+    });
+  });
+
+  it('keeps refreshed local import sync history when the initial sync-history request resolves late', async () => {
+    window.location.hash = '#/settings/connections';
+
+    const initialSyncJobs = deferredResponse();
+    let syncJobsFetchCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        syncJobsFetchCount += 1;
+        if (syncJobsFetchCount === 1) {
+          return await initialSyncJobs.promise;
+        }
+
+        return jsonResponse([
+          {
+            id: 'job-imported-repo-77',
+            organization_id: 'org-1',
+            repository_id: 'repo-77',
+            connection_id: 'conn-2',
+            status: 'queued',
+            queued_at: '2026-04-27T18:00:00Z',
+            started_at: null,
+            finished_at: null,
+            error: null,
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'queued',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    const refreshedSyncRow = await within(localCard!).findByLabelText('Repository sync history row for repo-77 (queued)');
+    expect(within(refreshedSyncRow).getByText(/Queued at:\s*2026-04-27T18:00:00Z/)).toBeInTheDocument();
+
+    initialSyncJobs.resolve(jsonResponse([]));
+
+    await waitFor(() => {
+      expect(within(localCard!).getByLabelText('Repository sync history row for repo-77 (queued)')).toBeInTheDocument();
+      expect(within(localCard!).queryByText('No repository sync jobs found for this connection.')).not.toBeInTheDocument();
+    });
+  });
+
+  it('preserves existing local import sync history when the post-import refresh fails', async () => {
+    window.location.hash = '#/settings/connections';
+
+    let syncJobsFetchCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/srv/git/mirror',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        syncJobsFetchCount += 1;
+        if (syncJobsFetchCount === 1) {
+          return jsonResponse([
+            {
+              id: 'job-existing-repo-12',
+              organization_id: 'org-1',
+              repository_id: 'repo-12',
+              connection_id: 'conn-2',
+              status: 'succeeded',
+              queued_at: '2026-04-27T17:00:00Z',
+              started_at: '2026-04-27T17:00:01Z',
+              finished_at: '2026-04-27T17:00:02Z',
+              error: null,
+            },
+          ]);
+        }
+
+        throw new Error('sync history refresh unavailable');
+      }
+
+      if (url === '/api/v1/auth/repositories/import/local' && init?.method === 'POST') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-77',
+            name: 'project-alpha',
+            default_branch: 'main',
+            connection_id: 'conn-2',
+            sync_state: 'queued',
+          },
+          connection: {
+            id: 'conn-2',
+            name: 'Local Mirror',
+            kind: 'local',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+
+    const localCard = screen.getByText('Local Mirror').closest('article');
+    expect(localCard).toBeInTheDocument();
+    expect(await within(localCard!).findByLabelText('Repository sync history row for repo-12 (succeeded)')).toBeInTheDocument();
+
+    fireEvent.change(within(localCard!).getByLabelText('Repository path'), {
+      target: { value: '/srv/git/mirror/project-alpha' },
+    });
+    fireEvent.click(within(localCard!).getByRole('button', { name: 'Import repository' }));
+
+    expect(await within(localCard!).findByText('Imported repository: project-alpha')).toBeInTheDocument();
+    expect(await within(localCard!).findByText('Failed to load repository sync history: sync history refresh unavailable')).toBeInTheDocument();
+    const preservedSyncRow = within(localCard!).getByLabelText('Repository sync history row for repo-12 (succeeded)');
+    expect(within(preservedSyncRow).getByText(/Queued at:\s*2026-04-27T17:00:00Z/)).toBeInTheDocument();
+  });
+
   it('clears stale imported repository details after the local import path changes', async () => {
     window.location.hash = '#/settings/connections';
 
@@ -12512,7 +12769,8 @@ describe('App', () => {
           path: '/srv/git/mirror/project-alpha',
         }),
       });
-      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/connections/conn-1', {
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/auth/connections/conn-1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -12645,7 +12903,8 @@ describe('App', () => {
           path: '/srv/git/mirror/project-alpha',
         }),
       });
-      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/connections/conn-1', {
+      expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/auth/repository-sync-jobs');
+      expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/auth/connections/conn-1', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

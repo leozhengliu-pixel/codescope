@@ -3285,6 +3285,32 @@ function SettingsConnectionsPage() {
   const [connectionKind, setConnectionKind] = useState<AuthConnectionKind>('github');
   const [baseUrl, setBaseUrl] = useState('');
   const [repoPath, setRepoPath] = useState('');
+  const syncJobsRequestVersion = useRef(0);
+
+  const refreshSyncJobs = async ({ preserveOnError = false } = {}) => {
+    const requestVersion = syncJobsRequestVersion.current + 1;
+    syncJobsRequestVersion.current = requestVersion;
+    setSyncJobsLoading(true);
+
+    try {
+      const data = await fetchJson<RepositorySyncJob[]>('/api/v1/auth/repository-sync-jobs');
+      if (syncJobsRequestVersion.current === requestVersion) {
+        setSyncJobs(data);
+        setSyncJobsError(null);
+      }
+    } catch (err) {
+      if (syncJobsRequestVersion.current === requestVersion) {
+        if (!preserveOnError) {
+          setSyncJobs([]);
+        }
+        setSyncJobsError(err instanceof Error ? err.message : 'Unknown error');
+      }
+    } finally {
+      if (syncJobsRequestVersion.current === requestVersion) {
+        setSyncJobsLoading(false);
+      }
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -3324,27 +3350,11 @@ function SettingsConnectionsPage() {
         }
       });
 
-    fetchJson<RepositorySyncJob[]>('/api/v1/auth/repository-sync-jobs')
-      .then((data) => {
-        if (!cancelled) {
-          setSyncJobs(data);
-          setSyncJobsError(null);
-        }
-      })
-      .catch((err: Error) => {
-        if (!cancelled) {
-          setSyncJobs([]);
-          setSyncJobsError(err.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setSyncJobsLoading(false);
-        }
-      });
+    void refreshSyncJobs();
 
     return () => {
       cancelled = true;
+      syncJobsRequestVersion.current += 1;
     };
   }, []);
 
@@ -3555,6 +3565,8 @@ function SettingsConnectionsPage() {
           result: importedRepository,
         },
       }));
+
+      await refreshSyncJobs({ preserveOnError: true });
     } catch (err) {
       setLocalImportStates((currentStates) => ({
         ...currentStates,
@@ -3848,7 +3860,7 @@ function SettingsConnectionsPage() {
                   {!syncJobsError && syncJobsLoading ? (
                     <div style={{ color: '#57606a', fontSize: 14 }}>Loading repository sync history…</div>
                   ) : null}
-                  {!syncJobsError && !syncJobsLoading && latestConnectionSyncJob ? (
+                  {!syncJobsLoading && latestConnectionSyncJob ? (
                     <div
                       aria-label={`Latest sync summary for ${connection.name}`}
                       style={{ color: '#57606a', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
@@ -3863,7 +3875,7 @@ function SettingsConnectionsPage() {
                   {!syncJobsError && !syncJobsLoading && connectionSyncHistoryJobs.length === 0 ? (
                     <div style={{ color: '#57606a', fontSize: 14 }}>No repository sync jobs found for this connection.</div>
                   ) : null}
-                  {!syncJobsError && connectionSyncHistoryJobs.length > 0 ? (
+                  {connectionSyncHistoryJobs.length > 0 ? (
                     <div style={{ display: 'grid', gap: 8 }}>
                       {connectionSyncHistoryJobs.map((syncJob) => {
                         const localArtifactDirectory = localSyncArtifactDirectory(connection, syncJob);
