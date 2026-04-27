@@ -2,8 +2,11 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use sourcebot_core::{
     claim_next_repository_sync_job, claim_next_review_agent_run, complete_review_agent_run,
-    fail_review_agent_run, store_repository_sync_job as upsert_repository_sync_job, BootstrapStore,
-    LocalSessionStore, OrganizationStore,
+    fail_review_agent_run,
+    store_repository_permission_binding as upsert_repository_permission_binding,
+    store_repository_sync_job as upsert_repository_sync_job,
+    store_repository_sync_job_if_missing_for_repository, BootstrapStore, LocalSessionStore,
+    OrganizationStore,
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
@@ -1175,6 +1178,17 @@ impl PgOrganizationStore {
         Ok(Self::new(FileOrganizationStore::new(state_path), pool))
     }
 
+    async fn repository_permission_bindings(&self) -> Result<Vec<RepositoryPermissionBinding>> {
+        let rows = sqlx::query(
+            "SELECT organization_id, repository_id, to_char(synced_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS synced_at FROM repository_permission_bindings ORDER BY organization_id, repository_id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(repository_permission_binding_from_row)
+            .collect()
+    }
+
     async fn repository_sync_jobs(&self) -> Result<Vec<RepositorySyncJob>> {
         let sql = format!(
             "SELECT {REPOSITORY_SYNC_JOB_SELECT_COLUMNS} FROM repository_sync_jobs ORDER BY queued_at, id"
@@ -1671,6 +1685,9 @@ impl LocalSessionStore for PgLocalSessionStore {
 impl OrganizationStore for PgOrganizationStore {
     async fn organization_state(&self) -> Result<OrganizationState> {
         let mut state = self.file_store.organization_state().await?;
+        for binding in self.repository_permission_bindings().await? {
+            upsert_repository_permission_binding(&mut state, binding);
+        }
         state.repository_sync_jobs = self.repository_sync_jobs().await?;
         state.review_webhook_delivery_attempts = self.review_webhook_delivery_attempts().await?;
         state.review_agent_runs = self.review_agent_runs().await?;
@@ -1701,6 +1718,53 @@ impl OrganizationStore for PgOrganizationStore {
 
     async fn store_repository_sync_job(&self, job: RepositorySyncJob) -> Result<()> {
         Self::upsert_repository_sync_job(&self.pool, job).await
+    }
+
+    async fn store_repository_permission_binding_and_sync_job(
+        &self,
+        binding: RepositoryPermissionBinding,
+        job: RepositorySyncJob,
+    ) -> Result<()> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!(
+                "{}\u{1f}{}\u{1f}{}",
+                binding.organization_id, binding.repository_id, job.connection_id
+            ))
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "INSERT INTO repository_permission_bindings (organization_id, repository_id, synced_at)
+             VALUES ($1, $2, $3::timestamptz)
+             ON CONFLICT (organization_id, repository_id)
+             DO UPDATE SET synced_at = EXCLUDED.synced_at",
+        )
+        .bind(binding.organization_id)
+        .bind(binding.repository_id)
+        .bind(binding.synced_at)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO repository_sync_jobs (id, organization_id, repository_id, connection_id, status, queued_at, started_at, finished_at, error)
+             SELECT $1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9
+             WHERE NOT EXISTS (
+                SELECT 1 FROM repository_sync_jobs
+                WHERE organization_id = $2 AND repository_id = $3 AND connection_id = $4
+             )",
+        )
+        .bind(job.id)
+        .bind(job.organization_id)
+        .bind(job.repository_id)
+        .bind(job.connection_id)
+        .bind(repository_sync_job_status_to_str(&job.status))
+        .bind(job.queued_at)
+        .bind(job.started_at)
+        .bind(job.finished_at)
+        .bind(job.error)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn claim_next_repository_sync_job(
@@ -1834,6 +1898,20 @@ impl OrganizationStore for FileOrganizationStore {
         let _lock = self.acquire_write_lock()?;
         let mut state = self.read_persisted_state()?;
         upsert_repository_sync_job(&mut state, job);
+        let payload = serde_json::to_vec_pretty(&state)?;
+        write_json_file(&self.state_path, &payload, true)?;
+        Ok(())
+    }
+
+    async fn store_repository_permission_binding_and_sync_job(
+        &self,
+        binding: RepositoryPermissionBinding,
+        job: RepositorySyncJob,
+    ) -> Result<()> {
+        let _lock = self.acquire_write_lock()?;
+        let mut state = self.read_persisted_state()?;
+        upsert_repository_permission_binding(&mut state, binding);
+        store_repository_sync_job_if_missing_for_repository(&mut state, job);
         let payload = serde_json::to_vec_pretty(&state)?;
         write_json_file(&self.state_path, &payload, true)?;
         Ok(())
@@ -3696,6 +3774,33 @@ mod tests {
         assert_eq!(state.organizations.len(), 1);
         assert_eq!(state.repository_sync_jobs, vec![updated]);
         fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_persists_repository_permission_binding_and_sync_job_together() {
+        let pool = repository_sync_job_test_pool().await;
+        let path = unique_test_path("pg-organization-store-import-binding-sync-job");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let binding = RepositoryPermissionBinding {
+            organization_id: "org_acme".into(),
+            repository_id: "repo_sync_job_queued".into(),
+            synced_at: "2026-04-26T10:00:00Z".into(),
+        };
+        let queued = repository_sync_job(
+            "sync_job_queued",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:00Z",
+        );
+
+        store
+            .store_repository_permission_binding_and_sync_job(binding.clone(), queued.clone())
+            .await
+            .unwrap();
+
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(state.repo_permissions, vec![binding]);
+        assert_eq!(state.repository_sync_jobs, vec![queued]);
+        fs::remove_file(path).unwrap_err();
     }
 
     #[tokio::test]

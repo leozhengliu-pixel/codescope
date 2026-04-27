@@ -363,6 +363,10 @@ impl CatalogStore for PgCatalogStore {
         );
 
         let mut transaction = self.pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind("local-import")
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query(
             "INSERT INTO connections (id, name, kind) VALUES ($1, $2, $3)
              ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, kind = EXCLUDED.kind",
@@ -374,10 +378,35 @@ impl CatalogStore for PgCatalogStore {
         .await?;
 
         if let Some(row) = sqlx::query(
-            "SELECT id AS repo_id, name AS repo_name, default_branch, connection_id, sync_state
-             FROM repositories
-             WHERE connection_id = $1 AND name = $2
-             ORDER BY id
+            "SELECT r.id AS repo_id, r.name AS repo_name, r.default_branch, r.connection_id, r.sync_state
+             FROM repositories r
+             INNER JOIN local_repository_paths p ON p.repository_id = r.id
+             WHERE p.connection_id = $1 AND p.canonical_path = $2
+             ORDER BY r.id
+             LIMIT 1",
+        )
+        .bind(&connection.id)
+        .bind(canonical_path.display().to_string())
+        .fetch_optional(&mut *transaction)
+        .await?
+        {
+            let repository = row_to_repository(&row)?;
+            transaction.commit().await?;
+            return Ok(ImportRepositoryResult {
+                detail: RepositoryDetail {
+                    repository,
+                    connection,
+                },
+                created: false,
+            });
+        }
+
+        if let Some(row) = sqlx::query(
+            "SELECT r.id AS repo_id, r.name AS repo_name, r.default_branch, r.connection_id, r.sync_state
+             FROM repositories r
+             LEFT JOIN local_repository_paths p ON p.repository_id = r.id
+             WHERE r.connection_id = $1 AND r.name = $2 AND p.repository_id IS NULL
+             ORDER BY r.id
              LIMIT 1",
         )
         .bind(&connection.id)
@@ -386,6 +415,16 @@ impl CatalogStore for PgCatalogStore {
         .await?
         {
             let repository = row_to_repository(&row)?;
+            sqlx::query(
+                "INSERT INTO local_repository_paths (repository_id, connection_id, canonical_path)
+                 VALUES ($1, $2, $3)
+                 ON CONFLICT (connection_id, canonical_path) DO NOTHING",
+            )
+            .bind(&repository.id)
+            .bind(&connection.id)
+            .bind(canonical_path.display().to_string())
+            .execute(&mut *transaction)
+            .await?;
             transaction.commit().await?;
             return Ok(ImportRepositoryResult {
                 detail: RepositoryDetail {
@@ -417,6 +456,15 @@ impl CatalogStore for PgCatalogStore {
         .bind(&default_branch)
         .bind(&connection.id)
         .bind("ready")
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO local_repository_paths (repository_id, connection_id, canonical_path)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(&repo_id)
+        .bind(&connection.id)
+        .bind(canonical_path.display().to_string())
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;
@@ -464,10 +512,10 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
                 .into_iter()
                 .collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event + task95 external-account migration versions"
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event + task95 external-account + task96 local-repository-path migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -505,6 +553,8 @@ mod tests {
                 "0012_auth_audit_events.up.sql".to_string(),
                 "0013_external_accounts.down.sql".to_string(),
                 "0013_external_accounts.up.sql".to_string(),
+                "0014_local_repository_paths.down.sql".to_string(),
+                "0014_local_repository_paths.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -538,6 +588,7 @@ mod tests {
             "CREATE TABLE sessions",
             "CREATE TABLE ask_threads",
             "CREATE TABLE review_agent_runs",
+            "CREATE TABLE local_repository_paths",
         ] {
             assert!(
                 !up_migration.contains(unexpected_snippet),
@@ -1149,6 +1200,80 @@ mod tests {
         );
 
         std::fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn pg_catalog_store_imports_same_named_local_repositories_as_distinct_paths() {
+        let pool = pg_catalog_test_pool().await;
+        let root = std::env::temp_dir().join(format!(
+            "sourcebot-pg-local-import-same-name-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let first_repo = root.join("first").join("duplicate-name");
+        let second_repo = root.join("second").join("duplicate-name");
+        for repo_path in [&first_repo, &second_repo] {
+            std::fs::create_dir_all(repo_path).unwrap();
+            std::process::Command::new("git")
+                .arg("init")
+                .arg("-b")
+                .arg("main")
+                .arg(repo_path)
+                .output()
+                .expect("initialize local git repository");
+            std::fs::write(repo_path.join("README.md"), "# imported\n").unwrap();
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .args(["add", "README.md"])
+                .output()
+                .expect("stage local git repository content");
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .args([
+                    "-c",
+                    "user.email=test@example.com",
+                    "-c",
+                    "user.name=Test User",
+                ])
+                .args(["commit", "-m", "initial"])
+                .output()
+                .expect("commit local git repository content");
+        }
+
+        let store = PgCatalogStore { pool };
+        let connection = Connection {
+            id: "conn_pg_local_import_same_name".into(),
+            name: "Postgres Local Import".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: root.display().to_string(),
+            }),
+        };
+
+        let first = store
+            .import_local_repository(connection.clone(), &first_repo.display().to_string())
+            .await
+            .unwrap();
+        let second = store
+            .import_local_repository(connection.clone(), &second_repo.display().to_string())
+            .await
+            .unwrap();
+        let first_again = store
+            .import_local_repository(connection, &first_repo.display().to_string())
+            .await
+            .unwrap();
+
+        assert!(first.created);
+        assert!(second.created);
+        assert!(!first_again.created);
+        assert_ne!(first.detail.repository.id, second.detail.repository.id);
+        assert_eq!(first.detail.repository.name, "duplicate-name");
+        assert_eq!(second.detail.repository.name, "duplicate-name");
+        assert_eq!(first_again.detail.repository.id, first.detail.repository.id);
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

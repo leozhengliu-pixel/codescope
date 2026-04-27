@@ -38,8 +38,9 @@ use sourcebot_models::{
     AuditActor, AuditEvent, BootstrapState, BootstrapStatus, Connection, ConnectionConfig,
     ConnectionKind, LocalAccount, LocalSession, OAuthClient, Organization, OrganizationInvite,
     OrganizationMembership, OrganizationRole, OrganizationState, RepositoryDetail,
-    RepositorySummary, RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook,
-    ReviewWebhookDeliveryAttempt, SearchContext,
+    RepositoryPermissionBinding, RepositorySummary, RepositorySyncJob, RepositorySyncJobStatus,
+    ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, ReviewWebhookDeliveryAttempt,
+    SearchContext,
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, RepositoryIndexStatus, SearchResponse,
@@ -751,6 +752,7 @@ struct CreateConnectionRequest {
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 struct ImportLocalRepositoryRequest {
+    organization_id: Option<String>,
     connection_id: String,
     path: String,
 }
@@ -1791,15 +1793,32 @@ async fn import_authenticated_local_repository(
         .organization_state()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let visible_organization_ids =
-        visible_organization_ids_for_user(&organization_state, &session.user_id);
-    let can_manage_connections = visible_organization_ids.iter().any(|organization_id| {
-        user_is_organization_admin(&organization_state, &session.user_id, organization_id)
-    });
-
-    if !can_manage_connections {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let admin_organization_ids: Vec<String> =
+        visible_organization_ids_for_user(&organization_state, &session.user_id)
+            .into_iter()
+            .filter(|organization_id| {
+                user_is_organization_admin(&organization_state, &session.user_id, organization_id)
+            })
+            .collect();
+    let import_organization_id =
+        if let Some(requested_organization_id) = payload.organization_id.as_deref() {
+            let requested_organization_id = requested_organization_id.trim();
+            if requested_organization_id.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            if !admin_organization_ids
+                .iter()
+                .any(|organization_id| organization_id == requested_organization_id)
+            {
+                return Err(StatusCode::NOT_FOUND);
+            }
+            requested_organization_id.to_string()
+        } else {
+            let [only_admin_organization_id] = admin_organization_ids.as_slice() else {
+                return Err(StatusCode::NOT_FOUND);
+            };
+            only_admin_organization_id.clone()
+        };
 
     let connection = organization_state
         .connections
@@ -1827,9 +1846,44 @@ async fn import_authenticated_local_repository(
 
     let imported = state
         .catalog
-        .import_local_repository(connection, &requested_path.display().to_string())
+        .import_local_repository(connection.clone(), &requested_path.display().to_string())
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let queued_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let sync_job = RepositorySyncJob {
+        id: format!(
+            "repo_sync_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: import_organization_id.to_string(),
+        repository_id: imported.detail.repository.id.clone(),
+        connection_id: connection.id.clone(),
+        status: RepositorySyncJobStatus::Queued,
+        queued_at: queued_at.clone(),
+        started_at: None,
+        finished_at: None,
+        error: None,
+    };
+
+    let permission_binding = RepositoryPermissionBinding {
+        organization_id: import_organization_id.to_string(),
+        repository_id: imported.detail.repository.id.clone(),
+        synced_at: queued_at,
+    };
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    state
+        .organization_store
+        .store_repository_permission_binding_and_sync_job(permission_binding, sync_job)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok((
         if imported.created {
@@ -16188,6 +16242,7 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({
+                            "organization_id": "org_acme",
                             "connection_id": "conn_local_acme",
                             "path": repo_path.display().to_string(),
                         })
@@ -16225,6 +16280,7 @@ mod tests {
         }));
 
         let detail_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri(format!("/api/v1/repos/{}", imported_detail.repository.id))
@@ -16236,6 +16292,77 @@ mod tests {
         assert_eq!(detail_response.status(), StatusCode::OK);
         let listed_detail: RepositoryDetail = read_json(detail_response).await;
         assert_eq!(listed_detail, imported_detail);
+
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.repo_permissions.iter().any(|binding| {
+            binding.organization_id == "org_acme"
+                && binding.repository_id == imported_detail.repository.id
+        }));
+        let queued_jobs = persisted
+            .repository_sync_jobs
+            .iter()
+            .filter(|job| {
+                job.organization_id == "org_acme"
+                    && job.repository_id == imported_detail.repository.id
+                    && job.connection_id == "conn_local_acme"
+                    && job.status == sourcebot_models::RepositorySyncJobStatus::Queued
+                    && job.started_at.is_none()
+                    && job.finished_at.is_none()
+                    && job.error.is_none()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(queued_jobs.len(), 1);
+
+        let reimport_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "organization_id": "org_acme",
+                            "connection_id": "conn_local_acme",
+                            "path": repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(reimport_response.status(), StatusCode::OK);
+        let reimported_detail: RepositoryDetail = read_json(reimport_response).await;
+        assert_eq!(reimported_detail, imported_detail);
+        let persisted_after_reimport: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert_eq!(
+            persisted_after_reimport
+                .repo_permissions
+                .iter()
+                .filter(|binding| {
+                    binding.organization_id == "org_acme"
+                        && binding.repository_id == imported_detail.repository.id
+                })
+                .count(),
+            1
+        );
+        assert_eq!(
+            persisted_after_reimport
+                .repository_sync_jobs
+                .iter()
+                .filter(|job| {
+                    job.organization_id == "org_acme"
+                        && job.repository_id == imported_detail.repository.id
+                        && job.connection_id == "conn_local_acme"
+                })
+                .count(),
+            1
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -16275,6 +16402,7 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({
+                            "organization_id": "org_acme",
                             "connection_id": "conn_local_acme",
                             "path": repo_subdir.display().to_string(),
                         })
@@ -16324,6 +16452,7 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({
+                            "organization_id": "org_acme",
                             "connection_id": "conn_local_acme",
                             "path": outside_repo_path.display().to_string(),
                         })
@@ -16377,6 +16506,7 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({
+                            "organization_id": "org_acme",
                             "connection_id": "conn_local_acme",
                             "path": repo_path.display().to_string(),
                         })
@@ -16425,6 +16555,7 @@ mod tests {
                     .header(header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
                         serde_json::json!({
+                            "organization_id": "org_acme",
                             "connection_id": "conn_local_acme",
                             "path": repo_path.display().to_string(),
                         })
@@ -16436,6 +16567,72 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(import_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_local_repository_import_rejects_requested_viewer_organization_without_handoff() {
+        let organization_state_path = unique_test_path("auth-local-import-requested-viewer-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-local-import-requested-viewer-sessions");
+        let import_root = unique_test_path("auth-local-import-requested-viewer-root");
+        let repo_path = import_root.join("task20b-import-target");
+        let user_id = "local_user_admin_and_viewer";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        create_local_git_repository(&repo_path);
+        let mut state =
+            seeded_local_connection_state(user_id, OrganizationRole::Admin, &import_root);
+        state.organizations.push(Organization {
+            id: "org_beta".into(),
+            slug: "beta".into(),
+            name: "Beta".into(),
+        });
+        state.memberships.push(OrganizationMembership {
+            organization_id: "org_beta".into(),
+            user_id: user_id.into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-24T00:00:00Z".into(),
+        });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/repositories/import/local")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "organization_id": "org_beta",
+                            "connection_id": "conn_local_acme",
+                            "path": repo_path.display().to_string(),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.repo_permissions.is_empty());
+        assert!(persisted.repository_sync_jobs.is_empty());
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();

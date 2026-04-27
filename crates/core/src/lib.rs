@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 pub use sourcebot_models::AskCitation;
 use sourcebot_models::{
     AskThread, AskThreadSummary, Connection, OrganizationState, Repository, RepositoryDetail,
-    RepositorySummary, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
-    ReviewAgentRunStatus,
+    RepositoryPermissionBinding, RepositorySummary, RepositorySyncJob, RepositorySyncJobStatus,
+    ReviewAgentRun, ReviewAgentRunStatus,
 };
 use std::{
     collections::HashSet,
@@ -69,6 +69,16 @@ pub trait OrganizationStore: Send + Sync {
         &self,
         job: sourcebot_models::RepositorySyncJob,
     ) -> Result<()>;
+    async fn store_repository_permission_binding_and_sync_job(
+        &self,
+        binding: RepositoryPermissionBinding,
+        job: sourcebot_models::RepositorySyncJob,
+    ) -> Result<()> {
+        let mut state = self.organization_state().await?;
+        store_repository_permission_binding(&mut state, binding);
+        store_repository_sync_job_if_missing_for_repository(&mut state, job);
+        self.store_organization_state(state).await
+    }
     async fn claim_next_repository_sync_job(
         &self,
         started_at: &str,
@@ -101,6 +111,33 @@ pub fn store_repository_sync_job(state: &mut OrganizationState, job: RepositoryS
     {
         *existing_job = job;
     } else {
+        state.repository_sync_jobs.push(job);
+    }
+}
+
+pub fn store_repository_permission_binding(
+    state: &mut OrganizationState,
+    binding: RepositoryPermissionBinding,
+) {
+    if let Some(existing_binding) = state.repo_permissions.iter_mut().find(|existing| {
+        existing.organization_id == binding.organization_id
+            && existing.repository_id == binding.repository_id
+    }) {
+        *existing_binding = binding;
+    } else {
+        state.repo_permissions.push(binding);
+    }
+}
+
+pub fn store_repository_sync_job_if_missing_for_repository(
+    state: &mut OrganizationState,
+    job: RepositorySyncJob,
+) {
+    if !state.repository_sync_jobs.iter().any(|existing| {
+        existing.organization_id == job.organization_id
+            && existing.repository_id == job.repository_id
+            && existing.connection_id == job.connection_id
+    }) {
         state.repository_sync_jobs.push(job);
     }
 }
