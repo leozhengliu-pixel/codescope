@@ -3,12 +3,19 @@ use sourcebot_core::{complete_repository_sync_job, OrganizationStore};
 use sourcebot_models::{
     ConnectionConfig, OrganizationState, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
 };
+use std::{
+    ffi::OsStr,
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
+};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 const REPOSITORY_SYNC_STUB_FAILURE_ERROR: &str =
     "repository sync stub execution configured to fail";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX: &str =
     "local repository sync preflight failed";
+const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub use sourcebot_core::claim_next_review_agent_run;
 
@@ -143,6 +150,22 @@ fn complete_local_repository_sync_job_if_applicable(
     job: &RepositorySyncJob,
     finished_at: &str,
 ) -> Option<RepositorySyncJob> {
+    complete_local_repository_sync_job_with_git_command_if_applicable(
+        state,
+        job,
+        finished_at,
+        OsStr::new("git"),
+        LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT,
+    )
+}
+
+fn complete_local_repository_sync_job_with_git_command_if_applicable(
+    state: &OrganizationState,
+    job: &RepositorySyncJob,
+    finished_at: &str,
+    git_command: &OsStr,
+    preflight_timeout: Duration,
+) -> Option<RepositorySyncJob> {
     let connection = state
         .connections
         .iter()
@@ -151,14 +174,12 @@ fn complete_local_repository_sync_job_if_applicable(
         return None;
     };
 
-    let preflight = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .output();
+    let preflight = run_git_working_tree_preflight(git_command, repo_path, preflight_timeout);
 
     match preflight {
-        Ok(output) if output.status.success() && git_preflight_stdout_is_true(&output.stdout) => {
+        Ok(Some(output))
+            if output.status.success() && git_preflight_stdout_is_true(&output.stdout) =>
+        {
             Some(complete_repository_sync_job(
                 job,
                 RepositorySyncJobStatus::Succeeded,
@@ -166,7 +187,7 @@ fn complete_local_repository_sync_job_if_applicable(
                 None,
             ))
         }
-        Ok(output) => {
+        Ok(Some(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             let detail = if !stderr.is_empty() {
@@ -178,11 +199,47 @@ fn complete_local_repository_sync_job_if_applicable(
             };
             Some(fail_local_repository_sync_job(job, finished_at, detail))
         }
+        Ok(None) => Some(fail_local_repository_sync_job(
+            job,
+            finished_at,
+            format!(
+                "git preflight timed out after {}ms",
+                preflight_timeout.as_millis()
+            ),
+        )),
         Err(error) => Some(fail_local_repository_sync_job(
             job,
             finished_at,
             error.to_string(),
         )),
+    }
+}
+
+fn run_git_working_tree_preflight(
+    git_command: &OsStr,
+    repo_path: &str,
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
+    let mut child = Command::new(git_command)
+        .arg("-C")
+        .arg(repo_path)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let started_at = Instant::now();
+
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output().map(Some);
+        }
+        if started_at.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        let remaining = timeout.saturating_sub(started_at.elapsed());
+        thread::sleep(remaining.min(Duration::from_millis(10)));
     }
 }
 
@@ -272,11 +329,12 @@ fn current_timestamp() -> String {
 mod tests {
     use super::{
         claim_next_repository_sync_job_from_store_at, claim_next_review_agent_run,
-        claim_next_review_agent_run_from_store, execute_claimed_repository_sync_job_stub_at,
-        execute_claimed_review_agent_run_stub, persist_stub_review_agent_run_execution_outcome,
-        run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
-        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
-        WorkerTickOutcome,
+        claim_next_review_agent_run_from_store,
+        complete_local_repository_sync_job_with_git_command_if_applicable,
+        execute_claimed_repository_sync_job_stub_at, execute_claimed_review_agent_run_stub,
+        persist_stub_review_agent_run_execution_outcome, run_repository_sync_claim_tick,
+        run_review_agent_tick, run_worker_tick, StubRepositorySyncJobExecutionOutcome,
+        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
     };
     use crate::REPOSITORY_SYNC_STUB_FAILURE_ERROR;
     use anyhow::Result;
@@ -289,9 +347,10 @@ mod tests {
     };
     use std::{
         fs,
+        os::unix::fs::PermissionsExt,
         process::Command,
         sync::Mutex,
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -1122,6 +1181,54 @@ mod tests {
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_preflight_times_out_and_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-timeout-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(&fake_git_path, "#!/bin/sh\nsleep 2\necho true\n").unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_timeout",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            fake_git_path.as_os_str(),
+            Duration::from_millis(50),
+        )
+        .expect("timed-out local repository preflight should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_timeout");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("local repository sync preflight failed: git preflight timed out"),
+            "timed out preflight should surface an operator-visible bounded failure: {failed_job:?}"
+        );
 
         fs::remove_dir_all(repo_path).unwrap();
     }
