@@ -3921,7 +3921,7 @@ const settingsSections: SettingsSectionDefinition[] = [
     id: 'linked-accounts',
     label: 'Linked accounts',
     href: '#/settings/linked-accounts',
-    description: 'Inspect the current local account identity and visible organization memberships exposed at /api/v1/auth/linked-accounts.',
+    description: 'Inspect the current local account identity, same-user external identities, and visible organization memberships exposed at /api/v1/auth/linked-accounts.',
   },
   {
     id: 'oauth-clients',
@@ -4128,11 +4128,14 @@ function SettingsLinkedAccountsPage() {
     <Panel title="Linked accounts" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
-          This baseline is intentionally read-only: it shows the current local account identity and visible organization
-          memberships without claiming external provider linking, SSO, or account-merge workflows that do not exist yet.
+          This baseline is intentionally read-only: it shows the current local account identity, same-user external
+          identities, and visible organization memberships without claiming external provider linking/callback exchange,
+          SSO login, or account-merge workflows that do not exist yet.
         </p>
         {!loading && !error && inventory && !inventory.external_linking_supported ? (
-          <p style={{ margin: 0, color: '#57606a' }}>External provider linking and SSO remain follow-up work.</p>
+          <p style={{ margin: 0, color: '#57606a' }}>
+            External provider linking/callback exchange, SSO login, and account merge remain follow-up work.
+          </p>
         ) : null}
 
         {loading ? <div>Loading linked accounts…</div> : null}

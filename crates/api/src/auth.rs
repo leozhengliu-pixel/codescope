@@ -7,10 +7,10 @@ use sourcebot_core::{
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
-    ApiKey, AuditActor, AuditEvent, BootstrapState, BootstrapStatus, LocalAccount, LocalSession,
-    LocalSessionState, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
-    OrganizationRole, OrganizationState, RepositoryPermissionBinding, RepositorySyncJob,
-    ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhookDeliveryAttempt,
+    ApiKey, AuditActor, AuditEvent, BootstrapState, BootstrapStatus, ExternalAccount, LocalAccount,
+    LocalSession, LocalSessionState, OAuthClient, Organization, OrganizationInvite,
+    OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
+    RepositorySyncJob, ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhookDeliveryAttempt,
 };
 use sqlx::{postgres::PgPoolOptions, Postgres, Row, Transaction};
 use std::{
@@ -72,6 +72,7 @@ pub struct PgOrganizationStore {
 pub struct OrganizationAuthMetadataState {
     pub organizations: Vec<Organization>,
     pub accounts: Vec<LocalAccount>,
+    pub external_accounts: Vec<ExternalAccount>,
     pub memberships: Vec<OrganizationMembership>,
     pub invites: Vec<OrganizationInvite>,
     pub repo_permissions: Vec<RepositoryPermissionBinding>,
@@ -280,10 +281,14 @@ impl PgOrganizationAuthMetadataStore {
         let repo_permissions = self
             .repo_permissions_for_organization_ids(&organization_ids)
             .await?;
+        let external_accounts = self
+            .external_accounts_for_user_ids(&[user_id.to_string()])
+            .await?;
 
         Ok(Some(OrganizationAuthMetadataState {
             organizations,
             accounts: vec![account],
+            external_accounts,
             memberships,
             invites: vec![],
             repo_permissions,
@@ -832,6 +837,7 @@ impl PgOrganizationAuthMetadataStore {
             .map(|membership| membership.user_id.clone())
             .collect::<Vec<_>>();
         let accounts = self.accounts_for_ids(&user_ids).await?;
+        let external_accounts = self.external_accounts_for_user_ids(&user_ids).await?;
         let invites = if organization_ids.is_empty() {
             vec![]
         } else {
@@ -852,6 +858,7 @@ impl PgOrganizationAuthMetadataStore {
         Ok(OrganizationAuthMetadataState {
             organizations,
             accounts,
+            external_accounts,
             memberships,
             invites,
             repo_permissions,
@@ -888,6 +895,24 @@ impl PgOrganizationAuthMetadataStore {
         .await?
         .into_iter()
         .map(local_account_from_row)
+        .collect()
+    }
+
+    async fn external_accounts_for_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<ExternalAccount>> {
+        if user_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        sqlx::query(
+            "SELECT id, user_id, provider, provider_user_id, email, name, to_char(linked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS linked_at, to_char(last_login_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS last_login_at FROM external_accounts WHERE user_id = ANY($1::text[]) ORDER BY user_id, provider, provider_user_id, id",
+        )
+        .bind(user_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(external_account_from_row)
         .collect()
     }
 
@@ -940,6 +965,19 @@ fn local_account_from_row(row: sqlx::postgres::PgRow) -> Result<LocalAccount> {
         name: row.get("name"),
         password_hash: row.try_get("password_hash")?,
         created_at: row.get("created_at"),
+    })
+}
+
+fn external_account_from_row(row: sqlx::postgres::PgRow) -> Result<ExternalAccount> {
+    Ok(ExternalAccount {
+        id: row.get("id"),
+        user_id: row.get("user_id"),
+        provider: row.get("provider"),
+        provider_user_id: row.get("provider_user_id"),
+        email: row.get("email"),
+        name: row.get("name"),
+        linked_at: row.get("linked_at"),
+        last_login_at: row.try_get("last_login_at")?,
     })
 }
 
@@ -3441,6 +3479,7 @@ mod tests {
                 password_hash: None,
                 created_at: "2026-04-16T19:58:00Z".into(),
             }],
+            external_accounts: Vec::new(),
             invites: vec![OrganizationInvite {
                 id: "invite_member".into(),
                 organization_id: "org_acme".into(),

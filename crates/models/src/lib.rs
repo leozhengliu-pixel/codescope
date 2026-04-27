@@ -253,6 +253,19 @@ pub struct LocalAccount {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExternalAccount {
+    pub id: String,
+    pub user_id: String,
+    pub provider: String,
+    pub provider_user_id: String,
+    pub email: String,
+    pub name: String,
+    pub linked_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_login_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrganizationInvite {
     pub id: String,
     pub organization_id: String,
@@ -442,6 +455,8 @@ pub struct OrganizationState {
     pub memberships: Vec<OrganizationMembership>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub accounts: Vec<LocalAccount>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_accounts: Vec<ExternalAccount>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invites: Vec<OrganizationInvite>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1144,12 +1159,74 @@ mod tests {
         assert!(state.connections.is_empty());
         assert!(state.memberships.is_empty());
         assert!(state.accounts.is_empty());
+        assert!(state.external_accounts.is_empty());
         assert!(state.invites.is_empty());
         assert!(state.api_keys.is_empty());
         assert!(state.review_webhooks.is_empty());
         assert!(state.review_webhook_delivery_attempts.is_empty());
         assert!(state.review_agent_runs.is_empty());
         assert_eq!(serde_json::to_value(&state).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn organization_state_serializes_external_accounts_for_persistence() {
+        let state = OrganizationState {
+            accounts: vec![LocalAccount {
+                id: "local_user_admin".into(),
+                email: "admin@example.com".into(),
+                name: "Admin User".into(),
+                password_hash: None,
+                created_at: "2026-04-18T00:00:00Z".into(),
+            }],
+            external_accounts: vec![ExternalAccount {
+                id: "external_account_github_1".into(),
+                user_id: "local_user_admin".into(),
+                provider: "github".into(),
+                provider_user_id: "12345".into(),
+                email: "admin@github.example".into(),
+                name: "Admin GitHub".into(),
+                linked_at: "2026-04-27T00:00:00Z".into(),
+                last_login_at: Some("2026-04-27T01:00:00Z".into()),
+            }],
+            ..OrganizationState::default()
+        };
+
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            json!({
+                "accounts": [{
+                    "id": "local_user_admin",
+                    "email": "admin@example.com",
+                    "name": "Admin User",
+                    "created_at": "2026-04-18T00:00:00Z"
+                }],
+                "external_accounts": [{
+                    "id": "external_account_github_1",
+                    "user_id": "local_user_admin",
+                    "provider": "github",
+                    "provider_user_id": "12345",
+                    "email": "admin@github.example",
+                    "name": "Admin GitHub",
+                    "linked_at": "2026-04-27T00:00:00Z",
+                    "last_login_at": "2026-04-27T01:00:00Z"
+                }]
+            })
+        );
+    }
+
+    #[test]
+    fn organization_state_defaults_external_accounts_to_empty_on_deserialize() {
+        let state: OrganizationState = serde_json::from_value(json!({
+            "accounts": [{
+                "id": "local_user_admin",
+                "email": "admin@example.com",
+                "name": "Admin User",
+                "created_at": "2026-04-18T00:00:00Z"
+            }]
+        }))
+        .unwrap();
+
+        assert!(state.external_accounts.is_empty());
     }
 
     #[test]
@@ -1663,8 +1740,10 @@ mod tests {
                 id: "user_admin".into(),
                 email: "admin@example.com".into(),
                 name: "Admin User".into(),
+                password_hash: None,
                 created_at: "2026-04-16T19:59:00Z".into(),
             }],
+            external_accounts: Vec::new(),
             invites: vec![OrganizationInvite {
                 id: "invite_123".into(),
                 organization_id: "org_acme".into(),

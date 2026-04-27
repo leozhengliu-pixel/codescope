@@ -361,7 +361,7 @@ mod tests {
     use std::env;
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_and_auth_audit_events(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -371,10 +371,10 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
                 .into_iter()
                 .collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event migration versions"
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event + task95 external-account migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -410,6 +410,8 @@ mod tests {
                 "0011_ask_thread_messages.up.sql".to_string(),
                 "0012_auth_audit_events.down.sql".to_string(),
                 "0012_auth_audit_events.up.sql".to_string(),
+                "0013_external_accounts.down.sql".to_string(),
+                "0013_external_accounts.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -790,6 +792,28 @@ mod tests {
             assert!(
                 task94h_up_migration.contains(expected_snippet),
                 "missing task94h migration snippet: {expected_snippet}"
+            );
+        }
+
+        let task95_up_migration =
+            std::fs::read_to_string(migration_dir.join("0013_external_accounts.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE external_accounts",
+            "id TEXT PRIMARY KEY",
+            "user_id TEXT NOT NULL REFERENCES local_accounts(id) ON DELETE CASCADE",
+            "provider TEXT NOT NULL CHECK (length(trim(provider)) > 0)",
+            "provider_user_id TEXT NOT NULL CHECK (length(trim(provider_user_id)) > 0)",
+            "email TEXT NOT NULL",
+            "name TEXT NOT NULL",
+            "linked_at TIMESTAMPTZ NOT NULL",
+            "last_login_at TIMESTAMPTZ",
+            "UNIQUE (provider, provider_user_id)",
+            "CREATE INDEX external_accounts_user_id_idx ON external_accounts(user_id)",
+        ] {
+            assert!(
+                task95_up_migration.contains(expected_snippet),
+                "missing task95 migration snippet: {expected_snippet}"
             );
         }
     }

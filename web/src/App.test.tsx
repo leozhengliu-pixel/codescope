@@ -2510,6 +2510,14 @@ describe('App', () => {
             created_at: '2026-04-18T09:00:00Z',
             primary: true,
           },
+          {
+            provider: 'github',
+            user_id: 'github-admin-1',
+            email: 'admin@github.example',
+            name: 'Acme Admin GitHub',
+            created_at: '2026-04-22T09:00:00Z',
+            primary: false,
+          },
         ],
         memberships: [
           {
@@ -2536,6 +2544,7 @@ describe('App', () => {
     );
 
     const localIdentityCard = await screen.findByLabelText('Linked identity local Acme Admin');
+    const externalIdentityCard = screen.getByLabelText('Linked identity github Acme Admin GitHub');
     const acmeMembership = screen.getByLabelText('Linked-account membership Acme, Inc.');
     const betaMembership = screen.getByLabelText('Linked-account membership Beta Org');
 
@@ -2543,12 +2552,21 @@ describe('App', () => {
     expect(within(localIdentityCard).getByText('User id: local-user-admin')).toBeInTheDocument();
     expect(within(localIdentityCard).getByText('admin@acme.test')).toBeInTheDocument();
     expect(within(localIdentityCard).getByText('Current session identity')).toBeInTheDocument();
+    expect(within(externalIdentityCard).getByText('User id: github-admin-1')).toBeInTheDocument();
+    expect(within(externalIdentityCard).getByText('admin@github.example')).toBeInTheDocument();
+    expect(within(externalIdentityCard).getAllByText('github')).toHaveLength(2);
     expect(within(acmeMembership).getByText('Organization id: org-acme')).toBeInTheDocument();
     expect(within(acmeMembership).getByText('Slug: acme')).toBeInTheDocument();
     expect(within(acmeMembership).getByText('admin')).toBeInTheDocument();
     expect(within(betaMembership).getByText('viewer')).toBeInTheDocument();
-    expect(screen.getByText(/This baseline is intentionally read-only: it shows the current local account identity and visible organization memberships/i)).toBeInTheDocument();
-    expect(screen.getByText(/External provider linking and SSO remain follow-up work\./i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /This baseline is intentionally read-only: it shows the current local account identity, same-user external identities, and visible organization memberships/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/External provider linking\/callback exchange, SSO login, and account merge remain follow-up work\./i)
+    ).toBeInTheDocument();
   });
 
   it('shows a linked accounts loading failure inside the shared settings shell', async () => {

@@ -382,6 +382,7 @@ fn organization_state_from_auth_metadata(
     OrganizationState {
         organizations: metadata.organizations,
         accounts: metadata.accounts,
+        external_accounts: metadata.external_accounts,
         memberships: metadata.memberships,
         invites: metadata.invites,
         repo_permissions: metadata.repo_permissions,
@@ -3631,15 +3632,40 @@ fn linked_accounts_response(
     organization_state: &OrganizationState,
     account: &LocalAccount,
 ) -> LinkedAccountsResponse {
+    let mut identities = vec![LinkedAccountIdentityResponse {
+        provider: "local".to_string(),
+        user_id: account.id.clone(),
+        email: account.email.clone(),
+        name: account.name.clone(),
+        created_at: account.created_at.clone(),
+        primary: true,
+    }];
+
+    let mut external_identities = organization_state
+        .external_accounts
+        .iter()
+        .filter(|external_account| external_account.user_id == account.id)
+        .collect::<Vec<_>>();
+    external_identities.sort_by(|left, right| {
+        left.provider
+            .cmp(&right.provider)
+            .then(left.provider_user_id.cmp(&right.provider_user_id))
+            .then(left.id.cmp(&right.id))
+    });
+    identities.extend(external_identities.into_iter().map(|external_account| {
+        LinkedAccountIdentityResponse {
+            provider: external_account.provider.clone(),
+            // External identity user_id intentionally exposes the provider-scoped subject.
+            user_id: external_account.provider_user_id.clone(),
+            email: external_account.email.clone(),
+            name: external_account.name.clone(),
+            created_at: external_account.linked_at.clone(),
+            primary: false,
+        }
+    }));
+
     LinkedAccountsResponse {
-        identities: vec![LinkedAccountIdentityResponse {
-            provider: "local".to_string(),
-            user_id: account.id.clone(),
-            email: account.email.clone(),
-            name: account.name.clone(),
-            created_at: account.created_at.clone(),
-            primary: true,
-        }],
+        identities,
         memberships: linked_account_memberships_for_user(organization_state, &account.id),
         external_linking_supported: false,
     }
@@ -5352,10 +5378,10 @@ mod tests {
     use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AskMessage, AskMessageRole, AskThread, AskThreadVisibility,
-        AuditActor, AuditEvent, Connection, ConnectionConfig, ConnectionKind, LocalAccount,
-        LocalSessionState, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
-        OrganizationRole, OrganizationState, RepositoryPermissionBinding, ReviewAgentRun,
-        ReviewAgentRunStatus, ReviewWebhook, SearchContext,
+        AuditActor, AuditEvent, Connection, ConnectionConfig, ConnectionKind, ExternalAccount,
+        LocalAccount, LocalSessionState, OAuthClient, Organization, OrganizationInvite,
+        OrganizationMembership, OrganizationRole, OrganizationState, RepositoryPermissionBinding,
+        ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhook, SearchContext,
     };
     use sourcebot_search::{build_search_store, LocalSearchStore};
     use sqlx::{postgres::PgPoolOptions, Row};
@@ -5978,6 +6004,7 @@ mod tests {
                 password_hash: None,
                 created_at: "2026-04-20T23:55:00Z".into(),
             }],
+            external_accounts: vec![],
             invites: vec![OrganizationInvite {
                 id: "invite_reviewer".into(),
                 organization_id: "org_acme".into(),
@@ -6083,6 +6110,7 @@ mod tests {
             connections: vec![],
             memberships: vec![],
             accounts: vec![],
+            external_accounts: vec![],
             invites: vec![],
             api_keys: vec![ApiKey {
                 id: "key_other".into(),
@@ -8366,6 +8394,24 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
+            "INSERT INTO external_accounts (id, user_id, provider, provider_user_id, email, name, linked_at, last_login_at) VALUES ('external_account_member_github', 'local_user_member', 'github', 'github-member-1', 'member@github.example', 'Member GitHub', '2026-04-22T09:07:00Z'::timestamptz, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES ('local_user_other', 'other@example.com', 'Other User', NULL, '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO external_accounts (id, user_id, provider, provider_user_id, email, name, linked_at, last_login_at) VALUES ('external_account_other_github', 'local_user_other', 'github', 'github-other-1', 'other@github.example', 'Other GitHub', '2026-04-22T09:08:00Z'::timestamptz, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
             "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz)",
         )
         .execute(&pool)
@@ -8426,11 +8472,45 @@ mod tests {
         assert_eq!(linked_accounts_response.status(), StatusCode::OK);
         let linked_accounts_payload: LinkedAccountsResponseBody =
             read_json(linked_accounts_response).await;
-        assert_eq!(linked_accounts_payload.identities.len(), 1);
+        assert_eq!(linked_accounts_payload.identities.len(), 2);
+        assert_eq!(linked_accounts_payload.identities[0].provider, "local");
+        assert_eq!(
+            linked_accounts_payload.identities[0].user_id,
+            "local_user_member"
+        );
         assert_eq!(
             linked_accounts_payload.identities[0].email,
             "member@example.com"
         );
+        assert_eq!(linked_accounts_payload.identities[0].name, "Member User");
+        assert_eq!(
+            linked_accounts_payload.identities[0].created_at,
+            "2026-04-22T09:05:00Z"
+        );
+        assert!(linked_accounts_payload.identities[0].primary);
+        assert_eq!(linked_accounts_payload.identities[1].provider, "github");
+        assert_eq!(
+            linked_accounts_payload.identities[1].user_id,
+            "github-member-1"
+        );
+        assert_eq!(
+            linked_accounts_payload.identities[1].email,
+            "member@github.example"
+        );
+        assert_eq!(linked_accounts_payload.identities[1].name, "Member GitHub");
+        assert_eq!(
+            linked_accounts_payload.identities[1].created_at,
+            "2026-04-22T09:07:00Z"
+        );
+        assert!(!linked_accounts_payload.identities[1].primary);
+        assert!(linked_accounts_payload
+            .identities
+            .iter()
+            .all(|identity| identity.user_id != "github-other-1"));
+        assert!(linked_accounts_payload
+            .identities
+            .iter()
+            .all(|identity| identity.email != "other@github.example"));
         assert_eq!(linked_accounts_payload.memberships.len(), 1);
         assert_eq!(
             linked_accounts_payload.memberships[0].organization.id,
@@ -14621,6 +14701,38 @@ mod tests {
                     created_at: "2026-04-19T00:00:00Z".into(),
                 },
             ],
+            external_accounts: vec![
+                ExternalAccount {
+                    id: "external_account_gitlab_admin".into(),
+                    user_id: user_id.into(),
+                    provider: "gitlab".into(),
+                    provider_user_id: "gitlab-admin-2".into(),
+                    email: "admin@gitlab.example".into(),
+                    name: "Admin GitLab".into(),
+                    linked_at: "2026-04-24T00:00:00Z".into(),
+                    last_login_at: None,
+                },
+                ExternalAccount {
+                    id: "external_account_github_admin".into(),
+                    user_id: user_id.into(),
+                    provider: "github".into(),
+                    provider_user_id: "github-admin-1".into(),
+                    email: "admin@github.example".into(),
+                    name: "Admin GitHub".into(),
+                    linked_at: "2026-04-23T00:00:00Z".into(),
+                    last_login_at: Some("2026-04-25T00:00:00Z".into()),
+                },
+                ExternalAccount {
+                    id: "external_account_github_hidden".into(),
+                    user_id: "local_user_hidden".into(),
+                    provider: "github".into(),
+                    provider_user_id: "github-hidden-1".into(),
+                    email: "hidden@github.example".into(),
+                    name: "Hidden GitHub".into(),
+                    linked_at: "2026-04-26T00:00:00Z".into(),
+                    last_login_at: None,
+                },
+            ],
             ..OrganizationState::default()
         };
         fs::write(
@@ -14648,13 +14760,25 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload: LinkedAccountsResponseBody = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.identities.len(), 1);
+        assert_eq!(payload.identities.len(), 3);
         assert_eq!(payload.identities[0].provider, "local");
         assert_eq!(payload.identities[0].user_id, user_id);
         assert_eq!(payload.identities[0].email, "admin@example.com");
         assert_eq!(payload.identities[0].name, "Admin User");
         assert_eq!(payload.identities[0].created_at, "2026-04-18T00:00:00Z");
         assert!(payload.identities[0].primary);
+        assert_eq!(payload.identities[1].provider, "github");
+        assert_eq!(payload.identities[1].user_id, "github-admin-1");
+        assert_eq!(payload.identities[1].email, "admin@github.example");
+        assert_eq!(payload.identities[1].name, "Admin GitHub");
+        assert_eq!(payload.identities[1].created_at, "2026-04-23T00:00:00Z");
+        assert!(!payload.identities[1].primary);
+        assert_eq!(payload.identities[2].provider, "gitlab");
+        assert_eq!(payload.identities[2].user_id, "gitlab-admin-2");
+        assert_eq!(payload.identities[2].email, "admin@gitlab.example");
+        assert_eq!(payload.identities[2].name, "Admin GitLab");
+        assert_eq!(payload.identities[2].created_at, "2026-04-24T00:00:00Z");
+        assert!(!payload.identities[2].primary);
         assert_eq!(payload.memberships.len(), 2);
         assert_eq!(payload.memberships[0].organization.id, "org_acme");
         assert_eq!(payload.memberships[0].organization.slug, "acme");
@@ -14669,6 +14793,8 @@ mod tests {
         let serialized = serde_json::to_string(&json).unwrap();
         assert!(!serialized.contains("org_hidden"));
         assert!(!serialized.contains("hidden@example.com"));
+        assert!(!serialized.contains("hidden@github.example"));
+        assert!(!serialized.contains("github-hidden-1"));
         assert!(!serialized.contains("client_secret_hash"));
 
         fs::remove_file(organization_state_path).unwrap();
