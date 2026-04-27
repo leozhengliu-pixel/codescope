@@ -5,42 +5,43 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e3706e38c28f876dd3b10c973659e200f79c43fa
+  head: f81812e839b1eaa059e80c14729f453e7ebecfd2
 last_completed_task:
-  id: task96j
-  title: Authenticated local import worker handoff baseline
+  id: task96k
+  title: Persist local repository-sync terminal metadata
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime handoff slice by moving the
-    authenticated local-repository import route beyond catalog-only persistence.
-    Local imports now persist canonical-path-backed PostgreSQL catalog identity,
-    preserve same-basename/idempotent imports, bind the imported repository to an
-    admin-visible organization, and enqueue exactly one repository-sync job through
-    the organization store boundary. File-backed and PostgreSQL organization
-    stores upsert the permission binding and idempotent sync job together; the
-    PostgreSQL paths use transaction-scoped advisory locks for catalog import and
-    handoff duplicate prevention. The release claim remains bounded to explicit
-    local import-to-worker handoff and queued status, not real provider fetch,
-    import/reindex execution, retry/backoff, supervision, durable index progress,
-    frontend management controls beyond the existing minimal local import form, or
-    full provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime metadata slice by moving the
+    local repository-sync worker baseline beyond transient Git probes into
+    persisted terminal metadata. Successful jobs tied to configured `local`
+    connections now record the synced revision, current branch, and tracked
+    content file count on the terminal repository-sync job, and PostgreSQL
+    migration 0015 plus PgOrganizationStore row mapping/upserts preserve those
+    nullable fields. The slice also fixed the SQLx org-auth metadata test reset
+    to truncate catalog connections between selectors so `make sqlx-test` stays
+    repeatable. The release claim remains bounded to local Git
+    metadata/status persistence, not real provider fetch/import/reindex
+    execution, retry/backoff, supervision, durable index status, or full
+    provider/runtime parity.
   tests:
     - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (6 focused route tests in make sqlx-test; broader local_repository selector later passed 7 tests including route + catalog coverage)
-    - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository -- --nocapture: passed after catalog-wide local-import advisory-lock fix (lib and main harnesses)
-    - cargo test -p sourcebot-api pg_organization_store_persists_repository_permission_binding_and_sync_job_together -- --nocapture: passed (lib and main harnesses)
-    - cargo test -p sourcebot-api local_repository -- --nocapture: passed (1 lib + 7 main tests)
-    - make sqlx-test: passed after repo-local PostgreSQL preflight (migration reset applied 0014_local_repository_paths; storage::tests 8 passed; pg_catalog_store_ 5 passed; auth_local_repository_import 6 passed; plus existing durable metadata/auth/repository-sync selectors)
+    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path -- --nocapture: passed (1 worker lib test; other worker targets 0-test)
+    - cargo test -p sourcebot-worker -- --nocapture: passed (21 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-api catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts -- --nocapture: passed (1 lib + 1 main test)
+    - cargo test -p sourcebot-api --bin sourcebot-api pg_org_auth_metadata_ -- --nocapture --test-threads=1: passed after the connections cleanup fix (9 tests)
+    - cargo test -p sourcebot-api pg_organization_store_persists_repository_permission_binding_and_sync_job_together -- --nocapture: passed (1 lib + 1 main test)
+    - make sqlx-test: passed after repo-local PostgreSQL preflight (migration reset through 0015 plus storage/catalog/local-import/org-auth/bootstrap/session/auth-members/linked-accounts/repository-sync/organization-store/ask/API-key/OAuth/postgres-metadata/invite-redeem selectors)
     - cargo fmt --check: passed
-    - bash scripts/check_metadata_bootstrap_docs.sh README.md; bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite; bash scripts/check_local_metadata_env_contract.sh; bash scripts/check_local_metadata_dev_bootstrap_contract.sh: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh README.md and bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite: passed
+    - python3 doc truth-marker checks for README, generic-local acceptance, worker-runtime acceptance, parity-gap report, and final parity audit persisted-metadata wording: passed
     - git diff --check: passed
-    - python3 added-lines security scan over git diff --cached --unified=0: passed (0 findings)
+    - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review after two reviewer-forced concurrency fixes; final reviewer approved authz, idempotency, catalog-wide local-import advisory-lock serialization, permission-binding/sync-job handoff locking, migrations, and bounded docs, with only a non-blocking suggestion for a future explicit concurrent import regression
-  commit: e3706e38c28f876dd3b10c973659e200f79c43fa
-  next_task: task96k
+    code: passed independent read-only review; reviewer approved the nullable migration/model/SQL mapping, successful-local-only worker metadata persistence, test cleanup isolation fix, bind-parameter SQL safety, and bounded docs, with a non-blocking note to avoid implying UI/API exposure of the new fields
+  commit: f81812e839b1eaa059e80c14729f453e7ebecfd2
+  next_task: task96l
 current_task:
-  id: task96k
+  id: task96l
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import execution baseline
   status: pending
@@ -48,16 +49,44 @@ current_task:
     Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
     progress, terminal worker log context, timeout-bounded local-Git preflight,
     revision/current-branch and tracked-content discovery, PostgreSQL catalog
-    persistence for one explicitly requested local import, and authenticated local
+    persistence for one explicitly requested local import, authenticated local
     import-to-worker handoff with durable repository visibility plus one queued
-    sync job. Practical provider/runtime parity still needs a next meaningful
-    closure that moves the queued local/provider job beyond handoff/status into a
-    real bounded fetch/import or reindex execution path with durable
-    progress/error bookkeeping, retry/backoff semantics, duplicate-claim recovery,
-    supervised scheduling, provider discovery, or frontend/operator controls
-    while keeping recursive import, durable index status, and full
-    provider/runtime parity explicit follow-up work.
+    sync job, and persisted terminal revision/branch/content-count metadata for
+    successful local jobs. Practical provider/runtime parity still needs a next
+    meaningful closure that moves queued local/provider jobs beyond
+    status/metadata persistence into a real bounded fetch/import or reindex
+    execution path with durable progress/error bookkeeping, retry/backoff
+    semantics, duplicate-claim recovery, supervised scheduling, provider
+    discovery, or frontend/operator controls while keeping recursive import,
+    durable index status, and full provider/runtime parity explicit follow-up
+    work.
 history:
+  - id: task96k
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime metadata slice by persisting
+      successful local repository-sync terminal metadata: nullable synced
+      revision, current branch, and tracked-content file-count fields now move
+      through the model, PostgreSQL migration 0015, PgOrganizationStore
+      row-mapping/upsert paths, and the worker success path for configured
+      `local` connections. SQLx repeatability was also hardened by resetting
+      catalog connections in the org-auth metadata test helper. The claim remains
+      local Git metadata/status persistence only: no real provider
+      fetch/import/reindex execution, automated retry/backoff, supervision,
+      durable index status, or full provider/runtime parity is claimed.
+    tests:
+      - repo-local PostgreSQL preflight as hermes proved both DATABASE_URL and TEST_DATABASE_URL
+      - cargo test -p sourcebot-worker run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path -- --nocapture: passed
+      - cargo test -p sourcebot-worker -- --nocapture: passed (21 worker lib + worker smoke targets)
+      - cargo test -p sourcebot-api catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts -- --nocapture: passed
+      - cargo test -p sourcebot-api --bin sourcebot-api pg_org_auth_metadata_ -- --nocapture --test-threads=1: passed
+      - cargo test -p sourcebot-api pg_organization_store_persists_repository_permission_binding_and_sync_job_together -- --nocapture: passed
+      - make sqlx-test: passed after repo-local PostgreSQL preflight
+      - cargo fmt --check, metadata/sqlx doc wrappers, doc truth-marker checks, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking security, logic, persistence, or claim-boundary issues remained
+    commit: f81812e839b1eaa059e80c14729f453e7ebecfd2
+    next_task: task96l
   - id: task96j
     status: done
     summary: >-
