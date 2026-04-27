@@ -5,59 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5f8e1bd31f895cc121df99c1a67667257ec7051f
+  head: e419c08f1fcda1b12bf112d50d1b371a434ec750
 last_completed_task:
-  id: task95
-  title: External-provider linked-account inventory baseline
+  id: task96a
+  title: Provider repository-sync enqueue baseline
   status: done
   summary: >-
-    Closed one meaningful Task 95 external-provider identity slice instead of
-    splitting model, migration, route, UI copy, acceptance wording, parity-audit
-    sync, focused verification, and review into smaller paperwork-only runs. The
-    rewrite now has a bounded `ExternalAccount` model plus `OrganizationState`
-    persistence, migration `0013_external_accounts`, PostgreSQL auth metadata
-    loading for same-local-user external identities, and authenticated linked
-    accounts responses/settings UI that show the current local identity first
-    followed by same-user provider identities while excluding external identities
-    that belong to other local users. The claim remains deliberately narrow:
-    external provider login/callback exchange, external-account creation/linking,
-    account-merge policy, SSO login, provider token exchange, and broader
-    linked-account management UX remain follow-up work.
+    Closed one meaningful Task 96 provider/runtime slice instead of splitting
+    backend route behavior, focused authz/no-mutation coverage, acceptance
+    wording, parity-audit synchronization, and review into paperwork-only runs.
+    Authenticated organization admins can now POST to
+    `/api/v1/auth/repository-sync-jobs` with an administered and currently
+    visible repository to persist a queued repository-sync job whose
+    `connection_id` is derived from catalog repository detail rather than caller
+    input. Blank payload fields, non-admin callers, hidden repositories, and
+    catalog-missing repositories fail closed before mutation. The release claim
+    remains deliberately bounded: this is a backend-only enqueue baseline, not
+    real provider discovery/import execution, worker retry/progress handling,
+    frontend sync controls, persisted index status, or full provider runtime
+    parity.
   tests:
-    - repo-local PostgreSQL preflight: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
-    - cargo test -p sourcebot-models external_accounts -- --nocapture: passed (2 passed; 48 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_postgres_backed_memberships_when_database_url_is_configured -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (1 passed; 371 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (4 passed; 368 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_current_local_identity_and_visible_memberships -- --nocapture: passed (1 passed; 371 filtered)
-    - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts -- --nocapture: passed in lib and bin targets (1 passed each)
-    - make sqlx-test: passed after the PostgreSQL preflight
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_create -- --nocapture: passed (2 passed; 372 filtered)
+    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (6 passed; 368 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - npm test -- --run src/App.test.tsx -t "linked accounts inventory": passed (1 passed; 173 skipped)
-    - npm test -- --run src/App.test.tsx -t "linked accounts": passed (2 passed; 172 skipped)
-    - npm test -- --run src/App.test.tsx: passed (174 passed)
-    - npm run build: passed in background (Vite build complete)
-    - python3 doc/UI stale-phrase truth checks for acceptance specs, gap report, final audit, App copy, and App tests: passed
+    - python3 doc truth checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only final review; reviewer approved the same-user scope boundary, bounded provider-login/linking claims, migration inventory synchronization, UI copy/test consistency, and docs/final-audit synchronization, with only a non-blocking note that external identities reuse the response field `created_at` for the persisted `linked_at` display timestamp
-  commit: 5f8e1bd31f895cc121df99c1a67667257ec7051f
-  next_task: task96
+    code: passed independent read-only review; reviewer approved the local-session/admin/visible-binding/catalog-presence gates before mutation, catalog-derived connection id, docs claim bounds, and existing GET behavior preservation, with a non-blocking note that blank-field, hidden-binding, and catalog-missing no-mutation cases could be locked by additional tests later
+  commit: e419c08f1fcda1b12bf112d50d1b371a434ec750
+  next_task: task96b
 current_task:
-  id: task96
+  id: task96b
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider connection runtime parity
+  title: Provider sync execution and progress baseline
   status: pending
   summary: >-
-    Task 95 closes a bounded linked-account inventory baseline but keeps real
-    provider login/callback exchange, external-account creation/linking, account
-    merge, and SSO login fail-closed as follow-up. The next meaningful closure
-    should move Phase C to Task 96 provider connection runtime parity rather than
-    micro-slicing linked-account paperwork: ship a bounded provider/runtime slice
-    for GitHub, GitLab, or generic/local Git import/sync behavior with backend
-    route behavior, focused verification, truthful integrations/settings
-    acceptance wording, independent review, commit, state update, and push.
+    Task 96a closes only a backend admin enqueue baseline for already visible
+    repositories. The next meaningful Task 96 provider/runtime closure should
+    move queued repository-sync jobs beyond creation/history into bounded
+    execution or operator-visible progress: for example, a worker-backed local or
+    generic Git sync tick that claims queued jobs, records terminal status and
+    errors without duplicate claims, and keeps docs/tests explicit that broader
+    provider discovery, retries, frontend controls, and multi-host parity remain
+    follow-up.
 history:
+  - id: task96a
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime slice instead of splitting
+      backend route behavior, focused authz/no-mutation coverage, acceptance
+      wording, parity-audit synchronization, and review into paperwork-only runs.
+      Authenticated organization admins can now POST to
+      `/api/v1/auth/repository-sync-jobs` with an administered and currently
+      visible repository to persist a queued repository-sync job whose
+      `connection_id` is derived from catalog repository detail rather than caller
+      input. Blank payload fields, non-admin callers, hidden repositories, and
+      catalog-missing repositories fail closed before mutation. The release claim
+      remains deliberately bounded: this is a backend-only enqueue baseline, not
+      real provider discovery/import execution, worker retry/progress handling,
+      frontend sync controls, persisted index status, or full provider runtime
+      parity.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_create -- --nocapture: passed (2 passed; 372 filtered)
+      - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (6 passed; 368 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 doc truth checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the local-session/admin/visible-binding/catalog-presence gates before mutation, catalog-derived connection id, docs claim bounds, and existing GET behavior preservation, with a non-blocking note that blank-field, hidden-binding, and catalog-missing no-mutation cases could be locked by additional tests later
+    commit: e419c08f1fcda1b12bf112d50d1b371a434ec750
+    next_task: task96b
   - id: task95
     status: done
     summary: >-
