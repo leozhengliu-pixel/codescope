@@ -5,54 +5,81 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c156d86e3c3d40b8cfb9de39a50dbc0095927525
+  head: 1a3d87f6840d2a5a6cc89ca8f5ca15f2d156bc16
 last_completed_task:
-  id: task96h
-  title: Real repository-sync content execution baseline
+  id: task96i
+  title: Repository-sync real content import handoff baseline
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime execution slice by moving the
-    local repository-sync worker baseline beyond revision/current-branch metadata
-    probes into bounded tracked-content discovery. Jobs tied to configured
-    `local` connections now run `git -C <repo_path> ls-tree -r --name-only HEAD`
-    after the existing working-tree and HEAD checks; empty-tree repositories with
-    a valid commit fail closed with `local repository sync execution failed`
-    instead of recording success, while repositories with at least one tracked
-    content path continue to the current-branch probe and bounded terminal
-    success path. The closure synchronizes README, worker-runtime, generic/local
-    Git, parity-gap, and final-audit wording so the release claim remains narrow:
-    content discovery/status only, not real fetch/import/reindex, automated
-    retry/backoff, supervision, durable index progress, or full provider/runtime
-    parity.
+    Closed one meaningful Task 96 provider/runtime catalog handoff slice by
+    moving the PostgreSQL catalog path beyond read-only list/detail queries for
+    one explicitly requested local Git working tree. PgCatalogStore now validates
+    and canonicalizes the requested worktree with the same local import helpers,
+    derives the current branch with `git symbolic-ref --short HEAD`,
+    transactionally upserts the local connection plus repository row, and returns
+    the imported repository through normal list/detail catalog surfaces. The
+    authenticated local import route keeps unsupported catalog backends
+    fail-closed with a deterministic fake-store regression. The release claim
+    remains narrow: explicit local import handoff only, not recursive/provider
+    discovery, real fetch/import/reindex execution, connection-management
+    durability, durable index status, or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_local_git_repository_without_tracked_content -- --nocapture: passed (1 passed; 20 filtered in worker lib, remaining targets 0-test)
-    - cargo test -p sourcebot-worker: passed (21 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository_into_postgres_catalog -- --nocapture: passed (storage import regression passed in both lib and main harnesses)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (5 auth local import route tests)
+    - make sqlx-test: passed after repo-local PostgreSQL preflight (storage::tests 7 passed; pg_catalog_store_ 4 passed; plus existing bootstrap/local-account/member/repo-permission/repository-sync/review-agent/delivery/ask-thread/API-key/OAuth-client SQLx selectors)
     - cargo fmt --check: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+    - bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite: passed
     - git diff --check: passed
-    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit content-discovery wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the bounded `git ls-tree -r --name-only HEAD` content-discovery probe, empty-tree fail-closed terminal error, non-zero/timeout/execution-error handling through the existing execution-failure paths, success logging of tracked content count, focused empty-tree regression, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
-  commit: c156d86e3c3d40b8cfb9de39a50dbc0095927525
-  next_task: task96i
+    code: passed independent read-only review; reviewer approved the bounded PostgreSQL local-import handoff, fail-closed auth/path validation, bind-parameter SQL and transaction shape, unsupported-backend fake-store decoupling, and docs that keep recursive/provider discovery, real fetch/import/reindex execution, and full durable provider/runtime parity deferred
+  commit: 1a3d87f6840d2a5a6cc89ca8f5ca15f2d156bc16
+  next_task: task96j
 current_task:
-  id: task96i
+  id: task96j
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Repository-sync real content import handoff baseline
+  title: Provider/runtime real fetch-import execution baseline
   status: pending
   summary: >-
-    Task 96 now covers authenticated manual enqueue/retry, smoke-proven one-shot
-    progress, terminal worker log context, local-Git working-tree validation,
-    timeout-bounded preflight failure handling, bounded current
-    revision/current-branch metadata probes, and fail-closed tracked-content
-    discovery for empty-tree repositories. Practical provider/runtime parity still
-    needs a next meaningful closure that moves from content discovery/status into
-    real fetch/import/reindex behavior, durable progress/error bookkeeping,
-    worker-side retry/backoff semantics, duplicate-claim recovery, or supervised
-    scheduling while keeping broad host-provider discovery, frontend controls,
-    durable index status, and full provider/runtime parity explicit follow-up
-    work.
+    Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
+    progress, terminal worker log context, timeout-bounded local-Git preflight,
+    revision/current-branch and tracked-content discovery, and a PostgreSQL
+    catalog handoff for one explicitly requested local import. Practical
+    provider/runtime parity still needs a next meaningful closure that moves
+    beyond catalog handoff/content discovery into a real bounded fetch/import or
+    reindex execution path with durable progress/error bookkeeping, retry/backoff
+    semantics, duplicate-claim recovery, supervised scheduling, or provider
+    discovery while keeping frontend controls, durable index status, recursive
+    import, and full provider/runtime parity explicit follow-up work.
 history:
+  - id: task96i
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime catalog handoff slice by
+      moving the PostgreSQL catalog path beyond read-only list/detail queries for
+      one explicitly requested local Git working tree. PgCatalogStore now
+      validates and canonicalizes the requested worktree, derives the current
+      branch, transactionally upserts the local connection plus repository row,
+      and returns the imported repository through normal list/detail catalog
+      surfaces. The authenticated route keeps unsupported catalog backends
+      fail-closed with a deterministic fake-store regression. The claim remains
+      explicit local import handoff only: no recursive/provider discovery, real
+      fetch/import/reindex execution, connection-management durability, durable
+      index status, or full provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository_into_postgres_catalog -- --nocapture: passed (storage import regression passed in both lib and main harnesses)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (5 auth local import route tests)
+      - make sqlx-test: passed after repo-local PostgreSQL preflight (storage::tests 7 passed; pg_catalog_store_ 4 passed; plus existing SQLx metadata/auth selectors)
+      - cargo fmt --check: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the bounded PostgreSQL local-import handoff, fail-closed auth/path validation, bind-parameter SQL and transaction shape, unsupported-backend fake-store decoupling, and docs that keep recursive/provider discovery, real fetch/import/reindex execution, and full durable provider/runtime parity deferred
+    commit: 1a3d87f6840d2a5a6cc89ca8f5ca15f2d156bc16
+    next_task: task96j
   - id: task96h
     status: done
     summary: >-
