@@ -5,6 +5,8 @@ use sourcebot_models::{
 };
 use std::{
     ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
@@ -185,6 +187,7 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
             let execution = match run_local_repository_sync_execution(
                 git_command,
                 repo_path,
+                job,
                 preflight_timeout,
             ) {
                 Ok(execution) => execution,
@@ -245,6 +248,7 @@ struct LocalRepositorySyncExecution {
 fn run_local_repository_sync_execution(
     git_command: &OsStr,
     repo_path: &str,
+    job: &RepositorySyncJob,
     timeout: Duration,
 ) -> Result<LocalRepositorySyncExecution, String> {
     let head = match run_git_command(git_command, repo_path, &["rev-parse", "HEAD"], timeout) {
@@ -272,7 +276,8 @@ fn run_local_repository_sync_execution(
                 .lines()
                 .map(str::trim)
                 .filter(|path| !path.is_empty())
-                .count()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
         }
         Ok(Some(output)) if output.status.success() => {
             return Err(format!(
@@ -297,17 +302,18 @@ fn run_local_repository_sync_execution(
     ) {
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
             tracing::info!(
                 repo_path = %repo_path,
                 head = %head,
                 current_branch = %branch,
-                content_file_count = content_paths,
+                content_file_count = content_paths.len(),
                 "completed bounded local repository sync Git content discovery"
             );
             Ok(LocalRepositorySyncExecution {
                 revision: head,
                 branch,
-                content_file_count: content_paths as i64,
+                content_file_count: content_paths.len() as i64,
             })
         }
         Ok(Some(output)) => Err(git_failure_detail("git symbolic-ref --short HEAD", &output)),
@@ -317,6 +323,88 @@ fn run_local_repository_sync_execution(
         )),
         Err(error) => Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     }
+}
+
+fn write_local_repository_sync_manifest(
+    repo_path: &str,
+    job: &RepositorySyncJob,
+    revision: &str,
+    branch: &str,
+    content_paths: &[String],
+) -> Result<(), String> {
+    let manifest_path = local_repository_sync_manifest_path(repo_path, job);
+    let manifest_dir = manifest_path.parent().ok_or_else(|| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local sync manifest path has no parent"
+        )
+    })?;
+
+    fs::create_dir_all(manifest_dir).map_err(|error| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to create local sync manifest directory {}: {error}",
+            manifest_dir.display()
+        )
+    })?;
+
+    let tmp_path = manifest_path.with_extension("txt.tmp");
+    let manifest = local_repository_sync_manifest_content(revision, branch, content_paths);
+    if let Err(error) = fs::write(&tmp_path, manifest) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to write local sync manifest {}: {error}",
+            tmp_path.display()
+        ));
+    }
+    if let Err(error) = fs::rename(&tmp_path, &manifest_path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to finalize local sync manifest {}: {error}",
+            manifest_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn local_repository_sync_manifest_path(repo_path: &str, job: &RepositorySyncJob) -> PathBuf {
+    Path::new(repo_path)
+        .join(".sourcebot")
+        .join("local-sync")
+        .join(safe_manifest_path_component(&job.organization_id))
+        .join(safe_manifest_path_component(&job.repository_id))
+        .join(safe_manifest_path_component(&job.id))
+        .join("manifest.txt")
+}
+
+fn safe_manifest_path_component(component: &str) -> String {
+    let sanitized = component
+        .chars()
+        .map(|character| match character {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => character,
+            _ => '_',
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "_".to_owned()
+    } else {
+        sanitized
+    }
+}
+
+fn local_repository_sync_manifest_content(
+    revision: &str,
+    branch: &str,
+    content_paths: &[String],
+) -> String {
+    let mut manifest = format!(
+        "revision={revision}\nbranch={branch}\ntracked_content_file_count={}\ntracked_content_paths:\n",
+        content_paths.len()
+    );
+    for path in content_paths {
+        manifest.push_str(path);
+        manifest.push('\n');
+    }
+    manifest
 }
 
 fn git_failure_detail(command: &str, output: &Output) -> String {
@@ -468,8 +556,9 @@ mod tests {
         complete_local_repository_sync_job_with_git_command_if_applicable,
         execute_claimed_repository_sync_job_stub_at, execute_claimed_review_agent_run_stub,
         persist_stub_review_agent_run_execution_outcome, run_repository_sync_claim_tick,
-        run_review_agent_tick, run_worker_tick, StubRepositorySyncJobExecutionOutcome,
-        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
+        run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
+        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
+        WorkerTickOutcome,
     };
     use crate::REPOSITORY_SYNC_STUB_FAILURE_ERROR;
     use anyhow::Result;
@@ -698,6 +787,14 @@ mod tests {
                 repo_path: repo_path.into(),
             }),
         }
+    }
+
+    #[test]
+    fn local_sync_manifest_path_components_cannot_escape_manifest_root() {
+        assert_eq!(safe_manifest_path_component("../org/acme"), "___org_acme");
+        assert_eq!(safe_manifest_path_component("."), "_");
+        assert_eq!(safe_manifest_path_component(".."), "__");
+        assert_eq!(safe_manifest_path_component("org_acme-1"), "org_acme-1");
     }
 
     #[test]
@@ -1498,10 +1595,13 @@ mod tests {
             .output()
             .expect("git init should run");
         fs::write(repo_path.join("README.md"), "local repo sync fixture\n").unwrap();
+        fs::create_dir_all(repo_path.join("src")).unwrap();
+        fs::write(repo_path.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+        fs::write(repo_path.join("untracked.txt"), "must not appear\n").unwrap();
         Command::new("git")
             .arg("-C")
             .arg(&repo_path)
-            .args(["add", "README.md"])
+            .args(["add", "README.md", "src/lib.rs"])
             .output()
             .expect("git add should run");
         Command::new("git")
@@ -1551,7 +1651,27 @@ mod tests {
             Some(expected_head.as_str())
         );
         assert_eq!(completed_job.synced_branch.as_deref(), Some("master"));
-        assert_eq!(completed_job.synced_content_file_count, Some(1));
+        assert_eq!(completed_job.synced_content_file_count, Some(2));
+
+        let manifest_path = repo_path
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_sync_job_local_valid")
+            .join("sync_job_local_valid")
+            .join("manifest.txt");
+        let manifest =
+            fs::read_to_string(&manifest_path).expect("tracked-content manifest to exist");
+        assert_eq!(
+            manifest,
+            format!(
+                "revision={expected_head}\nbranch=master\ntracked_content_file_count=2\ntracked_content_paths:\nREADME.md\nsrc/lib.rs\n"
+            )
+        );
+        assert!(
+            !manifest.contains("untracked.txt"),
+            "manifest should contain only tracked HEAD paths: {manifest}"
+        );
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], completed_job);
