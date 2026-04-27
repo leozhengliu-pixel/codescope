@@ -5572,17 +5572,28 @@ async fn search_latest_local_sync_snapshot_for_repo(
     if authorized_organization_ids.is_empty() {
         return Ok(None);
     }
-    let Some(snapshot_path) =
-        latest_local_sync_snapshot_path(&organization_state, repo_id, &authorized_organization_ids)
+    let Some(snapshot) =
+        latest_local_sync_snapshot(&organization_state, repo_id, &authorized_organization_ids)
     else {
         return Ok(None);
     };
-    if !snapshot_path.is_dir() {
+
+    if snapshot.search_index_artifact_path.is_file() {
+        return LocalSearchStore::from_index_artifact(
+            repo_id,
+            &snapshot.search_index_artifact_path,
+        )
+        .and_then(|search| search.search(query, Some(repo_id)))
+        .map(Some)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    if !snapshot.path.is_dir() {
         return Ok(None);
     }
 
     let snapshot_search =
-        LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot_path)]));
+        LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot.path)]));
     snapshot_search
         .search(query, Some(repo_id))
         .map(Some)
@@ -5614,6 +5625,7 @@ fn authorized_organization_ids_for_repo(
 
 struct LocalSyncSnapshot {
     path: std::path::PathBuf,
+    search_index_artifact_path: std::path::PathBuf,
     revision: String,
 }
 
@@ -5661,20 +5673,22 @@ fn latest_local_sync_snapshot(
         return None;
     };
 
+    let job_artifact_root = std::path::Path::new(repo_path)
+        .join(".sourcebot")
+        .join("local-sync")
+        .join(local_sync_artifact_path_component(
+            &latest_successful_job.organization_id,
+        ))
+        .join(local_sync_artifact_path_component(
+            &latest_successful_job.repository_id,
+        ))
+        .join(local_sync_artifact_path_component(
+            &latest_successful_job.id,
+        ));
+
     Some(LocalSyncSnapshot {
-        path: std::path::Path::new(repo_path)
-            .join(".sourcebot")
-            .join("local-sync")
-            .join(local_sync_artifact_path_component(
-                &latest_successful_job.organization_id,
-            ))
-            .join(local_sync_artifact_path_component(
-                &latest_successful_job.repository_id,
-            ))
-            .join(local_sync_artifact_path_component(
-                &latest_successful_job.id,
-            ))
-            .join("snapshot"),
+        path: job_artifact_root.join("snapshot"),
+        search_index_artifact_path: job_artifact_root.join("search-index.json"),
         revision: latest_successful_job.synced_revision.clone()?,
     })
 }
@@ -26290,19 +26304,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_uses_latest_successful_local_sync_snapshot_for_visible_requested_repo() {
-        let repo_root = unique_test_path("search-local-sync-snapshot-repo-root");
-        let snapshot_root = repo_root
+    async fn search_uses_latest_successful_local_sync_search_index_artifact_for_visible_requested_repo(
+    ) {
+        let repo_root = unique_test_path("search-local-sync-artifact-repo-root");
+        let job_root = repo_root
             .join(".sourcebot")
             .join("local-sync")
             .join("org_acme")
             .join("repo_local_import")
-            .join("job_success_latest")
-            .join("snapshot");
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
         fs::create_dir_all(snapshot_root.join("src")).unwrap();
         fs::write(
             snapshot_root.join("src").join("lib.rs"),
-            "pub fn local_sync_search_marker() {}\n",
+            "pub fn local_sync_search_artifact_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn snapshot_mutated_after_artifact_write() {}\n",
         )
         .unwrap();
 
@@ -26373,7 +26399,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/search?q=local_sync_search_marker&repo_id=repo_local_import")
+                    .uri("/api/v1/search?q=local_sync_search_artifact_marker&repo_id=repo_local_import")
                     .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
@@ -26387,7 +26413,9 @@ mod tests {
         assert_eq!(payload.results.len(), 1);
         assert_eq!(payload.results[0].repo_id, "repo_local_import");
         assert_eq!(payload.results[0].path, "src/lib.rs");
-        assert!(payload.results[0].line.contains("local_sync_search_marker"));
+        assert!(payload.results[0]
+            .line
+            .contains("local_sync_search_artifact_marker"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
