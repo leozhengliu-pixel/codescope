@@ -302,13 +302,20 @@ fn run_local_repository_sync_execution(
     ) {
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            write_local_repository_sync_snapshot(
+                git_command,
+                repo_path,
+                job,
+                &content_paths,
+                timeout,
+            )?;
             write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
             tracing::info!(
                 repo_path = %repo_path,
                 head = %head,
                 current_branch = %branch,
                 content_file_count = content_paths.len(),
-                "completed bounded local repository sync Git content discovery"
+                "completed bounded local repository sync Git content snapshot"
             );
             Ok(LocalRepositorySyncExecution {
                 revision: head,
@@ -322,6 +329,121 @@ fn run_local_repository_sync_execution(
             timeout.as_millis()
         )),
         Err(error) => Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+    }
+}
+
+fn write_local_repository_sync_snapshot(
+    git_command: &OsStr,
+    repo_path: &str,
+    job: &RepositorySyncJob,
+    content_paths: &[String],
+    timeout: Duration,
+) -> Result<(), String> {
+    let manifest_path = local_repository_sync_manifest_path(repo_path, job);
+    let job_dir = manifest_path.parent().ok_or_else(|| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local sync manifest path has no parent"
+        )
+    })?;
+    let snapshot_path = job_dir.join("snapshot");
+    let tmp_path = job_dir.join("snapshot.tmp");
+    if tmp_path.exists() {
+        fs::remove_dir_all(&tmp_path).map_err(|error| {
+            format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to remove stale local sync snapshot {}: {error}",
+                tmp_path.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(&tmp_path).map_err(|error| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to create local sync snapshot directory {}: {error}",
+            tmp_path.display()
+        )
+    })?;
+
+    for content_path in content_paths {
+        let relative_path = match safe_tracked_content_relative_path(content_path) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(error);
+            }
+        };
+        let output = match run_git_command(
+            git_command,
+            repo_path,
+            &["show", &format!("HEAD:{content_path}")],
+            timeout,
+        ) {
+            Ok(Some(output)) if output.status.success() => output,
+            Ok(Some(output)) => {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(git_failure_detail("git show HEAD:<tracked-path>", &output));
+            }
+            Ok(None) => {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(format!(
+                    "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git show HEAD:{content_path} timed out after {}ms",
+                    timeout.as_millis()
+                ));
+            }
+            Err(error) => {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(format!(
+                    "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"
+                ));
+            }
+        };
+        let destination = tmp_path.join(relative_path);
+        if let Some(parent) = destination.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(format!(
+                    "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to create local sync snapshot parent {}: {error}",
+                    parent.display()
+                ));
+            }
+        }
+        if let Err(error) = fs::write(&destination, output.stdout) {
+            let _ = fs::remove_dir_all(&tmp_path);
+            return Err(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to write local sync snapshot file {}: {error}",
+                destination.display()
+            ));
+        }
+    }
+
+    if snapshot_path.exists() {
+        fs::remove_dir_all(&snapshot_path).map_err(|error| {
+            format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to remove previous local sync snapshot {}: {error}",
+                snapshot_path.display()
+            )
+        })?;
+    }
+    if let Err(error) = fs::rename(&tmp_path, &snapshot_path) {
+        let _ = fs::remove_dir_all(&tmp_path);
+        return Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to finalize local sync snapshot {}: {error}",
+            snapshot_path.display()
+        ));
+    }
+
+    Ok(())
+}
+
+fn safe_tracked_content_relative_path(content_path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(content_path);
+    if path
+        .components()
+        .all(|component| matches!(component, std::path::Component::Normal(_)))
+    {
+        Ok(path.to_path_buf())
+    } else {
+        Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: tracked content path cannot be snapshotted safely: {content_path:?}"
+        ))
     }
 }
 
@@ -1671,6 +1793,22 @@ mod tests {
         assert!(
             !manifest.contains("untracked.txt"),
             "manifest should contain only tracked HEAD paths: {manifest}"
+        );
+        let snapshot_dir = manifest_path
+            .parent()
+            .expect("manifest path should have a job directory")
+            .join("snapshot");
+        assert_eq!(
+            fs::read_to_string(snapshot_dir.join("README.md")).unwrap(),
+            "local repo sync fixture\n"
+        );
+        assert_eq!(
+            fs::read_to_string(snapshot_dir.join("src/lib.rs")).unwrap(),
+            "pub fn fixture() {}\n"
+        );
+        assert!(
+            !snapshot_dir.join("untracked.txt").exists(),
+            "snapshot should contain only tracked HEAD content"
         );
 
         let persisted = store.organization_state().await.unwrap();
