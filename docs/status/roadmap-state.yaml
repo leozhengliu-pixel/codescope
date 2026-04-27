@@ -5,46 +5,65 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c5b5f9fa0304f22b753c3947fb1ee43fef50a0dd
+  head: 64d7e77016c1d30a90998e5effe49a46ac036350
 last_completed_task:
-  id: task97
-  title: MCP runtime, auth, and end-to-end contract parity
+  id: task98
+  title: Worker scheduling, retries, and supervision parity
   status: done
   summary: >-
-    Closed one bounded Task 97 MCP runtime/auth slice by exposing an
-    authenticated HTTP/API bridge under `/api/v1/mcp/...`: manifest, tool-list,
-    and tool-call routes now reuse the existing web/API auth helper and
-    repository-visibility boundary. The route calls the `sourcebot-mcp` manifest,
-    tool-definition, and `execute_tool_call(...)` surfaces directly; API-specific
-    active-repository tools require a caller-visible `repo_id`, hidden repo ids
-    fail closed, and `list_repos` returns only the caller-visible repository set.
-    The claim remains bounded to authenticated HTTP/API MCP wiring, not full MCP
-    protocol/session transport interoperability, client integration, richer tool
-    coverage, or practical replacement parity.
+    Closed one bounded Task 98 worker/runtime operator-visibility slice by adding
+    optional `SOURCEBOT_WORKER_STATUS_PATH` support to the real `sourcebot-worker`
+    binary. When configured, the worker now preflights the status path before
+    claiming work and writes a supervisor-readable JSON last-run snapshot after
+    successful bounded completion with schema version, completion flag, configured
+    tick count, completed tick count, last tick, last outcome, and nullable last
+    work-item id/status fields. The release claim remains deliberately bounded:
+    this is a local last-run status artifact for operators, not production
+    daemon supervision, durable worker metadata, broad retry/backoff, real
+    provider fetch/import/reindex execution, or full runtime parity.
   tests:
-    - cargo test -p sourcebot-api mcp_http -- --nocapture: passed (4 matched in sourcebot-api bin target; sourcebot-api lib target 0 tests)
-    - cargo test -p sourcebot-mcp: passed (8 lib tests; 0 doc tests)
+    - cargo test -p sourcebot-worker worker_binary_writes_supervisor_status_snapshot_for_no_work_tick -- --nocapture: red first, then passed (1 matched in worker_runtime_logging_smoke; other worker targets 0 tests)
+    - cargo test -p sourcebot-worker: passed (32 lib tests, 5 explicit completed-smoke tests, 3 invalid-config smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 3 worker-runtime logging smoke tests, 0 doctests)
     - cargo fmt --check, git diff --check, and added-lines security scan: passed
   review:
-    code: passed independent read-only re-review after fixing active repository selection for HTTP/API content tools; no blocking auth scope, hidden-repo leakage, schema truthfulness, route insertion, security, or bounded-doc-claim issues remained
-  commit: c5b5f9fa0304f22b753c3947fb1ee43fef50a0dd
-  next_task: task98
+    code: passed independent read-only review; no blocking path/status write safety, fail-closed preflight, bounded docs-claim, security, or logic issues remained
+  commit: 64d7e77016c1d30a90998e5effe49a46ac036350
+  next_task: task99
 current_task:
-  id: task98
+  id: task99
   parent_task: phase-d-runtime-interoperability-and-release-closure
-  title: Worker scheduling, retries, and supervision parity
+  title: Operator runtime, observability, and recovery parity
   status: pending
   summary: >-
-    Task 97 now has a bounded authenticated HTTP/API MCP bridge with
-    permission-scoped tool-call evidence, while full MCP protocol/session
-    transport and client interoperability remain follow-up work. The next
-    highest-value release blocker is Task 98: move the worker/runtime baseline
-    beyond one-shot and explicitly bounded multi-tick execution into truthful
-    scheduling, retry, and supervision behavior without over-claiming broad
-    provider fetch/import/reindex or production-grade runtime parity before the
-    evidence exists.
+    Task 98 now has a bounded local supervisor-readable worker last-run status
+    snapshot in addition to the existing one-tick/default, explicit bounded
+    multi-tick, stale-lease recovery/replay, and provider metadata probes. The
+    next highest-value release blocker is Task 99: close remaining
+    operator/runtime gaps around readiness, durable deployment/upgrade safety,
+    richer observability, backup/recovery, and production-grade local-to-real
+    deployment guidance without over-claiming practical replacement parity.
 
 history:
+  - id: task98
+    status: done
+    summary: >-
+      Closed one bounded Task 98 worker/runtime operator-visibility slice by
+      adding optional `SOURCEBOT_WORKER_STATUS_PATH` support to the real worker
+      binary. The worker preflights the configured status path before claiming
+      work and writes a supervisor-readable JSON last-run snapshot after
+      successful bounded completion with schema version, completion flag,
+      configured/completed tick counts, last tick/outcome, and nullable last
+      work-item id/status. The claim remains bounded to a local operator artifact,
+      not daemon supervision, production observability, durable worker metadata,
+      broad retry/backoff, provider fetch/import/reindex, or full runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker worker_binary_writes_supervisor_status_snapshot_for_no_work_tick -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking path/status write safety, fail-closed preflight, bounded docs-claim, security, or logic issues remained
+    commit: 64d7e77016c1d30a90998e5effe49a46ac036350
+    next_task: task99
   - id: task97
     status: done
     summary: >-
