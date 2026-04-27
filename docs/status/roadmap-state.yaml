@@ -5,39 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 89e6e329852d97a15cab0c4597bfd2c8b1cd01d7
+  head: fbb02287931efc17ff39a14baf4cdaca24c1add7
 last_completed_task:
-  id: task96w
-  title: Local import queued worker handoff sync-history visibility
+  id: task96x
+  title: Local sync search-index artifact baseline
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime UI visibility slice by making
-    the authenticated `#/settings/connections` local-import flow refetch
-    `/api/v1/auth/repository-sync-jobs` after a successful local repository
-    import, so the queued worker handoff becomes visible on the same local
-    connection card from the real API inventory instead of a synthetic row. The
-    sync-history refresh is request-version guarded so a slow initial history
-    response cannot overwrite the post-import refresh, and a post-import refresh
-    failure now preserves already visible history rows while surfacing the
-    scoped error. The release claim remains narrow: this improves authenticated
-    local import handoff/history visibility only, not real provider
-    fetch/import/reindex execution, durable/background indexing, broad
-    retry/backoff, scheduling/supervision, provider discovery, or full
-    provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime artifact slice by making
+    sourcebot-search own a self-contained `search-index.json` artifact writer
+    and loader, then having the local repository-sync worker persist that
+    sibling artifact after successful tracked-HEAD snapshot materialization and
+    before terminal success. The artifact can be loaded without rewalking the
+    snapshot, and failure to build or finalize it fails the local sync closed
+    with the existing operator-visible execution prefix. The release claim
+    remains narrow: repo-local manifest/snapshot/search-index artifact status
+    only, not real provider fetch/import/reindex execution, durable/background
+    indexing, broad retry/backoff, scheduling/supervision, provider discovery,
+    or full provider/runtime parity.
   tests:
-    - npm test -- --run src/App.test.tsx -t "refreshes local repository sync history": passed (1 matched, 176 skipped before the preservation regression was added)
-    - npm test -- --run src/App.test.tsx -t "keeps refreshed local import sync history": passed (1 matched, 176 skipped before the preservation regression was added)
-    - npm test -- --run src/App.test.tsx -t "preserves existing local import sync history": red first on hidden preserved rows under syncJobsError, then passed (1 matched, 177 skipped)
-    - npm test -- --run src/App.test.tsx -t "local import": passed (7 matched, 171 skipped)
-    - npm test -- --run src/App.test.tsx: passed (178 tests)
-    - npm run build: passed
-    - git diff --check, docs marker check, and added-lines security scan: passed
+    - cargo test -p sourcebot-search local_search_store_can_round_trip_persisted_index_artifact_without_rewalking_snapshot -- --nocapture: passed (1 matched)
+    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_completes_real_local_git_repository -- --nocapture: selector gap (0 matched), rerun with safe selector below
+    - cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture: passed (1 matched in lib target; expected zero-test non-lib targets noted)
+    - cargo test -p sourcebot-search: passed (10 tests)
+    - cargo test -p sourcebot-worker: passed
+    - cargo fmt --check, git diff --check, and added-lines security scan: passed
   review:
-    code: passed independent read-only re-review after fixing the reviewer-found preserveOnError/UI-rendering blocker; no blocking stale-response, preservation, docs-claim, security, or test-coverage issues remained
-  commit: 89e6e329852d97a15cab0c4597bfd2c8b1cd01d7
-  next_task: task96x
+    code: passed independent read-only review; no blocking path-traversal/security, stale-artifact, failure-propagation, crate-boundary, serialization, test, or bounded-doc-claim issues remained
+  commit: fbb02287931efc17ff39a14baf4cdaca24c1add7
+  next_task: task96y
 current_task:
-  id: task96x
+  id: task96y
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -53,15 +50,17 @@ current_task:
     metadata, authenticated API/UI visibility for that terminal metadata, a
     bounded repo-local tracked-content manifest, bounded tracked `HEAD`
     snapshot materialization that preserves significant whitespace in tracked
-    path names, settings UI visibility for local manifest/snapshot artifact
-    paths, requested-repo local snapshot search fallback, requested-repo local
-    snapshot index-status fallback, no-revision tree/blob browse fallback,
-    no-revision definitions/references code-navigation fallback under the
-    caller-authorized organization/repository boundary, bounded stale `running`
-    repository-sync lease recovery before each repository-sync claim, and one
-    bounded automatic stale-lease replay after an additional one-hour backoff.
-    Practical provider/runtime parity still needs a next meaningful closure
-    that turns local/provider jobs into broader real fetch/import/reindex or
+    path names, a sibling repo-local `search-index.json` artifact that can be
+    loaded without rewalking the snapshot, settings UI visibility for local
+    manifest/snapshot artifact paths, requested-repo local snapshot search
+    fallback, requested-repo local snapshot index-status fallback, no-revision
+    tree/blob browse fallback, no-revision definitions/references
+    code-navigation fallback under the caller-authorized
+    organization/repository boundary, bounded stale `running` repository-sync
+    lease recovery before each repository-sync claim, and one bounded automatic
+    stale-lease replay after an additional one-hour backoff. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -70,6 +69,27 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96x
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime artifact slice by making
+      sourcebot-search own a self-contained search-index artifact writer/loader
+      and making the local repository-sync worker persist a sibling
+      `search-index.json` after successful tracked-HEAD snapshot materialization.
+      The artifact can be loaded without rewalking the snapshot, and failures
+      fail local sync closed before terminal success. The slice keeps real
+      provider fetch/import/reindex, durable/background indexing, broad
+      retry/backoff, scheduling/supervision, provider discovery, and full
+      provider/runtime parity as follow-up work.
+    tests:
+      - cargo test -p sourcebot-search local_search_store_can_round_trip_persisted_index_artifact_without_rewalking_snapshot -- --nocapture: passed
+      - cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture: passed
+      - cargo test -p sourcebot-search and cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking path-safety, failure-propagation, serialization, or bounded-claim issues remained
+    commit: fbb02287931efc17ff39a14baf4cdaca24c1add7
+    next_task: task96y
   - id: task96w
     status: done
     summary: >-
