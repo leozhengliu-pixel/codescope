@@ -429,6 +429,12 @@ pub struct RepositorySyncJob {
     pub finished_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub synced_content_file_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -875,6 +881,9 @@ mod tests {
                 started_at: Some("2026-04-26T10:01:00Z".into()),
                 finished_at: Some("2026-04-26T10:02:00Z".into()),
                 error: None,
+                synced_revision: None,
+                synced_branch: None,
+                synced_content_file_count: None,
             }],
             ..OrganizationState::default()
         };

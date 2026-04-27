@@ -1110,10 +1110,13 @@ fn repository_sync_job_from_row(row: sqlx::postgres::PgRow) -> Result<Repository
         started_at: row.try_get("started_at")?,
         finished_at: row.try_get("finished_at")?,
         error: row.try_get("error")?,
+        synced_revision: row.try_get("synced_revision")?,
+        synced_branch: row.try_get("synced_branch")?,
+        synced_content_file_count: row.try_get("synced_content_file_count")?,
     })
 }
 
-const REPOSITORY_SYNC_JOB_SELECT_COLUMNS: &str = "id, organization_id, repository_id, connection_id, status, to_char(queued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS queued_at, to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, error";
+const REPOSITORY_SYNC_JOB_SELECT_COLUMNS: &str = "id, organization_id, repository_id, connection_id, status, to_char(queued_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS queued_at, to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at, error, synced_revision, synced_branch, synced_content_file_count";
 
 fn review_agent_run_status_to_str(status: &ReviewAgentRunStatus) -> &'static str {
     match status {
@@ -1220,8 +1223,8 @@ impl PgOrganizationStore {
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
         sqlx::query(
-            "INSERT INTO repository_sync_jobs (id, organization_id, repository_id, connection_id, status, queued_at, started_at, finished_at, error)
-             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9)
+            "INSERT INTO repository_sync_jobs (id, organization_id, repository_id, connection_id, status, queued_at, started_at, finished_at, error, synced_revision, synced_branch, synced_content_file_count)
+             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz, $9, $10, $11, $12)
              ON CONFLICT (id) DO UPDATE SET
                 organization_id = EXCLUDED.organization_id,
                 repository_id = EXCLUDED.repository_id,
@@ -1230,7 +1233,10 @@ impl PgOrganizationStore {
                 queued_at = EXCLUDED.queued_at,
                 started_at = EXCLUDED.started_at,
                 finished_at = EXCLUDED.finished_at,
-                error = EXCLUDED.error
+                error = EXCLUDED.error,
+                synced_revision = EXCLUDED.synced_revision,
+                synced_branch = EXCLUDED.synced_branch,
+                synced_content_file_count = EXCLUDED.synced_content_file_count
              WHERE
                 (CASE repository_sync_jobs.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END)
                   <= (CASE EXCLUDED.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END)
@@ -1249,6 +1255,9 @@ impl PgOrganizationStore {
         .bind(job.started_at)
         .bind(job.finished_at)
         .bind(job.error)
+        .bind(job.synced_revision)
+        .bind(job.synced_branch)
+        .bind(job.synced_content_file_count)
         .execute(executor)
         .await?;
         Ok(())
@@ -2643,7 +2652,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE oauth_clients, api_keys, sessions, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE oauth_clients, api_keys, sessions, local_accounts, organizations, connections RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -3672,6 +3681,9 @@ mod tests {
                 started_at: Some("2026-04-26T10:01:00Z".into()),
                 finished_at: Some("2026-04-26T10:02:00Z".into()),
                 error: Some("remote rejected fetch".into()),
+                synced_revision: None,
+                synced_branch: None,
+                synced_content_file_count: None,
             }],
         };
 
@@ -3700,6 +3712,9 @@ mod tests {
             started_at: None,
             finished_at: None,
             error: None,
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         }
     }
 
@@ -3761,6 +3776,9 @@ mod tests {
             status: RepositorySyncJobStatus::Succeeded,
             started_at: Some("2026-04-26T10:01:00Z".into()),
             finished_at: Some("2026-04-26T10:02:00Z".into()),
+            synced_revision: Some("abc123terminal".into()),
+            synced_branch: Some("main".into()),
+            synced_content_file_count: Some(42),
             ..queued.clone()
         };
 

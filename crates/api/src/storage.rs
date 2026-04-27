@@ -512,10 +512,10 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
                 .into_iter()
                 .collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event + task95 external-account + task96 local-repository-path migration versions"
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event + task95 external-account + task96 local-repository-path + task96 repository-sync terminal metadata migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -555,6 +555,8 @@ mod tests {
                 "0013_external_accounts.up.sql".to_string(),
                 "0014_local_repository_paths.down.sql".to_string(),
                 "0014_local_repository_paths.up.sql".to_string(),
+                "0015_repository_sync_job_terminal_metadata.down.sql".to_string(),
+                "0015_repository_sync_job_terminal_metadata.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -958,6 +960,23 @@ mod tests {
             assert!(
                 task95_up_migration.contains(expected_snippet),
                 "missing task95 migration snippet: {expected_snippet}"
+            );
+        }
+
+        let task96k_up_migration = std::fs::read_to_string(
+            migration_dir.join("0015_repository_sync_job_terminal_metadata.up.sql"),
+        )
+        .unwrap();
+
+        for expected_snippet in [
+            "ALTER TABLE repository_sync_jobs",
+            "ADD COLUMN synced_revision TEXT",
+            "ADD COLUMN synced_branch TEXT",
+            "ADD COLUMN synced_content_file_count BIGINT",
+        ] {
+            assert!(
+                task96k_up_migration.contains(expected_snippet),
+                "missing task96k migration snippet: {expected_snippet}"
             );
         }
     }

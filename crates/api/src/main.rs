@@ -1870,6 +1870,9 @@ async fn import_authenticated_local_repository(
         started_at: None,
         finished_at: None,
         error: None,
+        synced_revision: None,
+        synced_branch: None,
+        synced_content_file_count: None,
     };
 
     let permission_binding = RepositoryPermissionBinding {
@@ -2884,6 +2887,9 @@ async fn create_authenticated_repository_sync_job(
         started_at: None,
         finished_at: None,
         error: None,
+        synced_revision: None,
+        synced_branch: None,
+        synced_content_file_count: None,
     };
 
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
@@ -2962,6 +2968,9 @@ async fn retry_authenticated_repository_sync_job(
         started_at: None,
         finished_at: None,
         error: None,
+        synced_revision: None,
+        synced_branch: None,
+        synced_content_file_count: None,
     };
 
     let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
@@ -14178,6 +14187,9 @@ mod tests {
             started_at: Some("2026-04-26T10:02:00Z".into()),
             finished_at: Some("2026-04-26T10:03:00Z".into()),
             error: Some("provider timed out".into()),
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         };
         let state = OrganizationState {
             organizations: vec![Organization {
@@ -14274,6 +14286,9 @@ mod tests {
             started_at: Some("2026-04-26T10:02:00Z".into()),
             finished_at: Some("2026-04-26T10:03:00Z".into()),
             error: Some("provider timed out".into()),
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         };
         let state = OrganizationState {
             organizations: vec![Organization {
@@ -14354,6 +14369,9 @@ mod tests {
             started_at: Some("2026-04-26T10:02:00Z".into()),
             finished_at: None,
             error: None,
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         };
         let state = OrganizationState {
             organizations: vec![
@@ -14441,6 +14459,9 @@ mod tests {
             started_at: Some("2026-04-26T10:02:00Z".into()),
             finished_at: None,
             error: None,
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         };
         let state = OrganizationState {
             organizations: vec![Organization {
@@ -14650,6 +14671,9 @@ mod tests {
                     started_at: None,
                     finished_at: None,
                     error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_visible_newer".into(),
@@ -14661,6 +14685,9 @@ mod tests {
                     started_at: Some("2026-04-21T00:10:05Z".into()),
                     finished_at: Some("2026-04-21T00:10:10Z".into()),
                     error: Some("explicit stub failure".into()),
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_hidden_org".into(),
@@ -14672,6 +14699,9 @@ mod tests {
                     started_at: Some("2026-04-21T00:11:05Z".into()),
                     finished_at: Some("2026-04-21T00:11:10Z".into()),
                     error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_hidden_repo_scope".into(),
@@ -14683,6 +14713,9 @@ mod tests {
                     started_at: Some("2026-04-21T00:12:05Z".into()),
                     finished_at: None,
                     error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
             ],
             ..OrganizationState::default()
@@ -14920,6 +14953,9 @@ mod tests {
                     started_at: Some("2026-04-21T01:10:05Z".into()),
                     finished_at: Some("2026-04-21T01:10:10Z".into()),
                     error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_hidden_cross_org".into(),
@@ -14931,6 +14967,9 @@ mod tests {
                     started_at: Some("2026-04-21T01:11:05Z".into()),
                     finished_at: Some("2026-04-21T01:11:10Z".into()),
                     error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
             ],
             ..OrganizationState::default()

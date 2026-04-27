@@ -182,22 +182,31 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
         Ok(Some(output))
             if output.status.success() && git_preflight_stdout_is_true(&output.stdout) =>
         {
-            if let Some(execution_failure) =
-                run_local_repository_sync_execution(git_command, repo_path, preflight_timeout)
-            {
-                return Some(fail_local_repository_sync_job(
-                    job,
-                    finished_at,
-                    execution_failure,
-                ));
-            }
+            let execution = match run_local_repository_sync_execution(
+                git_command,
+                repo_path,
+                preflight_timeout,
+            ) {
+                Ok(execution) => execution,
+                Err(execution_failure) => {
+                    return Some(fail_local_repository_sync_job(
+                        job,
+                        finished_at,
+                        execution_failure,
+                    ));
+                }
+            };
 
-            Some(complete_repository_sync_job(
+            let mut completed_job = complete_repository_sync_job(
                 job,
                 RepositorySyncJobStatus::Succeeded,
                 finished_at,
                 None,
-            ))
+            );
+            completed_job.synced_revision = Some(execution.revision);
+            completed_job.synced_branch = Some(execution.branch);
+            completed_job.synced_content_file_count = Some(execution.content_file_count);
+            Some(completed_job)
         }
         Ok(Some(output)) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -227,23 +236,29 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
     }
 }
 
+struct LocalRepositorySyncExecution {
+    revision: String,
+    branch: String,
+    content_file_count: i64,
+}
+
 fn run_local_repository_sync_execution(
     git_command: &OsStr,
     repo_path: &str,
     timeout: Duration,
-) -> Option<String> {
+) -> Result<LocalRepositorySyncExecution, String> {
     let head = match run_git_command(git_command, repo_path, &["rev-parse", "HEAD"], timeout) {
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             String::from_utf8_lossy(&output.stdout).trim().to_owned()
         }
-        Ok(Some(output)) => return Some(git_failure_detail("git rev-parse HEAD", &output)),
+        Ok(Some(output)) => return Err(git_failure_detail("git rev-parse HEAD", &output)),
         Ok(None) => {
-            return Some(format!(
+            return Err(format!(
                 "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git rev-parse HEAD timed out after {}ms",
                 timeout.as_millis()
             ))
         }
-        Err(error) => return Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+        Err(error) => return Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
     let content_paths = match run_git_command(
@@ -260,18 +275,18 @@ fn run_local_repository_sync_execution(
                 .count()
         }
         Ok(Some(output)) if output.status.success() => {
-            return Some(format!(
+            return Err(format!(
                 "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD found no tracked content"
             ))
         }
-        Ok(Some(output)) => return Some(git_failure_detail("git ls-tree -r --name-only HEAD", &output)),
+        Ok(Some(output)) => return Err(git_failure_detail("git ls-tree -r --name-only HEAD", &output)),
         Ok(None) => {
-            return Some(format!(
+            return Err(format!(
                 "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD timed out after {}ms",
                 timeout.as_millis()
             ))
         }
-        Err(error) => return Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+        Err(error) => return Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
     match run_git_command(
@@ -289,14 +304,18 @@ fn run_local_repository_sync_execution(
                 content_file_count = content_paths,
                 "completed bounded local repository sync Git content discovery"
             );
-            None
+            Ok(LocalRepositorySyncExecution {
+                revision: head,
+                branch,
+                content_file_count: content_paths as i64,
+            })
         }
-        Ok(Some(output)) => Some(git_failure_detail("git symbolic-ref --short HEAD", &output)),
-        Ok(None) => Some(format!(
+        Ok(Some(output)) => Err(git_failure_detail("git symbolic-ref --short HEAD", &output)),
+        Ok(None) => Err(format!(
             "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git symbolic-ref --short HEAD timed out after {}ms",
             timeout.as_millis()
         )),
-        Err(error) => Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+        Err(error) => Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     }
 }
 
@@ -371,6 +390,7 @@ fn fail_local_repository_sync_job(
     } else {
         format!("{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}")
     };
+
     complete_repository_sync_job(
         job,
         RepositorySyncJobStatus::Failed,
@@ -652,6 +672,9 @@ mod tests {
             started_at: None,
             finished_at: None,
             error: None,
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
         }
     }
 
@@ -1511,6 +1534,24 @@ mod tests {
         assert!(completed_job.started_at.is_some());
         assert!(completed_job.finished_at.is_some());
         assert_eq!(completed_job.error, None);
+        let expected_head = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .expect("git rev-parse should run")
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        assert_eq!(
+            completed_job.synced_revision.as_deref(),
+            Some(expected_head.as_str())
+        );
+        assert_eq!(completed_job.synced_branch.as_deref(), Some("master"));
+        assert_eq!(completed_job.synced_content_file_count, Some(1));
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], completed_job);

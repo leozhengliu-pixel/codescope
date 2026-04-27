@@ -30,6 +30,9 @@ fn repository_sync_job(
         started_at: None,
         finished_at: None,
         error: None,
+        synced_revision: None,
+        synced_branch: None,
+        synced_content_file_count: None,
     }
 }
 
