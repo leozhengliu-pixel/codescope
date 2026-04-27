@@ -5,63 +5,94 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3523484dc733ffd410172ea519dd1400f7e81ea0
+  head: 5f8e1bd31f895cc121df99c1a67667257ec7051f
 last_completed_task:
-  id: task94h
-  title: Durable PostgreSQL auth audit events for local member lifecycle
+  id: task95
+  title: External-provider linked-account inventory baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94h auth/admin durability slice instead of
-    splitting migration inventory, transaction-bound audit writes, legacy
-    compatibility audit visibility, focused SQLx verification, acceptance
-    wording, parity-report updates, and independent review into smaller
-    paperwork-only runs. Local member invite create/cancel, member-role update,
-    and member-removal mutations now write durable PostgreSQL audit-event rows
-    in the same transaction as the auth metadata mutation when DATABASE_URL is
-    configured. The audit-events API reads PostgreSQL rows scoped to the
-    caller's visible organizations while best-effort merging visible file-backed
-    compatibility rows for older API-key/OAuth audit events, so durable member
-    lifecycle audit visibility no longer depends on a readable fallback
-    aggregate. Docs keep the claim bounded: filtering/export, broad audit
-    analytics, external-provider identity audit events, retention/export policy,
-    broader org/member CRUD, and full audit parity remain follow-up work.
+    Closed one meaningful Task 95 external-provider identity slice instead of
+    splitting model, migration, route, UI copy, acceptance wording, parity-audit
+    sync, focused verification, and review into smaller paperwork-only runs. The
+    rewrite now has a bounded `ExternalAccount` model plus `OrganizationState`
+    persistence, migration `0013_external_accounts`, PostgreSQL auth metadata
+    loading for same-local-user external identities, and authenticated linked
+    accounts responses/settings UI that show the current local identity first
+    followed by same-user provider identities while excluding external identities
+    that belong to other local users. The claim remains deliberately narrow:
+    external provider login/callback exchange, external-account creation/linking,
+    account-merge policy, SSO login, provider token exchange, and broader
+    linked-account management UX remain follow-up work.
   tests:
     - repo-local PostgreSQL preflight: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove_keeps_postgres_mutation_and_audit_when_compatibility_audit_read_fails -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (11 passed; 361 filtered)
-    - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_and_auth_audit_events -- --nocapture: passed in lib and bin targets (1 passed each)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_routes_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
-    - make sqlx-test: passed after the PostgreSQL preflight, including older API-key/OAuth audit-visibility SQLx selectors (5 passed; 367 filtered) and invite_redeem_ (8 passed; 364 filtered)
+    - cargo test -p sourcebot-models external_accounts -- --nocapture: passed (2 passed; 48 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_postgres_backed_memberships_when_database_url_is_configured -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (1 passed; 371 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (4 passed; 368 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_current_local_identity_and_visible_memberships -- --nocapture: passed (1 passed; 371 filtered)
+    - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts -- --nocapture: passed in lib and bin targets (1 passed each)
+    - make sqlx-test: passed after the PostgreSQL preflight
     - cargo fmt --check: passed
     - git diff --check: passed
-    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
-    - bash scripts/check_sqlx_test_workflow.sh .: passed
-    - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+    - npm test -- --run src/App.test.tsx -t "linked accounts inventory": passed (1 passed; 173 skipped)
+    - npm test -- --run src/App.test.tsx -t "linked accounts": passed (2 passed; 172 skipped)
+    - npm test -- --run src/App.test.tsx: passed (174 passed)
+    - npm run build: passed in background (Vite build complete)
+    - python3 doc/UI stale-phrase truth checks for acceptance specs, gap report, final audit, App copy, and App tests: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing reviewer-found split-backend blockers; reviewer approved transaction-bound PostgreSQL audit inserts for invite create/cancel, role update, and member removal; best-effort compatibility audit writes with no PostgreSQL rollback/restore; visible-organization scoping for PostgreSQL audit reads; and merged visible file-backed compatibility rows for older audit events
-  commit: 3523484dc733ffd410172ea519dd1400f7e81ea0
-  next_task: task95
+    code: passed independent read-only final review; reviewer approved the same-user scope boundary, bounded provider-login/linking claims, migration inventory synchronization, UI copy/test consistency, and docs/final-audit synchronization, with only a non-blocking note that external identities reuse the response field `created_at` for the persisted `linked_at` display timestamp
+  commit: 5f8e1bd31f895cc121df99c1a67667257ec7051f
+  next_task: task96
 current_task:
-  id: task95
+  id: task96
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: External-provider sign-in and linked-account parity
+  title: Provider connection runtime parity
   status: pending
   summary: >-
-    Task 94h closes the highest-value remaining local auth/admin durability gap
-    by making member lifecycle audit events durable in PostgreSQL while
-    preserving visible compatibility audit rows. The next meaningful closure
-    should move Phase C to Task 95 external-provider identity work instead of
-    continuing to micro-slice the same members panel: implement a bounded OIDC
-    sign-in/callback or linked-account slice that can close with backend route
-    behavior, focused verification, truthful settings/auth acceptance wording,
-    independent review, commit, state update, and push. Keep remaining Task 94
-    gaps explicit: email delivery/resend, broader org/member CRUD, richer audit
-    filtering/export, retention/export policy, and full role/org lifecycle parity
-    are still not claimed.
+    Task 95 closes a bounded linked-account inventory baseline but keeps real
+    provider login/callback exchange, external-account creation/linking, account
+    merge, and SSO login fail-closed as follow-up. The next meaningful closure
+    should move Phase C to Task 96 provider connection runtime parity rather than
+    micro-slicing linked-account paperwork: ship a bounded provider/runtime slice
+    for GitHub, GitLab, or generic/local Git import/sync behavior with backend
+    route behavior, focused verification, truthful integrations/settings
+    acceptance wording, independent review, commit, state update, and push.
 history:
+  - id: task95
+    status: done
+    summary: >-
+      Closed one meaningful Task 95 external-provider identity slice instead of
+      splitting model, migration, route, UI copy, acceptance wording, parity-audit
+      sync, focused verification, and review into smaller paperwork-only runs. The
+      rewrite now has a bounded `ExternalAccount` model plus `OrganizationState`
+      persistence, migration `0013_external_accounts`, PostgreSQL auth metadata
+      loading for same-local-user external identities, and authenticated linked
+      accounts responses/settings UI that show the current local identity first
+      followed by same-user provider identities while excluding external identities
+      that belong to other local users. The claim remains deliberately narrow:
+      external provider login/callback exchange, external-account creation/linking,
+      account-merge policy, SSO login, provider token exchange, and broader
+      linked-account management UX remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+      - cargo test -p sourcebot-models external_accounts -- --nocapture: passed (2 passed; 48 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_postgres_backed_memberships_when_database_url_is_configured -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (1 passed; 371 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (4 passed; 368 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_linked_accounts_returns_current_local_identity_and_visible_memberships -- --nocapture: passed (1 passed; 371 filtered)
+      - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_auth_audit_events_and_external_accounts -- --nocapture: passed in lib and bin targets (1 passed each)
+      - make sqlx-test: passed after the PostgreSQL preflight
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - npm test -- --run src/App.test.tsx -t "linked accounts inventory": passed (1 passed; 173 skipped)
+      - npm test -- --run src/App.test.tsx -t "linked accounts": passed (2 passed; 172 skipped)
+      - npm test -- --run src/App.test.tsx: passed (174 passed)
+      - npm run build: passed in background (Vite build complete)
+      - python3 doc/UI stale-phrase truth checks for acceptance specs, gap report, final audit, App copy, and App tests: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only final review; reviewer approved the same-user scope boundary, bounded provider-login/linking claims, migration inventory synchronization, UI copy/test consistency, and docs/final-audit synchronization, with only a non-blocking note that external identities reuse the response field `created_at` for the persisted `linked_at` display timestamp
+    commit: 5f8e1bd31f895cc121df99c1a67667257ec7051f
+    next_task: task96
   - id: task94h
     status: done
     summary: >-
