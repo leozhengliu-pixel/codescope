@@ -5,61 +5,102 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 483bb8944c98d70693e24570a792a3a549096d6f
+  head: e295db80ce52006be5d7cd88a90b4c36ba8e563f
 last_completed_task:
-  id: task94e
-  title: Bounded member role update baseline
+  id: task94f
+  title: Bounded member removal baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94e auth/admin lifecycle slice instead of
-    splitting the backend role-update route, PostgreSQL mutation path, shipped
-    file-backed audit visibility, settings UI controls, acceptance wording,
-    parity-report updates, focused SQL-backed/file-backed route coverage, and
-    independent review into smaller paperwork-only runs. Authenticated
-    local-session admins can now update visible organization member roles
-    through `PATCH /api/v1/auth/members/{user_id}/role`; invalid roles,
-    hidden organizations, hidden member targets, and non-admin callers fail
-    closed without mutation; PostgreSQL-backed role updates persist to
-    `organization_memberships` while preserving shipped file-backed
-    `auth.member_role.updated` audit visibility; and the `#/settings/members`
-    panel exposes bounded role selects only from the loaded admin-visible
-    roster while disabling conflicting invite/member mutations. Docs keep the
-    claim bounded: email delivery, resend workflow, member removal, durable
-    audit-event storage, broader org/member CRUD, last-admin/self-demotion
-    policy, and full role lifecycle parity remain follow-up work.
+    Closed one meaningful Task 94f auth/admin lifecycle slice instead of
+    splitting backend member-removal routes, PostgreSQL membership deletion,
+    shipped file-backed audit visibility, rollback hardening, settings UI
+    controls, acceptance wording, parity-report updates, focused SQL-backed and
+    file-backed route coverage, and independent review into smaller paperwork
+    fragments. Authenticated local-session admins can now remove visible active
+    organization members through `DELETE /api/v1/auth/members/{user_id}` with
+    an administered `organization_id`; blank ids, hidden organizations,
+    non-admin callers, and unknown member targets fail closed without mutation;
+    both file-backed and PostgreSQL-backed paths delete only the membership and
+    never the local account; PostgreSQL-backed deletion preserves shipped
+    file-backed `auth.member.removed` audit visibility and best-effort restores
+    the durable membership if audit read/write fails; and the
+    `#/settings/members` panel exposes bounded remove controls only from the
+    loaded admin-visible roster. Docs keep the claim bounded: email delivery,
+    invite resend workflow, durable audit-event storage, last-admin/self-removal
+    policy enforcement, broad org/member CRUD, and full org/member lifecycle
+    parity remain follow-up work.
   tests:
     - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (1 passed; 364 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (7 passed; 358 filtered), including the PostgreSQL-backed member/invite roster route test now covering durable role update, hidden-org rejection, unchanged hidden role, and audit visibility
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (2 passed; 366 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (9 passed; 359 filtered)
+    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_removes_and_restores_memberships_without_deleting_accounts -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 60/367 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - npm test -- --run src/App.test.tsx -t "updates a member role": passed (1 passed; 172 skipped)
-    - npm test -- --run src/App.test.tsx -t "members": passed (6 passed; 167 skipped)
-    - npm test -- --run src/App.test.tsx: passed (173 passed)
-    - npm run build: passed
+    - npm test -- --run src/App.test.tsx -t "removes a member": passed (1 passed; 173 skipped)
+    - npm test -- --run src/App.test.tsx -t "members": passed (7 passed; 167 skipped)
+    - npm test -- --run src/App.test.tsx: passed (174 passed)
+    - npm run build: passed after correcting stale root-owned web/dist asset ownership
     - python3 raw-content doc/UI truth checks for auth acceptance, settings acceptance, parity-gap report, final audit wording, and settings copy: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved admin-visible scope gates, hidden target rejection, parameterized PostgreSQL update, shipped file-backed audit visibility, bounded settings UI controls, and bounded docs with no blocking security or logic issues
-  commit: 483bb8944c98d70693e24570a792a3a549096d6f
-  next_task: task94f
+    code: passed independent read-only review; reviewer approved hidden/non-admin fail-closed gates, membership-only deletion without local-account deletion, parameterized PostgreSQL membership delete/restore, split-backend audit visibility with best-effort rollback on audit failures, bounded settings UI controls, and bounded docs with no blocking security or logic issues
+  commit: e295db80ce52006be5d7cd88a90b4c36ba8e563f
+  next_task: task94g
 current_task:
-  id: task94f
+  id: task94g
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity beyond role updates
+  title: Continue auth/admin lifecycle parity beyond member removal
   status: pending
   summary: >-
-    Task 94e adds bounded member-role updates on top of the durable
-    invite-create/cancel baseline, but Task 94 remains partial. The next
-    meaningful closure should continue Phase C with another admin-visible auth
-    lifecycle blocker that can close with implementation, focused verification,
-    truthful docs, and independent review, such as invite resend/email-delivery
-    plumbing, member removal, durable audit-event storage for auth/admin
+    Task 94f adds bounded member removal on top of the durable invite
+    create/cancel and role-update baseline, but Task 94 remains partial. The
+    next meaningful closure should continue Phase C with another admin-visible
+    auth lifecycle blocker that can close with implementation, focused
+    verification, truthful docs, and independent review, such as invite
+    resend/email-delivery plumbing, durable audit-event storage for auth/admin
     mutations, broader org/member CRUD, durable permission-sync behavior,
-    last-admin/self-demotion policy hardening, or a pivot to Task 95
+    last-admin/self-removal policy hardening, or a pivot to Task 95
     external-provider sign-in if that is the higher-value unblocked release
     blocker. Do not claim full org/member lifecycle parity yet.
 history:
+  - id: task94f
+    status: done
+    summary: >-
+      Closed one meaningful Task 94f auth/admin lifecycle slice instead of
+      splitting backend member-removal routes, PostgreSQL membership deletion,
+      shipped file-backed audit visibility, rollback hardening, settings UI
+      controls, acceptance wording, parity-report updates, focused SQL-backed and
+      file-backed route coverage, and independent review into smaller paperwork
+      fragments. Authenticated local-session admins can now remove visible active
+      organization members through `DELETE /api/v1/auth/members/{user_id}` with
+      an administered `organization_id`; blank ids, hidden organizations,
+      non-admin callers, and unknown member targets fail closed without mutation;
+      both file-backed and PostgreSQL-backed paths delete only the membership and
+      never the local account; PostgreSQL-backed deletion preserves shipped
+      file-backed `auth.member.removed` audit visibility and best-effort restores
+      the durable membership if audit read/write fails; and the
+      `#/settings/members` panel exposes bounded remove controls only from the
+      loaded admin-visible roster. Docs keep the claim bounded: email delivery,
+      invite resend workflow, durable audit-event storage, last-admin/self-removal
+      policy enforcement, broad org/member CRUD, and full org/member lifecycle
+      parity remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (2 passed; 366 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (9 passed; 359 filtered)
+      - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_removes_and_restores_memberships_without_deleting_accounts -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 60/367 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - npm test -- --run src/App.test.tsx -t "removes a member": passed (1 passed; 173 skipped)
+      - npm test -- --run src/App.test.tsx -t "members": passed (7 passed; 167 skipped)
+      - npm test -- --run src/App.test.tsx: passed (174 passed)
+      - npm run build: passed after correcting stale root-owned web/dist asset ownership
+      - python3 raw-content doc/UI truth checks for auth acceptance, settings acceptance, parity-gap report, final audit wording, and settings copy: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved hidden/non-admin fail-closed gates, membership-only deletion without local-account deletion, parameterized PostgreSQL membership delete/restore, split-backend audit visibility with best-effort rollback on audit failures, bounded settings UI controls, and bounded docs with no blocking security or logic issues
+    commit: e295db80ce52006be5d7cd88a90b4c36ba8e563f
+    next_task: task94g
   - id: task94e
     status: done
     summary: >-
