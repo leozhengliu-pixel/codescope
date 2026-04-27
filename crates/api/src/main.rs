@@ -43,8 +43,8 @@ use sourcebot_models::{
     SearchContext,
 };
 use sourcebot_search::{
-    build_search_store, extract_symbols, DynSearchStore, RepositoryIndexStatus, SearchResponse,
-    SymbolKind,
+    build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexStatus,
+    SearchResponse, SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
@@ -5281,7 +5281,141 @@ async fn search_repository_contents(
         .results
         .retain(|result| visible_repo_ids.contains(&result.repo_id));
 
+    if response.results.is_empty() {
+        if let Some(repo_id) = requested_repo_id {
+            if let Some(snapshot_response) =
+                search_latest_local_sync_snapshot_for_repo(&state, &query.q, &user_id, repo_id)
+                    .await?
+            {
+                response = snapshot_response;
+            }
+        }
+    }
+
     Ok(Json(response))
+}
+
+async fn search_latest_local_sync_snapshot_for_repo(
+    state: &AppState,
+    query: &str,
+    user_id: &str,
+    repo_id: &str,
+) -> Result<Option<SearchResponse>, StatusCode> {
+    let organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let authorized_organization_ids =
+        authorized_organization_ids_for_repo(&organization_state, user_id, repo_id);
+    if authorized_organization_ids.is_empty() {
+        return Ok(None);
+    }
+    let Some(snapshot_path) =
+        latest_local_sync_snapshot_path(&organization_state, repo_id, &authorized_organization_ids)
+    else {
+        return Ok(None);
+    };
+    if !snapshot_path.is_dir() {
+        return Ok(None);
+    }
+
+    let snapshot_search =
+        LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot_path)]));
+    snapshot_search
+        .search(query, Some(repo_id))
+        .map(Some)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn authorized_organization_ids_for_repo(
+    organization_state: &OrganizationState,
+    user_id: &str,
+    repo_id: &str,
+) -> HashSet<String> {
+    let member_organization_ids = organization_state
+        .memberships
+        .iter()
+        .filter(|membership| membership.user_id == user_id)
+        .map(|membership| membership.organization_id.as_str())
+        .collect::<HashSet<_>>();
+
+    organization_state
+        .repo_permissions
+        .iter()
+        .filter(|binding| {
+            binding.repository_id == repo_id
+                && member_organization_ids.contains(binding.organization_id.as_str())
+        })
+        .map(|binding| binding.organization_id.clone())
+        .collect()
+}
+
+fn latest_local_sync_snapshot_path(
+    organization_state: &OrganizationState,
+    repo_id: &str,
+    authorized_organization_ids: &HashSet<String>,
+) -> Option<std::path::PathBuf> {
+    let latest_successful_job = organization_state
+        .repository_sync_jobs
+        .iter()
+        .filter(|job| {
+            job.repository_id == repo_id
+                && authorized_organization_ids.contains(&job.organization_id)
+                && job.status == RepositorySyncJobStatus::Succeeded
+                && job.synced_revision.is_some()
+        })
+        .max_by(|left, right| {
+            left.finished_at
+                .as_deref()
+                .unwrap_or(left.queued_at.as_str())
+                .cmp(
+                    right
+                        .finished_at
+                        .as_deref()
+                        .unwrap_or(right.queued_at.as_str()),
+                )
+                .then_with(|| left.queued_at.cmp(&right.queued_at))
+                .then_with(|| left.id.cmp(&right.id))
+        })?;
+    let connection = organization_state
+        .connections
+        .iter()
+        .find(|connection| connection.id == latest_successful_job.connection_id)?;
+    let Some(ConnectionConfig::Local { repo_path }) = connection.config.as_ref() else {
+        return None;
+    };
+
+    Some(
+        std::path::Path::new(repo_path)
+            .join(".sourcebot")
+            .join("local-sync")
+            .join(local_sync_artifact_path_component(
+                &latest_successful_job.organization_id,
+            ))
+            .join(local_sync_artifact_path_component(
+                &latest_successful_job.repository_id,
+            ))
+            .join(local_sync_artifact_path_component(
+                &latest_successful_job.id,
+            ))
+            .join("snapshot"),
+    )
+}
+
+fn local_sync_artifact_path_component(component: &str) -> String {
+    let sanitized = component
+        .chars()
+        .map(|character| match character {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => character,
+            _ => '_',
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "_".to_owned()
+    } else {
+        sanitized
+    }
 }
 
 async fn create_ask_completion(
@@ -25795,29 +25929,54 @@ mod tests {
 
     #[tokio::test]
     async fn search_returns_matches_only_for_visible_repositories() {
+        let visible_search_root = unique_test_path("search-visible-repos-visible-root");
+        let hidden_search_root = unique_test_path("search-visible-repos-hidden-root");
+        fs::create_dir_all(visible_search_root.join("src")).unwrap();
+        fs::create_dir_all(hidden_search_root.join("src")).unwrap();
+        fs::write(
+            visible_search_root.join("src").join("lib.rs"),
+            "pub fn visible_search_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            hidden_search_root.join("src").join("lib.rs"),
+            "pub fn visible_search_marker() {}\n",
+        )
+        .unwrap();
+
         let organization_state_path = unique_test_path("search-visible-repos-orgs");
         write_organization_state_fixture(
             &organization_state_path,
             LOCAL_BOOTSTRAP_ADMIN_USER_ID,
             &["repo_sourcebot_rewrite"],
         );
-        let app = test_app_with_config(AppConfig {
-            organization_state_path: organization_state_path.display().to_string(),
-            bootstrap_state_path: unique_test_path("search-visible-repos-bootstrap")
-                .display()
-                .to_string(),
-            local_session_state_path: unique_test_path("search-visible-repos-sessions")
-                .display()
-                .to_string(),
-            ..AppConfig::default()
-        });
+        let search = Arc::new(LocalSearchStore::new(HashMap::from([
+            (
+                "repo_sourcebot_rewrite".to_string(),
+                visible_search_root.clone(),
+            ),
+            ("repo_not_visible".to_string(), hidden_search_root.clone()),
+        ])));
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-visible-repos-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-visible-repos-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            search,
+        );
         let authorization = bootstrap_and_login(&app).await;
 
         let visible_response = app
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/search?q=build_router&repo_id=repo_sourcebot_rewrite")
+                    .uri("/api/v1/search?q=visible_search_marker&repo_id=repo_sourcebot_rewrite")
                     .header(header::AUTHORIZATION, authorization.clone())
                     .body(Body::empty())
                     .unwrap(),
@@ -25828,24 +25987,18 @@ mod tests {
         assert_eq!(visible_response.status(), StatusCode::OK);
 
         let payload: SearchResponse = read_json(visible_response).await;
-        assert_eq!(payload.query, "build_router");
+        assert_eq!(payload.query, "visible_search_marker");
         assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
-        assert!(!payload.results.is_empty());
-        assert!(payload
-            .results
-            .iter()
-            .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
-        assert!(payload.results.iter().any(|result| {
-            result.repo_id == "repo_sourcebot_rewrite"
-                && result.path == "crates/api/src/main.rs"
-                && result.line.contains("build_router")
-                && result.line_number > 0
-        }));
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert!(payload.results[0].line.contains("visible_search_marker"));
+        assert!(payload.results[0].line_number > 0);
 
         let hidden_response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/search?q=build_router&repo_id=repo_not_visible")
+                    .uri("/api/v1/search?q=visible_search_marker&repo_id=repo_not_visible")
                     .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
                     .unwrap(),
@@ -25854,6 +26007,250 @@ mod tests {
             .unwrap();
 
         assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(visible_search_root).unwrap();
+        fs::remove_dir_all(hidden_search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_uses_latest_successful_local_sync_snapshot_for_visible_requested_repo() {
+        let repo_root = unique_test_path("search-local-sync-snapshot-repo-root");
+        let snapshot_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn local_sync_search_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-local-sync-snapshot-orgs");
+        let local_session_state_path = unique_test_path("search-local-sync-snapshot-sessions");
+        let user_id = "user_local_sync_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_failed_newer".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Failed,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: Some("newer failure should not hide latest successful snapshot".into()),
+                synced_revision: None,
+                synced_branch: None,
+                synced_content_file_count: None,
+            });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let search = Arc::new(LocalSearchStore::new(HashMap::new()));
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            search,
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=local_sync_search_marker&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert!(payload.results[0].line.contains("local_sync_search_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_local_sync_snapshot_fallback_stays_inside_authorized_organization_scope() {
+        let authorized_repo_root = unique_test_path("search-authorized-snapshot-repo-root");
+        let hidden_repo_root = unique_test_path("search-hidden-snapshot-repo-root");
+        let authorized_snapshot_root = authorized_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_shared")
+            .join("job_authorized_old")
+            .join("snapshot");
+        let hidden_snapshot_root = hidden_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_hidden")
+            .join("repo_shared")
+            .join("job_hidden_newer")
+            .join("snapshot");
+        fs::create_dir_all(authorized_snapshot_root.join("src")).unwrap();
+        fs::create_dir_all(hidden_snapshot_root.join("src")).unwrap();
+        fs::write(
+            authorized_snapshot_root.join("src").join("lib.rs"),
+            "pub fn authorized_org_snapshot_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            hidden_snapshot_root.join("src").join("lib.rs"),
+            "pub fn hidden_org_snapshot_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-authorized-snapshot-orgs");
+        let local_session_state_path = unique_test_path("search-authorized-snapshot-sessions");
+        let user_id = "user_authorized_snapshot_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_shared"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.organizations.push(Organization {
+            id: "org_hidden".into(),
+            slug: "hidden".into(),
+            name: "Hidden".into(),
+        });
+        organization_state.connections.extend([
+            Connection {
+                id: "conn_authorized".into(),
+                name: "Authorized local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: authorized_repo_root.display().to_string(),
+                }),
+            },
+            Connection {
+                id: "conn_hidden".into(),
+                name: "Hidden local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: hidden_repo_root.display().to_string(),
+                }),
+            },
+        ]);
+        organization_state.repository_sync_jobs.extend([
+            RepositorySyncJob {
+                id: "job_authorized_old".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_shared".into(),
+                connection_id: "conn_authorized".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:01:00Z".into(),
+                started_at: Some("2026-04-21T00:01:01Z".into()),
+                finished_at: Some("2026-04-21T00:01:02Z".into()),
+                error: None,
+                synced_revision: Some("authorized-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+            RepositorySyncJob {
+                id: "job_hidden_newer".into(),
+                organization_id: "org_hidden".into(),
+                repository_id: "repo_shared".into(),
+                connection_id: "conn_hidden".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:02:00Z".into(),
+                started_at: Some("2026-04-21T00:02:01Z".into()),
+                finished_at: Some("2026-04-21T00:02:02Z".into()),
+                error: None,
+                synced_revision: Some("hidden-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+        ]);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=snapshot_marker&repo_id=repo_shared")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_shared"));
+        assert_eq!(payload.results.len(), 1);
+        assert!(payload.results[0]
+            .line
+            .contains("authorized_org_snapshot_marker"));
+        assert!(!payload.results[0]
+            .line
+            .contains("hidden_org_snapshot_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(authorized_repo_root).unwrap();
+        fs::remove_dir_all(hidden_repo_root).unwrap();
     }
 
     #[tokio::test]
