@@ -1730,8 +1730,9 @@ impl OrganizationStore for PgOrganizationStore {
     async fn claim_and_complete_next_repository_sync_job(
         &self,
         started_at: &str,
-        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+        execute: for<'state> fn(&'state OrganizationState, RepositorySyncJob) -> RepositorySyncJob,
     ) -> Result<Option<RepositorySyncJob>> {
+        let state_snapshot = self.organization_state().await?;
         let mut transaction = self.pool.begin().await?;
         let select_sql = format!(
             "SELECT {REPOSITORY_SYNC_JOB_SELECT_COLUMNS} FROM repository_sync_jobs
@@ -1753,7 +1754,7 @@ impl OrganizationStore for PgOrganizationStore {
         claimed_job.started_at = Some(started_at.to_owned());
         claimed_job.finished_at = None;
         claimed_job.error = None;
-        let completed_job = execute(claimed_job);
+        let completed_job = execute(&state_snapshot, claimed_job);
         Self::upsert_repository_sync_job(&mut *transaction, completed_job.clone()).await?;
         transaction.commit().await?;
         Ok(Some(completed_job))
@@ -1857,7 +1858,7 @@ impl OrganizationStore for FileOrganizationStore {
     async fn claim_and_complete_next_repository_sync_job(
         &self,
         started_at: &str,
-        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+        execute: for<'state> fn(&'state OrganizationState, RepositorySyncJob) -> RepositorySyncJob,
     ) -> Result<Option<RepositorySyncJob>> {
         let _lock = self.acquire_write_lock()?;
         let mut state = self.read_persisted_state()?;
@@ -1865,7 +1866,7 @@ impl OrganizationStore for FileOrganizationStore {
             return Ok(None);
         };
 
-        let completed_job = execute(claimed_job);
+        let completed_job = execute(&state, claimed_job);
         upsert_repository_sync_job(&mut state, completed_job.clone());
         let payload = serde_json::to_vec_pretty(&state)?;
         write_json_file(&self.state_path, &payload, true)?;
@@ -3749,7 +3750,7 @@ mod tests {
             .unwrap();
 
         let completed = store
-            .claim_and_complete_next_repository_sync_job("2026-04-26T10:01:00Z", |job| {
+            .claim_and_complete_next_repository_sync_job("2026-04-26T10:01:00Z", |_state, job| {
                 RepositorySyncJob {
                     status: RepositorySyncJobStatus::Failed,
                     started_at: Some("2026-04-26T10:01:00Z".into()),

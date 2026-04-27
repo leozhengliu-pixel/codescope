@@ -1,10 +1,14 @@
 use anyhow::Result;
 use sourcebot_core::{complete_repository_sync_job, OrganizationStore};
-use sourcebot_models::{RepositorySyncJob, ReviewAgentRun};
+use sourcebot_models::{
+    ConnectionConfig, OrganizationState, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
+};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 const REPOSITORY_SYNC_STUB_FAILURE_ERROR: &str =
     "repository sync stub execution configured to fail";
+const LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX: &str =
+    "local repository sync preflight failed";
 
 pub use sourcebot_core::claim_next_review_agent_run;
 
@@ -75,6 +79,7 @@ pub async fn run_repository_sync_claim_tick(
 
 pub fn execute_claimed_repository_sync_job_stub(job: RepositorySyncJob) -> RepositorySyncJob {
     execute_claimed_repository_sync_job_stub_at(
+        &OrganizationState::default(),
         job,
         StubRepositorySyncJobExecutionOutcome::Succeeded,
         &current_timestamp(),
@@ -82,15 +87,23 @@ pub fn execute_claimed_repository_sync_job_stub(job: RepositorySyncJob) -> Repos
 }
 
 pub fn execute_claimed_repository_sync_job_succeeded_stub(
-    job: RepositorySyncJob,
-) -> RepositorySyncJob {
-    execute_claimed_repository_sync_job_stub(job)
-}
-
-pub fn execute_claimed_repository_sync_job_failed_stub(
+    state: &OrganizationState,
     job: RepositorySyncJob,
 ) -> RepositorySyncJob {
     execute_claimed_repository_sync_job_stub_at(
+        state,
+        job,
+        StubRepositorySyncJobExecutionOutcome::Succeeded,
+        &current_timestamp(),
+    )
+}
+
+pub fn execute_claimed_repository_sync_job_failed_stub(
+    state: &OrganizationState,
+    job: RepositorySyncJob,
+) -> RepositorySyncJob {
+    execute_claimed_repository_sync_job_stub_at(
+        state,
         job,
         StubRepositorySyncJobExecutionOutcome::Failed,
         &current_timestamp(),
@@ -98,24 +111,100 @@ pub fn execute_claimed_repository_sync_job_failed_stub(
 }
 
 pub fn execute_claimed_repository_sync_job_stub_at(
+    state: &OrganizationState,
     job: RepositorySyncJob,
     stub_outcome: StubRepositorySyncJobExecutionOutcome,
     finished_at: &str,
 ) -> RepositorySyncJob {
+    if let Some(local_result) =
+        complete_local_repository_sync_job_if_applicable(state, &job, finished_at)
+    {
+        return local_result;
+    }
+
     match stub_outcome {
         StubRepositorySyncJobExecutionOutcome::Succeeded => complete_repository_sync_job(
             &job,
-            sourcebot_models::RepositorySyncJobStatus::Succeeded,
+            RepositorySyncJobStatus::Succeeded,
             finished_at,
             None,
         ),
         StubRepositorySyncJobExecutionOutcome::Failed => complete_repository_sync_job(
             &job,
-            sourcebot_models::RepositorySyncJobStatus::Failed,
+            RepositorySyncJobStatus::Failed,
             finished_at,
             Some(REPOSITORY_SYNC_STUB_FAILURE_ERROR.to_string()),
         ),
     }
+}
+
+fn complete_local_repository_sync_job_if_applicable(
+    state: &OrganizationState,
+    job: &RepositorySyncJob,
+    finished_at: &str,
+) -> Option<RepositorySyncJob> {
+    let connection = state
+        .connections
+        .iter()
+        .find(|connection| connection.id == job.connection_id)?;
+    let Some(ConnectionConfig::Local { repo_path }) = &connection.config else {
+        return None;
+    };
+
+    let preflight = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output();
+
+    match preflight {
+        Ok(output) if output.status.success() && git_preflight_stdout_is_true(&output.stdout) => {
+            Some(complete_repository_sync_job(
+                job,
+                RepositorySyncJobStatus::Succeeded,
+                finished_at,
+                None,
+            ))
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            let detail = if !stderr.is_empty() {
+                stderr
+            } else if output.status.success() && !stdout.eq_ignore_ascii_case("true") {
+                format!("git preflight reported non-working-tree output {stdout:?}")
+            } else {
+                format!("git preflight exited with status {}", output.status)
+            };
+            Some(fail_local_repository_sync_job(job, finished_at, detail))
+        }
+        Err(error) => Some(fail_local_repository_sync_job(
+            job,
+            finished_at,
+            error.to_string(),
+        )),
+    }
+}
+
+fn git_preflight_stdout_is_true(stdout: &[u8]) -> bool {
+    String::from_utf8_lossy(stdout)
+        .trim()
+        .eq_ignore_ascii_case("true")
+}
+
+fn fail_local_repository_sync_job(
+    job: &RepositorySyncJob,
+    finished_at: &str,
+    detail: String,
+) -> RepositorySyncJob {
+    complete_repository_sync_job(
+        job,
+        RepositorySyncJobStatus::Failed,
+        finished_at,
+        Some(format!(
+            "{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}"
+        )),
+    )
 }
 
 pub fn execute_claimed_review_agent_run_stub(
@@ -195,11 +284,12 @@ mod tests {
     use sourcebot_api::auth::FileOrganizationStore;
     use sourcebot_core::OrganizationStore;
     use sourcebot_models::{
-        OrganizationState, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
-        ReviewAgentRunStatus,
+        Connection, ConnectionConfig, ConnectionKind, OrganizationState, RepositorySyncJob,
+        RepositorySyncJobStatus, ReviewAgentRun, ReviewAgentRunStatus,
     };
     use std::{
         fs,
+        process::Command,
         sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -261,7 +351,10 @@ mod tests {
         async fn claim_and_complete_next_repository_sync_job(
             &self,
             started_at: &str,
-            execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+            execute: for<'state> fn(
+                &'state OrganizationState,
+                RepositorySyncJob,
+            ) -> RepositorySyncJob,
         ) -> Result<Option<RepositorySyncJob>> {
             let mut state = self.state.lock().unwrap();
             let Some(claimed_job) =
@@ -270,7 +363,7 @@ mod tests {
                 return Ok(None);
             };
 
-            let completed_job = execute(claimed_job);
+            let completed_job = execute(&state, claimed_job);
             sourcebot_core::store_repository_sync_job(&mut state, completed_job.clone());
             Ok(Some(completed_job))
         }
@@ -321,7 +414,10 @@ mod tests {
         async fn claim_and_complete_next_repository_sync_job(
             &self,
             _started_at: &str,
-            _execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+            _execute: for<'state> fn(
+                &'state OrganizationState,
+                RepositorySyncJob,
+            ) -> RepositorySyncJob,
         ) -> Result<Option<RepositorySyncJob>> {
             Err(anyhow::anyhow!(
                 "synthetic claim_and_complete_next_repository_sync_job failure"
@@ -382,6 +478,28 @@ mod tests {
             started_at: None,
             finished_at: None,
             error: None,
+        }
+    }
+
+    fn local_repository_sync_job(
+        id: &str,
+        status: RepositorySyncJobStatus,
+        queued_at: &str,
+    ) -> RepositorySyncJob {
+        RepositorySyncJob {
+            connection_id: "conn_local".into(),
+            ..repository_sync_job(id, status, queued_at)
+        }
+    }
+
+    fn local_connection(repo_path: impl Into<String>) -> Connection {
+        Connection {
+            id: "conn_local".into(),
+            name: "Local fixture".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_path.into(),
+            }),
         }
     }
 
@@ -718,6 +836,7 @@ mod tests {
         claimed_job.started_at = Some("2026-04-26T10:03:00Z".into());
 
         let stubbed_job = execute_claimed_repository_sync_job_stub_at(
+            &OrganizationState::default(),
             claimed_job.clone(),
             StubRepositorySyncJobExecutionOutcome::Succeeded,
             "2026-04-26T10:04:00Z",
@@ -746,6 +865,7 @@ mod tests {
         claimed_job.started_at = Some("2026-04-26T10:03:00Z".into());
 
         let stubbed_job = execute_claimed_repository_sync_job_stub_at(
+            &OrganizationState::default(),
             claimed_job.clone(),
             StubRepositorySyncJobExecutionOutcome::Failed,
             "2026-04-26T10:04:00Z",
@@ -917,6 +1037,152 @@ mod tests {
         assert_eq!(persisted.repository_sync_jobs[1], failed_job);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_missing_local_repository_path() {
+        let missing_repo_path = unique_test_path("missing-local-repository-root");
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(missing_repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_missing",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued local repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_local_missing");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(failed_job.started_at.is_some());
+        assert!(failed_job.finished_at.is_some());
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("local repository sync preflight failed"),
+            "missing local repo path should produce operator-visible failure detail: {failed_job:?}"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_bare_local_git_repository_path() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-bare-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        Command::new("git")
+            .args(["init", "--bare"])
+            .arg(&repo_path)
+            .output()
+            .expect("git init --bare should run");
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_bare",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued bare local repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_local_bare");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("local repository sync preflight failed"),
+            "bare local repo path should fail the working-tree preflight: {failed_job:?}"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("README.md"), "local repo sync fixture\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "initial fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_valid",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let completed_job =
+            run_repository_sync_claim_tick(&store, StubRepositorySyncJobExecutionOutcome::Failed)
+                .await
+                .unwrap()
+                .expect("queued local repository sync job should be terminally recorded");
+
+        assert_eq!(completed_job.id, "sync_job_local_valid");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert!(completed_job.started_at.is_some());
+        assert!(completed_job.finished_at.is_some());
+        assert_eq!(completed_job.error, None);
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], completed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
     }
 
     #[tokio::test]

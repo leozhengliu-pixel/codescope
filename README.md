@@ -76,7 +76,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    ```bash
    make worker
    ```
-7. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, logs repository-sync terminal job identifiers and failure reasons when a sync job is processed, and then exits.
+7. `make worker` is intentionally a one-shot local bring-up path: it runs one worker tick, logs a startup runtime baseline that includes the resolved organization-state path plus the selected review-agent and repository-sync stub outcomes, runs a bounded `git -C <repo_path> rev-parse --is-inside-work-tree` preflight before completing repository-sync jobs tied to configured `local` connections, logs repository-sync terminal job identifiers and failure reasons when a sync job is processed, and then exits.
 8. Optional worker-only stub controls for the current baseline are:
    - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
    - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`
@@ -85,7 +85,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    bash scripts/check_end_to_end_smoke_matrix.sh /opt/data/projects/sourcebot-rewrite
    ```
 10. That smoke command is intentionally local and stub-backed: it creates an isolated temp runtime, uses the real API and worker binaries, checks `/healthz` plus the file-backed `/readyz` readiness baseline, drives the current auth/search/ask/review-agent baseline, and verifies one queued review-agent run reaches `completed`. It is not a production certification matrix.
-11. The worker still does **not** claim supervised workers, real execution, durable worker metadata, retries, scheduling, or continuous background orchestration.
+11. The worker still does **not** claim supervised workers, real fetch/import/reindex execution beyond the local-Git preflight/status baseline, durable worker metadata, retries, scheduling, or continuous background orchestration.
 12. `/healthz`, `/readyz`, and `/api/v1/config` define the current operator-visible runtime baseline. `/readyz` reports file-backed metadata as ready when `DATABASE_URL` is unset, and when `DATABASE_URL` is configured it connects to PostgreSQL and fails closed with `503` unless the SQLx migration inventory is readable. This is a bounded local readiness check; it does not yet claim full dependency health, supervised-worker readiness, production-grade observability, or upgrade automation.
 
 ## Local operator maintenance baseline

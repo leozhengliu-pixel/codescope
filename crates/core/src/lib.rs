@@ -76,13 +76,14 @@ pub trait OrganizationStore: Send + Sync {
     async fn claim_and_complete_next_repository_sync_job(
         &self,
         started_at: &str,
-        execute: fn(RepositorySyncJob) -> RepositorySyncJob,
+        execute: for<'state> fn(&'state OrganizationState, RepositorySyncJob) -> RepositorySyncJob,
     ) -> Result<Option<RepositorySyncJob>> {
+        let state_snapshot = self.organization_state().await?;
         let Some(claimed_job) = self.claim_next_repository_sync_job(started_at).await? else {
             return Ok(None);
         };
 
-        let completed_job = execute(claimed_job);
+        let completed_job = execute(&state_snapshot, claimed_job);
         self.store_repository_sync_job(completed_job.clone())
             .await?;
         Ok(Some(completed_job))
