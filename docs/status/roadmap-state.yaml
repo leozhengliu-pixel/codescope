@@ -5,42 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e24790c7f28a3b3b51eac9bb7f664caa1e8f212b
+  head: 7eec1e88c2af8dcf7c5175cab35806f2c1e3236e
 last_completed_task:
-  id: task96r
-  title: Requested-repo local sync snapshot code-navigation fallback
+  id: task96s
+  title: Stale repository-sync running-job lease recovery
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime code-navigation slice by
-    allowing no-revision `GET /api/v1/repos/{repo_id}/definitions` and
-    `GET /api/v1/repos/{repo_id}/references` requests for an already visible
-    repository to fall back to the latest successful local repository-sync
-    snapshot when the primary browse/code-navigation store has no blob for that
-    visible repository. The fallback keeps the primary browse store
-    authoritative, does not apply to explicit revision requests, uses the
-    terminal sync revision in response metadata and generated browse URLs,
-    honors API-key repo scopes before fallback, derives eligible snapshots from
-    the caller-authorized `(organization_id, repository_id)` boundary, and keeps
-    docs/audit wording explicit that this is bounded local snapshot
-    search/browse/status/code-navigation visibility only: no real provider
-    fetch/import/reindex execution, durable/background indexing, automated
-    retry/backoff, supervision, or full provider/runtime parity is claimed.
+    Closed one meaningful Task 96/98 provider-runtime queue-recovery slice by
+    making the one-shot repository-sync worker recover stale `running` sync jobs
+    before claiming more work. A repository-sync job whose `started_at` timestamp
+    is at least one hour old is now marked `failed` with `finished_at` and an
+    operator-visible lease-expiry error before the tick claims the next queued
+    job; fresh running jobs remain untouched, and the queued job still advances
+    through the existing claim/complete path. README, worker-runtime,
+    generic-local-git, parity-gap, and final-audit wording now call this bounded
+    one-shot stale-running lease recovery while keeping automated retry/backoff,
+    scheduling, supervision, real provider fetch/import/reindex execution,
+    durable/background indexing, and full provider/runtime parity explicit
+    follow-up work.
   tests:
-    - cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: red first on API-key scoped fallback returning 200, then passed (1 matched main.rs test; lib target 0)
-    - cargo test -p sourcebot-api definitions -- --nocapture: passed (8 matched main.rs tests; lib target 0)
-    - cargo test -p sourcebot-api references -- --nocapture: passed (8 matched main.rs tests; lib target 0)
-    - cargo test -p sourcebot-api repo_blob -- --nocapture: passed (10 matched main.rs tests; lib target 0)
-    - cargo test -p sourcebot-api repository_tree -- --nocapture: passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_recovers_stale_running_jobs_before_claiming_next -- --nocapture: passed (1 matched lib test; smoke/bin targets 0)
+    - cargo test -p sourcebot-worker: passed (23 lib tests, 5 explicit completed stub smoke tests, 1 invalid stub outcome smoke test, 4 no-work idle smoke tests, 2 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
-    - docs marker checks for README, code-nav/generic-local-git/repository-operations acceptance, parity-gap report, and final parity audit/checklist: passed
+    - python3 added-lines security scan over git diff: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing reviewer-found API-key repo-scope fallback blocker; no blocking authz, fallback-behavior, path-safety, revision, test, or bounded-claim issues remained
-  commit: e24790c7f28a3b3b51eac9bb7f664caa1e8f212b
-  next_task: task96s
+    code: passed independent read-only review; no blocking security, logic, queue-semantics, path-safety, or bounded-claim issues found. Reviewer suggestions were non-blocking, and the stale recovery assertion was tightened to require the operator-visible error prefix.
+  commit: 7eec1e88c2af8dcf7c5175cab35806f2c1e3236e
+  next_task: task96t
 current_task:
-  id: task96s
+  id: task96t
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -55,17 +49,39 @@ current_task:
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
     materialization, settings UI visibility for local manifest/snapshot artifact
     paths, requested-repo local snapshot search fallback, requested-repo local
-    snapshot index-status fallback, no-revision tree/blob browse fallback, and
+    snapshot index-status fallback, no-revision tree/blob browse fallback,
     no-revision definitions/references code-navigation fallback under the
-    caller-authorized organization/repository boundary. Practical
+    caller-authorized organization/repository boundary, and bounded stale
+    `running` repository-sync lease recovery before the next claim. Practical
     provider/runtime parity still needs a next meaningful closure that turns
     local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
-    bookkeeping, retry/backoff semantics, duplicate-claim recovery, supervised
-    scheduling, provider discovery, or deeper frontend/operator controls while
-    keeping recursive import, durable index status, and full provider/runtime
-    parity explicit follow-up work.
+    bookkeeping, automated retry/backoff semantics, duplicate-claim recovery
+    beyond one-shot stale lease failure, supervised scheduling, provider
+    discovery, or deeper frontend/operator controls while keeping recursive
+    import, durable index status, and full provider/runtime parity explicit
+    follow-up work.
 history:
+  - id: task96s
+    status: done
+    summary: >-
+      Closed one meaningful Task 96/98 provider-runtime queue-recovery slice by
+      making the one-shot repository-sync worker mark stale `running` sync jobs
+      failed after a one-hour lease before claiming the next queued job. The
+      closure preserves fresh running jobs, continues to process the queued job
+      in the same tick, updates worker-runtime/generic-local-git/README/parity
+      wording, and keeps the claim bounded: this is one-shot stale-running lease
+      recovery, not automated retry/backoff, scheduling, supervision, real
+      provider fetch/import/reindex execution, durable/background indexing, or
+      full provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker run_repository_sync_claim_tick_recovers_stale_running_jobs_before_claiming_next -- --nocapture: passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking security, logic, queue-semantics, path-safety, or bounded-claim issues remained
+    commit: 7eec1e88c2af8dcf7c5175cab35806f2c1e3236e
+    next_task: task96t
   - id: task96r
     status: done
     summary: >-
