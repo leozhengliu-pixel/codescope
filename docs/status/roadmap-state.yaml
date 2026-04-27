@@ -5,55 +5,66 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fc8db4f7420b2bfac0ae29fc0e3d8dd1a5a258cd
+  head: c5b5f9fa0304f22b753c3947fb1ee43fef50a0dd
 last_completed_task:
-  id: task96ad
-  title: Bounded Generic Git repository-sync metadata probe
+  id: task97
+  title: MCP runtime, auth, and end-to-end contract parity
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime runtime slice by making
-    repository-sync jobs tied to configured `generic_git` connections run a
-    timeout-bounded real `git ls-remote --heads -- <base_url>` probe before
-    stub outcomes. Reachable remotes with at least one advertised branch now
-    persist terminal revision/current-branch metadata only, while unreachable,
-    empty, no-branch, or option-like base URLs fail closed with the
-    operator-visible `generic Git repository sync execution failed` prefix.
-    The worker drains child stdout/stderr while waiting so large remote head
-    listings do not deadlock, and the release claim remains narrow: Generic Git
-    metadata probing only, not clone/fetch/import/reindex execution, content
-    counts, local artifacts, durable/background indexing, supervision, broad
-    retry/backoff, provider discovery, or full provider/runtime parity.
+    Closed one bounded Task 97 MCP runtime/auth slice by exposing an
+    authenticated HTTP/API bridge under `/api/v1/mcp/...`: manifest, tool-list,
+    and tool-call routes now reuse the existing web/API auth helper and
+    repository-visibility boundary. The route calls the `sourcebot-mcp` manifest,
+    tool-definition, and `execute_tool_call(...)` surfaces directly; API-specific
+    active-repository tools require a caller-visible `repo_id`, hidden repo ids
+    fail closed, and `list_repos` returns only the caller-visible repository set.
+    The claim remains bounded to authenticated HTTP/API MCP wiring, not full MCP
+    protocol/session transport interoperability, client integration, richer tool
+    coverage, or practical replacement parity.
   tests:
-    - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed (5 matched in lib target; other worker targets 0 tests)
-    - cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture: passed (16 matched in lib target; other worker targets 0 tests)
-    - cargo test -p sourcebot-worker: passed (32 lib tests, 17 integration/smoke tests, 0 doc tests)
+    - cargo test -p sourcebot-api mcp_http -- --nocapture: passed (4 matched in sourcebot-api bin target; sourcebot-api lib target 0 tests)
+    - cargo test -p sourcebot-mcp: passed (8 lib tests; 0 doc tests)
     - cargo fmt --check, git diff --check, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking path/shell safety, option-injection, timeout/output-drain, fail-closed, metadata-only, security, or bounded-doc-claim issues remained
-  commit: fc8db4f7420b2bfac0ae29fc0e3d8dd1a5a258cd
-  next_task: task97
+    code: passed independent read-only re-review after fixing active repository selection for HTTP/API content tools; no blocking auth scope, hidden-repo leakage, schema truthfulness, route insertion, security, or bounded-doc-claim issues remained
+  commit: c5b5f9fa0304f22b753c3947fb1ee43fef50a0dd
+  next_task: task98
 current_task:
-  id: task97
+  id: task98
   parent_task: phase-d-runtime-interoperability-and-release-closure
-  title: MCP runtime, auth, and end-to-end contract parity
+  title: Worker scheduling, retries, and supervision parity
   status: pending
   summary: >-
-    Task 96 now includes bounded provider/runtime progress across local import,
-    manual repository-sync enqueue/retry with active duplicate suppression,
-    one-tick and explicitly bounded multi-tick worker execution, stale running
-    lease recovery, one bounded stale-lease replay, local-Git terminal metadata
-    plus local-only manifest/snapshot/search-index artifacts and authenticated
-    search/browse/code-navigation/commit fallback surfaces, and Generic Git
-    remote revision/current-branch metadata probing via timeout-bounded
-    `git ls-remote --heads -- <base_url>`. The remaining release-parity work
-    should move to the next highest-value blocker: MCP runtime/auth/end-to-end
-    contract parity. Provider/runtime gaps remain explicit follow-up work rather
-    than a completed full-parity claim: no broad provider discovery,
-    clone/fetch/import/reindex execution, durable/background indexing,
-    production scheduling/supervision, broad retry/backoff, or full
-    provider/runtime parity is claimed.
+    Task 97 now has a bounded authenticated HTTP/API MCP bridge with
+    permission-scoped tool-call evidence, while full MCP protocol/session
+    transport and client interoperability remain follow-up work. The next
+    highest-value release blocker is Task 98: move the worker/runtime baseline
+    beyond one-shot and explicitly bounded multi-tick execution into truthful
+    scheduling, retry, and supervision behavior without over-claiming broad
+    provider fetch/import/reindex or production-grade runtime parity before the
+    evidence exists.
 
 history:
+  - id: task97
+    status: done
+    summary: >-
+      Closed one bounded Task 97 MCP runtime/auth slice by exposing authenticated
+      HTTP/API MCP manifest, tool-list, and tool-call routes under
+      `/api/v1/mcp/...`. The bridge reuses the existing web/API auth and
+      repository visibility boundary, requires caller-visible `repo_id` for
+      active-repository content tools, fails hidden repo ids closed, and proves
+      `list_repos` returns only caller-visible repositories. The release claim
+      remains bounded to authenticated HTTP/API MCP wiring, not full MCP
+      protocol/session transport interoperability, client integration, richer
+      tool coverage, or practical replacement parity.
+    tests:
+      - cargo test -p sourcebot-api mcp_http -- --nocapture: passed
+      - cargo test -p sourcebot-mcp: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only re-review after fixing active repository selection for HTTP/API content tools; no blocking auth scope, hidden-repo leakage, schema truthfulness, route insertion, security, or bounded-doc-claim issues remained
+    commit: c5b5f9fa0304f22b753c3947fb1ee43fef50a0dd
+    next_task: task98
   - id: task96ad
     status: done
     summary: >-
