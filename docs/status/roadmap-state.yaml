@@ -5,36 +5,32 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fbb02287931efc17ff39a14baf4cdaca24c1add7
+  head: 95b0bfdeab8b916ca5c934e4fe6729712605b083
 last_completed_task:
-  id: task96x
-  title: Local sync search-index artifact baseline
+  id: task96y
+  title: Artifact-backed requested-repo local sync search fallback
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime artifact slice by making
-    sourcebot-search own a self-contained `search-index.json` artifact writer
-    and loader, then having the local repository-sync worker persist that
-    sibling artifact after successful tracked-HEAD snapshot materialization and
-    before terminal success. The artifact can be loaded without rewalking the
-    snapshot, and failure to build or finalize it fails the local sync closed
-    with the existing operator-visible execution prefix. The release claim
-    remains narrow: repo-local manifest/snapshot/search-index artifact status
-    only, not real provider fetch/import/reindex execution, durable/background
-    indexing, broad retry/backoff, scheduling/supervision, provider discovery,
-    or full provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime search slice by making
+    requested-repo `/api/v1/search?repo_id=...` fallback load the latest
+    successful authorized local sync `search-index.json` artifact when present
+    instead of rewalking the mutable snapshot tree. The existing
+    caller-authorized organization/repository boundary, primary search-store
+    precedence, and pre-artifact snapshot fallback remain intact. The release
+    claim stays narrow: artifact-backed local requested-repo search/status only,
+    not real provider fetch/import/reindex execution, durable/background
+    indexing, broad retry/backoff, supervision, or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-search local_search_store_can_round_trip_persisted_index_artifact_without_rewalking_snapshot -- --nocapture: passed (1 matched)
-    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_completes_real_local_git_repository -- --nocapture: selector gap (0 matched), rerun with safe selector below
-    - cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture: passed (1 matched in lib target; expected zero-test non-lib targets noted)
-    - cargo test -p sourcebot-search: passed (10 tests)
-    - cargo test -p sourcebot-worker: passed
-    - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    - cargo test -p sourcebot-api search_uses_latest_successful_local_sync_search_index_artifact_for_visible_requested_repo -- --nocapture: failed red first with 0 results, then passed (1 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (5 matched in main target; lib target 0 tests)
+    - cargo fmt --check && git diff --check: passed
+    - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking path-traversal/security, stale-artifact, failure-propagation, crate-boundary, serialization, test, or bounded-doc-claim issues remained
-  commit: fbb02287931efc17ff39a14baf4cdaca24c1add7
-  next_task: task96y
+    code: passed independent read-only review; no blocking artifact path-safety, auth-boundary, hidden-org leakage, failure-propagation, test, or bounded-doc-claim issues remained
+  commit: 95b0bfdeab8b916ca5c934e4fe6729712605b083
+  next_task: task96z
 current_task:
-  id: task96y
+  id: task96z
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -51,11 +47,11 @@ current_task:
     bounded repo-local tracked-content manifest, bounded tracked `HEAD`
     snapshot materialization that preserves significant whitespace in tracked
     path names, a sibling repo-local `search-index.json` artifact that can be
-    loaded without rewalking the snapshot, settings UI visibility for local
-    manifest/snapshot artifact paths, requested-repo local snapshot search
-    fallback, requested-repo local snapshot index-status fallback, no-revision
-    tree/blob browse fallback, no-revision definitions/references
-    code-navigation fallback under the caller-authorized
+    loaded without rewalking the snapshot, requested-repo search fallback that
+    prefers that artifact when present, settings UI visibility for local
+    manifest/snapshot artifact paths, requested-repo local snapshot index-status
+    fallback, no-revision tree/blob browse fallback, no-revision
+    definitions/references code-navigation fallback under the caller-authorized
     organization/repository boundary, bounded stale `running` repository-sync
     lease recovery before each repository-sync claim, and one bounded automatic
     stale-lease replay after an additional one-hour backoff. Practical
@@ -69,6 +65,25 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96y
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime search slice by making
+      requested-repo search fallback load the latest successful authorized local
+      sync `search-index.json` artifact when present instead of rewalking the
+      mutable snapshot tree. The existing visibility boundary, primary
+      search-store precedence, and pre-artifact snapshot fallback remain intact;
+      real provider fetch/import/reindex, durable/background indexing, broad
+      retry/backoff, supervision, and full provider/runtime parity remain
+      follow-up work.
+    tests:
+      - cargo test -p sourcebot-api search_uses_latest_successful_local_sync_search_index_artifact_for_visible_requested_repo -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-api local_sync -- --nocapture: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking artifact path-safety, auth-boundary, hidden-org leakage, failure-propagation, or bounded-claim issues remained
+    commit: 95b0bfdeab8b916ca5c934e4fe6729712605b083
+    next_task: task96z
   - id: task96x
     status: done
     summary: >-
