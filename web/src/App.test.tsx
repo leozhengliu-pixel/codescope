@@ -4380,6 +4380,57 @@ describe('App', () => {
     expect(within(gitlabCard!).getByText('Repository id: repo-other-connection')).toBeInTheDocument();
   });
 
+  it('shows local sync artifact paths for successful local repository sync history rows', async () => {
+    window.location.hash = '#/settings/connections';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/connections' && !init) {
+        return jsonResponse([
+          {
+            id: 'conn-local',
+            name: 'Local checkout',
+            kind: 'local',
+            config: {
+              provider: 'local',
+              repo_path: '/workspace/sourcebot',
+            },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/repository-sync-jobs' && !init) {
+        return jsonResponse([
+          {
+            id: 'job.snapshot/2026',
+            organization_id: 'org/acme',
+            repository_id: 'repo.sourcebot',
+            connection_id: 'conn-local',
+            status: 'succeeded',
+            queued_at: '2026-04-27T10:00:00Z',
+            started_at: '2026-04-27T10:01:00Z',
+            finished_at: '2026-04-27T10:02:00Z',
+            error: null,
+            synced_revision: 'abc123def4567890',
+            synced_branch: 'main',
+            synced_content_file_count: 2,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Authenticated connections')).toBeInTheDocument();
+    const localCard = screen.getByText('Local checkout').closest('article');
+    expect(localCard).toBeInTheDocument();
+    expect(within(localCard!).getByText('Local artifact manifest: /workspace/sourcebot/.sourcebot/local-sync/org_acme/repo_sourcebot/job_snapshot_2026/manifest.txt')).toBeInTheDocument();
+    expect(within(localCard!).getByText('Local artifact snapshot: /workspace/sourcebot/.sourcebot/local-sync/org_acme/repo_sourcebot/job_snapshot_2026/snapshot')).toBeInTheDocument();
+  });
+
   it('keeps terminal-state sync-history rows scoped to their sibling authenticated connection cards on the settings route', async () => {
     window.location.hash = '#/settings/connections';
 

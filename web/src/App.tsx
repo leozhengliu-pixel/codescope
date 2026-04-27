@@ -3111,6 +3111,30 @@ function initialLocalImportState(connection: AuthConnection): LocalImportState {
   };
 }
 
+function safeLocalSyncArtifactPathComponent(component: string) {
+  const sanitized = Array.from(component)
+    .map((character) => (/^[A-Za-z0-9_-]$/.test(character) ? character : '_'))
+    .join('');
+
+  return sanitized.length > 0 ? sanitized : '_';
+}
+
+function localSyncArtifactDirectory(connection: AuthConnection, syncJob: RepositorySyncJob) {
+  const repoPath = localConnectionRepoPath(connection).replace(/\/+$/, '');
+  if (!repoPath || syncJob.status !== 'succeeded' || !syncJob.synced_revision) {
+    return null;
+  }
+
+  return [
+    repoPath,
+    '.sourcebot',
+    'local-sync',
+    safeLocalSyncArtifactPathComponent(syncJob.organization_id),
+    safeLocalSyncArtifactPathComponent(syncJob.repository_id),
+    safeLocalSyncArtifactPathComponent(syncJob.id),
+  ].join('/');
+}
+
 function genericGitConnectionBaseUrl(connection: AuthConnection) {
   if (!(connection.kind === 'generic_git' && connection.config && 'base_url' in connection.config)) {
     return '';
@@ -3841,35 +3865,45 @@ function SettingsConnectionsPage() {
                   ) : null}
                   {!syncJobsError && connectionSyncHistoryJobs.length > 0 ? (
                     <div style={{ display: 'grid', gap: 8 }}>
-                      {connectionSyncHistoryJobs.map((syncJob) => (
-                        <div
-                          key={syncJob.id}
-                          aria-label={`Repository sync history row for ${syncJob.repository_id} (${syncJob.status})`}
-                          style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
-                        >
-                          <div>Repository id: {syncJob.repository_id}</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span>Status</span>
-                            <RepositorySyncJobStatusBadge status={syncJob.status} />
-                          </div>
-                          <div>Queued at: {syncJob.queued_at}</div>
-                          <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
-                          <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>
-                          {syncJob.synced_revision ? <div>Revision: {syncJob.synced_revision}</div> : null}
-                          {syncJob.synced_branch ? <div>Current branch: {syncJob.synced_branch}</div> : null}
-                          {syncJob.synced_content_file_count != null ? (
-                            <div>Tracked content files: {syncJob.synced_content_file_count}</div>
-                          ) : null}
-                          <a
-                            href={`#/repos/${encodeURIComponent(syncJob.repository_id)}`}
-                            aria-label={`Open repository detail for ${syncJob.repository_id}`}
-                            style={{ color: '#0969da', fontWeight: 600 }}
+                      {connectionSyncHistoryJobs.map((syncJob) => {
+                        const localArtifactDirectory = localSyncArtifactDirectory(connection, syncJob);
+
+                        return (
+                          <div
+                            key={syncJob.id}
+                            aria-label={`Repository sync history row for ${syncJob.repository_id} (${syncJob.status})`}
+                            style={{ padding: 12, borderRadius: 10, border: '1px solid #d8dee4', background: '#f6f8fa' }}
                           >
-                            Open repository detail
-                          </a>
-                          {syncJob.error ? <div aria-label={`Error details for ${syncJob.repository_id} (${syncJob.status})`}>Error: {syncJob.error}</div> : null}
-                        </div>
-                      ))}
+                            <div>Repository id: {syncJob.repository_id}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span>Status</span>
+                              <RepositorySyncJobStatusBadge status={syncJob.status} />
+                            </div>
+                            <div>Queued at: {syncJob.queued_at}</div>
+                            <div>Started at: {syncJob.started_at ?? 'Not started'}</div>
+                            <div>Finished at: {syncJob.finished_at ?? 'Not finished'}</div>
+                            {syncJob.synced_revision ? <div>Revision: {syncJob.synced_revision}</div> : null}
+                            {syncJob.synced_branch ? <div>Current branch: {syncJob.synced_branch}</div> : null}
+                            {syncJob.synced_content_file_count != null ? (
+                              <div>Tracked content files: {syncJob.synced_content_file_count}</div>
+                            ) : null}
+                            {localArtifactDirectory ? (
+                              <>
+                                <div>Local artifact manifest: {localArtifactDirectory}/manifest.txt</div>
+                                <div>Local artifact snapshot: {localArtifactDirectory}/snapshot</div>
+                              </>
+                            ) : null}
+                            <a
+                              href={`#/repos/${encodeURIComponent(syncJob.repository_id)}`}
+                              aria-label={`Open repository detail for ${syncJob.repository_id}`}
+                              style={{ color: '#0969da', fontWeight: 600 }}
+                            >
+                              Open repository detail
+                            </a>
+                            {syncJob.error ? <div aria-label={`Error details for ${syncJob.repository_id} (${syncJob.status})`}>Error: {syncJob.error}</div> : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </section>
