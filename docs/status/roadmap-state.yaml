@@ -5,38 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 66fe9ff1b36efc26b22f7ef71d517ea5870de027
+  head: ad42187f29ed301a5bb4515af073d9a6b0a8316e
 last_completed_task:
-  id: task96o
-  title: Requested-repo local sync snapshot search fallback
+  id: task96p
+  title: Requested-repo local sync snapshot index-status fallback
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime search slice by allowing an
-    explicitly scoped `/api/v1/search?repo_id=...` request to fall back to the
-    latest successful local repository-sync snapshot when the startup search
-    store has no indexed rows for that visible repository. The fallback stays
-    bounded to requested-repo searches, derives eligible snapshots from the
-    caller-authorized `(organization_id, repository_id)` boundary, reuses the
-    existing local-sync artifact sanitizer for snapshot paths, and returns no
-    fallback for broad search, hidden repos, non-local jobs, or missing
-    snapshots. The claim remains bounded local snapshot search/status only: no
-    real provider fetch/import/reindex execution, durable/background indexing,
-    automated retry/backoff, supervision, or full provider/runtime parity is
-    claimed.
+    Closed one meaningful Task 96 provider/runtime status slice by allowing
+    `GET /api/v1/repos/{repo_id}/index-status` for an already visible repository
+    to fall back to the latest successful local repository-sync snapshot when
+    the startup search store has no indexed status for that visible repository.
+    The fallback stays bounded to requested-repo status, preserves the primary
+    search-store status when present, derives eligible snapshots from the
+    caller-authorized `(organization_id, repository_id)` boundary, and keeps
+    docs/audit wording explicit that this is local snapshot search/status
+    visibility only: no real provider fetch/import/reindex execution,
+    durable/background indexing, automated retry/backoff, supervision, or full
+    provider/runtime parity is claimed.
   tests:
-    - cargo test -p sourcebot-api search_local_sync_snapshot_fallback_stays_inside_authorized_organization_scope -- --nocapture: red first on hidden-org duplicate repo snapshot selection, then passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-api repository_index_status_falls_back_to_authorized_local_sync_snapshot -- --nocapture: red first on the previous 404 when no search-store status existed, then passed
+    - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed (2 matched main.rs tests; lib target 0)
     - cargo test -p sourcebot-api search_ -- --nocapture: passed (18 matched main.rs tests; lib target 0)
     - cargo fmt --check: passed
-    - git diff --check: passed
+    - git diff --check: passed before and after final docs marker patch
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    - docs marker checks for README, generic-local-git acceptance, parity-gap report, and final parity audit/checklist: passed
   review:
-    code: passed independent read-only review; no blocking auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
-  commit: 66fe9ff1b36efc26b22f7ef71d517ea5870de027
-  next_task: task96p
+    code: passed independent read-only review; no blocking security, logic, auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
+  commit: ad42187f29ed301a5bb4515af073d9a6b0a8316e
+  next_task: task96q
 current_task:
-  id: task96p
+  id: task96q
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider/runtime real fetch-import, reindex, or background indexing follow-up
+  title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
   summary: >-
     Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
@@ -48,16 +49,37 @@ current_task:
     authenticated API/UI visibility for that terminal metadata, a bounded
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
     materialization, settings UI visibility for local manifest/snapshot artifact
-    paths, and requested-repo local snapshot search fallback under the
-    caller-authorized organization/repository boundary. Practical
-    provider/runtime parity still needs a next meaningful closure that turns
-    local/provider jobs into broader real fetch/import/reindex or
-    durable/background indexing behavior with durable progress/error
-    bookkeeping, retry/backoff semantics, duplicate-claim recovery, supervised
-    scheduling, provider discovery, or deeper frontend/operator controls while
-    keeping recursive import, durable index status, and full provider/runtime
-    parity explicit follow-up work.
+    paths, requested-repo local snapshot search fallback, and requested-repo
+    local snapshot index-status fallback under the caller-authorized
+    organization/repository boundary. Practical provider/runtime parity still
+    needs a next meaningful closure that turns local/provider jobs into broader
+    real fetch/import/reindex or durable/background indexing behavior with
+    durable progress/error bookkeeping, retry/backoff semantics, duplicate-claim
+    recovery, supervised scheduling, provider discovery, or deeper
+    frontend/operator controls while keeping recursive import, durable index
+    status, and full provider/runtime parity explicit follow-up work.
 history:
+  - id: task96p
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime status slice by letting
+      requested-repo index-status use the latest successful local sync snapshot
+      when the startup search store has no status for that visible repository.
+      The fallback is gated by the caller-authorized `(organization_id,
+      repository_id)` boundary, preserves primary search-store status when it
+      exists, and remains bounded local snapshot search/status visibility only:
+      no real provider fetch/import/reindex, durable/background indexing,
+      automated retry/backoff, supervision, or full provider/runtime parity is
+      claimed.
+    tests:
+      - cargo test -p sourcebot-api repository_index_status_falls_back_to_authorized_local_sync_snapshot -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed
+      - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking security, logic, auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
+    commit: ad42187f29ed301a5bb4515af073d9a6b0a8316e
+    next_task: task96q
   - id: task96o
     status: done
     summary: >-
