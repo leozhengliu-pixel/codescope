@@ -313,6 +313,23 @@ impl PgOrganizationAuthMetadataStore {
         organization_invite_from_row(row)
     }
 
+    pub async fn update_member_role(
+        &self,
+        organization_id: &str,
+        user_id: &str,
+        role: &OrganizationRole,
+    ) -> Result<bool> {
+        let result = sqlx::query(
+            "UPDATE organization_memberships SET role = $3 WHERE organization_id = $1 AND user_id = $2",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .bind(organization_role_as_str(role))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn delete_pending_invite(&self, invite_id: &str) -> Result<bool> {
         let result = sqlx::query(
             "DELETE FROM organization_invites WHERE id = $1 AND accepted_by_user_id IS NULL AND accepted_at IS NULL",

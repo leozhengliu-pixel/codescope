@@ -4217,6 +4217,7 @@ function SettingsMembersPage() {
   const [inviteRoles, setInviteRoles] = useState<Record<string, 'viewer' | 'admin'>>({});
   const [inviteSubmittingOrgId, setInviteSubmittingOrgId] = useState<string | null>(null);
   const [inviteCancellingId, setInviteCancellingId] = useState<string | null>(null);
+  const [memberRoleSubmittingId, setMemberRoleSubmittingId] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<Record<string, string | null>>({});
   const [inviteSuccesses, setInviteSuccesses] = useState<Record<string, string | null>>({});
 
@@ -4251,7 +4252,7 @@ function SettingsMembersPage() {
     event.preventDefault();
     const email = (inviteEmails[organization.id] ?? '').trim();
     const role = inviteRoles[organization.id] ?? 'viewer';
-    if (!email || inviteSubmittingOrgId !== null || inviteCancellingId !== null) {
+    if (!email || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
       return;
     }
 
@@ -4290,7 +4291,7 @@ function SettingsMembersPage() {
   };
 
   const handleCancelInvite = async (organizationId: string, invite: InviteRosterEntry) => {
-    if (invite.status !== 'pending' || inviteSubmittingOrgId !== null || inviteCancellingId !== null) {
+    if (invite.status !== 'pending' || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
       return;
     }
 
@@ -4322,13 +4323,56 @@ function SettingsMembersPage() {
     }
   };
 
+  const handleUpdateMemberRole = async (organizationId: string, member: MembersRosterEntry, role: 'viewer' | 'admin') => {
+    if (role === member.role || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
+      return;
+    }
+
+    const submissionId = `${organizationId}:${member.user_id}`;
+    setMemberRoleSubmittingId(submissionId);
+    setInviteErrors((currentErrors) => ({ ...currentErrors, [organizationId]: null }));
+    setInviteSuccesses((currentSuccesses) => ({ ...currentSuccesses, [organizationId]: null }));
+
+    try {
+      const updatedInventory = await fetchJson<MembersOrganizationInventory>(
+        `/api/v1/auth/members/${encodeURIComponent(member.user_id)}/role`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            organization_id: organizationId,
+            role,
+          }),
+        }
+      );
+      setOrganizations((currentOrganizations) =>
+        currentOrganizations.map((currentOrganization) =>
+          currentOrganization.organization.id === updatedInventory.organization.id ? updatedInventory : currentOrganization
+        )
+      );
+      setInviteSuccesses((currentSuccesses) => ({
+        ...currentSuccesses,
+        [organizationId]: `Updated ${member.account.email} to ${role}.`,
+      }));
+    } catch (err) {
+      setInviteErrors((currentErrors) => ({
+        ...currentErrors,
+        [organizationId]: err instanceof Error ? err.message : 'Unknown error',
+      }));
+    } finally {
+      setMemberRoleSubmittingId(null);
+    }
+  };
+
   return (
     <Panel title="Members" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
           This minimal panel shows only organizations you can administer plus their current member and invite inventory,
-          and it can create or cancel pending local invites for those administered organizations. Email delivery, resend,
-          role-edit, removal, and full member lifecycle workflows remain follow-up work.
+          and it can create/cancel pending local invites or update member roles for those administered organizations.
+          Email delivery, resend, member removal, and full member lifecycle workflows remain follow-up work.
         </p>
 
         {loading ? <div>Loading members…</div> : null}
@@ -4368,8 +4412,8 @@ function SettingsMembersPage() {
                   <div style={{ fontSize: 16, fontWeight: 700 }}>Create invite</div>
                   <div style={{ color: '#57606a' }}>
                     Create a pending local invite for this organization. The current baseline records the invite for
-                    redemption and can cancel pending invites, but does not send email, resend invites, edit member roles,
-                    or remove members.
+                    redemption, can cancel pending invites, and can update member roles, but does not send email, resend
+                    invites, or remove members.
                   </div>
                   <div style={detailGridStyle}>
                     <label style={fieldLabelStyle}>
@@ -4384,7 +4428,7 @@ function SettingsMembersPage() {
                           }))
                         }
                         style={inputStyle}
-                        disabled={inviteSubmittingOrgId !== null}
+                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null}
                       />
                     </label>
                     <label style={fieldLabelStyle}>
@@ -4398,7 +4442,7 @@ function SettingsMembersPage() {
                           }))
                         }
                         style={inputStyle}
-                        disabled={inviteSubmittingOrgId !== null}
+                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null}
                       >
                         <option value="viewer">viewer</option>
                         <option value="admin">admin</option>
@@ -4408,7 +4452,12 @@ function SettingsMembersPage() {
                   <button
                     type="submit"
                     style={primaryButtonStyle}
-                    disabled={inviteSubmittingOrgId !== null || (inviteEmails[organizationInventory.organization.id] ?? '').trim().length === 0}
+                    disabled={
+                      inviteSubmittingOrgId !== null ||
+                      inviteCancellingId !== null ||
+                      memberRoleSubmittingId !== null ||
+                      (inviteEmails[organizationInventory.organization.id] ?? '').trim().length === 0
+                    }
                   >
                     {inviteSubmittingOrgId === organizationInventory.organization.id
                       ? 'Creating invite…'
@@ -4444,6 +4493,32 @@ function SettingsMembersPage() {
                             Joined at {member.joined_at}
                             {member.account.created_at ? ` · Account created ${member.account.created_at}` : ''}
                           </div>
+                          <label style={{ ...fieldLabelStyle, marginTop: 12 }}>
+                            <span>Update role</span>
+                            <select
+                              aria-label={`Role for ${member.account.email}`}
+                              value={member.role}
+                              onChange={(event) =>
+                                handleUpdateMemberRole(
+                                  organizationInventory.organization.id,
+                                  member,
+                                  event.target.value as 'viewer' | 'admin'
+                                )
+                              }
+                              style={inputStyle}
+                              disabled={
+                                inviteSubmittingOrgId !== null ||
+                                inviteCancellingId !== null ||
+                                memberRoleSubmittingId !== null
+                              }
+                            >
+                              <option value="viewer">viewer</option>
+                              <option value="admin">admin</option>
+                            </select>
+                          </label>
+                          {memberRoleSubmittingId === `${organizationInventory.organization.id}:${member.user_id}` ? (
+                            <div style={{ color: '#57606a', marginTop: 8 }}>Updating role for {member.account.email}…</div>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

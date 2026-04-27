@@ -2900,6 +2900,79 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('updates a member role from the settings members panel', async () => {
+    window.location.hash = '#/settings/members';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/members' && !init?.method) {
+        return jsonResponse([
+          {
+            organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+            members: [
+              {
+                user_id: 'local-user-member',
+                role: 'viewer',
+                joined_at: '2026-04-21T00:05:00Z',
+                account: { id: 'local-user-member', email: 'member@acme.test', name: 'Member User' },
+              },
+            ],
+            invites: [],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/members/local-user-member/role' && init?.method === 'PATCH') {
+        expect(init.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+          'Content-Type': 'application/json',
+        });
+        expect(init.body).toBe(JSON.stringify({ organization_id: 'org-acme', role: 'admin' }));
+        return jsonResponse({
+          organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+          members: [
+            {
+              user_id: 'local-user-member',
+              role: 'admin',
+              joined_at: '2026-04-21T00:05:00Z',
+              account: { id: 'local-user-member', email: 'member@acme.test', name: 'Member User' },
+            },
+          ],
+          invites: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
+    const roleSelect = within(organizationCard).getByLabelText('Role for member@acme.test');
+    expect(roleSelect).toHaveValue('viewer');
+
+    fireEvent.change(roleSelect, { target: { value: 'admin' } });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/members/local-user-member/role', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer session-1:secret-1',
+        },
+        body: JSON.stringify({ organization_id: 'org-acme', role: 'admin' }),
+      });
+    });
+
+    expect(await within(organizationCard).findByText('Updated member@acme.test to admin.')).toBeInTheDocument();
+    expect(within(organizationCard).getByLabelText('Role for member@acme.test')).toHaveValue('admin');
+  });
+
   it('shows a members loading failure inside the shared settings shell', async () => {
     window.location.hash = '#/settings/members';
 
