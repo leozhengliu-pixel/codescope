@@ -5632,10 +5632,49 @@ async fn search_repository_contents(
             {
                 response = snapshot_response;
             }
+        } else if let Some(snapshot_response) =
+            search_latest_local_sync_snapshots_for_visible_repos(
+                &state,
+                &query.q,
+                &user_id,
+                &visible_repo_ids,
+            )
+            .await?
+        {
+            response = snapshot_response;
         }
     }
 
     Ok(Json(response))
+}
+
+async fn search_latest_local_sync_snapshots_for_visible_repos(
+    state: &AppState,
+    query: &str,
+    user_id: &str,
+    visible_repo_ids: &HashSet<String>,
+) -> Result<Option<SearchResponse>, StatusCode> {
+    let mut repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
+    repo_ids.sort();
+
+    let mut results = Vec::new();
+    for repo_id in repo_ids {
+        if let Some(mut snapshot_response) =
+            search_latest_local_sync_snapshot_for_repo(state, query, user_id, &repo_id).await?
+        {
+            results.append(&mut snapshot_response.results);
+        }
+    }
+
+    if results.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(SearchResponse {
+            query: query.trim().to_string(),
+            repo_id: None,
+            results,
+        }))
+    }
 }
 
 async fn search_latest_local_sync_snapshot_for_repo(
@@ -26736,6 +26775,224 @@ mod tests {
         assert!(payload.results[0]
             .line
             .contains("local_sync_search_artifact_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_unscoped_uses_latest_successful_local_sync_search_index_artifact_for_visible_repo(
+    ) {
+        let repo_root = unique_test_path("search-unscoped-local-sync-artifact-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn unscoped_local_sync_search_artifact_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn unscoped_snapshot_mutated_after_artifact_write() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-unscoped-local-sync-orgs");
+        let local_session_state_path = unique_test_path("search-unscoped-local-sync-sessions");
+        let user_id = "user_unscoped_local_sync_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=unscoped_local_sync_search_artifact_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert!(payload.results[0]
+            .line
+            .contains("unscoped_local_sync_search_artifact_marker"));
+        assert!(!payload.results[0]
+            .line
+            .contains("unscoped_snapshot_mutated_after_artifact_write"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_context_uses_latest_successful_local_sync_search_index_artifact_for_scoped_repo(
+    ) {
+        let repo_root = unique_test_path("search-context-local-sync-artifact-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn context_local_sync_search_artifact_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn context_snapshot_mutated_after_artifact_write() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-context-local-sync-orgs");
+        let local_session_state_path = unique_test_path("search-context-local-sync-sessions");
+        let user_id = "user_context_local_sync_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state.search_contexts.push(SearchContext {
+            id: "ctx_local_sync".into(),
+            user_id: user_id.into(),
+            name: "Local sync scope".into(),
+            repo_scope: vec!["repo_local_import".into()],
+            created_at: "2026-04-21T00:08:00Z".into(),
+            updated_at: "2026-04-21T00:08:00Z".into(),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=context_local_sync_search_artifact_marker&context_id=ctx_local_sync")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert!(payload.results[0]
+            .line
+            .contains("context_local_sync_search_artifact_marker"));
+        assert!(!payload.results[0]
+            .line
+            .contains("context_snapshot_mutated_after_artifact_write"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
