@@ -30,8 +30,8 @@ use browse::{
     ReferenceMatch, TreeResponse,
 };
 use commits::{
-    build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse,
-    DynCommitStore,
+    build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse, CommitStore,
+    DynCommitStore, LocalCommitStore,
 };
 use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
@@ -5219,6 +5219,7 @@ async fn list_repository_commits(
     State(state): State<AppState>,
     Path(repo_id): Path<String>,
     Query(query): Query<CommitListQuery>,
+    headers: HeaderMap,
 ) -> Result<Json<CommitListResponse>, StatusCode> {
     let revision = query
         .revision
@@ -5226,11 +5227,24 @@ async fn list_repository_commits(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let commits = state
+    let commits = if let Some(commits) = state
         .commits
         .list_commits(&repo_id, query.limit, revision)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        commits
+    } else if revision.is_none() {
+        if let Some(store) = local_sync_commit_store_for_repo(&state, &headers, &repo_id).await? {
+            store
+                .list_commits(&repo_id, query.limit, revision)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .ok_or(StatusCode::NOT_FOUND)?
+        } else {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    } else {
+        return Err(StatusCode::NOT_FOUND);
+    };
 
     Ok(Json(commits))
 }
@@ -5238,12 +5252,23 @@ async fn list_repository_commits(
 async fn get_repository_commit(
     State(state): State<AppState>,
     Path((repo_id, commit_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Json<CommitDetailResponse>, StatusCode> {
-    let commit = state
+    let commit = if let Some(commit) = state
         .commits
         .get_commit(&repo_id, &commit_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        commit
+    } else if let Some(store) = local_sync_commit_store_for_repo(&state, &headers, &repo_id).await?
+    {
+        store
+            .get_commit(&repo_id, &commit_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?
+    } else {
+        return Err(StatusCode::NOT_FOUND);
+    };
 
     Ok(Json(commit))
 }
@@ -5251,14 +5276,56 @@ async fn get_repository_commit(
 async fn get_repository_commit_diff(
     State(state): State<AppState>,
     Path((repo_id, commit_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Json<CommitDiffResponse>, StatusCode> {
-    let diff = state
+    let diff = if let Some(diff) = state
         .commits
         .get_commit_diff(&repo_id, &commit_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    {
+        diff
+    } else if let Some(store) = local_sync_commit_store_for_repo(&state, &headers, &repo_id).await?
+    {
+        store
+            .get_commit_diff(&repo_id, &commit_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?
+    } else {
+        return Err(StatusCode::NOT_FOUND);
+    };
 
     Ok(Json(diff))
+}
+
+async fn local_sync_commit_store_for_repo(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo_id: &str,
+) -> Result<Option<LocalCommitStore>, StatusCode> {
+    if headers.get(header::AUTHORIZATION).is_none() {
+        return Ok(None);
+    }
+
+    let (user_id, visible_repo_ids) = search_request_context(state, headers).await?;
+    if !visible_repo_ids.contains(repo_id) {
+        return Ok(None);
+    }
+
+    let organization_state = user_auth_organization_state(state, &user_id)
+        .await?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let authorized_organization_ids =
+        authorized_organization_ids_for_repo(&organization_state, &user_id, repo_id);
+    let Some(snapshot) =
+        latest_local_sync_snapshot(&organization_state, repo_id, &authorized_organization_ids)
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(LocalCommitStore::new(HashMap::from([(
+        repo_id.to_string(),
+        snapshot.repo_root,
+    )]))))
 }
 
 async fn visible_repo_ids_for_user_id(
@@ -5646,6 +5713,7 @@ fn authorized_organization_ids_for_repo(
 }
 
 struct LocalSyncSnapshot {
+    repo_root: std::path::PathBuf,
     path: std::path::PathBuf,
     search_index_artifact_path: std::path::PathBuf,
     revision: String,
@@ -5678,10 +5746,14 @@ fn latest_local_sync_snapshot(
                 .then_with(|| left.queued_at.cmp(&right.queued_at))
                 .then_with(|| left.id.cmp(&right.id))
         })?;
-    let connection = organization_state
+    let mut matching_connections = organization_state
         .connections
         .iter()
-        .find(|connection| connection.id == latest_successful_job.connection_id)?;
+        .filter(|connection| connection.id == latest_successful_job.connection_id);
+    let connection = matching_connections.next()?;
+    if matching_connections.next().is_some() {
+        return None;
+    }
     let Some(ConnectionConfig::Local { repo_path }) = connection.config.as_ref() else {
         return None;
     };
@@ -5700,6 +5772,7 @@ fn latest_local_sync_snapshot(
         ));
 
     Some(LocalSyncSnapshot {
+        repo_root: std::path::PathBuf::from(repo_path),
         path: job_artifact_root.join("snapshot"),
         search_index_artifact_path: job_artifact_root.join("search-index.json"),
         revision: latest_successful_job.synced_revision.clone()?,
@@ -25940,6 +26013,240 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commits_uses_latest_successful_local_sync_repo_for_visible_requested_repo() {
+        let repo_root = unique_test_path("commits-local-sync-repo-root");
+        create_local_git_repository(&repo_root);
+        let expected = LocalCommitStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            repo_root.clone(),
+        )]))
+        .list_commits("repo_local_import", 1, None)
+        .unwrap()
+        .unwrap();
+
+        let organization_state_path = unique_test_path("commits-local-sync-orgs");
+        let local_session_state_path = unique_test_path("commits-local-sync-sessions");
+        let user_id = "user_local_sync_commits";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some(expected.commits[0].id.clone()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/commits?limit=1")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: CommitListResponse = read_json(response).await;
+        assert_eq!(
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.commits.len(), 1);
+        assert_eq!(payload.commits[0].summary, "initial");
+
+        let commit_id = payload.commits[0].short_id.clone();
+        let detail_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/repos/repo_local_import/commits/{commit_id}"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(detail_response.status(), StatusCode::OK);
+        let detail_payload: CommitDetailResponse = read_json(detail_response).await;
+        assert_eq!(detail_payload.repo_id, "repo_local_import");
+        assert_eq!(detail_payload.commit.summary, "initial");
+
+        let diff_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/repos/repo_local_import/commits/{commit_id}/diff"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(diff_response.status(), StatusCode::OK);
+        let diff_payload: CommitDiffResponse = read_json(diff_response).await;
+        assert_eq!(diff_payload.repo_id, "repo_local_import");
+        assert!(diff_payload
+            .files
+            .iter()
+            .any(|file| file.path == "README.md"));
+
+        let revision_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/commits?limit=1&revision=main")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revision_response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repo_commits_local_sync_fallback_fails_closed_for_duplicate_connection_ids() {
+        let hidden_repo_root = unique_test_path("commits-local-sync-hidden-duplicate-conn");
+        create_local_git_repository(&hidden_repo_root);
+        assert!(Command::new("git")
+            .args([
+                "-C",
+                &hidden_repo_root.display().to_string(),
+                "commit",
+                "--allow-empty",
+                "-m",
+                "hidden duplicate connection head",
+            ])
+            .status()
+            .unwrap()
+            .success());
+
+        let visible_repo_root = unique_test_path("commits-local-sync-visible-duplicate-conn");
+        create_local_git_repository(&visible_repo_root);
+
+        let organization_state_path = unique_test_path("commits-local-sync-duplicate-conn-orgs");
+        let local_session_state_path =
+            unique_test_path("commits-local-sync-duplicate-conn-sessions");
+        let user_id = "user_local_sync_duplicate_conn";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_shared"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.organizations.push(Organization {
+            id: "org_hidden".into(),
+            slug: "hidden".into(),
+            name: "Hidden".into(),
+        });
+        organization_state.connections = vec![
+            Connection {
+                id: "conn_shared".into(),
+                name: "Hidden Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: hidden_repo_root.display().to_string(),
+                }),
+            },
+            Connection {
+                id: "conn_shared".into(),
+                name: "Visible Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: visible_repo_root.display().to_string(),
+                }),
+            },
+        ];
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_visible_success".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_shared".into(),
+                connection_id: "conn_shared".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("visible-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_shared/commits?limit=1")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(hidden_repo_root).unwrap();
+        fs::remove_dir_all(visible_repo_root).unwrap();
     }
 
     #[tokio::test]

@@ -21,7 +21,7 @@
 5. Browse loading failures keep repository detail visible and offer a focused retry affordance instead of collapsing the page.
 6. Empty directories render an explicit empty-state message without pretending a file is selected.
 7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; for a visible repository with a successful local sync snapshot and no startup browse-store blob, no-revision blob reads may fall back to that latest caller-authorized snapshot; binary blobs expose metadata with an explicit binary flag instead of attempting lossy UTF-8 source rendering.
-8. Commit list is ordered consistently and supports pagination.
+8. Commit list is ordered consistently and supports pagination; for a visible repository with a successful local sync job and no seeded commit-store history, commit list/detail/diff reads may fall back to the latest caller-authorized local Git working tree.
 9. Commit detail view exposes changed files and summary metadata.
 10. Diff view renders additions/deletions and handles renamed files.
 

@@ -3,8 +3,10 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     path::PathBuf,
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::Arc,
+    thread,
+    time::{Duration, Instant},
 };
 
 pub type DynCommitStore = Arc<dyn CommitStore>;
@@ -504,21 +506,13 @@ fn next_token<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<
 }
 
 fn run_git(repo_root: &PathBuf, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, args)?;
 
     git_stdout(repo_root, args, output)
 }
 
 fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<String>> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, args)?;
 
     if output.status.success() {
         return Ok(Some(
@@ -534,11 +528,9 @@ fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<
 }
 
 fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<String>> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", &format!("{commit_id}^{{commit}}")])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git rev-parse in {}", repo_root.display()))?;
+    let verify_arg = format!("{commit_id}^{{commit}}");
+    let args = ["rev-parse", "--verify", verify_arg.as_str()];
+    let output = bounded_git_output(repo_root, &args)?;
 
     if !output.status.success() {
         if git_not_found_output(&output) {
@@ -568,6 +560,41 @@ fn git_not_found_output(output: &Output) -> bool {
         || stderr.contains("ambiguous argument")
         || stderr.contains("not a valid object name")
         || stderr.contains("Needed a single revision")
+}
+
+fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
+    const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(repo_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to start git in {}", repo_root.display()))?;
+    let started_at = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .with_context(|| format!("failed to poll git in {}", repo_root.display()))?
+            .is_some()
+        {
+            return child.wait_with_output().with_context(|| {
+                format!("failed to collect git output in {}", repo_root.display())
+            });
+        }
+        if started_at.elapsed() >= GIT_COMMAND_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait_with_output();
+            return Err(anyhow!(
+                "git command timed out after {:?} in {}: git {}",
+                GIT_COMMAND_TIMEOUT,
+                repo_root.display(),
+                args.join(" ")
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn git_stdout(repo_root: &PathBuf, args: &[&str], output: Output) -> Result<String> {
