@@ -219,6 +219,10 @@ fn build_router(
         )
         .route("/api/v1/auth/members", get(list_authenticated_members))
         .route(
+            "/api/v1/auth/members/{user_id}",
+            delete(remove_authenticated_member),
+        )
+        .route(
             "/api/v1/auth/members/{user_id}/role",
             patch(update_authenticated_member_role),
         )
@@ -724,6 +728,11 @@ struct CreateMembersInviteRequest {
 struct UpdateMemberRoleRequest {
     organization_id: String,
     role: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct RemoveMemberRequest {
+    organization_id: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -2073,6 +2082,163 @@ async fn create_authenticated_members_invite(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+async fn remove_authenticated_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(user_id): Path<String>,
+    Json(payload): Json<RemoveMemberRequest>,
+) -> Result<Json<MembersOrganizationResponse>, StatusCode> {
+    let session = authenticate_local_session_record(&state, &headers).await?;
+    let user_id = user_id.trim();
+    let organization_id = payload.organization_id.trim();
+    if user_id.is_empty() || organization_id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(store) = &state.organization_auth_metadata_store {
+        let admin_metadata = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let organization_state = organization_state_from_auth_metadata(admin_metadata);
+        if !user_is_organization_admin(&organization_state, &session.user_id, organization_id) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        if !organization_state.memberships.iter().any(|membership| {
+            membership.organization_id == organization_id && membership.user_id == user_id
+        }) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        let organization = organization_state
+            .organizations
+            .iter()
+            .find(|organization| organization.id == organization_id)
+            .cloned()
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let removed_membership = store
+            .remove_member(organization_id, user_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        let removed_role = match removed_membership.role {
+            OrganizationRole::Admin => "admin",
+            OrganizationRole::Viewer => "viewer",
+        };
+        let occurred_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+        let mut audit_state = match state.organization_store.organization_state().await {
+            Ok(audit_state) => audit_state,
+            Err(_) => {
+                let _ = store.restore_member(&removed_membership).await;
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+        audit_state.audit_events.push(AuditEvent {
+            id: format!(
+                "audit_{}",
+                SaltString::generate(&mut OsRng)
+                    .to_string()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+            ),
+            organization_id: organization_id.to_string(),
+            actor: AuditActor {
+                user_id: Some(session.user_id.clone()),
+                api_key_id: None,
+            },
+            action: "auth.member.removed".into(),
+            target_type: "organization_membership".into(),
+            target_id: user_id.to_string(),
+            occurred_at,
+            metadata: serde_json::json!({
+                "removed_role": removed_role,
+            }),
+        });
+        if state
+            .organization_store
+            .store_organization_state(audit_state)
+            .await
+            .is_err()
+        {
+            let _ = store.restore_member(&removed_membership).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        let refreshed_state = store
+            .admin_organization_auth_metadata(&session.user_id)
+            .await
+            .map(organization_state_from_auth_metadata)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Ok(Json(members_organization_response(
+            &refreshed_state,
+            &organization,
+        )));
+    }
+
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    let mut organization_state = state
+        .organization_store
+        .organization_state()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !user_is_organization_admin(&organization_state, &session.user_id, organization_id) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let organization = organization_state
+        .organizations
+        .iter()
+        .find(|organization| organization.id == organization_id)
+        .cloned()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let membership_index = organization_state
+        .memberships
+        .iter()
+        .position(|membership| {
+            membership.organization_id == organization_id && membership.user_id == user_id
+        })
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let membership = organization_state.memberships.remove(membership_index);
+    let removed_role = match membership.role {
+        OrganizationRole::Admin => "admin",
+        OrganizationRole::Viewer => "viewer",
+    };
+    let occurred_at = OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    organization_state.audit_events.push(AuditEvent {
+        id: format!(
+            "audit_{}",
+            SaltString::generate(&mut OsRng)
+                .to_string()
+                .chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+        ),
+        organization_id: organization_id.to_string(),
+        actor: AuditActor {
+            user_id: Some(session.user_id.clone()),
+            api_key_id: None,
+        },
+        action: "auth.member.removed".into(),
+        target_type: "organization_membership".into(),
+        target_id: user_id.to_string(),
+        occurred_at,
+        metadata: serde_json::json!({
+            "removed_role": removed_role,
+        }),
+    });
+    let response = members_organization_response(&organization_state, &organization);
+    state
+        .organization_store
+        .store_organization_state(organization_state)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(response))
 }
 
 async fn update_authenticated_member_role(
@@ -5362,6 +5528,11 @@ mod tests {
     }
 
     #[derive(Debug, Serialize)]
+    struct RemoveMemberRequestBody {
+        organization_id: String,
+    }
+
+    #[derive(Debug, Serialize)]
     struct RevokeRequest {
         session_id: String,
     }
@@ -6218,6 +6389,248 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(invalid_role_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn auth_members_remove_deletes_member_for_admin_visible_org_only() {
+        let organization_state_path = unique_test_path("members-remove-organizations");
+        write_members_invite_create_fixture(&organization_state_path, OrganizationRole::Admin);
+        let mut seeded_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read seeded organization state"),
+        )
+        .expect("parse seeded organization state");
+        seeded_state.accounts.push(LocalAccount {
+            id: "local_user_member".into(),
+            email: "member@example.com".into(),
+            name: "Member User".into(),
+            password_hash: None,
+            created_at: "2026-04-21T00:05:00Z".into(),
+        });
+        seeded_state.memberships.push(OrganizationMembership {
+            organization_id: "org_acme".into(),
+            user_id: "local_user_member".into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-21T00:05:00Z".into(),
+        });
+        seeded_state.accounts.push(LocalAccount {
+            id: "hidden_user_member".into(),
+            email: "hidden-member@example.com".into(),
+            name: "Hidden Member".into(),
+            password_hash: None,
+            created_at: "2026-04-21T00:06:00Z".into(),
+        });
+        seeded_state.memberships.push(OrganizationMembership {
+            organization_id: "org_other".into(),
+            user_id: "hidden_user_member".into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-21T00:06:00Z".into(),
+        });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&seeded_state).unwrap(),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("members-remove-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("members-remove-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/local_user_member")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: " org_acme ".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let updated: MembersOrganizationResponseBody = read_json(response).await;
+        assert_eq!(updated.organization.id, "org_acme");
+        assert!(!updated
+            .members
+            .iter()
+            .any(|member| member.user_id == "local_user_member"));
+
+        let persisted_state: OrganizationState = serde_json::from_slice(
+            &fs::read(&organization_state_path).expect("read persisted organization state"),
+        )
+        .expect("parse persisted organization state");
+        assert!(persisted_state
+            .accounts
+            .iter()
+            .any(|account| account.id == "local_user_member"));
+        assert!(!persisted_state.memberships.iter().any(|membership| {
+            membership.organization_id == "org_acme" && membership.user_id == "local_user_member"
+        }));
+        assert!(persisted_state.audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.actor.user_id.as_deref() == Some(LOCAL_BOOTSTRAP_ADMIN_USER_ID)
+                && event.action == "auth.member.removed"
+                && event.target_type == "organization_membership"
+                && event.target_id == "local_user_member"
+                && event
+                    .metadata
+                    .get("removed_role")
+                    .and_then(|value| value.as_str())
+                    == Some("viewer")
+        }));
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/hidden_user_member")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: "org_other".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::UNAUTHORIZED);
+
+        let blank_org_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/local_user_member")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: " ".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blank_org_response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn auth_members_remove_restores_postgres_membership_when_audit_read_fails() {
+        let pool = pg_local_session_test_pool().await;
+        let admin_password_hash = Argon2::default()
+            .hash_password(b"members-password", &SaltString::generate(&mut OsRng))
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, password_hash, created_at) VALUES
+            ('local_user_admin', 'admin@example.com', 'Admin User', $1, '2026-04-22T09:00:00Z'::timestamptz),
+            ('local_user_member', 'member@example.com', 'Member User', NULL, '2026-04-22T09:05:00Z'::timestamptz)"
+        )
+        .bind(&admin_password_hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_admin', 'admin', '2026-04-22T09:10:00Z'::timestamptz),
+            ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let config = AppConfig {
+            organization_state_path: unique_test_path("members-remove-audit-read-failure-orgs")
+                .display()
+                .to_string(),
+            bootstrap_state_path: unique_test_path("members-remove-audit-read-failure-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path(
+                "members-remove-audit-read-failure-sessions",
+            )
+            .display()
+            .to_string(),
+            ..AppConfig::default()
+        };
+        let authorization =
+            seed_local_session(&config.local_session_state_path, "local_user_admin").await;
+        let mut state = build_app_state(
+            config.clone(),
+            Arc::new(InMemoryCatalogStore::seeded()),
+            build_bootstrap_store(config.bootstrap_state_path.clone(), None),
+            build_local_session_store(config.local_session_state_path.clone(), None),
+            build_browse_store(),
+            build_commit_store(),
+            build_search_store(),
+            build_ask_thread_store(),
+        );
+        state.organization_auth_metadata_store = Some(
+            PgOrganizationAuthMetadataStore::connect_lazy(
+                std::env::var("TEST_DATABASE_URL")
+                    .expect("TEST_DATABASE_URL must be set for Postgres member removal tests")
+                    .as_str(),
+            )
+            .expect("connect lazy organization auth metadata store"),
+        );
+        state.organization_store = Arc::new(FailingOrganizationStore::unreadable(
+            OrganizationState::default(),
+            false,
+        ));
+
+        let response = remove_authenticated_member(
+            State(state),
+            bearer_headers(&authorization),
+            Path("local_user_member".into()),
+            Json(RemoveMemberRequest {
+                organization_id: "org_acme".into(),
+            }),
+        )
+        .await;
+        assert!(matches!(response, Err(StatusCode::INTERNAL_SERVER_ERROR)));
+
+        let restored_membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_member' AND role = 'viewer'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("membership restored after audit read failure");
+        assert_eq!(restored_membership_count, 1);
+        let account_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM local_accounts WHERE id = 'local_user_member'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("local account remains after failed member removal");
+        assert_eq!(account_count, 1);
+        pool.close().await;
     }
 
     #[tokio::test]

@@ -2900,6 +2900,84 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('removes a member from the settings members panel', async () => {
+    window.location.hash = '#/settings/members';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/members' && !init?.method) {
+        return jsonResponse([
+          {
+            organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+            members: [
+              {
+                user_id: 'local-user-member',
+                role: 'viewer',
+                joined_at: '2026-04-21T00:05:00Z',
+                account: { id: 'local-user-member', email: 'member@acme.test', name: 'Member User' },
+              },
+              {
+                user_id: 'local-user-other',
+                role: 'admin',
+                joined_at: '2026-04-21T00:06:00Z',
+                account: { id: 'local-user-other', email: 'other@acme.test', name: 'Other User' },
+              },
+            ],
+            invites: [],
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/members/local-user-member' && init?.method === 'DELETE') {
+        expect(init.headers).toMatchObject({
+          Authorization: 'Bearer session-1:secret-1',
+          'Content-Type': 'application/json',
+        });
+        expect(init.body).toBe(JSON.stringify({ organization_id: 'org-acme' }));
+        return jsonResponse({
+          organization: { id: 'org-acme', slug: 'acme', name: 'Acme, Inc.' },
+          members: [
+            {
+              user_id: 'local-user-other',
+              role: 'admin',
+              joined_at: '2026-04-21T00:06:00Z',
+              account: { id: 'local-user-other', email: 'other@acme.test', name: 'Other User' },
+            },
+          ],
+          invites: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
+    expect(within(organizationCard).getByText('member@acme.test')).toBeInTheDocument();
+    fireEvent.click(within(organizationCard).getByRole('button', { name: 'Remove member@acme.test' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/members/local-user-member', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer session-1:secret-1',
+        },
+        body: JSON.stringify({ organization_id: 'org-acme' }),
+      });
+    });
+
+    expect(await within(organizationCard).findByText('Removed member@acme.test.')).toBeInTheDocument();
+    expect(within(organizationCard).queryByText('member@acme.test')).not.toBeInTheDocument();
+    expect(within(organizationCard).getByText('other@acme.test')).toBeInTheDocument();
+  });
+
   it('updates a member role from the settings members panel', async () => {
     window.location.hash = '#/settings/members';
     window.localStorage.setItem(

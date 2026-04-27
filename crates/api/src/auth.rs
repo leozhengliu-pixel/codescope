@@ -340,6 +340,56 @@ impl PgOrganizationAuthMetadataStore {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn remove_member(
+        &self,
+        organization_id: &str,
+        user_id: &str,
+    ) -> Result<Option<OrganizationMembership>> {
+        let mut tx = self.pool.begin().await?;
+        let membership = sqlx::query(
+            "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = $1 AND user_id = $2 FOR UPDATE",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .map(organization_membership_from_row)
+        .transpose()?;
+
+        if membership.is_none() {
+            tx.commit().await?;
+            return Ok(None);
+        }
+
+        let result = sqlx::query(
+            "DELETE FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        if result.rows_affected() == 1 {
+            Ok(membership)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn restore_member(&self, membership: &OrganizationMembership) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ($1, $2, $3, $4::timestamptz) ON CONFLICT (organization_id, user_id) DO NOTHING",
+        )
+        .bind(&membership.organization_id)
+        .bind(&membership.user_id)
+        .bind(organization_role_as_str(&membership.role))
+        .bind(&membership.joined_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn delete_invite(&self, invite_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM organization_invites WHERE id = $1")
             .bind(invite_id)
@@ -2442,6 +2492,68 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(accepted_invites, 1);
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_removes_and_restores_memberships_without_deleting_accounts() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_other', 'other', 'Other')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('local_user_member', 'member@example.com', 'Member User', '2026-04-22T09:05:00Z'::timestamptz),
+            ('local_user_other', 'other@example.com', 'Other User', '2026-04-22T09:06:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES
+            ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:11:00Z'::timestamptz),
+            ('org_other', 'local_user_other', 'viewer', '2026-04-22T09:12:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        let removed = store
+            .remove_member("org_acme", "local_user_member")
+            .await
+            .unwrap()
+            .expect("removed membership");
+        assert_eq!(removed.organization_id, "org_acme");
+        assert_eq!(removed.user_id, "local_user_member");
+        assert_eq!(removed.role, OrganizationRole::Viewer);
+        assert_eq!(removed.joined_at, "2026-04-22T09:11:00Z");
+        assert!(store
+            .remove_member("org_acme", "local_user_member")
+            .await
+            .unwrap()
+            .is_none());
+
+        let remaining_memberships: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM organization_memberships")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(remaining_memberships, 1);
+        let accounts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_accounts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(accounts, 2);
+
+        store.restore_member(&removed).await.unwrap();
+        let restored_membership: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_member' AND role = 'viewer'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(restored_membership, 1);
     }
 
     #[tokio::test]

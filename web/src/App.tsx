@@ -4218,6 +4218,7 @@ function SettingsMembersPage() {
   const [inviteSubmittingOrgId, setInviteSubmittingOrgId] = useState<string | null>(null);
   const [inviteCancellingId, setInviteCancellingId] = useState<string | null>(null);
   const [memberRoleSubmittingId, setMemberRoleSubmittingId] = useState<string | null>(null);
+  const [memberRemovingId, setMemberRemovingId] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<Record<string, string | null>>({});
   const [inviteSuccesses, setInviteSuccesses] = useState<Record<string, string | null>>({});
 
@@ -4252,7 +4253,13 @@ function SettingsMembersPage() {
     event.preventDefault();
     const email = (inviteEmails[organization.id] ?? '').trim();
     const role = inviteRoles[organization.id] ?? 'viewer';
-    if (!email || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
+    if (
+      !email ||
+      inviteSubmittingOrgId !== null ||
+      inviteCancellingId !== null ||
+      memberRoleSubmittingId !== null ||
+      memberRemovingId !== null
+    ) {
       return;
     }
 
@@ -4291,7 +4298,13 @@ function SettingsMembersPage() {
   };
 
   const handleCancelInvite = async (organizationId: string, invite: InviteRosterEntry) => {
-    if (invite.status !== 'pending' || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
+    if (
+      invite.status !== 'pending' ||
+      inviteSubmittingOrgId !== null ||
+      inviteCancellingId !== null ||
+      memberRoleSubmittingId !== null ||
+      memberRemovingId !== null
+    ) {
       return;
     }
 
@@ -4324,7 +4337,13 @@ function SettingsMembersPage() {
   };
 
   const handleUpdateMemberRole = async (organizationId: string, member: MembersRosterEntry, role: 'viewer' | 'admin') => {
-    if (role === member.role || inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRoleSubmittingId !== null) {
+    if (
+      role === member.role ||
+      inviteSubmittingOrgId !== null ||
+      inviteCancellingId !== null ||
+      memberRoleSubmittingId !== null ||
+      memberRemovingId !== null
+    ) {
       return;
     }
 
@@ -4366,13 +4385,61 @@ function SettingsMembersPage() {
     }
   };
 
+  const handleRemoveMember = async (organizationId: string, member: MembersRosterEntry) => {
+    if (
+      inviteSubmittingOrgId !== null ||
+      inviteCancellingId !== null ||
+      memberRoleSubmittingId !== null ||
+      memberRemovingId !== null
+    ) {
+      return;
+    }
+
+    const submissionId = `${organizationId}:${member.user_id}`;
+    setMemberRemovingId(submissionId);
+    setInviteErrors((currentErrors) => ({ ...currentErrors, [organizationId]: null }));
+    setInviteSuccesses((currentSuccesses) => ({ ...currentSuccesses, [organizationId]: null }));
+
+    try {
+      const updatedInventory = await fetchJson<MembersOrganizationInventory>(
+        `/api/v1/auth/members/${encodeURIComponent(member.user_id)}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            organization_id: organizationId,
+          }),
+        }
+      );
+      setOrganizations((currentOrganizations) =>
+        currentOrganizations.map((currentOrganization) =>
+          currentOrganization.organization.id === updatedInventory.organization.id ? updatedInventory : currentOrganization
+        )
+      );
+      setInviteSuccesses((currentSuccesses) => ({
+        ...currentSuccesses,
+        [organizationId]: `Removed ${member.account.email}.`,
+      }));
+    } catch (err) {
+      setInviteErrors((currentErrors) => ({
+        ...currentErrors,
+        [organizationId]: err instanceof Error ? err.message : 'Unknown error',
+      }));
+    } finally {
+      setMemberRemovingId(null);
+    }
+  };
+
   return (
     <Panel title="Members" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
           This minimal panel shows only organizations you can administer plus their current member and invite inventory,
-          and it can create/cancel pending local invites or update member roles for those administered organizations.
-          Email delivery, resend, member removal, and full member lifecycle workflows remain follow-up work.
+          and it can create/cancel pending local invites, update member roles, or remove members for those administered
+          organizations. Email delivery, resend, last-admin/self-removal policy, and full member lifecycle workflows remain
+          follow-up work.
         </p>
 
         {loading ? <div>Loading members…</div> : null}
@@ -4412,8 +4479,8 @@ function SettingsMembersPage() {
                   <div style={{ fontSize: 16, fontWeight: 700 }}>Create invite</div>
                   <div style={{ color: '#57606a' }}>
                     Create a pending local invite for this organization. The current baseline records the invite for
-                    redemption, can cancel pending invites, and can update member roles, but does not send email, resend
-                    invites, or remove members.
+                    redemption, can cancel pending invites, update member roles, and remove members, but does not send
+                    email, resend invites, or enforce last-admin/self-removal policy.
                   </div>
                   <div style={detailGridStyle}>
                     <label style={fieldLabelStyle}>
@@ -4428,7 +4495,7 @@ function SettingsMembersPage() {
                           }))
                         }
                         style={inputStyle}
-                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null}
+                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null || memberRemovingId !== null}
                       />
                     </label>
                     <label style={fieldLabelStyle}>
@@ -4442,7 +4509,7 @@ function SettingsMembersPage() {
                           }))
                         }
                         style={inputStyle}
-                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null}
+                        disabled={inviteSubmittingOrgId !== null || memberRoleSubmittingId !== null || memberRemovingId !== null}
                       >
                         <option value="viewer">viewer</option>
                         <option value="admin">admin</option>
@@ -4456,6 +4523,7 @@ function SettingsMembersPage() {
                       inviteSubmittingOrgId !== null ||
                       inviteCancellingId !== null ||
                       memberRoleSubmittingId !== null ||
+                      memberRemovingId !== null ||
                       (inviteEmails[organizationInventory.organization.id] ?? '').trim().length === 0
                     }
                   >
@@ -4509,15 +4577,34 @@ function SettingsMembersPage() {
                               disabled={
                                 inviteSubmittingOrgId !== null ||
                                 inviteCancellingId !== null ||
-                                memberRoleSubmittingId !== null
+                                memberRoleSubmittingId !== null ||
+                                memberRemovingId !== null
                               }
                             >
                               <option value="viewer">viewer</option>
                               <option value="admin">admin</option>
                             </select>
                           </label>
+                          <button
+                            type="button"
+                            style={{ ...secondaryButtonStyle, marginTop: 12 }}
+                            disabled={
+                              inviteSubmittingOrgId !== null ||
+                              inviteCancellingId !== null ||
+                              memberRoleSubmittingId !== null ||
+                              memberRemovingId !== null
+                            }
+                            onClick={() => handleRemoveMember(organizationInventory.organization.id, member)}
+                          >
+                            {memberRemovingId === `${organizationInventory.organization.id}:${member.user_id}`
+                              ? `Removing ${member.account.email}…`
+                              : `Remove ${member.account.email}`}
+                          </button>
                           {memberRoleSubmittingId === `${organizationInventory.organization.id}:${member.user_id}` ? (
                             <div style={{ color: '#57606a', marginTop: 8 }}>Updating role for {member.account.email}…</div>
+                          ) : null}
+                          {memberRemovingId === `${organizationInventory.organization.id}:${member.user_id}` ? (
+                            <div style={{ color: '#57606a', marginTop: 8 }}>Removing {member.account.email}…</div>
                           ) : null}
                         </li>
                       ))}
@@ -4559,7 +4646,7 @@ function SettingsMembersPage() {
                               <button
                                 type="button"
                                 style={{ ...secondaryButtonStyle, marginTop: 8 }}
-                                disabled={inviteSubmittingOrgId !== null || inviteCancellingId !== null}
+                                disabled={inviteSubmittingOrgId !== null || inviteCancellingId !== null || memberRemovingId !== null}
                                 onClick={() => handleCancelInvite(organizationInventory.organization.id, invite)}
                               >
                                 {inviteCancellingId === invite.id
