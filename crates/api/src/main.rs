@@ -5526,13 +5526,15 @@ mod tests {
     use crate::{
         ask::InMemoryAskThreadStore,
         commits::{CommitStore, LocalCommitStore},
-        storage::{catalog_migrator, InMemoryCatalogStore, PgCatalogStore},
+        storage::{catalog_migrator, InMemoryCatalogStore},
     };
     use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
     use axum::http::{Method, Request, StatusCode};
     use serde::{Deserialize, Serialize};
-    use sourcebot_core::{AskThreadStore, BootstrapStore, OrganizationStore};
+    use sourcebot_core::{
+        AskThreadStore, BootstrapStore, CatalogStore, ImportRepositoryResult, OrganizationStore,
+    };
     use sourcebot_models::{
         AnalyticsRecord, ApiKey, AskMessage, AskMessageRole, AskThread, AskThreadVisibility,
         AuditActor, AuditEvent, Connection, ConnectionConfig, ConnectionKind, ExternalAccount,
@@ -6109,6 +6111,30 @@ mod tests {
 
     fn test_app_with_config(config: AppConfig) -> Router {
         test_app_with_catalog(config, Arc::new(InMemoryCatalogStore::seeded()))
+    }
+
+    struct UnsupportedLocalImportCatalog;
+
+    #[async_trait]
+    impl CatalogStore for UnsupportedLocalImportCatalog {
+        async fn list_repositories(&self) -> anyhow::Result<Vec<RepositorySummary>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_repository_detail(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryDetail>> {
+            Ok(None)
+        }
+
+        async fn import_local_repository(
+            &self,
+            _connection: Connection,
+            _repo_path: &str,
+        ) -> anyhow::Result<ImportRepositoryResult> {
+            anyhow::bail!("local repository import unsupported by test catalog")
+        }
     }
 
     fn test_app_with_search_store(config: AppConfig, search: DynSearchStore) -> Router {
@@ -16339,12 +16365,7 @@ mod tests {
                 local_session_state_path: local_session_state_path.display().to_string(),
                 ..AppConfig::default()
             },
-            Arc::new(
-                PgCatalogStore::connect_lazy(
-                    "postgres://sourcebot:sourcebot@127.0.0.1:5432/sourcebot",
-                )
-                .unwrap(),
-            ),
+            Arc::new(UnsupportedLocalImportCatalog),
         );
 
         let response = app

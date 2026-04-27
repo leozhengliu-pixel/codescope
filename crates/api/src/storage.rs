@@ -239,6 +239,19 @@ pub fn catalog_migrator() -> &'static Migrator {
     &CATALOG_MIGRATOR
 }
 
+fn connection_kind_to_str(kind: &ConnectionKind) -> &'static str {
+    match kind {
+        ConnectionKind::GitHub => "github",
+        ConnectionKind::GitLab => "gitlab",
+        ConnectionKind::Gitea => "gitea",
+        ConnectionKind::Gerrit => "gerrit",
+        ConnectionKind::Bitbucket => "bitbucket",
+        ConnectionKind::AzureDevOps => "azure_devops",
+        ConnectionKind::GenericGit => "generic_git",
+        ConnectionKind::Local => "local",
+    }
+}
+
 fn parse_connection_kind(value: &str) -> Result<ConnectionKind> {
     match value {
         "github" => Ok(ConnectionKind::GitHub),
@@ -300,6 +313,10 @@ impl PgCatalogStore {
 
 #[async_trait]
 impl CatalogStore for PgCatalogStore {
+    fn supports_local_repository_import(&self) -> bool {
+        true
+    }
+
     async fn list_repositories(&self) -> Result<Vec<RepositorySummary>> {
         let rows = sqlx::query(
             "SELECT id AS repo_id, name AS repo_name, default_branch, connection_id, sync_state FROM repositories ORDER BY id",
@@ -337,11 +354,87 @@ impl CatalogStore for PgCatalogStore {
         connection: Connection,
         repo_path: &str,
     ) -> Result<ImportRepositoryResult> {
-        anyhow::bail!(
-            "postgres catalog store import_local_repository is not implemented yet for connection {} and path {}",
-            connection.id,
-            repo_path
+        let canonical_path = canonical_local_git_repository_path(repo_path)?;
+        let default_branch = git_output(&canonical_path, &["symbolic-ref", "--short", "HEAD"])?;
+        let repository_name = repository_name_from_path(&canonical_path)?;
+        let repo_id_base = format!(
+            "repo_local_{}",
+            sanitize_repo_id_component(&repository_name)
+        );
+
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO connections (id, name, kind) VALUES ($1, $2, $3)
+             ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, kind = EXCLUDED.kind",
         )
+        .bind(&connection.id)
+        .bind(&connection.name)
+        .bind(connection_kind_to_str(&connection.kind))
+        .execute(&mut *transaction)
+        .await?;
+
+        if let Some(row) = sqlx::query(
+            "SELECT id AS repo_id, name AS repo_name, default_branch, connection_id, sync_state
+             FROM repositories
+             WHERE connection_id = $1 AND name = $2
+             ORDER BY id
+             LIMIT 1",
+        )
+        .bind(&connection.id)
+        .bind(&repository_name)
+        .fetch_optional(&mut *transaction)
+        .await?
+        {
+            let repository = row_to_repository(&row)?;
+            transaction.commit().await?;
+            return Ok(ImportRepositoryResult {
+                detail: RepositoryDetail {
+                    repository,
+                    connection,
+                },
+                created: false,
+            });
+        }
+
+        let existing_ids = sqlx::query_scalar::<_, String>("SELECT id FROM repositories")
+            .fetch_all(&mut *transaction)
+            .await?
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        let mut repo_id = repo_id_base.clone();
+        let mut suffix = 2usize;
+        while existing_ids.contains(&repo_id) {
+            repo_id = format!("{repo_id_base}_{suffix}");
+            suffix += 1;
+        }
+
+        sqlx::query(
+            "INSERT INTO repositories (id, name, default_branch, connection_id, sync_state)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(&repo_id)
+        .bind(&repository_name)
+        .bind(&default_branch)
+        .bind(&connection.id)
+        .bind("ready")
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+
+        let repository = Repository {
+            id: repo_id,
+            name: repository_name,
+            default_branch,
+            connection_id: connection.id.clone(),
+            sync_state: SyncState::Ready,
+        };
+        Ok(ImportRepositoryResult {
+            detail: RepositoryDetail {
+                repository,
+                connection,
+            },
+            created: true,
+        })
     }
 }
 
@@ -356,7 +449,7 @@ pub async fn build_catalog_store(database_url: Option<&str>) -> Result<DynCatalo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sourcebot_models::{ConnectionKind, SyncState};
+    use sourcebot_models::{ConnectionConfig, ConnectionKind, SyncState};
     use sqlx::postgres::PgPoolOptions;
     use std::env;
 
@@ -975,6 +1068,87 @@ mod tests {
             })
         );
         assert_eq!(store.get_repository_detail("missing").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn pg_catalog_store_imports_local_repository_into_postgres_catalog() {
+        let pool = pg_catalog_test_pool().await;
+        let repo_path =
+            std::env::temp_dir().join(format!("sourcebot-pg-local-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo_path);
+        std::fs::create_dir_all(&repo_path).unwrap();
+        std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .arg(&repo_path)
+            .output()
+            .expect("initialize local git repository");
+        std::fs::write(repo_path.join("README.md"), "# imported\n").unwrap();
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("stage local git repository content");
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args([
+                "-c",
+                "user.email=test@example.com",
+                "-c",
+                "user.name=Test User",
+            ])
+            .args(["commit", "-m", "initial"])
+            .output()
+            .expect("commit local git repository content");
+
+        let store = PgCatalogStore { pool };
+        let connection = Connection {
+            id: "conn_pg_local_import".into(),
+            name: "Postgres Local Import".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_path.display().to_string(),
+            }),
+        };
+
+        let imported = store
+            .import_local_repository(connection.clone(), &repo_path.display().to_string())
+            .await
+            .unwrap();
+
+        assert!(imported.created);
+        assert_eq!(
+            imported.detail.repository.name,
+            repo_path.file_name().unwrap().to_string_lossy()
+        );
+        assert_eq!(imported.detail.repository.default_branch, "main");
+        assert_eq!(
+            imported.detail.repository.connection_id,
+            "conn_pg_local_import"
+        );
+        assert_eq!(imported.detail.connection, connection);
+        assert!(store
+            .list_repositories()
+            .await
+            .unwrap()
+            .iter()
+            .any(|repository| repository.id == imported.detail.repository.id
+                && repository.name == imported.detail.repository.name
+                && repository.sync_state == SyncState::Ready));
+        assert_eq!(
+            store
+                .get_repository_detail(&imported.detail.repository.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .repository,
+            imported.detail.repository
+        );
+
+        std::fs::remove_dir_all(repo_path).unwrap();
     }
 
     #[tokio::test]
