@@ -5,52 +5,80 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e419c08f1fcda1b12bf112d50d1b371a434ec750
+  head: 7f286616b0dfcb0bb860a33418a7439ebe5ef668
 last_completed_task:
-  id: task96a
-  title: Provider repository-sync enqueue baseline
+  id: task96b
+  title: Provider sync execution and progress baseline
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime slice instead of splitting
-    backend route behavior, focused authz/no-mutation coverage, acceptance
-    wording, parity-audit synchronization, and review into paperwork-only runs.
-    Authenticated organization admins can now POST to
-    `/api/v1/auth/repository-sync-jobs` with an administered and currently
-    visible repository to persist a queued repository-sync job whose
-    `connection_id` is derived from catalog repository detail rather than caller
-    input. Blank payload fields, non-admin callers, hidden repositories, and
-    catalog-missing repositories fail closed before mutation. The release claim
-    remains deliberately bounded: this is a backend-only enqueue baseline, not
-    real provider discovery/import execution, worker retry/progress handling,
-    frontend sync controls, persisted index status, or full provider runtime
+    Closed one meaningful Task 96 provider/runtime smoke closure instead of
+    splitting the contract wrapper, smoke assertions, worker-progress evidence,
+    acceptance wording, and review into paperwork-only runs. The end-to-end
+    smoke matrix now proves a bounded repository-sync enqueue-to-progress path:
+    an authenticated admin enqueues a visible repository sync job, authenticated
+    history observes it as queued, the real one-shot worker runs after
+    review-agent work is drained with the configured succeeded stub outcome, and
+    authenticated history plus persisted organization state observe the same job
+    as succeeded with start/finish timestamps. The contract wrapper now requires
+    the phase-specific `[repository-sync] worker completed queued sync job`
+    marker rather than a generic token that could be satisfied by the final PASS
+    line. The release claim remains deliberately bounded to one-shot stub
+    progress, not real provider fetch/import execution, retries, daemonized
+    scheduling, frontend controls, durable index status, or full provider/runtime
     parity.
   tests:
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_create -- --nocapture: passed (2 passed; 372 filtered)
-    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (6 passed; 368 filtered)
-    - cargo fmt --check: passed
+    - bash -n scripts/check_end_to_end_smoke_matrix.sh scripts/check_end_to_end_smoke_matrix_contract.sh: passed
     - git diff --check: passed
-    - python3 doc truth checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
+    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed in background with completion notification; output PASS: end-to-end smoke matrix contract verified
+    - python3 doc/script marker checks for the phase-specific repository-sync marker and bounded acceptance wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the local-session/admin/visible-binding/catalog-presence gates before mutation, catalog-derived connection id, docs claim bounds, and existing GET behavior preservation, with a non-blocking note that blank-field, hidden-binding, and catalog-missing no-mutation cases could be locked by additional tests later
-  commit: e419c08f1fcda1b12bf112d50d1b371a434ec750
-  next_task: task96b
+    code: passed independent read-only review; reviewer approved the admin enqueue, queued-history, one-shot worker, terminal-history, persisted organization-state assertions, the phase-specific contract marker, and bounded docs, with only a non-blocking note that the queued-list GET assertion checks presence/status rather than null start/finish timestamps
+  commit: 7f286616b0dfcb0bb860a33418a7439ebe5ef668
+  next_task: task96c
 current_task:
-  id: task96b
+  id: task96c
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider sync execution and progress baseline
+  title: Provider sync runtime hardening beyond one-shot stub progress
   status: pending
   summary: >-
-    Task 96a closes only a backend admin enqueue baseline for already visible
-    repositories. The next meaningful Task 96 provider/runtime closure should
-    move queued repository-sync jobs beyond creation/history into bounded
-    execution or operator-visible progress: for example, a worker-backed local or
-    generic Git sync tick that claims queued jobs, records terminal status and
-    errors without duplicate claims, and keeps docs/tests explicit that broader
-    provider discovery, retries, frontend controls, and multi-host parity remain
-    follow-up.
+    Task 96b proves a repo-local enqueue-to-terminal-history smoke for the
+    existing one-shot stub worker, but practical provider/runtime parity still
+    needs a meaningful next closure that moves beyond stub smoke evidence. The
+    next Task 96 slice should target a bounded real provider/runtime blocker,
+    such as durable sync progress/error bookkeeping, retry/no-duplicate-claim
+    hardening, or a real generic/local Git fetch/import tick, while keeping docs
+    explicit that broader host discovery, supervised scheduling, frontend
+    controls, durable index status, and full provider parity remain follow-up.
 history:
+  - id: task96b
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime smoke closure instead of
+      splitting the contract wrapper, smoke assertions, worker-progress evidence,
+      acceptance wording, and review into paperwork-only runs. The end-to-end
+      smoke matrix now proves a bounded repository-sync enqueue-to-progress path:
+      an authenticated admin enqueues a visible repository sync job, authenticated
+      history observes it as queued, the real one-shot worker runs after
+      review-agent work is drained with the configured succeeded stub outcome, and
+      authenticated history plus persisted organization state observe the same job
+      as succeeded with start/finish timestamps. The contract wrapper now requires
+      the phase-specific `[repository-sync] worker completed queued sync job`
+      marker rather than a generic token that could be satisfied by the final PASS
+      line. The release claim remains deliberately bounded to one-shot stub
+      progress, not real provider fetch/import execution, retries, daemonized
+      scheduling, frontend controls, durable index status, or full provider/runtime
+      parity.
+    tests:
+      - bash -n scripts/check_end_to_end_smoke_matrix.sh scripts/check_end_to_end_smoke_matrix_contract.sh: passed
+      - git diff --check: passed
+      - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed in background with completion notification; output PASS: end-to-end smoke matrix contract verified
+      - python3 doc/script marker checks for the phase-specific repository-sync marker and bounded acceptance wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the admin enqueue, queued-history, one-shot worker, terminal-history, persisted organization-state assertions, the phase-specific contract marker, and bounded docs, with only a non-blocking note that the queued-list GET assertion checks presence/status rather than null start/finish timestamps
+    commit: 7f286616b0dfcb0bb860a33418a7439ebe5ef668
+    next_task: task96c
   - id: task96a
     status: done
     summary: >-
