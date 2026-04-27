@@ -5,41 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b2994e806faae44328a7ef02f7be53605815e9a2
+  head: a9ada442a90b459151d3e702fef81a4b76646e55
 last_completed_task:
-  id: task96t
-  title: Bounded worker multi-tick runtime loop
+  id: task96u
+  title: Bounded automatic stale-lease replay for repository-sync jobs
   status: done
   summary: >-
-    Closed one meaningful Task 96/98 worker-runtime closure by preserving the
-    default one-tick local worker baseline while adding explicit operator-bound
-    multi-tick execution through `SOURCEBOT_WORKER_MAX_TICKS` and
-    `SOURCEBOT_WORKER_IDLE_SLEEP_MS`. The worker now logs configured bounded
-    runtime controls, repeats the existing priority-ordered tick path up to the
-    configured positive tick count, sleeps only after no-work ticks when an idle
-    sleep is configured, fails closed on invalid or zero bounded-loop
-    configuration before mutating state, and logs bounded runtime completion
-    before exit. README, worker-runtime, operator-runtime, generic-local-git,
-    acceptance index/journeys, parity-gap, and final-audit wording now describe
-    this as a bounded local/operator-controlled repeat-tick baseline while
-    preserving real fetch/import/reindex, automated retry/backoff, production
-    scheduling/supervision, durable worker metadata, and full provider/runtime
-    parity as follow-up work.
+    Closed one meaningful Task 96/98 worker-runtime recovery slice by adding
+    one bounded automatic replay for repository-sync jobs that were failed by
+    stale-running lease recovery. Each repository-sync tick now recovers stale
+    running jobs, then may queue exactly one `_auto_retry_1` replacement only
+    for stale-lease recovery failures whose `finished_at` is at least one lease
+    timeout old, while preserving the original failed terminal job, clearing
+    runtime/result metadata on the replacement, skipping auto-retry source jobs,
+    and suppressing duplicate replacements for the same
+    organization/repository/connection target including queued/running jobs,
+    same-pass retry jobs, and prior terminal auto-retry history. README,
+    worker-runtime, generic-local-git, and parity-gap wording keep the claim
+    bounded: one stale-lease replay, not broad retry/backoff, production
+    scheduling/supervision, real provider fetch/import/reindex, durable
+    background indexing, or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-worker worker_binary_bounded_runtime_processes_multiple_repository_sync_jobs_when_tick_limit_is_configured -- --nocapture: passed (1 matched repository-sync claim smoke test; other targets 0)
-    - cargo test -p sourcebot-worker invalid -- --nocapture: passed (2 matched invalid config smoke tests; zero-tick test intentionally did not match this selector)
-    - cargo test -p sourcebot-worker zero_tick -- --nocapture: passed (1 matched invalid config smoke test)
-    - cargo test -p sourcebot-worker worker_binary_logs_runtime_baseline_and_no_work_path -- --nocapture: passed (1 matched logging smoke test)
-    - cargo test -p sourcebot-worker: passed (23 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-worker stale_lease -- --nocapture: passed (3 matched lib tests; other filtered worker targets 0)
+    - cargo test -p sourcebot-worker terminal_retry_for_same_target -- --nocapture: passed (1 matched lib test; other filtered worker targets 0)
+    - cargo test -p sourcebot-worker: passed (26 lib tests, 5 explicit completed stub smoke tests, 3 invalid config smoke tests, 4 no-work idle smoke tests, 3 repository-sync claim smoke tests, 2 worker runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
     - python3 added-lines security scan over git diff: passed (0 findings)
   review:
-    code: passed independent read-only review; no blocking security, logic, bounded-loop, fail-closed config, priority/no-work, stale-recovery, or bounded-claim issues remained. One non-blocking README logging wording issue was patched before commit; non-Unicode env coverage was noted as optional follow-up because the code handles `VarError::NotUnicode` fail-closed.
-  commit: b2994e806faae44328a7ef02f7be53605815e9a2
-  next_task: task96u
+    code: passed independent read-only review; no blocking stale-lease replay, duplicate-suppression, fail-closed timestamp, reset-field, security, or bounded-claim issues remained. One informational note recorded that `_auto_retry_` remains the bounded naming marker rather than separate metadata.
+  commit: a9ada442a90b459151d3e702fef81a4b76646e55
+  next_task: task96v
 current_task:
-  id: task96u
+  id: task96v
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -57,17 +55,41 @@ current_task:
     paths, requested-repo local snapshot search fallback, requested-repo local
     snapshot index-status fallback, no-revision tree/blob browse fallback,
     no-revision definitions/references code-navigation fallback under the
-    caller-authorized organization/repository boundary, and bounded stale
-    `running` repository-sync lease recovery before each repository-sync claim.
+    caller-authorized organization/repository boundary, bounded stale `running`
+    repository-sync lease recovery before each repository-sync claim, and one
+    bounded automatic stale-lease replay after an additional one-hour backoff.
     Practical provider/runtime parity still needs a next meaningful closure that
     turns local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
-    bookkeeping, automated retry/backoff semantics, duplicate-claim recovery
-    beyond bounded one-shot lease failure, supervised scheduling, provider
-    discovery, or deeper frontend/operator controls while keeping recursive
-    import, durable index status, and full provider/runtime parity explicit
-    follow-up work.
+    bookkeeping, broad automated retry/backoff semantics, duplicate-claim
+    recovery beyond bounded one-shot lease failure plus one stale-lease replay,
+    supervised scheduling, provider discovery, or deeper frontend/operator
+    controls while keeping recursive import, durable index status, and full
+    provider/runtime parity explicit follow-up work.
+
 history:
+  - id: task96u
+    status: done
+    summary: >-
+      Closed one meaningful Task 96/98 worker-runtime recovery slice by adding
+      one bounded automatic replay for repository-sync jobs failed by stale
+      running lease recovery. The worker preserves the failed terminal row,
+      creates at most one `_auto_retry_1` replacement after an additional
+      one-hour backoff, resets runtime/result fields on the replacement, skips
+      auto-retry source jobs, and suppresses duplicate replacements for the
+      same organization/repository/connection target including prior terminal
+      auto-retry history. Docs keep broad retry/backoff, scheduling,
+      supervision, real provider fetch/import/reindex, durable/background
+      indexing, and full provider/runtime parity as follow-up work.
+    tests:
+      - cargo test -p sourcebot-worker stale_lease -- --nocapture: passed
+      - cargo test -p sourcebot-worker terminal_retry_for_same_target -- --nocapture: passed
+      - cargo test -p sourcebot-worker: passed
+      - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking stale-lease replay, duplicate-suppression, reset-field, security, or bounded-claim issues remained
+    commit: a9ada442a90b459151d3e702fef81a4b76646e55
+    next_task: task96v
   - id: task96t
     status: done
     summary: >-
