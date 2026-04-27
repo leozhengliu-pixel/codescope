@@ -15,6 +15,8 @@ const REPOSITORY_SYNC_STUB_FAILURE_ERROR: &str =
     "repository sync stub execution configured to fail";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX: &str =
     "local repository sync preflight failed";
+const LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
+    "local repository sync execution failed";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub use sourcebot_core::claim_next_review_agent_run;
@@ -180,6 +182,16 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
         Ok(Some(output))
             if output.status.success() && git_preflight_stdout_is_true(&output.stdout) =>
         {
+            if let Some(execution_failure) =
+                run_local_repository_sync_execution(git_command, repo_path, preflight_timeout)
+            {
+                return Some(fail_local_repository_sync_job(
+                    job,
+                    finished_at,
+                    execution_failure,
+                ));
+            }
+
             Some(complete_repository_sync_job(
                 job,
                 RepositorySyncJobStatus::Succeeded,
@@ -215,15 +227,86 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
     }
 }
 
+fn run_local_repository_sync_execution(
+    git_command: &OsStr,
+    repo_path: &str,
+    timeout: Duration,
+) -> Option<String> {
+    let head = match run_git_command(git_command, repo_path, &["rev-parse", "HEAD"], timeout) {
+        Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        }
+        Ok(Some(output)) => return Some(git_failure_detail("git rev-parse HEAD", &output)),
+        Ok(None) => {
+            return Some(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git rev-parse HEAD timed out after {}ms",
+                timeout.as_millis()
+            ))
+        }
+        Err(error) => return Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+    };
+
+    match run_git_command(
+        git_command,
+        repo_path,
+        &["symbolic-ref", "--short", "HEAD"],
+        timeout,
+    ) {
+        Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            tracing::info!(
+                repo_path = %repo_path,
+                head = %head,
+                current_branch = %branch,
+                "completed bounded local repository sync Git metadata execution"
+            );
+            None
+        }
+        Ok(Some(output)) => Some(git_failure_detail("git symbolic-ref --short HEAD", &output)),
+        Ok(None) => Some(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git symbolic-ref --short HEAD timed out after {}ms",
+            timeout.as_millis()
+        )),
+        Err(error) => Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+    }
+}
+
+fn git_failure_detail(command: &str, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let detail = if !stderr.is_empty() {
+        stderr
+    } else if !stdout.is_empty() {
+        stdout
+    } else {
+        format!("{command} exited with status {}", output.status)
+    };
+    format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
+}
+
 fn run_git_working_tree_preflight(
     git_command: &OsStr,
     repo_path: &str,
     timeout: Duration,
 ) -> std::io::Result<Option<Output>> {
+    run_git_command(
+        git_command,
+        repo_path,
+        &["rev-parse", "--is-inside-work-tree"],
+        timeout,
+    )
+}
+
+fn run_git_command(
+    git_command: &OsStr,
+    repo_path: &str,
+    args: &[&str],
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
     let mut child = Command::new(git_command)
         .arg("-C")
         .arg(repo_path)
-        .args(["rev-parse", "--is-inside-work-tree"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -254,13 +337,16 @@ fn fail_local_repository_sync_job(
     finished_at: &str,
     detail: String,
 ) -> RepositorySyncJob {
+    let error = if detail.starts_with(LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX) {
+        detail
+    } else {
+        format!("{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}")
+    };
     complete_repository_sync_job(
         job,
         RepositorySyncJobStatus::Failed,
         finished_at,
-        Some(format!(
-            "{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}"
-        )),
+        Some(error),
     )
 }
 
@@ -1229,6 +1315,57 @@ mod tests {
                 .contains("local repository sync preflight failed: git preflight timed out"),
             "timed out preflight should surface an operator-visible bounded failure: {failed_job:?}"
         );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_empty_local_git_repository_path() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-empty-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_empty",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued empty local repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_local_empty");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("local repository sync execution failed"),
+            "empty local repo should fail the real Git execution step after preflight: {failed_job:?}"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
 
         fs::remove_dir_all(repo_path).unwrap();
     }
