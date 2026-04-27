@@ -142,6 +142,23 @@ pub fn store_repository_sync_job_if_missing_for_repository(
     }
 }
 
+pub fn repository_sync_target_has_active_job(
+    state: &OrganizationState,
+    organization_id: &str,
+    repository_id: &str,
+    connection_id: &str,
+) -> bool {
+    state.repository_sync_jobs.iter().any(|existing| {
+        existing.organization_id == organization_id
+            && existing.repository_id == repository_id
+            && existing.connection_id == connection_id
+            && matches!(
+                existing.status,
+                RepositorySyncJobStatus::Queued | RepositorySyncJobStatus::Running
+            )
+    })
+}
+
 pub fn claim_next_repository_sync_job(
     state: &mut OrganizationState,
     started_at: &str,
@@ -1191,6 +1208,102 @@ mod tests {
         async fn grep(&self, _repo_id: &str, _query: &str) -> Result<Option<RepositoryGrep>> {
             Ok(self.grep.clone())
         }
+    }
+
+    fn repository_sync_job(
+        id: &str,
+        organization_id: &str,
+        repository_id: &str,
+        connection_id: &str,
+        status: RepositorySyncJobStatus,
+    ) -> RepositorySyncJob {
+        RepositorySyncJob {
+            id: id.into(),
+            organization_id: organization_id.into(),
+            repository_id: repository_id.into(),
+            connection_id: connection_id.into(),
+            status,
+            queued_at: "2026-04-26T10:01:00Z".into(),
+            started_at: None,
+            finished_at: None,
+            error: None,
+            synced_revision: None,
+            synced_branch: None,
+            synced_content_file_count: None,
+        }
+    }
+
+    #[test]
+    fn repository_sync_active_target_helper_matches_only_queued_or_running_same_target() {
+        let state = OrganizationState {
+            repository_sync_jobs: vec![
+                repository_sync_job(
+                    "queued_same",
+                    "org_acme",
+                    "repo_visible",
+                    "conn_local_acme",
+                    RepositorySyncJobStatus::Queued,
+                ),
+                repository_sync_job(
+                    "running_other_repo",
+                    "org_acme",
+                    "repo_other",
+                    "conn_local_acme",
+                    RepositorySyncJobStatus::Running,
+                ),
+                repository_sync_job(
+                    "failed_same",
+                    "org_acme",
+                    "repo_visible",
+                    "conn_local_acme",
+                    RepositorySyncJobStatus::Failed,
+                ),
+            ],
+            ..OrganizationState::default()
+        };
+
+        assert!(repository_sync_target_has_active_job(
+            &state,
+            "org_acme",
+            "repo_visible",
+            "conn_local_acme"
+        ));
+        assert!(!repository_sync_target_has_active_job(
+            &state,
+            "org_other",
+            "repo_visible",
+            "conn_local_acme"
+        ));
+        assert!(!repository_sync_target_has_active_job(
+            &state,
+            "org_acme",
+            "repo_visible",
+            "conn_other"
+        ));
+        assert!(!repository_sync_target_has_active_job(
+            &OrganizationState {
+                repository_sync_jobs: vec![
+                    repository_sync_job(
+                        "failed_same",
+                        "org_acme",
+                        "repo_visible",
+                        "conn_local_acme",
+                        RepositorySyncJobStatus::Failed,
+                    ),
+                    repository_sync_job(
+                        "succeeded_same",
+                        "org_acme",
+                        "repo_visible",
+                        "conn_local_acme",
+                        RepositorySyncJobStatus::Succeeded,
+                    ),
+                ],
+                ..OrganizationState::default()
+            },
+            "org_acme",
+            "repo_visible",
+            "conn_local_acme"
+        ));
     }
 
     #[test]
