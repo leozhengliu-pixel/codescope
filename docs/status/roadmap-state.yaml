@@ -5,54 +5,99 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: eb6b26b29a25bb4d01fdcb5a6a3c2a5526e88701
+  head: 3523484dc733ffd410172ea519dd1400f7e81ea0
 last_completed_task:
-  id: task94g
-  title: Last-admin and self-removal policy hardening
+  id: task94h
+  title: Durable PostgreSQL auth audit events for local member lifecycle
   status: done
   summary: >-
-    Closed one meaningful Task 94g auth/admin lifecycle hardening slice instead
-    of splitting PostgreSQL locking fixes, file-backed route policy gates,
-    focused SQL-backed/file-backed regressions, acceptance wording, parity-report
-    updates, and independent review into smaller paperwork-only runs.
-    Authenticated admin-visible member removal and role-update paths now reject
-    self-removal plus last-admin removal/demotion without mutation; the
-    PostgreSQL auth-metadata store enforces the same invariant inside the
-    update/delete transaction by locking concrete admin membership rows instead
-    of using invalid aggregate `COUNT(*) ... FOR UPDATE`; and docs keep the
-    claim bounded to fail-closed policy gates rather than broad role lifecycle
-    or full org/member CRUD parity.
+    Closed one meaningful Task 94h auth/admin durability slice instead of
+    splitting migration inventory, transaction-bound audit writes, legacy
+    compatibility audit visibility, focused SQLx verification, acceptance
+    wording, parity-report updates, and independent review into smaller
+    paperwork-only runs. Local member invite create/cancel, member-role update,
+    and member-removal mutations now write durable PostgreSQL audit-event rows
+    in the same transaction as the auth metadata mutation when DATABASE_URL is
+    configured. The audit-events API reads PostgreSQL rows scoped to the
+    caller's visible organizations while best-effort merging visible file-backed
+    compatibility rows for older API-key/OAuth audit events, so durable member
+    lifecycle audit visibility no longer depends on a readable fallback
+    aggregate. Docs keep the claim bounded: filtering/export, broad audit
+    analytics, external-provider identity audit events, retention/export policy,
+    broader org/member CRUD, and full audit parity remain follow-up work.
   tests:
-    - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_removal_without_mutation -- --nocapture --test-threads=1: RED initially failed because PostgreSQL remove_member returned Some and allowed last-admin removal; after the fix, passed in lib and bin targets (1 passed each; 62/371 filtered)
-    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_demotion_without_mutation -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 62/371 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (2 passed; 370 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (3 passed; 369 filtered)
+    - repo-local PostgreSQL preflight: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove_keeps_postgres_mutation_and_audit_when_compatibility_audit_read_fails -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
     - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (11 passed; 361 filtered)
+    - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_and_auth_audit_events -- --nocapture: passed in lib and bin targets (1 passed each)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_routes_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+    - make sqlx-test: passed after the PostgreSQL preflight, including older API-key/OAuth audit-visibility SQLx selectors (5 passed; 367 filtered) and invite_redeem_ (8 passed; 364 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+    - bash scripts/check_sqlx_test_workflow.sh .: passed
     - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved file-backed self-removal and last-admin removal/demotion gates before membership mutation/audit writes, PostgreSQL transaction-bound last-admin checks using row-level locks instead of invalid aggregate FOR UPDATE, no-mutation behavior, and bounded docs, with only non-blocking future suggestions about deterministic lock ordering and split-backend audit atomicity under races
-  commit: eb6b26b29a25bb4d01fdcb5a6a3c2a5526e88701
-  next_task: task94h
+    code: passed independent read-only re-review after fixing reviewer-found split-backend blockers; reviewer approved transaction-bound PostgreSQL audit inserts for invite create/cancel, role update, and member removal; best-effort compatibility audit writes with no PostgreSQL rollback/restore; visible-organization scoping for PostgreSQL audit reads; and merged visible file-backed compatibility rows for older audit events
+  commit: 3523484dc733ffd410172ea519dd1400f7e81ea0
+  next_task: task95
 current_task:
-  id: task94h
+  id: task95
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity beyond last-admin policy gates
+  title: External-provider sign-in and linked-account parity
   status: pending
   summary: >-
-    Task 94g closes bounded self-removal and last-admin removal/demotion policy
-    hardening for the current member lifecycle baseline, but Task 94 remains
-    partial. The next meaningful closure should continue Phase C with another
-    admin-visible auth lifecycle blocker that can close with implementation,
-    focused verification, truthful docs, and independent review, such as durable
-    audit-event storage for auth/admin mutations, invite resend/email-delivery
-    plumbing, broader org/member CRUD, durable permission-sync behavior, or a
-    pivot to Task 95 external-provider sign-in if that is the higher-value
-    unblocked release blocker. Do not claim full org/member lifecycle parity yet.
+    Task 94h closes the highest-value remaining local auth/admin durability gap
+    by making member lifecycle audit events durable in PostgreSQL while
+    preserving visible compatibility audit rows. The next meaningful closure
+    should move Phase C to Task 95 external-provider identity work instead of
+    continuing to micro-slice the same members panel: implement a bounded OIDC
+    sign-in/callback or linked-account slice that can close with backend route
+    behavior, focused verification, truthful settings/auth acceptance wording,
+    independent review, commit, state update, and push. Keep remaining Task 94
+    gaps explicit: email delivery/resend, broader org/member CRUD, richer audit
+    filtering/export, retention/export policy, and full role/org lifecycle parity
+    are still not claimed.
 history:
+  - id: task94h
+    status: done
+    summary: >-
+      Closed one meaningful Task 94h auth/admin durability slice instead of
+      splitting migration inventory, transaction-bound audit writes, legacy
+      compatibility audit visibility, focused SQLx verification, acceptance
+      wording, parity-report updates, and independent review into smaller
+      paperwork-only runs. Local member invite create/cancel, member-role update,
+      and member-removal mutations now write durable PostgreSQL audit-event rows
+      in the same transaction as the auth metadata mutation when DATABASE_URL is
+      configured. The audit-events API reads PostgreSQL rows scoped to the
+      caller's visible organizations while best-effort merging visible file-backed
+      compatibility rows for older API-key/OAuth audit events, so durable member
+      lifecycle audit visibility no longer depends on a readable fallback
+      aggregate. Docs keep the claim bounded: filtering/export, broad audit
+      analytics, external-provider identity audit events, retention/export policy,
+      broader org/member CRUD, and full audit parity remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_returns_postgres_backed_member_and_invite_rosters_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove_keeps_postgres_mutation_and_audit_when_compatibility_audit_read_fails -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (11 passed; 361 filtered)
+      - cargo test -p sourcebot-api storage::tests::catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_and_auth_audit_events -- --nocapture: passed in lib and bin targets (1 passed each)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_api_key_routes_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured -- --nocapture --test-threads=1: passed (1 passed; 371 filtered)
+      - make sqlx-test: passed after the PostgreSQL preflight, including older API-key/OAuth audit-visibility SQLx selectors (5 passed; 367 filtered) and invite_redeem_ (8 passed; 364 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
+      - bash scripts/check_sqlx_test_workflow.sh .: passed
+      - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only re-review after fixing reviewer-found split-backend blockers; reviewer approved transaction-bound PostgreSQL audit inserts for invite create/cancel, role update, and member removal; best-effort compatibility audit writes with no PostgreSQL rollback/restore; visible-organization scoping for PostgreSQL audit reads; and merged visible file-backed compatibility rows for older audit events
+    commit: 3523484dc733ffd410172ea519dd1400f7e81ea0
+    next_task: task95
   - id: task94g
     status: done
     summary: >-
