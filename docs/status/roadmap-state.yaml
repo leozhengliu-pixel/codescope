@@ -5,54 +5,87 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1a3d87f6840d2a5a6cc89ca8f5ca15f2d156bc16
+  head: e3706e38c28f876dd3b10c973659e200f79c43fa
 last_completed_task:
-  id: task96i
-  title: Repository-sync real content import handoff baseline
+  id: task96j
+  title: Authenticated local import worker handoff baseline
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime catalog handoff slice by
-    moving the PostgreSQL catalog path beyond read-only list/detail queries for
-    one explicitly requested local Git working tree. PgCatalogStore now validates
-    and canonicalizes the requested worktree with the same local import helpers,
-    derives the current branch with `git symbolic-ref --short HEAD`,
-    transactionally upserts the local connection plus repository row, and returns
-    the imported repository through normal list/detail catalog surfaces. The
-    authenticated local import route keeps unsupported catalog backends
-    fail-closed with a deterministic fake-store regression. The release claim
-    remains narrow: explicit local import handoff only, not recursive/provider
-    discovery, real fetch/import/reindex execution, connection-management
-    durability, durable index status, or full provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime handoff slice by moving the
+    authenticated local-repository import route beyond catalog-only persistence.
+    Local imports now persist canonical-path-backed PostgreSQL catalog identity,
+    preserve same-basename/idempotent imports, bind the imported repository to an
+    admin-visible organization, and enqueue exactly one repository-sync job through
+    the organization store boundary. File-backed and PostgreSQL organization
+    stores upsert the permission binding and idempotent sync job together; the
+    PostgreSQL paths use transaction-scoped advisory locks for catalog import and
+    handoff duplicate prevention. The release claim remains bounded to explicit
+    local import-to-worker handoff and queued status, not real provider fetch,
+    import/reindex execution, retry/backoff, supervision, durable index progress,
+    frontend management controls beyond the existing minimal local import form, or
+    full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository_into_postgres_catalog -- --nocapture: passed (storage import regression passed in both lib and main harnesses)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (5 auth local import route tests)
-    - make sqlx-test: passed after repo-local PostgreSQL preflight (storage::tests 7 passed; pg_catalog_store_ 4 passed; plus existing bootstrap/local-account/member/repo-permission/repository-sync/review-agent/delivery/ask-thread/API-key/OAuth-client SQLx selectors)
+    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (6 focused route tests in make sqlx-test; broader local_repository selector later passed 7 tests including route + catalog coverage)
+    - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository -- --nocapture: passed after catalog-wide local-import advisory-lock fix (lib and main harnesses)
+    - cargo test -p sourcebot-api pg_organization_store_persists_repository_permission_binding_and_sync_job_together -- --nocapture: passed (lib and main harnesses)
+    - cargo test -p sourcebot-api local_repository -- --nocapture: passed (1 lib + 7 main tests)
+    - make sqlx-test: passed after repo-local PostgreSQL preflight (migration reset applied 0014_local_repository_paths; storage::tests 8 passed; pg_catalog_store_ 5 passed; auth_local_repository_import 6 passed; plus existing durable metadata/auth/repository-sync selectors)
     - cargo fmt --check: passed
-    - bash scripts/check_metadata_bootstrap_docs.sh README.md: passed
-    - bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_metadata_bootstrap_docs.sh README.md; bash scripts/check_sqlx_test_workflow.sh /opt/data/projects/sourcebot-rewrite; bash scripts/check_local_metadata_env_contract.sh; bash scripts/check_local_metadata_dev_bootstrap_contract.sh: passed
     - git diff --check: passed
-    - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    - python3 added-lines security scan over git diff --cached --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the bounded PostgreSQL local-import handoff, fail-closed auth/path validation, bind-parameter SQL and transaction shape, unsupported-backend fake-store decoupling, and docs that keep recursive/provider discovery, real fetch/import/reindex execution, and full durable provider/runtime parity deferred
-  commit: 1a3d87f6840d2a5a6cc89ca8f5ca15f2d156bc16
-  next_task: task96j
+    code: passed independent read-only review after two reviewer-forced concurrency fixes; final reviewer approved authz, idempotency, catalog-wide local-import advisory-lock serialization, permission-binding/sync-job handoff locking, migrations, and bounded docs, with only a non-blocking suggestion for a future explicit concurrent import regression
+  commit: e3706e38c28f876dd3b10c973659e200f79c43fa
+  next_task: task96k
 current_task:
-  id: task96j
+  id: task96k
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import execution baseline
   status: pending
   summary: >-
     Task 96 now has authenticated manual enqueue/retry, smoke-proven one-shot
     progress, terminal worker log context, timeout-bounded local-Git preflight,
-    revision/current-branch and tracked-content discovery, and a PostgreSQL
-    catalog handoff for one explicitly requested local import. Practical
-    provider/runtime parity still needs a next meaningful closure that moves
-    beyond catalog handoff/content discovery into a real bounded fetch/import or
-    reindex execution path with durable progress/error bookkeeping, retry/backoff
-    semantics, duplicate-claim recovery, supervised scheduling, or provider
-    discovery while keeping frontend controls, durable index status, recursive
-    import, and full provider/runtime parity explicit follow-up work.
+    revision/current-branch and tracked-content discovery, PostgreSQL catalog
+    persistence for one explicitly requested local import, and authenticated local
+    import-to-worker handoff with durable repository visibility plus one queued
+    sync job. Practical provider/runtime parity still needs a next meaningful
+    closure that moves the queued local/provider job beyond handoff/status into a
+    real bounded fetch/import or reindex execution path with durable
+    progress/error bookkeeping, retry/backoff semantics, duplicate-claim recovery,
+    supervised scheduling, provider discovery, or frontend/operator controls
+    while keeping recursive import, durable index status, and full
+    provider/runtime parity explicit follow-up work.
 history:
+  - id: task96j
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime handoff slice by moving the
+      authenticated local-repository import route beyond catalog-only persistence:
+      canonical-path-backed PostgreSQL catalog identity, same-basename/idempotent
+      imports, admin-visible organization binding, and exactly one queued
+      repository-sync job now move together through the organization-store
+      boundary. PostgreSQL catalog import and handoff paths use transaction-scoped
+      advisory locks to avoid duplicate/racy imports or sync jobs. The claim
+      remains explicit local import-to-worker handoff only: no real provider
+      fetch/import/reindex execution, automated retry/backoff, supervision,
+      durable index progress, or full provider/runtime parity is claimed.
+    tests:
+      - repo-local PostgreSQL preflight as hermes proved both DATABASE_URL and TEST_DATABASE_URL
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_local_repository_import -- --nocapture --test-threads=1: passed (6 focused route tests in make sqlx-test)
+      - cargo test -p sourcebot-api pg_catalog_store_imports_local_repository -- --nocapture: passed
+      - cargo test -p sourcebot-api pg_organization_store_persists_repository_permission_binding_and_sync_job_together -- --nocapture: passed
+      - cargo test -p sourcebot-api local_repository -- --nocapture: passed (1 lib + 7 main tests)
+      - make sqlx-test: passed after repo-local PostgreSQL preflight (migration reset through 0014_local_repository_paths plus storage/catalog/auth/repository-sync selectors)
+      - cargo fmt --check: passed
+      - metadata/bootstrap/sqlx/local-metadata contract scripts: passed
+      - git diff --check: passed
+      - python3 added-lines security scan over git diff --cached --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review after reviewer-forced catalog/handoff concurrency fixes; no blocking security or logic issues remained
+    commit: e3706e38c28f876dd3b10c973659e200f79c43fa
+    next_task: task96k
   - id: task96i
     status: done
     summary: >-
