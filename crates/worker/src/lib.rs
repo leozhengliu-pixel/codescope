@@ -20,6 +20,9 @@ const LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX: &str =
 const LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
     "local repository sync execution failed";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
+const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
+const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
+    "repository sync job exceeded worker lease and was marked failed before the next claim";
 
 pub use sourcebot_core::claim_next_review_agent_run;
 
@@ -73,6 +76,8 @@ pub async fn run_repository_sync_claim_tick(
     store: &dyn OrganizationStore,
     stub_outcome: StubRepositorySyncJobExecutionOutcome,
 ) -> Result<Option<RepositorySyncJob>> {
+    let now = current_timestamp();
+    recover_stale_running_repository_sync_jobs(store, &now).await?;
     let started_at = current_timestamp();
     let execute = match stub_outcome {
         StubRepositorySyncJobExecutionOutcome::Succeeded => {
@@ -486,6 +491,50 @@ fn write_local_repository_sync_manifest(
     }
 
     Ok(())
+}
+
+async fn recover_stale_running_repository_sync_jobs(
+    store: &dyn OrganizationStore,
+    now: &str,
+) -> Result<()> {
+    let mut state = store.organization_state().await?;
+    if fail_stale_running_repository_sync_jobs(&mut state, now) {
+        store.store_organization_state(state).await?;
+    }
+    Ok(())
+}
+
+fn fail_stale_running_repository_sync_jobs(state: &mut OrganizationState, now: &str) -> bool {
+    let Ok(now) = OffsetDateTime::parse(now, &Rfc3339) else {
+        return false;
+    };
+    let mut changed = false;
+    for job in &mut state.repository_sync_jobs {
+        if job.status != RepositorySyncJobStatus::Running {
+            continue;
+        }
+        let Some(started_at) = job.started_at.as_deref() else {
+            continue;
+        };
+        let Ok(started_at) = OffsetDateTime::parse(started_at, &Rfc3339) else {
+            continue;
+        };
+        let age = now - started_at;
+        if age < REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT {
+            continue;
+        }
+
+        let finished_at = now
+            .format(&Rfc3339)
+            .expect("current UTC timestamp should format as RFC3339");
+        job.status = RepositorySyncJobStatus::Failed;
+        job.finished_at = Some(finished_at.clone());
+        job.error = Some(format!(
+            "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX} at {finished_at}"
+        ));
+        changed = true;
+    }
+    changed
 }
 
 fn local_repository_sync_manifest_path(repo_path: &str, job: &RepositorySyncJob) -> PathBuf {
@@ -1340,6 +1389,86 @@ mod tests {
             RepositorySyncJobStatus::Queued
         );
         assert_eq!(persisted.repository_sync_jobs[1], claimed_job);
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_recovers_stale_running_jobs_before_claiming_next() {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            repository_sync_jobs: vec![
+                {
+                    let mut job = repository_sync_job(
+                        "sync_job_stale_running",
+                        RepositorySyncJobStatus::Running,
+                        "2026-04-26T09:00:00Z",
+                    );
+                    job.started_at = Some("2026-04-26T09:05:00Z".into());
+                    job
+                },
+                {
+                    let mut job = repository_sync_job(
+                        "sync_job_fresh_running",
+                        RepositorySyncJobStatus::Running,
+                        "2099-04-26T09:00:00Z",
+                    );
+                    job.started_at = Some("2099-04-26T09:05:00Z".into());
+                    job
+                },
+                repository_sync_job(
+                    "sync_job_queued",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:01:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued repository sync job to be completed after stale recovery");
+
+        assert_eq!(completed_job.id, "sync_job_queued");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+
+        let persisted = store.organization_state().await.unwrap();
+        let stale_job = persisted
+            .repository_sync_jobs
+            .iter()
+            .find(|job| job.id == "sync_job_stale_running")
+            .expect("stale running job should remain in history");
+        assert_eq!(stale_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            stale_job.finished_at.as_deref(),
+            Some(
+                stale_job
+                    .error
+                    .as_deref()
+                    .unwrap()
+                    .split(" at ")
+                    .last()
+                    .unwrap_or_default()
+            )
+        );
+        assert!(
+            stale_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("repository sync job exceeded worker lease and was marked failed before the next claim"),
+            "stale job should carry operator-visible recovery detail: {stale_job:?}"
+        );
+
+        let fresh_job = persisted
+            .repository_sync_jobs
+            .iter()
+            .find(|job| job.id == "sync_job_fresh_running")
+            .expect("fresh running job should remain in history");
+        assert_eq!(fresh_job.status, RepositorySyncJobStatus::Running);
+        assert_eq!(fresh_job.finished_at, None);
+        assert_eq!(fresh_job.error, None);
     }
 
     #[tokio::test]
