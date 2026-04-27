@@ -5,51 +5,85 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b8b8e67348747eb1a31dfe889df3016827e9d6e7
+  head: 5bd9df285342704f13e1616cfdd324ffa6029b34
 last_completed_task:
-  id: task96f
-  title: Timeout-bounded local-Git repository-sync preflight
+  id: task96g
+  title: Bounded local-Git repository-sync metadata execution
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime hardening slice by bounding
-    the worker-side local-Git preflight instead of splitting implementation,
-    regression coverage, acceptance wording, parity-audit synchronization, and
-    review into paperwork-only runs. Repository-sync jobs tied to configured
-    `local` connections still run `git -C <repo_path> rev-parse
-    --is-inside-work-tree` before terminal completion, but a hung Git preflight
-    is now killed and fails closed with an operator-visible `local repository
-    sync preflight failed: git preflight timed out` error rather than wedging the
-    one-shot worker path. Missing, invalid, bare, valid, and now hung local-Git
-    preflight outcomes remain bounded status evidence only; this does not claim
-    real fetch/import/reindex execution, retries/backoff, supervision, durable
-    index progress, or full provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime execution slice by moving the
+    local repository-sync worker baseline beyond working-tree preflight and into
+    bounded real Git metadata probes. Jobs tied to configured `local`
+    connections still fail closed for missing, invalid, bare, or hung working
+    trees through the existing `local repository sync preflight failed` path, and
+    now also run `git -C <repo_path> rev-parse HEAD` plus `git -C <repo_path>
+    symbolic-ref --short HEAD` before success. Empty or detached local
+    repositories fail closed with `local repository sync execution failed`, while
+    a real local Git repository with readable current revision/current branch
+    metadata can still complete successfully even when the old stub failure
+    outcome is configured. The closure synchronizes README, worker-runtime,
+    generic/local Git, parity-gap, and final-audit wording so the claim remains
+    metadata/status only: no real fetch/import/reindex, automated retry/backoff,
+    supervision, durable index progress, or full provider/runtime parity is
+    claimed.
   tests:
-    - cargo test -p sourcebot-worker local_repository_sync_preflight_times_out_and_fails_closed -- --nocapture: passed (1 passed; 18 filtered in worker lib, remaining targets 0-test)
-    - cargo test -p sourcebot-worker: passed (19 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 no-work smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+    - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_empty_local_git_repository_path -- --nocapture: passed (1 passed; 19 filtered in worker lib, remaining targets 0-test)
+    - cargo test -p sourcebot-worker local_git_repository_path -- --nocapture: passed (3 worker lib tests: bare, empty, and real local repository; remaining targets 0-test)
+    - cargo test -p sourcebot-worker: passed (20 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit timeout wording: passed
+    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit current-branch metadata wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the timeout-bounded local-Git preflight implementation, child kill/wait cleanup, preserved success/false/stderr semantics, fail-closed terminal status/error behavior, deterministic hung-preflight regression, and synchronized docs/audit wording that keeps real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
-  commit: b8b8e67348747eb1a31dfe889df3016827e9d6e7
-  next_task: task96g
+    code: passed independent read-only review; reviewer approved the bounded `rev-parse HEAD` and `symbolic-ref --short HEAD` metadata probes after local working-tree preflight, preserved preflight-vs-execution failure prefixes, empty/detached fail-closed behavior, existing bare/real local coverage, current-branch wording correction, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
+  commit: 5bd9df285342704f13e1616cfdd324ffa6029b34
+  next_task: task96h
 current_task:
-  id: task96g
+  id: task96h
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Real repository-sync execution baseline beyond local preflight
+  title: Real repository-sync content execution baseline
   status: pending
   summary: >-
     Task 96 now covers authenticated manual enqueue/retry, smoke-proven one-shot
-    progress, terminal worker log context, local-Git working-tree validation, and
-    timeout-bounded local-Git preflight failure handling. Practical provider and
-    runtime parity still needs a next meaningful closure that moves beyond
-    preflight/status handling toward real fetch/import/reindex execution,
-    durable progress/error bookkeeping, worker-side retry/backoff semantics,
-    duplicate-claim recovery, or supervised scheduling while keeping broad
-    host-provider discovery, frontend controls, durable index status, and full
-    provider/runtime parity explicit follow-up work.
+    progress, terminal worker log context, local-Git working-tree validation,
+    timeout-bounded preflight failure handling, and bounded current
+    revision/current-branch metadata probes. Practical provider/runtime parity
+    still needs a next meaningful closure that moves from metadata/status probes
+    toward real fetch/import/reindex execution, durable progress/error
+    bookkeeping, worker-side retry/backoff semantics, duplicate-claim recovery,
+    or supervised scheduling while keeping broad host-provider discovery,
+    frontend controls, durable index status, and full provider/runtime parity
+    explicit follow-up work.
 history:
+  - id: task96g
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime execution slice by moving
+      the local repository-sync worker baseline beyond working-tree preflight and
+      into bounded real Git metadata probes. Jobs tied to configured `local`
+      connections still fail closed for missing, invalid, bare, or hung working
+      trees through the existing `local repository sync preflight failed` path,
+      and now also run `git -C <repo_path> rev-parse HEAD` plus `git -C
+      <repo_path> symbolic-ref --short HEAD` before success. Empty or detached
+      local repositories fail closed with `local repository sync execution
+      failed`, while a real local Git repository with readable current
+      revision/current branch metadata can still complete successfully even when
+      the old stub failure outcome is configured. The claim remains
+      metadata/status only: no real fetch/import/reindex, automated
+      retry/backoff, supervision, durable index progress, or full
+      provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_closed_for_empty_local_git_repository_path -- --nocapture: passed (1 passed; 19 filtered in worker lib, remaining targets 0-test)
+      - cargo test -p sourcebot-worker local_git_repository_path -- --nocapture: passed (3 worker lib tests: bare, empty, and real local repository; remaining targets 0-test)
+      - cargo test -p sourcebot-worker: passed (20 worker lib tests, 5 explicit completed smoke tests, 1 invalid outcome smoke, 4 idle smoke tests, 2 repository-sync claim smoke tests, 2 worker-runtime logging smoke tests, and 0 doctests)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit current-branch metadata wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the bounded `rev-parse HEAD` and `symbolic-ref --short HEAD` metadata probes after local working-tree preflight, preserved preflight-vs-execution failure prefixes, empty/detached fail-closed behavior, existing bare/real local coverage, current-branch wording correction, and docs that keep real fetch/import/reindex, retries/backoff, supervision, durable progress, and full provider/runtime parity deferred
+    commit: 5bd9df285342704f13e1616cfdd324ffa6029b34
+    next_task: task96h
   - id: task96f
     status: done
     summary: >-
