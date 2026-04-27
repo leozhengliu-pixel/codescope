@@ -5,59 +5,96 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 91ec3ab0f41878b2249c11e19d288db3bb435b17
+  head: 483bb8944c98d70693e24570a792a3a549096d6f
 last_completed_task:
-  id: task94d
-  title: Pending member invite cancellation baseline
+  id: task94e
+  title: Bounded member role update baseline
   status: done
   summary: >-
-    Closed one meaningful Task 94d auth/admin lifecycle slice instead of
-    splitting backend pending-invite cancellation, PostgreSQL conditional-delete
-    hardening, settings UI controls, acceptance wording, parity-report updates,
-    focused SQL-backed/file-backed route coverage, and independent review into
-    smaller paperwork-only runs. Authenticated local-session admins can now
-    cancel pending invites for administered organizations through `DELETE
-    /api/v1/auth/members/invites/{invite_id}`; accepted, hidden, missing, and
-    unauthorized invites fail closed without deletion; PostgreSQL-backed
-    cancellation uses a conditional pending-only delete and preserves shipped
-    file-backed `auth.member_invite.cancelled` audit visibility; and the
-    `#/settings/members` panel exposes cancel controls only for pending invite
-    rows. Docs keep the claim bounded: email delivery, resend workflow, role
-    editing, member removal, durable audit-event storage, broader org/member
-    CRUD, and full lifecycle parity remain follow-up work.
+    Closed one meaningful Task 94e auth/admin lifecycle slice instead of
+    splitting the backend role-update route, PostgreSQL mutation path, shipped
+    file-backed audit visibility, settings UI controls, acceptance wording,
+    parity-report updates, focused SQL-backed/file-backed route coverage, and
+    independent review into smaller paperwork-only runs. Authenticated
+    local-session admins can now update visible organization member roles
+    through `PATCH /api/v1/auth/members/{user_id}/role`; invalid roles,
+    hidden organizations, hidden member targets, and non-admin callers fail
+    closed without mutation; PostgreSQL-backed role updates persist to
+    `organization_memberships` while preserving shipped file-backed
+    `auth.member_role.updated` audit visibility; and the `#/settings/members`
+    panel exposes bounded role selects only from the loaded admin-visible
+    roster while disabling conflicting invite/member mutations. Docs keep the
+    claim bounded: email delivery, resend workflow, member removal, durable
+    audit-event storage, broader org/member CRUD, last-admin/self-demotion
+    policy, and full role lifecycle parity remain follow-up work.
   tests:
     - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_invite_cancel -- --nocapture --test-threads=1: passed (1 passed; 363 filtered)
-    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_deletes_only_pending_invites -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 59/363 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (6 passed; 358 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (1 passed; 364 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (7 passed; 358 filtered), including the PostgreSQL-backed member/invite roster route test now covering durable role update, hidden-org rejection, unchanged hidden role, and audit visibility
     - cargo fmt --check: passed
     - git diff --check: passed
-    - npm test -- --run src/App.test.tsx -t "cancels a pending member invite": passed (1 passed; 171 skipped)
-    - npm test -- --run src/App.test.tsx -t "members": passed (5 passed; 167 skipped)
-    - npm test -- --run src/App.test.tsx: passed (172 passed)
-    - npm run build: passed after correcting stale root-owned web/dist asset ownership
-    - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+    - npm test -- --run src/App.test.tsx -t "updates a member role": passed (1 passed; 172 skipped)
+    - npm test -- --run src/App.test.tsx -t "members": passed (6 passed; 167 skipped)
+    - npm test -- --run src/App.test.tsx: passed (173 passed)
+    - npm run build: passed
+    - python3 raw-content doc/UI truth checks for auth acceptance, settings acceptance, parity-gap report, final audit wording, and settings copy: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only re-review after fixing reviewer-found blockers; reviewer approved the pending-only PostgreSQL conditional delete, route-level auth/admin visibility gates, file-backed audit visibility ordering with best-effort audit rollback on durable delete failure, pending-only settings UI controls, parameterized SQL, and bounded docs with no remaining blocking issues
-  commit: 91ec3ab0f41878b2249c11e19d288db3bb435b17
-  next_task: task94e
+    code: passed independent read-only review; reviewer approved admin-visible scope gates, hidden target rejection, parameterized PostgreSQL update, shipped file-backed audit visibility, bounded settings UI controls, and bounded docs with no blocking security or logic issues
+  commit: 483bb8944c98d70693e24570a792a3a549096d6f
+  next_task: task94f
 current_task:
-  id: task94e
+  id: task94f
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity beyond invite cancellation
+  title: Continue auth/admin lifecycle parity beyond role updates
   status: pending
   summary: >-
-    Task 94d adds bounded pending-invite cancellation on top of the durable
-    invite-create baseline, but Task 94 remains partial. The next meaningful
-    closure should continue Phase C with another admin-visible auth lifecycle
-    blocker that can close with implementation, focused verification, truthful
-    docs, and independent review, such as invite resend/email-delivery plumbing,
-    member role editing/removal, durable audit-event storage for auth/admin
-    mutations, richer org/member CRUD, durable permission-sync behavior, or a
-    pivot to Task 95 external-provider sign-in if that is the higher-value
-    unblocked release blocker. Do not claim full org/member lifecycle parity yet.
+    Task 94e adds bounded member-role updates on top of the durable
+    invite-create/cancel baseline, but Task 94 remains partial. The next
+    meaningful closure should continue Phase C with another admin-visible auth
+    lifecycle blocker that can close with implementation, focused verification,
+    truthful docs, and independent review, such as invite resend/email-delivery
+    plumbing, member removal, durable audit-event storage for auth/admin
+    mutations, broader org/member CRUD, durable permission-sync behavior,
+    last-admin/self-demotion policy hardening, or a pivot to Task 95
+    external-provider sign-in if that is the higher-value unblocked release
+    blocker. Do not claim full org/member lifecycle parity yet.
 history:
+  - id: task94e
+    status: done
+    summary: >-
+      Closed one meaningful Task 94e auth/admin lifecycle slice instead of
+      splitting the backend role-update route, PostgreSQL mutation path, shipped
+      file-backed audit visibility, settings UI controls, acceptance wording,
+      parity-report updates, focused SQL-backed/file-backed route coverage, and
+      independent review into smaller paperwork-only runs. Authenticated
+      local-session admins can now update visible organization member roles
+      through `PATCH /api/v1/auth/members/{user_id}/role`; invalid roles,
+      hidden organizations, hidden member targets, and non-admin callers fail
+      closed without mutation; PostgreSQL-backed role updates persist to
+      `organization_memberships` while preserving shipped file-backed
+      `auth.member_role.updated` audit visibility; and the `#/settings/members`
+      panel exposes bounded role selects only from the loaded admin-visible
+      roster while disabling conflicting invite/member mutations. Docs keep the
+      claim bounded: email delivery, resend workflow, member removal, durable
+      audit-event storage, broader org/member CRUD, last-admin/self-demotion
+      policy, and full role lifecycle parity remain follow-up work.
+    tests:
+      - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (1 passed; 364 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (7 passed; 358 filtered), including the PostgreSQL-backed member/invite roster route test now covering durable role update, hidden-org rejection, unchanged hidden role, and audit visibility
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - npm test -- --run src/App.test.tsx -t "updates a member role": passed (1 passed; 172 skipped)
+      - npm test -- --run src/App.test.tsx -t "members": passed (6 passed; 167 skipped)
+      - npm test -- --run src/App.test.tsx: passed (173 passed)
+      - npm run build: passed
+      - python3 raw-content doc/UI truth checks for auth acceptance, settings acceptance, parity-gap report, final audit wording, and settings copy: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved admin-visible scope gates, hidden target rejection, parameterized PostgreSQL update, shipped file-backed audit visibility, bounded settings UI controls, and bounded docs with no blocking security or logic issues
+    commit: 483bb8944c98d70693e24570a792a3a549096d6f
+    next_task: task94f
   - id: task94d
     status: done
     summary: >-
