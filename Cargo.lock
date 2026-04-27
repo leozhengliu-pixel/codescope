@@ -1378,6 +1378,7 @@ dependencies = [
  "serde_json",
  "sourcebot-config",
  "sourcebot-core",
+ "sourcebot-mcp",
  "sourcebot-models",
  "sourcebot-search",
  "sqlx",

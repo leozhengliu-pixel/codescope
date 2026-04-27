@@ -21,4 +21,5 @@ sourcebot-core = { path = "../core" }
 sourcebot-config = { path = "../config" }
 sourcebot-models = { path = "../models" }
 sourcebot-search = { path = "../search" }
+sourcebot-mcp = { path = "../mcp" }
 argon2 = "0.5"

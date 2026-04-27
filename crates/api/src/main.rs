@@ -26,7 +26,8 @@ use axum::{
     Json, Router,
 };
 use browse::{
-    build_browse_store, BlobResponse, BrowseStore, DynBrowseStore, LocalBrowseStore,
+    build_browse_store, BlobResponse, BrowseBlobStoreAdapter, BrowseGlobStoreAdapter,
+    BrowseGrepStoreAdapter, BrowseStore, BrowseTreeStoreAdapter, DynBrowseStore, LocalBrowseStore,
     ReferenceMatch, TreeResponse,
 };
 use commits::{
@@ -37,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
 use sourcebot_core::{
     build_llm_provider, repository_sync_target_has_active_job, visible_repo_ids_for_user,
-    LlmProviderConfig,
+    LlmProviderConfig, RetrievalToolContext,
 };
 use sourcebot_models::{
     AnalyticsRecord, AskMessage, AskMessageRole, AskThread, AskThreadSummary, AskThreadVisibility,
@@ -322,6 +323,9 @@ fn build_router(
         .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
+        .route("/api/v1/mcp/manifest", get(get_mcp_manifest))
+        .route("/api/v1/mcp/tools", get(list_mcp_tools))
+        .route("/api/v1/mcp/tools/call", post(call_mcp_tool))
         .route("/api/v1/repos", get(list_repositories))
         .route("/api/v1/repos/{repo_id}", get(get_repository_detail))
         .route(
@@ -1010,6 +1014,112 @@ async fn postgres_migration_count(database_url: &str) -> anyhow::Result<i64> {
         Ok(count)
     })
     .await?
+}
+
+async fn get_mcp_manifest(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<sourcebot_mcp::ServerManifest>, StatusCode> {
+    let _ = search_request_context(&state, &headers).await?;
+    Ok(Json(sourcebot_mcp::server_manifest()))
+}
+
+async fn list_mcp_tools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<sourcebot_mcp::McpToolDefinition>>, StatusCode> {
+    let _ = search_request_context(&state, &headers).await?;
+    Ok(Json(mcp_http_tool_definitions()))
+}
+
+fn mcp_http_tool_definitions() -> Vec<sourcebot_mcp::McpToolDefinition> {
+    sourcebot_mcp::retrieval_tool_definitions()
+        .into_iter()
+        .map(|mut definition| {
+            if definition.name != "list_repos" {
+                if let Some(properties) = definition
+                    .input_schema
+                    .get_mut("properties")
+                    .and_then(|properties| properties.as_object_mut())
+                {
+                    properties.insert(
+                        "repo_id".into(),
+                        serde_json::json!({
+                            "type": "string",
+                            "description": "Caller-visible repository id to use as the active MCP repository for this HTTP/API tool call"
+                        }),
+                    );
+                }
+                if let Some(schema) = definition.input_schema.as_object_mut() {
+                    let required = schema
+                        .entry("required")
+                        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                    if let Some(required) = required.as_array_mut() {
+                        if !required.iter().any(|value| value == "repo_id") {
+                            required.push(serde_json::Value::String("repo_id".into()));
+                        }
+                    }
+                }
+            }
+            definition
+        })
+        .collect()
+}
+
+fn bind_mcp_http_active_repo(
+    request: &mut sourcebot_mcp::McpToolCallRequest,
+    visible_repo_ids: &[String],
+) -> Result<Option<String>, StatusCode> {
+    let Some(arguments) = request.arguments.as_object_mut() else {
+        return Ok(None);
+    };
+    let Some(repo_id) = arguments.remove("repo_id") else {
+        return Ok(None);
+    };
+    let Some(repo_id) = repo_id
+        .as_str()
+        .map(str::trim)
+        .filter(|repo_id| !repo_id.is_empty())
+    else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    if !visible_repo_ids.iter().any(|visible| visible == repo_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Some(repo_id.to_string()))
+}
+
+async fn call_mcp_tool(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(mut request): Json<sourcebot_mcp::McpToolCallRequest>,
+) -> Result<Json<sourcebot_mcp::McpToolCallResponse>, StatusCode> {
+    let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+    let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
+    visible_repo_ids.sort();
+    let active_repo_id = bind_mcp_http_active_repo(&mut request, &visible_repo_ids)?;
+    let context = RetrievalToolContext {
+        active_repo_id,
+        repo_scope: visible_repo_ids.clone(),
+        visible_repo_ids,
+    };
+
+    let trees = BrowseTreeStoreAdapter::new(state.browse.clone());
+    let blobs = BrowseBlobStoreAdapter::new(state.browse.clone());
+    let globs = BrowseGlobStoreAdapter::new(state.browse.clone());
+    let greps = BrowseGrepStoreAdapter::new(state.browse.clone());
+    let response = sourcebot_mcp::execute_tool_call(
+        state.catalog.as_ref(),
+        &trees,
+        &blobs,
+        &globs,
+        &greps,
+        &context,
+        request,
+    )
+    .await;
+
+    Ok(Json(response))
 }
 
 async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
@@ -7118,6 +7228,252 @@ mod tests {
 
         let payload: LoginResponseBody = read_json(login_response).await;
         format!("Bearer {}:{}", payload.session_id, payload.session_secret)
+    }
+
+    #[tokio::test]
+    async fn mcp_http_tool_call_requires_authentication() {
+        let app = test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "list_repos",
+                            "arguments": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn mcp_http_manifest_and_tools_require_authentication_and_return_contracts() {
+        let organization_state_path = unique_test_path("mcp-http-contracts-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-http-contracts-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-http-contracts-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+
+        for uri in ["/api/v1/mcp/manifest", "/api/v1/mcp/tools"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(uri)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let authorization = bootstrap_and_login(&app).await;
+        let manifest_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/mcp/manifest")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(manifest_response.status(), StatusCode::OK);
+        let manifest: serde_json::Value = read_json(manifest_response).await;
+        assert_eq!(manifest["server_info"]["name"], "sourcebot-mcp");
+
+        let tools_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/mcp/tools")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(tools_response.status(), StatusCode::OK);
+        let tools: serde_json::Value = read_json(tools_response).await;
+        let tool_names = tools
+            .as_array()
+            .expect("tools response should be an array")
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("tool name should be a string"))
+            .collect::<Vec<_>>();
+        assert!(tool_names.contains(&"list_repos"));
+        let read_file_tool = tools
+            .as_array()
+            .expect("tools response should be an array")
+            .iter()
+            .find(|tool| tool["name"] == "read_file")
+            .expect("read_file tool should be advertised");
+        assert!(read_file_tool["input_schema"]["required"]
+            .as_array()
+            .expect("required should be an array")
+            .iter()
+            .any(|value| value == "repo_id"));
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_http_content_tools_require_visible_active_repository() {
+        let organization_state_path = unique_test_path("mcp-http-content-tools-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-http-content-tools-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-http-content-tools-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let hidden_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "list_tree",
+                            "arguments": {
+                                "repo_id": "repo_demo_docs"
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hidden_response.status(), StatusCode::NOT_FOUND);
+
+        let visible_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "list_tree",
+                            "arguments": {
+                                "repo_id": "repo_sourcebot_rewrite"
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(visible_response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(visible_response).await;
+        assert_eq!(body["status"], "success");
+        assert_eq!(body["tool_name"], "list_tree");
+        assert_eq!(body["structured_content"]["tool"], "list_tree");
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_http_list_repos_enforces_authenticated_repo_visibility() {
+        let organization_state_path = unique_test_path("mcp-http-visibility-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-http-visibility-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-http-visibility-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "list_repos",
+                            "arguments": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(response).await;
+        assert_eq!(body["status"], "success");
+        assert_eq!(body["tool_name"], "list_repos");
+        assert_eq!(body["structured_content"]["tool"], "list_repos");
+        let repositories = body["structured_content"]["payload"]["repositories"]
+            .as_array()
+            .expect("repositories should be an array");
+        assert_eq!(repositories.len(), 1);
+        assert_eq!(repositories[0]["id"], "repo_sourcebot_rewrite");
+        assert!(!repositories
+            .iter()
+            .any(|repo| repo["id"] == "repo_demo_docs"));
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     fn write_members_invite_create_fixture(path: &PathBuf, admin_role: OrganizationRole) {

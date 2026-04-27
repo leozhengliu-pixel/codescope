@@ -384,10 +384,11 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
     use sourcebot_core::{
-        BlobStore, CatalogStore, GlobStore, GrepStore, RepositoryBlob, RepositoryTree,
-        RepositoryTreeEntry, RepositoryTreeEntryKind, RetrievalToolContext, TreeStore,
+        BlobStore, CatalogStore, GlobStore, GrepStore, ImportRepositoryResult, RepositoryBlob,
+        RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, RetrievalToolContext,
+        TreeStore,
     };
-    use sourcebot_models::{RepositoryDetail, RepositorySummary, SyncState};
+    use sourcebot_models::{Connection, RepositoryDetail, RepositorySummary, SyncState};
 
     use crate::{
         execute_tool_call, retrieval_tool_definitions, server_manifest, McpToolCallErrorCode,
@@ -418,6 +419,14 @@ mod tests {
             _repo_id: &str,
         ) -> anyhow::Result<Option<RepositoryDetail>> {
             Ok(None)
+        }
+
+        async fn import_local_repository(
+            &self,
+            _connection: Connection,
+            _repo_path: &str,
+        ) -> anyhow::Result<ImportRepositoryResult> {
+            anyhow::bail!("local repository import unsupported by MCP static catalog test store")
         }
     }
 

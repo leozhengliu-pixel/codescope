@@ -22,7 +22,7 @@
 2. Sync state and indexing visibility are tracked per repository today, with richer per-connection and durable index-status parity deferred to repository-operations and host-specific follow-up specs.
 3. Generic/local Git parity is currently grounded by `specs/acceptance/generic-local-git.md`: authenticated connection CRUD, settings-shell metadata, repo-detail connection metadata, and read-only sync-history visibility exist, while real host ingestion without a SaaS provider remains deferred.
 4. OIDC/SSO login can be enabled with provider metadata and mapped to local users/orgs once the dedicated identity-provider slices land.
-5. MCP server exposes repository-aware tools under the caller's permission scope, and the current local browse retrieval baseline skips obvious build-artifact directories (`.git`, `target`, `node_modules`, `dist`) during repo-scoped recursive file discovery.
+5. MCP server exposes authenticated HTTP/API manifest, tool-list, and tool-call surfaces under `/api/v1/mcp/...`; repository-aware tool calls run under the caller's permission scope, and the current local browse retrieval baseline skips obvious build-artifact directories (`.git`, `target`, `node_modules`, `dist`) during repo-scoped recursive file discovery.
 6. Public REST APIs are versioned and return stable machine-readable responses.
 
 ## Permission behavior
@@ -37,5 +37,5 @@
 ## Black-box examples
 - An authenticated admin can open the settings connections shell, inspect existing connection records, and manage generic/local connection metadata through the versioned `/api/v1/auth/connections` API.
 - Repository detail shows connection metadata, and authenticated sync-history views remain read-only until later provider/runtime slices land real enumeration/import/index behavior.
-- Calling the public REST API returns versioned JSON and permission-scoped results.
+- Calling the public REST API returns versioned JSON and permission-scoped results, including authenticated MCP HTTP/API tool calls that reuse the web/API repository visibility model.
 - Public review-webhook event intake rejects wrong, missing, or corrupted persisted webhook secret material with `401` while keeping webhook existence and stored secret-hash corruption opaque to the caller.
