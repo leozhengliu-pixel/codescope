@@ -274,26 +274,21 @@ fn run_local_repository_sync_execution(
     let content_paths = match run_git_command(
         git_command,
         repo_path,
-        &["ls-tree", "-r", "--name-only", "HEAD"],
+        &["ls-tree", "-rz", "--name-only", "HEAD"],
         timeout,
     ) {
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(str::trim)
-                .filter(|path| !path.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
+            parse_nul_delimited_git_paths(&output.stdout)
         }
         Ok(Some(output)) if output.status.success() => {
             return Err(format!(
-                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD found no tracked content"
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -rz --name-only HEAD found no tracked content"
             ))
         }
-        Ok(Some(output)) => return Err(git_failure_detail("git ls-tree -r --name-only HEAD", &output)),
+        Ok(Some(output)) => return Err(git_failure_detail("git ls-tree -rz --name-only HEAD", &output)),
         Ok(None) => {
             return Err(format!(
-                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD timed out after {}ms",
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -rz --name-only HEAD timed out after {}ms",
                 timeout.as_millis()
             ))
         }
@@ -336,6 +331,14 @@ fn run_local_repository_sync_execution(
         )),
         Err(error) => Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     }
+}
+
+fn parse_nul_delimited_git_paths(output: &[u8]) -> Vec<String> {
+    output
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+        .map(|path| String::from_utf8_lossy(path).into_owned())
+        .collect()
 }
 
 fn write_local_repository_sync_snapshot(
@@ -2041,7 +2044,7 @@ mod tests {
                 .error
                 .as_deref()
                 .unwrap_or_default()
-                .contains("local repository sync execution failed: git ls-tree -r --name-only HEAD found no tracked content"),
+                .contains("local repository sync execution failed: git ls-tree -rz --name-only HEAD found no tracked content"),
             "empty committed local repo should fail the content discovery step: {failed_job:?}"
         );
 
@@ -2159,6 +2162,77 @@ mod tests {
         assert!(
             !snapshot_dir.join("untracked.txt").exists(),
             "snapshot should contain only tracked HEAD content"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], completed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_snapshots_tracked_paths_with_surrounding_spaces() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-local-git-spaced-path-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        let spaced_path = " spaced fixture .txt";
+        fs::write(repo_path.join(spaced_path), "tracked path with spaces\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", spaced_path])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "spaced fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_spaced_path",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let completed_job =
+            run_repository_sync_claim_tick(&store, StubRepositorySyncJobExecutionOutcome::Failed)
+                .await
+                .unwrap()
+                .expect("queued local repository sync job should be terminally recorded");
+
+        assert_eq!(completed_job.id, "sync_job_local_spaced_path");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert_eq!(completed_job.synced_content_file_count, Some(1));
+
+        let snapshot_file = repo_path
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_sync_job_local_spaced_path")
+            .join("sync_job_local_spaced_path")
+            .join("snapshot")
+            .join(spaced_path);
+        assert_eq!(
+            fs::read_to_string(snapshot_file).unwrap(),
+            "tracked path with spaces\n"
         );
 
         let persisted = store.organization_state().await.unwrap();
