@@ -5,37 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ad42187f29ed301a5bb4515af073d9a6b0a8316e
+  head: ad79ec96311342e594de5f6ae45093778a7fd3e7
 last_completed_task:
-  id: task96p
-  title: Requested-repo local sync snapshot index-status fallback
+  id: task96q
+  title: Requested-repo local sync snapshot browse fallback
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime status slice by allowing
-    `GET /api/v1/repos/{repo_id}/index-status` for an already visible repository
-    to fall back to the latest successful local repository-sync snapshot when
-    the startup search store has no indexed status for that visible repository.
-    The fallback stays bounded to requested-repo status, preserves the primary
-    search-store status when present, derives eligible snapshots from the
-    caller-authorized `(organization_id, repository_id)` boundary, and keeps
-    docs/audit wording explicit that this is local snapshot search/status
-    visibility only: no real provider fetch/import/reindex execution,
-    durable/background indexing, automated retry/backoff, supervision, or full
-    provider/runtime parity is claimed.
+    Closed one meaningful Task 96 provider/runtime browse slice by allowing
+    no-revision `GET /api/v1/repos/{repo_id}/tree` and
+    `GET /api/v1/repos/{repo_id}/blob` requests for an already visible
+    repository to fall back to the latest successful local repository-sync
+    snapshot when the startup browse store has no tree/blob for that visible
+    repository. The fallback keeps the primary browse store authoritative,
+    does not apply to explicit revision requests, derives eligible snapshots
+    from the caller-authorized `(organization_id, repository_id)` boundary,
+    and keeps docs/audit wording explicit that this is bounded local snapshot
+    search/browse/status visibility only: no real provider fetch/import/reindex
+    execution, durable/background indexing, automated retry/backoff,
+    supervision, or full provider/runtime parity is claimed.
   tests:
-    - cargo test -p sourcebot-api repository_index_status_falls_back_to_authorized_local_sync_snapshot -- --nocapture: red first on the previous 404 when no search-store status existed, then passed
-    - cargo test -p sourcebot-api repository_index_status -- --nocapture: passed (2 matched main.rs tests; lib target 0)
+    - cargo test -p sourcebot-api repository_tree_and_blob_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-api repo_blob -- --nocapture: passed (10 matched main.rs tests; lib target 0)
+    - cargo test -p sourcebot-api repository_tree -- --nocapture: passed (1 matched main.rs test; lib target 0)
     - cargo test -p sourcebot-api search_ -- --nocapture: passed (18 matched main.rs tests; lib target 0)
     - cargo fmt --check: passed
-    - git diff --check: passed before and after final docs marker patch
+    - git diff --check: passed before and after final docs precision patch
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
-    - docs marker checks for README, generic-local-git acceptance, parity-gap report, and final parity audit/checklist: passed
+    - docs marker checks for README, browse/generic-local-git/repository-operations acceptance, parity-gap report, and final parity audit/checklist: passed
   review:
-    code: passed independent read-only review; no blocking security, logic, auth-scope, path-safety, fallback-behavior, test, or bounded-claim issues remained
-  commit: ad42187f29ed301a5bb4515af073d9a6b0a8316e
-  next_task: task96q
+    code: passed independent read-only review; no blocking authz, fallback-behavior, path-safety, or bounded-claim issues remained; one wording precision note was patched before commit
+  commit: ad79ec96311342e594de5f6ae45093778a7fd3e7
+  next_task: task96r
 current_task:
-  id: task96q
+  id: task96r
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -49,16 +51,39 @@ current_task:
     authenticated API/UI visibility for that terminal metadata, a bounded
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
     materialization, settings UI visibility for local manifest/snapshot artifact
-    paths, requested-repo local snapshot search fallback, and requested-repo
-    local snapshot index-status fallback under the caller-authorized
-    organization/repository boundary. Practical provider/runtime parity still
-    needs a next meaningful closure that turns local/provider jobs into broader
-    real fetch/import/reindex or durable/background indexing behavior with
-    durable progress/error bookkeeping, retry/backoff semantics, duplicate-claim
-    recovery, supervised scheduling, provider discovery, or deeper
-    frontend/operator controls while keeping recursive import, durable index
-    status, and full provider/runtime parity explicit follow-up work.
+    paths, requested-repo local snapshot search fallback, requested-repo local
+    snapshot index-status fallback, and no-revision tree/blob browse fallback
+    under the caller-authorized organization/repository boundary. Practical
+    provider/runtime parity still needs a next meaningful closure that turns
+    local/provider jobs into broader real fetch/import/reindex or
+    durable/background indexing behavior with durable progress/error
+    bookkeeping, retry/backoff semantics, duplicate-claim recovery, supervised
+    scheduling, provider discovery, or deeper frontend/operator controls while
+    keeping recursive import, durable index status, and full provider/runtime
+    parity explicit follow-up work.
 history:
+  - id: task96q
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime browse slice by letting
+      no-revision repository tree/blob requests use the latest successful local
+      sync snapshot when the startup browse store has no tree/blob for that
+      visible repository. The fallback is gated by the caller-authorized
+      `(organization_id, repository_id)` boundary, preserves primary browse
+      results and explicit-revision semantics, and remains bounded local
+      snapshot search/browse/status visibility only: no real provider
+      fetch/import/reindex, durable/background indexing, automated
+      retry/backoff, supervision, or full provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-api repository_tree_and_blob_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_blob -- --nocapture: passed
+      - cargo test -p sourcebot-api repository_tree -- --nocapture: passed
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed
+      - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking authz, fallback-behavior, path-safety, test, or bounded-claim issues remained
+    commit: ad79ec96311342e594de5f6ae45093778a7fd3e7
+    next_task: task96r
   - id: task96p
     status: done
     summary: >-
