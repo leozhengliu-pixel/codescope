@@ -5,52 +5,94 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e20131bfc10fb28158d4e8d3a216aabc82c222a3
+  head: ddc28722316b05f6da725994779c393e36b43f22
 last_completed_task:
-  id: task96d
-  title: One-shot repository-sync worker terminal observability
+  id: task96e
+  title: Bounded local-Git repository-sync preflight
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime observability slice instead
-    of splitting worker log fields, focused smoke coverage, README/runtime
-    acceptance wording, parity-report synchronization, and review into
-    paperwork-only runs. The one-shot worker now records repository-sync
-    terminal job context for operator triage when processing the bounded stub
-    path: job id, organization id, repository id, connection id, terminal
-    status, and failure reason when one exists. The claim remains deliberately
-    narrow: this improves the current one-shot/stub runtime baseline and does
-    not claim real provider fetch/import execution, automated retry/backoff,
-    continuous scheduling, supervision, frontend controls, durable index status,
-    or full provider/runtime parity.
+    Closed one meaningful Task 96 provider/runtime execution slice instead of
+    splitting store callback plumbing, local-Git preflight behavior, focused
+    worker/API verification, acceptance wording, parity-audit synchronization,
+    and review into paperwork-only runs. Repository-sync claim execution now
+    receives an organization-state snapshot, so jobs tied to configured `local`
+    connections run a bounded `git -C <repo_path> rev-parse
+    --is-inside-work-tree` preflight before terminal completion. Missing or
+    invalid local paths, including bare repositories whose preflight prints
+    `false`, fail closed with an operator-visible `local repository sync
+    preflight failed` error, while real local Git working trees can complete
+    successfully even when the old stub failure outcome is configured. The claim
+    remains deliberately narrow: this proves local working-tree preflight/status
+    handling only, not real fetch/import/reindex execution, host discovery,
+    automated retry/backoff, supervision, durable index status, or full provider
+    runtime parity.
   tests:
-    - cargo test -p sourcebot-worker --test repository_sync_claim_smoke -- --nocapture: passed (2 passed; 0 failed)
+    - cargo test -p sourcebot-worker local_repository_path -- --nocapture: passed (1 passed; 17 filtered in worker lib, remaining targets 0-test)
+    - cargo test -p sourcebot-worker local_git_repository_path -- --nocapture: passed (2 passed; 16 filtered in worker lib, remaining targets 0-test)
     - cargo test -p sourcebot-worker worker -- --nocapture: passed (1 worker unit test, 14 integration smoke tests, and one 0-test bin target)
+    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (10 passed; 368 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - python3 doc truth-marker checks for README, worker-runtime acceptance, parity-gap report, and final parity audit wording: passed
+    - python3 callback-form search for stale fn(RepositorySyncJob) / execute(claimed_job) forms: passed
+    - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only final review; reviewer approved the bounded scope, repository-sync terminal log fields, smoke-test assertions for job/org/repo/connection/status/failure reason, and docs that keep real execution, retries, supervision, scheduling, and durable parity deferred, with only non-blocking notes about future log redaction and empty error-field semantics for successful jobs
-  commit: e20131bfc10fb28158d4e8d3a216aabc82c222a3
-  next_task: task96e
+    code: passed independent read-only review; reviewer approved the HRTB callback update, absence of stale callback forms, preserved claim-and-complete semantics, shell-free local Git preflight with bare-repo stdout=false fail-closed handling, focused missing/bare/valid local repo tests, stub preservation, and docs that keep real fetch/import/reindex, retries, supervision, and full provider parity deferred; non-blocking notes recorded that the legacy pure-stub helper intentionally uses default state and that a future runtime slice may add an explicit git preflight timeout
+  commit: ddc28722316b05f6da725994779c393e36b43f22
+  next_task: task96f
 current_task:
-  id: task96e
+  id: task96f
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Real provider/runtime execution beyond one-shot stub sync jobs
+  title: Repository-sync worker runtime hardening beyond local preflight
   status: pending
   summary: >-
-    Task 96a through Task 96d now cover authenticated manual enqueue, manual
-    retry, smoke-proven one-shot stub progress, and richer terminal log context
-    for repository-sync jobs. Practical provider/runtime parity still needs a
-    meaningful next closure that moves beyond stubbed terminal outcomes toward
-    real provider execution or stronger worker runtime guarantees. Prefer a
-    bounded vertical slice such as generic/local Git fetch/import execution for
-    queued jobs, duplicate-claim/recovery hardening, durable progress/error
-    bookkeeping visible through authenticated sync history, or worker-side
-    retry/backoff semantics while keeping broad host-provider discovery,
-    daemonized supervision, frontend controls, durable index status, and full
-    provider parity explicit follow-up work.
+    Task 96a through Task 96e now cover authenticated manual enqueue, manual
+    retry, smoke-proven one-shot progress, richer terminal log context, and a
+    bounded local-Git working-tree preflight for queued jobs tied to configured
+    `local` connections. Practical provider/runtime parity still needs a
+    meaningful next closure that moves beyond this preflight/status baseline
+    toward real fetch/import/reindex execution or stronger worker runtime
+    guarantees such as timeout-bounded preflight/execution, duplicate-claim
+    recovery hardening, durable progress/error bookkeeping visible through
+    authenticated sync history, or worker-side retry/backoff semantics while
+    keeping broad host-provider discovery, daemonized supervision, frontend
+    controls, durable index status, and full provider parity explicit follow-up
+    work.
 history:
+  - id: task96e
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime execution slice instead of
+      splitting store callback plumbing, local-Git preflight behavior, focused
+      worker/API verification, acceptance wording, parity-audit synchronization,
+      and review into paperwork-only runs. Repository-sync claim execution now
+      receives an organization-state snapshot, so jobs tied to configured `local`
+      connections run a bounded `git -C <repo_path> rev-parse
+      --is-inside-work-tree` preflight before terminal completion. Missing or
+      invalid local paths, including bare repositories whose preflight prints
+      `false`, fail closed with an operator-visible `local repository sync
+      preflight failed` error, while real local Git working trees can complete
+      successfully even when the old stub failure outcome is configured. The
+      claim remains deliberately narrow: this proves local working-tree
+      preflight/status handling only, not real fetch/import/reindex execution,
+      host discovery, automated retry/backoff, supervision, durable index status,
+      or full provider runtime parity.
+    tests:
+      - cargo test -p sourcebot-worker local_repository_path -- --nocapture: passed (1 passed; 17 filtered in worker lib, remaining targets 0-test)
+      - cargo test -p sourcebot-worker local_git_repository_path -- --nocapture: passed (2 passed; 16 filtered in worker lib, remaining targets 0-test)
+      - cargo test -p sourcebot-worker worker -- --nocapture: passed (1 worker unit test, 14 integration smoke tests, and one 0-test bin target)
+      - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (10 passed; 368 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 callback-form search for stale fn(RepositorySyncJob) / execute(claimed_job) forms: passed
+      - python3 doc truth-marker checks for README, worker-runtime acceptance, generic-local acceptance, parity-gap report, and final parity audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved the HRTB callback update, absence of stale callback forms, preserved claim-and-complete semantics, shell-free local Git preflight with bare-repo stdout=false fail-closed handling, focused missing/bare/valid local repo tests, stub preservation, and docs that keep real fetch/import/reindex, retries, supervision, and full provider parity deferred; non-blocking notes recorded that the legacy pure-stub helper intentionally uses default state and that a future runtime slice may add an explicit git preflight timeout
+    commit: ddc28722316b05f6da725994779c393e36b43f22
+    next_task: task96f
   - id: task96d
     status: done
     summary: >-
