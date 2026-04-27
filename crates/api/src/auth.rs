@@ -7,12 +7,12 @@ use sourcebot_core::{
 };
 use sourcebot_models::RepositorySyncJobStatus;
 use sourcebot_models::{
-    ApiKey, BootstrapState, BootstrapStatus, LocalAccount, LocalSession, LocalSessionState,
-    OAuthClient, Organization, OrganizationInvite, OrganizationMembership, OrganizationRole,
-    OrganizationState, RepositoryPermissionBinding, RepositorySyncJob, ReviewAgentRun,
-    ReviewAgentRunStatus, ReviewWebhookDeliveryAttempt,
+    ApiKey, AuditActor, AuditEvent, BootstrapState, BootstrapStatus, LocalAccount, LocalSession,
+    LocalSessionState, OAuthClient, Organization, OrganizationInvite, OrganizationMembership,
+    OrganizationRole, OrganizationState, RepositoryPermissionBinding, RepositorySyncJob,
+    ReviewAgentRun, ReviewAgentRunStatus, ReviewWebhookDeliveryAttempt,
 };
-use sqlx::{postgres::PgPoolOptions, Row};
+use sqlx::{postgres::PgPoolOptions, Postgres, Row, Transaction};
 use std::{
     fs::{self, File, OpenOptions},
     io::{ErrorKind, Write},
@@ -290,7 +290,12 @@ impl PgOrganizationAuthMetadataStore {
         }))
     }
 
-    pub async fn create_invite(&self, invite: &OrganizationInvite) -> Result<OrganizationInvite> {
+    pub async fn create_invite_with_audit_event(
+        &self,
+        invite: &OrganizationInvite,
+        audit_event: &AuditEvent,
+    ) -> Result<OrganizationInvite> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, NULL, NULL)",
         )
@@ -301,16 +306,19 @@ impl PgOrganizationAuthMetadataStore {
         .bind(&invite.invited_by_user_id)
         .bind(&invite.created_at)
         .bind(&invite.expires_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        insert_audit_event_in_tx(&mut tx, audit_event).await?;
 
         let row = sqlx::query(
             "SELECT id, organization_id, email, role, invited_by_user_id, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS expires_at, accepted_by_user_id, CASE WHEN accepted_at IS NULL THEN NULL ELSE to_char(accepted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') END AS accepted_at FROM organization_invites WHERE id = $1",
         )
         .bind(&invite.id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
-        organization_invite_from_row(row)
+        let created_invite = organization_invite_from_row(row)?;
+        tx.commit().await?;
+        Ok(created_invite)
     }
 
     pub async fn update_member_role(
@@ -353,6 +361,50 @@ impl PgOrganizationAuthMetadataStore {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn update_member_role_with_audit_event(
+        &self,
+        organization_id: &str,
+        user_id: &str,
+        role: &OrganizationRole,
+        audit_event: &AuditEvent,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let current_role: Option<String> = sqlx::query_scalar(
+            "SELECT role FROM organization_memberships WHERE organization_id = $1 AND user_id = $2 FOR UPDATE",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(current_role) = current_role else {
+            tx.commit().await?;
+            return Ok(false);
+        };
+        let admin_rows = sqlx::query(
+            "SELECT user_id FROM organization_memberships WHERE organization_id = $1 AND role = 'admin' FOR UPDATE",
+        )
+        .bind(organization_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        if current_role == "admin" && *role != OrganizationRole::Admin && admin_rows.len() <= 1 {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        let result = sqlx::query(
+            "UPDATE organization_memberships SET role = $3 WHERE organization_id = $1 AND user_id = $2",
+        )
+        .bind(organization_id)
+        .bind(user_id)
+        .bind(organization_role_as_str(role))
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 1 {
+            insert_audit_event_in_tx(&mut tx, audit_event).await?;
+        }
+        tx.commit().await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn delete_pending_invite(&self, invite_id: &str) -> Result<bool> {
         let result = sqlx::query(
             "DELETE FROM organization_invites WHERE id = $1 AND accepted_by_user_id IS NULL AND accepted_at IS NULL",
@@ -363,10 +415,49 @@ impl PgOrganizationAuthMetadataStore {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn delete_pending_invite_with_audit_event(
+        &self,
+        invite_id: &str,
+        audit_event: &AuditEvent,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query(
+            "DELETE FROM organization_invites WHERE id = $1 AND accepted_by_user_id IS NULL AND accepted_at IS NULL",
+        )
+        .bind(invite_id)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() == 1 {
+            insert_audit_event_in_tx(&mut tx, audit_event).await?;
+        }
+        tx.commit().await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn remove_member(
         &self,
         organization_id: &str,
         user_id: &str,
+    ) -> Result<Option<OrganizationMembership>> {
+        self.remove_member_in_tx(organization_id, user_id, None)
+            .await
+    }
+
+    pub async fn remove_member_with_audit_event(
+        &self,
+        organization_id: &str,
+        user_id: &str,
+        audit_event: &AuditEvent,
+    ) -> Result<Option<OrganizationMembership>> {
+        self.remove_member_in_tx(organization_id, user_id, Some(audit_event))
+            .await
+    }
+
+    async fn remove_member_in_tx(
+        &self,
+        organization_id: &str,
+        user_id: &str,
+        audit_event: Option<&AuditEvent>,
     ) -> Result<Option<OrganizationMembership>> {
         let mut tx = self.pool.begin().await?;
         let membership = sqlx::query(
@@ -404,6 +495,11 @@ impl PgOrganizationAuthMetadataStore {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
+        if result.rows_affected() == 1 {
+            if let Some(audit_event) = audit_event {
+                insert_audit_event_in_tx(&mut tx, audit_event).await?;
+            }
+        }
         tx.commit().await?;
 
         if result.rows_affected() == 1 {
@@ -426,12 +522,23 @@ impl PgOrganizationAuthMetadataStore {
         Ok(())
     }
 
-    pub async fn delete_invite(&self, invite_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM organization_invites WHERE id = $1")
-            .bind(invite_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+    pub async fn audit_events_for_organization_ids(
+        &self,
+        organization_ids: &[String],
+    ) -> Result<Vec<AuditEvent>> {
+        if organization_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        sqlx::query(
+            "SELECT id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id, to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS occurred_at, metadata FROM audit_events WHERE organization_id = ANY($1) ORDER BY occurred_at DESC, id DESC",
+        )
+        .bind(organization_ids)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(audit_event_from_row)
+        .collect()
     }
 
     pub async fn redeem_invite(
@@ -856,6 +963,43 @@ fn organization_invite_from_row(row: sqlx::postgres::PgRow) -> Result<Organizati
         expires_at: row.get("expires_at"),
         accepted_by_user_id: row.try_get("accepted_by_user_id")?,
         accepted_at: row.try_get("accepted_at")?,
+    })
+}
+
+async fn insert_audit_event_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    event: &AuditEvent,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO audit_events (id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id, occurred_at, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9)",
+    )
+    .bind(&event.id)
+    .bind(&event.organization_id)
+    .bind(&event.actor.user_id)
+    .bind(&event.actor.api_key_id)
+    .bind(&event.action)
+    .bind(&event.target_type)
+    .bind(&event.target_id)
+    .bind(&event.occurred_at)
+    .bind(&event.metadata)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+fn audit_event_from_row(row: sqlx::postgres::PgRow) -> Result<AuditEvent> {
+    Ok(AuditEvent {
+        id: row.get("id"),
+        organization_id: row.get("organization_id"),
+        actor: AuditActor {
+            user_id: row.try_get("actor_user_id")?,
+            api_key_id: row.try_get("actor_api_key_id")?,
+        },
+        action: row.get("action"),
+        target_type: row.get("target_type"),
+        target_id: row.get("target_id"),
+        occurred_at: row.get("occurred_at"),
+        metadata: row.get("metadata"),
     })
 }
 

@@ -1885,6 +1885,17 @@ async fn list_authenticated_members(
     Ok(Json(payload))
 }
 
+async fn append_compatibility_audit_event(state: &AppState, audit_event: AuditEvent) {
+    let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
+    if let Ok(mut audit_state) = state.organization_store.organization_state().await {
+        audit_state.audit_events.push(audit_event);
+        let _ = state
+            .organization_store
+            .store_organization_state(audit_state)
+            .await;
+    }
+}
+
 async fn create_authenticated_members_invite(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1941,20 +1952,7 @@ async fn create_authenticated_members_invite(
             accepted_by_user_id: None,
             accepted_at: None,
         };
-        let created_invite = store
-            .create_invite(&invite)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-        let mut audit_state = match state.organization_store.organization_state().await {
-            Ok(state) => state,
-            Err(_) => {
-                let _ = store.delete_invite(&created_invite.id).await;
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
-        audit_state.audit_events.push(AuditEvent {
+        let audit_event = AuditEvent {
             id: format!(
                 "audit_{}",
                 SaltString::generate(&mut OsRng)
@@ -1970,25 +1968,21 @@ async fn create_authenticated_members_invite(
             },
             action: "auth.member_invite.created".into(),
             target_type: "organization_invite".into(),
-            target_id: created_invite.id.clone(),
+            target_id: invite.id.clone(),
             occurred_at: created_at,
             metadata: serde_json::json!({
                 "email": email,
-                "role": match &created_invite.role {
+                "role": match &invite.role {
                     OrganizationRole::Admin => "admin",
                     OrganizationRole::Viewer => "viewer",
                 },
             }),
-        });
-        if state
-            .organization_store
-            .store_organization_state(audit_state)
+        };
+        store
+            .create_invite_with_audit_event(&invite, &audit_event)
             .await
-            .is_err()
-        {
-            let _ = store.delete_invite(&created_invite.id).await;
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        append_compatibility_audit_event(&state, audit_event.clone()).await;
 
         let refreshed_state = store
             .admin_organization_auth_metadata(&session.user_id)
@@ -2125,10 +2119,13 @@ async fn remove_authenticated_member(
             .find(|organization| organization.id == organization_id)
             .cloned()
             .ok_or(StatusCode::UNAUTHORIZED)?;
-        let removed_membership = store
-            .remove_member(organization_id, user_id)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        let removed_membership = organization_state
+            .memberships
+            .iter()
+            .find(|membership| {
+                membership.organization_id == organization_id && membership.user_id == user_id
+            })
+            .cloned()
             .ok_or(StatusCode::UNAUTHORIZED)?;
         let removed_role = match removed_membership.role {
             OrganizationRole::Admin => "admin",
@@ -2137,15 +2134,7 @@ async fn remove_authenticated_member(
         let occurred_at = OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-        let mut audit_state = match state.organization_store.organization_state().await {
-            Ok(audit_state) => audit_state,
-            Err(_) => {
-                let _ = store.restore_member(&removed_membership).await;
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
-        audit_state.audit_events.push(AuditEvent {
+        let audit_event = AuditEvent {
             id: format!(
                 "audit_{}",
                 SaltString::generate(&mut OsRng)
@@ -2166,16 +2155,13 @@ async fn remove_authenticated_member(
             metadata: serde_json::json!({
                 "removed_role": removed_role,
             }),
-        });
-        if state
-            .organization_store
-            .store_organization_state(audit_state)
+        };
+        let _removed_membership = store
+            .remove_member_with_audit_event(organization_id, user_id, &audit_event)
             .await
-            .is_err()
-        {
-            let _ = store.restore_member(&removed_membership).await;
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+        append_compatibility_audit_event(&state, audit_event.clone()).await;
         let refreshed_state = store
             .admin_organization_auth_metadata(&session.user_id)
             .await
@@ -2317,14 +2303,7 @@ async fn update_authenticated_member_role(
             OrganizationRole::Admin => "admin",
             OrganizationRole::Viewer => "viewer",
         };
-        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-        let mut audit_state = state
-            .organization_store
-            .organization_state()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let audit_state_before_update = audit_state.clone();
-        audit_state.audit_events.push(AuditEvent {
+        let audit_event = AuditEvent {
             id: format!(
                 "audit_{}",
                 SaltString::generate(&mut OsRng)
@@ -2346,32 +2325,20 @@ async fn update_authenticated_member_role(
                 "previous_role": previous_role,
                 "role": new_role,
             }),
-        });
-        state
-            .organization_store
-            .store_organization_state(audit_state)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        };
         match store
-            .update_member_role(organization_id, user_id, &role)
+            .update_member_role_with_audit_event(organization_id, user_id, &role, &audit_event)
             .await
         {
             Ok(true) => {}
             Ok(false) => {
-                let _ = state
-                    .organization_store
-                    .store_organization_state(audit_state_before_update)
-                    .await;
                 return Err(StatusCode::UNAUTHORIZED);
             }
             Err(_) => {
-                let _ = state
-                    .organization_store
-                    .store_organization_state(audit_state_before_update)
-                    .await;
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         }
+        append_compatibility_audit_event(&state, audit_event.clone()).await;
         let refreshed_state = store
             .admin_organization_auth_metadata(&session.user_id)
             .await
@@ -2500,14 +2467,7 @@ async fn cancel_authenticated_members_invite(
         let occurred_at = OffsetDateTime::now_utc()
             .format(&Rfc3339)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let _organization_state_write_guard = state.organization_state_write_lock.lock().await;
-        let mut audit_state = state
-            .organization_store
-            .organization_state()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let audit_state_before_cancel = audit_state.clone();
-        audit_state.audit_events.push(AuditEvent {
+        let audit_event = AuditEvent {
             id: format!(
                 "audit_{}",
                 SaltString::generate(&mut OsRng)
@@ -2532,29 +2492,20 @@ async fn cancel_authenticated_members_invite(
                     OrganizationRole::Viewer => "viewer",
                 },
             }),
-        });
-        state
-            .organization_store
-            .store_organization_state(audit_state)
+        };
+        match store
+            .delete_pending_invite_with_audit_event(&invite.id, &audit_event)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        match store.delete_pending_invite(&invite.id).await {
+        {
             Ok(true) => {}
             Ok(false) => {
-                let _ = state
-                    .organization_store
-                    .store_organization_state(audit_state_before_cancel)
-                    .await;
                 return Err(StatusCode::BAD_REQUEST);
             }
             Err(_) => {
-                let _ = state
-                    .organization_store
-                    .store_organization_state(audit_state_before_cancel)
-                    .await;
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         }
+        append_compatibility_audit_event(&state, audit_event.clone()).await;
 
         let refreshed_state = store
             .admin_organization_auth_metadata(&session.user_id)
@@ -2772,6 +2723,32 @@ async fn list_authenticated_audit_events(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let visible_organization_ids =
         visible_organization_ids_for_user(&auth_organization_state, &session.user_id);
+    if let Some(store) = &state.organization_auth_metadata_store {
+        let visible_organization_ids_vec =
+            visible_organization_ids.iter().cloned().collect::<Vec<_>>();
+        let mut audit_events = store
+            .audit_events_for_organization_ids(&visible_organization_ids_vec)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Ok(compatibility_state) = state.organization_store.organization_state().await {
+            audit_events.extend(compatibility_state.audit_events.into_iter().filter(
+                |audit_event| visible_organization_ids.contains(&audit_event.organization_id),
+            ));
+        }
+        audit_events.sort_by(|left, right| {
+            right
+                .occurred_at
+                .cmp(&left.occurred_at)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        return Ok(Json(
+            audit_events
+                .into_iter()
+                .map(audit_event_list_item_response)
+                .collect(),
+        ));
+    }
+
     let organization_state = state
         .organization_store
         .organization_state()
@@ -6730,7 +6707,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auth_members_remove_restores_postgres_membership_when_audit_read_fails() {
+    async fn auth_members_remove_keeps_postgres_mutation_and_audit_when_compatibility_audit_read_fails(
+    ) {
         let pool = pg_local_session_test_pool().await;
         let admin_password_hash = Argon2::default()
             .hash_password(b"members-password", &SaltString::generate(&mut OsRng))
@@ -6807,22 +6785,34 @@ mod tests {
                 organization_id: "org_acme".into(),
             }),
         )
-        .await;
-        assert!(matches!(response, Err(StatusCode::INTERNAL_SERVER_ERROR)));
+        .await
+        .expect("compatibility audit read failure does not block durable removal");
+        let payload = response.0;
+        assert!(payload
+            .members
+            .iter()
+            .all(|member| member.user_id != "local_user_member"));
 
-        let restored_membership_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_member' AND role = 'viewer'",
+        let removed_membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_member'",
         )
         .fetch_one(&pool)
         .await
-        .expect("membership restored after audit read failure");
-        assert_eq!(restored_membership_count, 1);
+        .expect("membership removed despite compatibility audit read failure");
+        assert_eq!(removed_membership_count, 0);
+        let postgres_audit_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE organization_id = 'org_acme' AND action = 'auth.member.removed' AND target_id = 'local_user_member'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("durable audit event remains transactionally recorded with the removal");
+        assert_eq!(postgres_audit_event_count, 1);
         let account_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM local_accounts WHERE id = 'local_user_member'",
         )
         .fetch_one(&pool)
         .await
-        .expect("local account remains after failed member removal");
+        .expect("local account remains after durable member removal");
         assert_eq!(account_count, 1);
         pool.close().await;
     }
@@ -7155,7 +7145,7 @@ mod tests {
             .await
             .expect("apply catalog migrations");
         sqlx::query(
-            "TRUNCATE TABLE oauth_clients, api_keys, sessions, repository_sync_jobs, repository_permission_bindings, repositories, connections, local_accounts, organizations RESTART IDENTITY CASCADE",
+            "TRUNCATE TABLE audit_events, oauth_clients, api_keys, sessions, repository_sync_jobs, repository_permission_bindings, repositories, connections, local_accounts, organizations RESTART IDENTITY CASCADE",
         )
         .execute(&pool)
         .await
@@ -7892,7 +7882,7 @@ mod tests {
             .hash_password(b"members-password", &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
-        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_hidden', 'hidden', 'Hidden')")
+        sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme'), ('org_hidden', 'hidden', 'Hidden'), ('org_unseen', 'unseen', 'Unseen')")
             .execute(&pool)
             .await
             .unwrap();
@@ -8231,6 +8221,57 @@ mod tests {
         .expect("self-removal fail-closed path keeps the admin membership");
         assert_eq!(self_membership_count, 1);
 
+        let remove_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/auth/members/local_user_member")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::to_vec(&RemoveMemberRequestBody {
+                            organization_id: "org_acme".into(),
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(remove_response.status(), StatusCode::OK);
+        let remove_payload: MembersOrganizationResponseBody = read_json(remove_response).await;
+        assert!(remove_payload
+            .members
+            .iter()
+            .all(|member| member.user_id != "local_user_member"));
+        let removed_membership_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = 'org_acme' AND user_id = 'local_user_member'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("removed member is deleted from Postgres");
+        assert_eq!(removed_membership_count, 0);
+
+        let postgres_audit_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events WHERE organization_id = 'org_acme' AND action IN ('auth.member_invite.created', 'auth.member_invite.cancelled', 'auth.member_role.updated', 'auth.member.removed')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("member lifecycle audit events are durably stored in Postgres");
+        assert_eq!(postgres_audit_event_count, 4);
+        sqlx::query(
+            "INSERT INTO audit_events (id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id, occurred_at, metadata) VALUES ('audit_unseen', 'org_unseen', 'local_user_admin', NULL, 'auth.member_invite.created', 'organization_invite', 'invite_unseen', '2026-04-22T12:00:00Z'::timestamptz, '{\"email\": \"unseen@example.com\", \"role\": \"viewer\"}'::jsonb)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert hidden organization audit event fixture");
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState::default()).unwrap(),
+        )
+        .unwrap();
+
         let audit_events_response = app
             .oneshot(
                 Request::builder()
@@ -8273,6 +8314,20 @@ mod tests {
                     == Some("viewer")
                 && event.metadata.get("role").and_then(|value| value.as_str()) == Some("admin")
         }));
+        assert!(audit_events.iter().any(|event| {
+            event.organization_id == "org_acme"
+                && event.action == "auth.member.removed"
+                && event.target_type == "organization_membership"
+                && event.target_id == "local_user_member"
+                && event
+                    .metadata
+                    .get("removed_role")
+                    .and_then(|value| value.as_str())
+                    == Some("admin")
+        }));
+        assert!(audit_events
+            .iter()
+            .all(|event| event.organization_id != "org_unseen"));
 
         fs::remove_file(organization_state_path).unwrap();
         pool.close().await;

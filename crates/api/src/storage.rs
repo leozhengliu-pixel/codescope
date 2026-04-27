@@ -361,7 +361,7 @@ mod tests {
     use std::env;
 
     #[test]
-    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_and_repository_sync_jobs(
+    fn catalog_migration_inventory_bootstraps_catalog_org_repository_permissions_sessions_ask_threads_review_agent_runs_delivery_attempts_repository_sync_jobs_and_auth_audit_events(
     ) {
         let migrations = catalog_migrator().iter().collect::<Vec<_>>();
         let migration_versions = migrations
@@ -371,10 +371,10 @@ mod tests {
 
         assert_eq!(
             migration_versions,
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
                 .into_iter()
                 .collect(),
-            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message migration versions"
+            "expected only the task05a + task05b1 + task05b2 + task05b3 + task05b4 + task05b5 + task05b6 + task87b1 + task87c + task87c4 + task88 ask-thread message + task94h auth audit-event migration versions"
         );
 
         let migration_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
@@ -408,6 +408,8 @@ mod tests {
                 "0010_repository_sync_jobs.up.sql".to_string(),
                 "0011_ask_thread_messages.down.sql".to_string(),
                 "0011_ask_thread_messages.up.sql".to_string(),
+                "0012_auth_audit_events.down.sql".to_string(),
+                "0012_auth_audit_events.up.sql".to_string(),
             ]
             .into_iter()
             .collect()
@@ -761,10 +763,33 @@ mod tests {
             "CREATE TABLE review_agent_runs",
             "CREATE TABLE repository_sync_jobs",
             "CREATE TABLE organization_aggregates",
+            "CREATE TABLE audit_events",
         ] {
             assert!(
                 !task88_up_migration.contains(unexpected_snippet),
                 "unexpected out-of-scope table present in 0011: {unexpected_snippet}"
+            );
+        }
+
+        let task94h_up_migration =
+            std::fs::read_to_string(migration_dir.join("0012_auth_audit_events.up.sql")).unwrap();
+
+        for expected_snippet in [
+            "CREATE TABLE audit_events",
+            "id TEXT PRIMARY KEY",
+            "organization_id TEXT NOT NULL REFERENCES organizations(id)",
+            "actor_user_id TEXT REFERENCES local_accounts(id)",
+            "actor_api_key_id TEXT",
+            "action TEXT NOT NULL",
+            "target_type TEXT NOT NULL",
+            "target_id TEXT NOT NULL",
+            "occurred_at TIMESTAMPTZ NOT NULL",
+            "metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
+            "CREATE INDEX audit_events_organization_occurred_at_idx",
+        ] {
+            assert!(
+                task94h_up_migration.contains(expected_snippet),
+                "missing task94h migration snippet: {expected_snippet}"
             );
         }
     }
