@@ -5,37 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0377af550b1790332523f551367b34f9389b6e36
+  head: 9d26bd5b55a84f73e7495ca1cb81c5efca30bedb
 last_completed_task:
-  id: task96aa
-  title: Bounded requested-repo local Git commit-history fallback
+  id: task96ab
+  title: Bounded unscoped local-sync search artifact fallback
   status: done
   summary: >-
-    Closed one bounded Task 96 provider/runtime repository-operations slice by
-    allowing authenticated no-revision commit list/detail/diff reads to fall
-    back to the latest successful caller-authorized local sync job when the
-    primary commit store has no seeded history for a visible repository. The
-    fallback preserves primary-store precedence, requires the existing
-    search/auth request context so API-key repo scopes still apply, selects jobs
-    by the caller-authorized organization/repository boundary, fails closed on
-    duplicate connection-id ambiguity, and uses timeout-bounded Git execution on
-    the request path. The release claim stays narrow: bounded local-Git
-    commit-history visibility only, not real provider fetch/import/reindex,
-    durable/background indexing, broad retry/backoff, worker supervision, or
-    full provider/runtime parity.
+    Closed one bounded Task 96 provider/runtime indexing slice by letting
+    authenticated `/api/v1/search` requests without an explicit `repo_id`,
+    including search-context scoped searches, fall back to the latest successful
+    caller-visible local sync `search-index.json` artifacts when the primary
+    startup search store has no matching rows. The requested-repo fallback,
+    primary-search precedence, search-context narrowing, API-key/session
+    visibility filtering, deterministic visible-repo iteration, and fail-closed
+    malformed artifact behavior stay intact. The release claim remains narrow:
+    bounded artifact-backed search visibility for successful local sync jobs,
+    not real provider fetch/import/reindex, durable/background indexing, broad
+    retry/backoff, worker supervision, or full provider/runtime parity.
   tests:
-    - cargo test -p sourcebot-api repo_commits -- --nocapture: passed (6 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api local_commit_store -- --nocapture: passed (6 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (9 matched in main target; lib target 0 tests)
-    - cargo test -p sourcebot-api repo_commit -- --nocapture: passed (12 matched in main target; lib target 0 tests)
-    - cargo fmt --check && git diff --check: passed
-    - added-lines security scan: passed
+    - cargo test -p sourcebot-api search_unscoped_uses_latest_successful_local_sync_search_index_artifact_for_visible_repo -- --nocapture: red first, then passed (1 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api search_context_uses_latest_successful_local_sync_search_index_artifact_for_scoped_repo -- --nocapture: passed (1 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api local_sync -- --nocapture: passed (11 matched in main target; lib target 0 tests)
+    - cargo test -p sourcebot-api search_ -- --nocapture: passed (23 matched in main target; lib target 0 tests)
+    - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking auth-scope, primary-precedence, duplicate-connection, bounded-Git-execution, security, or bounded-claim issues remained
-  commit: 0377af550b1790332523f551367b34f9389b6e36
-  next_task: task96ab
+    code: passed independent read-only review; no blocking auth-scope, primary-precedence, deterministic fallback, malformed-artifact, path/connection-safety, security, or bounded-claim issues remained; docs wording suggestions were tightened before close-out
+  commit: 9d26bd5b55a84f73e7495ca1cb81c5efca30bedb
+  next_task: task96ac
 current_task:
-  id: task96ab
+  id: task96ac
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -55,15 +53,16 @@ current_task:
     loaded without rewalking the snapshot, requested-repo search and
     index-status fallback that prefer that artifact when present while failing
     closed on malformed present artifacts and falling back to snapshot traversal
-    only for pre-artifact rows, settings UI visibility for local
-    manifest/snapshot artifact paths, no-revision tree/blob browse fallback,
-    no-revision definitions/references code-navigation fallback, bounded
-    local-Git commit list/detail/diff fallback under the caller-authorized
-    organization/repository boundary, bounded stale `running` repository-sync
-    lease recovery before each repository-sync claim, and one bounded automatic
-    stale-lease replay after an additional one-hour backoff. Practical
-    provider/runtime parity still needs a next meaningful closure that turns
-    local/provider jobs into broader real fetch/import/reindex or
+    only for pre-artifact rows, unscoped/search-context search fallback across
+    caller-visible repositories using the same artifact path, settings UI
+    visibility for local manifest/snapshot artifact paths, no-revision tree/blob
+    browse fallback, no-revision definitions/references code-navigation
+    fallback, bounded local-Git commit list/detail/diff fallback under the
+    caller-authorized organization/repository boundary, bounded stale `running`
+    repository-sync lease recovery before each repository-sync claim, and one
+    bounded automatic stale-lease replay after an additional one-hour backoff.
+    Practical provider/runtime parity still needs a next meaningful closure that
+    turns local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
     bookkeeping, broad automated retry/backoff semantics, duplicate-claim
     recovery beyond bounded one-shot lease failure plus one stale-lease replay,
@@ -72,6 +71,28 @@ current_task:
     provider/runtime parity explicit follow-up work.
 
 history:
+  - id: task96ab
+    status: done
+    summary: >-
+      Closed one bounded Task 96 provider/runtime indexing slice by allowing
+      authenticated unscoped and search-context scoped `/api/v1/search`
+      requests to fall back to latest successful caller-visible local sync
+      `search-index.json` artifacts when the primary startup search store has no
+      matching rows. The slice preserves requested-repo behavior, primary-search
+      precedence, visibility narrowing, deterministic visible-repo iteration,
+      and fail-closed malformed artifact handling; real provider
+      fetch/import/reindex, durable/background indexing, broad retry/backoff,
+      supervision, and full provider/runtime parity remain follow-up work.
+    tests:
+      - cargo test -p sourcebot-api search_unscoped_uses_latest_successful_local_sync_search_index_artifact_for_visible_repo -- --nocapture: red first, then passed
+      - cargo test -p sourcebot-api search_context_uses_latest_successful_local_sync_search_index_artifact_for_scoped_repo -- --nocapture: passed
+      - cargo test -p sourcebot-api local_sync -- --nocapture: passed
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed
+      - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking auth-scope, primary-precedence, deterministic fallback, malformed-artifact, path/connection-safety, security, or bounded-claim issues remained
+    commit: 9d26bd5b55a84f73e7495ca1cb81c5efca30bedb
+    next_task: task96ac
   - id: task96aa
     status: done
     summary: >-
