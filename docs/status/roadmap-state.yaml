@@ -5,64 +5,83 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e295db80ce52006be5d7cd88a90b4c36ba8e563f
+  head: eb6b26b29a25bb4d01fdcb5a6a3c2a5526e88701
 last_completed_task:
-  id: task94f
-  title: Bounded member removal baseline
+  id: task94g
+  title: Last-admin and self-removal policy hardening
   status: done
   summary: >-
-    Closed one meaningful Task 94f auth/admin lifecycle slice instead of
-    splitting backend member-removal routes, PostgreSQL membership deletion,
-    shipped file-backed audit visibility, rollback hardening, settings UI
-    controls, acceptance wording, parity-report updates, focused SQL-backed and
-    file-backed route coverage, and independent review into smaller paperwork
-    fragments. Authenticated local-session admins can now remove visible active
-    organization members through `DELETE /api/v1/auth/members/{user_id}` with
-    an administered `organization_id`; blank ids, hidden organizations,
-    non-admin callers, and unknown member targets fail closed without mutation;
-    both file-backed and PostgreSQL-backed paths delete only the membership and
-    never the local account; PostgreSQL-backed deletion preserves shipped
-    file-backed `auth.member.removed` audit visibility and best-effort restores
-    the durable membership if audit read/write fails; and the
-    `#/settings/members` panel exposes bounded remove controls only from the
-    loaded admin-visible roster. Docs keep the claim bounded: email delivery,
-    invite resend workflow, durable audit-event storage, last-admin/self-removal
-    policy enforcement, broad org/member CRUD, and full org/member lifecycle
-    parity remain follow-up work.
+    Closed one meaningful Task 94g auth/admin lifecycle hardening slice instead
+    of splitting PostgreSQL locking fixes, file-backed route policy gates,
+    focused SQL-backed/file-backed regressions, acceptance wording, parity-report
+    updates, and independent review into smaller paperwork-only runs.
+    Authenticated admin-visible member removal and role-update paths now reject
+    self-removal plus last-admin removal/demotion without mutation; the
+    PostgreSQL auth-metadata store enforces the same invariant inside the
+    update/delete transaction by locking concrete admin membership rows instead
+    of using invalid aggregate `COUNT(*) ... FOR UPDATE`; and docs keep the
+    claim bounded to fail-closed policy gates rather than broad role lifecycle
+    or full org/member CRUD parity.
   tests:
     - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (2 passed; 366 filtered)
-    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (9 passed; 359 filtered)
-    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_removes_and_restores_memberships_without_deleting_accounts -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 60/367 filtered)
+    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_removal_without_mutation -- --nocapture --test-threads=1: RED initially failed because PostgreSQL remove_member returned Some and allowed last-admin removal; after the fix, passed in lib and bin targets (1 passed each; 62/371 filtered)
+    - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_demotion_without_mutation -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 62/371 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (2 passed; 370 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (3 passed; 369 filtered)
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (11 passed; 361 filtered)
     - cargo fmt --check: passed
     - git diff --check: passed
-    - npm test -- --run src/App.test.tsx -t "removes a member": passed (1 passed; 173 skipped)
-    - npm test -- --run src/App.test.tsx -t "members": passed (7 passed; 167 skipped)
-    - npm test -- --run src/App.test.tsx: passed (174 passed)
-    - npm run build: passed after correcting stale root-owned web/dist asset ownership
-    - python3 raw-content doc/UI truth checks for auth acceptance, settings acceptance, parity-gap report, final audit wording, and settings copy: passed
+    - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved hidden/non-admin fail-closed gates, membership-only deletion without local-account deletion, parameterized PostgreSQL membership delete/restore, split-backend audit visibility with best-effort rollback on audit failures, bounded settings UI controls, and bounded docs with no blocking security or logic issues
-  commit: e295db80ce52006be5d7cd88a90b4c36ba8e563f
-  next_task: task94g
+    code: passed independent read-only review; reviewer approved file-backed self-removal and last-admin removal/demotion gates before membership mutation/audit writes, PostgreSQL transaction-bound last-admin checks using row-level locks instead of invalid aggregate FOR UPDATE, no-mutation behavior, and bounded docs, with only non-blocking future suggestions about deterministic lock ordering and split-backend audit atomicity under races
+  commit: eb6b26b29a25bb4d01fdcb5a6a3c2a5526e88701
+  next_task: task94h
 current_task:
-  id: task94g
+  id: task94h
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Continue auth/admin lifecycle parity beyond member removal
+  title: Continue auth/admin lifecycle parity beyond last-admin policy gates
   status: pending
   summary: >-
-    Task 94f adds bounded member removal on top of the durable invite
-    create/cancel and role-update baseline, but Task 94 remains partial. The
-    next meaningful closure should continue Phase C with another admin-visible
-    auth lifecycle blocker that can close with implementation, focused
-    verification, truthful docs, and independent review, such as invite
-    resend/email-delivery plumbing, durable audit-event storage for auth/admin
-    mutations, broader org/member CRUD, durable permission-sync behavior,
-    last-admin/self-removal policy hardening, or a pivot to Task 95
-    external-provider sign-in if that is the higher-value unblocked release
-    blocker. Do not claim full org/member lifecycle parity yet.
+    Task 94g closes bounded self-removal and last-admin removal/demotion policy
+    hardening for the current member lifecycle baseline, but Task 94 remains
+    partial. The next meaningful closure should continue Phase C with another
+    admin-visible auth lifecycle blocker that can close with implementation,
+    focused verification, truthful docs, and independent review, such as durable
+    audit-event storage for auth/admin mutations, invite resend/email-delivery
+    plumbing, broader org/member CRUD, durable permission-sync behavior, or a
+    pivot to Task 95 external-provider sign-in if that is the higher-value
+    unblocked release blocker. Do not claim full org/member lifecycle parity yet.
 history:
+  - id: task94g
+    status: done
+    summary: >-
+      Closed one meaningful Task 94g auth/admin lifecycle hardening slice instead
+      of splitting PostgreSQL locking fixes, file-backed route policy gates,
+      focused SQL-backed/file-backed regressions, acceptance wording, parity-report
+      updates, and independent review into smaller paperwork-only runs.
+      Authenticated admin-visible member removal and role-update paths now reject
+      self-removal plus last-admin removal/demotion without mutation; the
+      PostgreSQL auth-metadata store enforces the same invariant inside the
+      update/delete transaction by locking concrete admin membership rows instead
+      of using invalid aggregate `COUNT(*) ... FOR UPDATE`; and docs keep the
+      claim bounded to fail-closed policy gates rather than broad role lifecycle
+      or full org/member CRUD parity.
+    tests:
+      - repo-local PostgreSQL preflight: pg_ctl reported a live bundled server; DATABASE_URL and TEST_DATABASE_URL both returned select 1
+      - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_removal_without_mutation -- --nocapture --test-threads=1: RED initially failed because PostgreSQL remove_member returned Some and allowed last-admin removal; after the fix, passed in lib and bin targets (1 passed each; 62/371 filtered)
+      - cargo test -p sourcebot-api auth::tests::pg_org_auth_metadata_rejects_last_admin_demotion_without_mutation -- --nocapture --test-threads=1: passed in lib and bin targets (1 passed each; 62/371 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_role_update -- --nocapture --test-threads=1: passed (2 passed; 370 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_remove -- --nocapture --test-threads=1: passed (3 passed; 369 filtered)
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_members_ -- --nocapture --test-threads=1: passed (11 passed; 361 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 raw-content doc truth checks for auth acceptance, settings acceptance, parity-gap report, and final audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved file-backed self-removal and last-admin removal/demotion gates before membership mutation/audit writes, PostgreSQL transaction-bound last-admin checks using row-level locks instead of invalid aggregate FOR UPDATE, no-mutation behavior, and bounded docs, with only non-blocking future suggestions about deterministic lock ordering and split-backend audit atomicity under races
+    commit: eb6b26b29a25bb4d01fdcb5a6a3c2a5526e88701
+    next_task: task94h
   - id: task94f
     status: done
     summary: >-
