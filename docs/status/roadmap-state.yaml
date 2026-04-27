@@ -5,39 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ad79ec96311342e594de5f6ae45093778a7fd3e7
+  head: e24790c7f28a3b3b51eac9bb7f664caa1e8f212b
 last_completed_task:
-  id: task96q
-  title: Requested-repo local sync snapshot browse fallback
+  id: task96r
+  title: Requested-repo local sync snapshot code-navigation fallback
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime browse slice by allowing
-    no-revision `GET /api/v1/repos/{repo_id}/tree` and
-    `GET /api/v1/repos/{repo_id}/blob` requests for an already visible
+    Closed one meaningful Task 96 provider/runtime code-navigation slice by
+    allowing no-revision `GET /api/v1/repos/{repo_id}/definitions` and
+    `GET /api/v1/repos/{repo_id}/references` requests for an already visible
     repository to fall back to the latest successful local repository-sync
-    snapshot when the startup browse store has no tree/blob for that visible
-    repository. The fallback keeps the primary browse store authoritative,
-    does not apply to explicit revision requests, derives eligible snapshots
-    from the caller-authorized `(organization_id, repository_id)` boundary,
-    and keeps docs/audit wording explicit that this is bounded local snapshot
-    search/browse/status visibility only: no real provider fetch/import/reindex
-    execution, durable/background indexing, automated retry/backoff,
-    supervision, or full provider/runtime parity is claimed.
+    snapshot when the primary browse/code-navigation store has no blob for that
+    visible repository. The fallback keeps the primary browse store
+    authoritative, does not apply to explicit revision requests, uses the
+    terminal sync revision in response metadata and generated browse URLs,
+    honors API-key repo scopes before fallback, derives eligible snapshots from
+    the caller-authorized `(organization_id, repository_id)` boundary, and keeps
+    docs/audit wording explicit that this is bounded local snapshot
+    search/browse/status/code-navigation visibility only: no real provider
+    fetch/import/reindex execution, durable/background indexing, automated
+    retry/backoff, supervision, or full provider/runtime parity is claimed.
   tests:
-    - cargo test -p sourcebot-api repository_tree_and_blob_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: red first on API-key scoped fallback returning 200, then passed (1 matched main.rs test; lib target 0)
+    - cargo test -p sourcebot-api definitions -- --nocapture: passed (8 matched main.rs tests; lib target 0)
+    - cargo test -p sourcebot-api references -- --nocapture: passed (8 matched main.rs tests; lib target 0)
     - cargo test -p sourcebot-api repo_blob -- --nocapture: passed (10 matched main.rs tests; lib target 0)
     - cargo test -p sourcebot-api repository_tree -- --nocapture: passed (1 matched main.rs test; lib target 0)
-    - cargo test -p sourcebot-api search_ -- --nocapture: passed (18 matched main.rs tests; lib target 0)
     - cargo fmt --check: passed
-    - git diff --check: passed before and after final docs precision patch
+    - git diff --check: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
-    - docs marker checks for README, browse/generic-local-git/repository-operations acceptance, parity-gap report, and final parity audit/checklist: passed
+    - docs marker checks for README, code-nav/generic-local-git/repository-operations acceptance, parity-gap report, and final parity audit/checklist: passed
   review:
-    code: passed independent read-only review; no blocking authz, fallback-behavior, path-safety, or bounded-claim issues remained; one wording precision note was patched before commit
-  commit: ad79ec96311342e594de5f6ae45093778a7fd3e7
-  next_task: task96r
+    code: passed independent read-only re-review after fixing reviewer-found API-key repo-scope fallback blocker; no blocking authz, fallback-behavior, path-safety, revision, test, or bounded-claim issues remained
+  commit: e24790c7f28a3b3b51eac9bb7f664caa1e8f212b
+  next_task: task96s
 current_task:
-  id: task96r
+  id: task96s
   parent_task: phase-c-auth-admin-and-provider-parity
   title: Provider/runtime real fetch-import, reindex, or durable background indexing follow-up
   status: pending
@@ -52,8 +55,9 @@ current_task:
     repo-local tracked-content manifest, bounded tracked `HEAD` snapshot
     materialization, settings UI visibility for local manifest/snapshot artifact
     paths, requested-repo local snapshot search fallback, requested-repo local
-    snapshot index-status fallback, and no-revision tree/blob browse fallback
-    under the caller-authorized organization/repository boundary. Practical
+    snapshot index-status fallback, no-revision tree/blob browse fallback, and
+    no-revision definitions/references code-navigation fallback under the
+    caller-authorized organization/repository boundary. Practical
     provider/runtime parity still needs a next meaningful closure that turns
     local/provider jobs into broader real fetch/import/reindex or
     durable/background indexing behavior with durable progress/error
@@ -62,6 +66,31 @@ current_task:
     keeping recursive import, durable index status, and full provider/runtime
     parity explicit follow-up work.
 history:
+  - id: task96r
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime code-navigation slice by
+      letting no-revision repository definitions/references requests use the
+      latest successful local sync snapshot when the primary browse/code-nav
+      store has no blob for that visible repository. The fallback is gated by
+      API-key/session visible repo scope plus the caller-authorized
+      `(organization_id, repository_id)` boundary, preserves primary browse
+      results and explicit-revision semantics, emits terminal sync revisions in
+      response metadata and browse URLs, and remains bounded local snapshot
+      search/browse/status/code-navigation visibility only: no real provider
+      fetch/import/reindex, durable/background indexing, automated retry/backoff,
+      supervision, or full provider/runtime parity is claimed.
+    tests:
+      - cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: red first on API-key scoped fallback returning 200, then passed
+      - cargo test -p sourcebot-api definitions -- --nocapture: passed
+      - cargo test -p sourcebot-api references -- --nocapture: passed
+      - cargo test -p sourcebot-api repo_blob -- --nocapture: passed
+      - cargo test -p sourcebot-api repository_tree -- --nocapture: passed
+      - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    review:
+      code: passed independent read-only re-review after fixing reviewer-found API-key repo-scope fallback blocker; no blocking authz, fallback-behavior, path-safety, revision, test, or bounded-claim issues remained
+    commit: e24790c7f28a3b3b51eac9bb7f664caa1e8f212b
+    next_task: task96s
   - id: task96q
     status: done
     summary: >-
