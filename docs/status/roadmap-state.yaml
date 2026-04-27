@@ -5,52 +5,85 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7f286616b0dfcb0bb860a33418a7439ebe5ef668
+  head: b3fd90a5f2b6dea3f6073b49125cd8db0d1ec8c9
 last_completed_task:
-  id: task96b
-  title: Provider sync execution and progress baseline
+  id: task96c
+  title: Manual repository-sync retry baseline
   status: done
   summary: >-
-    Closed one meaningful Task 96 provider/runtime smoke closure instead of
-    splitting the contract wrapper, smoke assertions, worker-progress evidence,
-    acceptance wording, and review into paperwork-only runs. The end-to-end
-    smoke matrix now proves a bounded repository-sync enqueue-to-progress path:
-    an authenticated admin enqueues a visible repository sync job, authenticated
-    history observes it as queued, the real one-shot worker runs after
-    review-agent work is drained with the configured succeeded stub outcome, and
-    authenticated history plus persisted organization state observe the same job
-    as succeeded with start/finish timestamps. The contract wrapper now requires
-    the phase-specific `[repository-sync] worker completed queued sync job`
-    marker rather than a generic token that could be satisfied by the final PASS
-    line. The release claim remains deliberately bounded to one-shot stub
-    progress, not real provider fetch/import execution, retries, daemonized
-    scheduling, frontend controls, durable index status, or full provider/runtime
-    parity.
+    Closed one meaningful Task 96 provider/runtime hardening slice instead of
+    splitting retry-route behavior, fail-closed authz ordering regressions,
+    acceptance wording, parity-audit synchronization, PostgreSQL-backed route
+    family verification, and review into paperwork-only runs. Authenticated
+    organization admins can now POST
+    `/api/v1/auth/repository-sync-jobs/{job_id}/retry` for an admin-visible
+    failed repository-sync job to append a fresh queued retry with the same
+    organization, repository, and catalog-derived connection while preserving
+    the original terminal history row. Hidden/cross-org jobs fail closed before
+    terminal status checks, visible non-admin jobs fail closed before terminal
+    status checks, non-failed visible admin targets return conflict without
+    mutation, and docs keep the release claim bounded to manual backend retry
+    rather than automated backoff, real provider fetch/import execution,
+    supervised scheduling, frontend controls, durable index status, or full
+    provider/runtime parity.
   tests:
-    - bash -n scripts/check_end_to_end_smoke_matrix.sh scripts/check_end_to_end_smoke_matrix_contract.sh: passed
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_retry -- --nocapture: passed (4 passed; 374 filtered)
+    - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+    - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (10 passed; 368 filtered)
+    - cargo fmt --check: passed
     - git diff --check: passed
-    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed in background with completion notification; output PASS: end-to-end smoke matrix contract verified
-    - python3 doc/script marker checks for the phase-specific repository-sync marker and bounded acceptance wording: passed
+    - python3 doc truth-marker checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
     - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
   review:
-    code: passed independent read-only review; reviewer approved the admin enqueue, queued-history, one-shot worker, terminal-history, persisted organization-state assertions, the phase-specific contract marker, and bounded docs, with only a non-blocking note that the queued-list GET assertion checks presence/status rather than null start/finish timestamps
-  commit: 7f286616b0dfcb0bb860a33418a7439ebe5ef668
-  next_task: task96c
+    code: passed independent read-only review; reviewer approved retry-route authentication, visibility-before-status ordering for hidden non-failed jobs, admin-before-status ordering for visible non-admin non-failed jobs, no-mutation failure paths, terminal-history preservation, and bounded manual-retry docs, with only non-blocking notes about practically negligible retry-id collision risk and docs wording that was tightened from generic retries to automated retries/backoff before commit
+  commit: b3fd90a5f2b6dea3f6073b49125cd8db0d1ec8c9
+  next_task: task96d
 current_task:
-  id: task96c
+  id: task96d
   parent_task: phase-c-auth-admin-and-provider-parity
-  title: Provider sync runtime hardening beyond one-shot stub progress
+  title: Provider sync retry and worker execution hardening beyond manual backend retry
   status: pending
   summary: >-
-    Task 96b proves a repo-local enqueue-to-terminal-history smoke for the
-    existing one-shot stub worker, but practical provider/runtime parity still
-    needs a meaningful next closure that moves beyond stub smoke evidence. The
-    next Task 96 slice should target a bounded real provider/runtime blocker,
-    such as durable sync progress/error bookkeeping, retry/no-duplicate-claim
-    hardening, or a real generic/local Git fetch/import tick, while keeping docs
-    explicit that broader host discovery, supervised scheduling, frontend
-    controls, durable index status, and full provider parity remain follow-up.
+    Task 96c adds a fail-closed manual backend retry surface for failed
+    repository-sync jobs, but practical provider/runtime parity still needs a
+    meaningful next closure that moves retry/progress beyond manually appending
+    queued stub jobs. The next Task 96 slice should target a bounded real
+    provider/runtime blocker such as worker-side retry/backoff semantics,
+    duplicate-claim prevention/recovery, durable progress/error bookkeeping, or
+    a real generic/local Git fetch/import tick while keeping docs explicit that
+    broad provider discovery, daemonized supervision, frontend controls, durable
+    index status, and full provider parity remain follow-up.
 history:
+  - id: task96c
+    status: done
+    summary: >-
+      Closed one meaningful Task 96 provider/runtime hardening slice instead of
+      splitting retry-route behavior, fail-closed authz ordering regressions,
+      acceptance wording, parity-audit synchronization, PostgreSQL-backed route
+      family verification, and review into paperwork-only runs. Authenticated
+      organization admins can now POST
+      `/api/v1/auth/repository-sync-jobs/{job_id}/retry` for an admin-visible
+      failed repository-sync job to append a fresh queued retry with the same
+      organization, repository, and catalog-derived connection while preserving
+      the original terminal history row. Hidden/cross-org jobs fail closed before
+      terminal status checks, visible non-admin jobs fail closed before terminal
+      status checks, non-failed visible admin targets return conflict without
+      mutation, and docs keep the release claim bounded to manual backend retry
+      rather than automated backoff, real provider fetch/import execution,
+      supervised scheduling, frontend controls, durable index status, or full
+      provider/runtime parity.
+    tests:
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs_retry -- --nocapture: passed (4 passed; 374 filtered)
+      - repo-local PostgreSQL preflight as hermes: bundled pg_ctl reported a live server and bundled psql proved both DATABASE_URL and TEST_DATABASE_URL with select 1
+      - cargo test -p sourcebot-api --bin sourcebot-api auth_repository_sync_jobs -- --nocapture --test-threads=1: passed with .env/PostgreSQL preflight (10 passed; 368 filtered)
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - python3 doc truth-marker checks for repository-operations, generic-local-git, acceptance index, parity-gap report, and final parity audit wording: passed
+      - python3 added-lines security scan over git diff --unified=0: passed (0 findings)
+    review:
+      code: passed independent read-only review; reviewer approved retry-route authentication, visibility-before-status ordering for hidden non-failed jobs, admin-before-status ordering for visible non-admin non-failed jobs, no-mutation failure paths, terminal-history preservation, and bounded manual-retry docs, with only non-blocking notes about practically negligible retry-id collision risk and docs wording that was tightened from generic retries to automated retries/backoff before commit
+    commit: b3fd90a5f2b6dea3f6073b49125cd8db0d1ec8c9
+    next_task: task96d
   - id: task96b
     status: done
     summary: >-
