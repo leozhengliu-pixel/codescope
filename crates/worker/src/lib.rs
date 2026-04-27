@@ -246,6 +246,34 @@ fn run_local_repository_sync_execution(
         Err(error) => return Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
+    let content_paths = match run_git_command(
+        git_command,
+        repo_path,
+        &["ls-tree", "-r", "--name-only", "HEAD"],
+        timeout,
+    ) {
+        Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .count()
+        }
+        Ok(Some(output)) if output.status.success() => {
+            return Some(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD found no tracked content"
+            ))
+        }
+        Ok(Some(output)) => return Some(git_failure_detail("git ls-tree -r --name-only HEAD", &output)),
+        Ok(None) => {
+            return Some(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-tree -r --name-only HEAD timed out after {}ms",
+                timeout.as_millis()
+            ))
+        }
+        Err(error) => return Some(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
+    };
+
     match run_git_command(
         git_command,
         repo_path,
@@ -258,7 +286,8 @@ fn run_local_repository_sync_execution(
                 repo_path = %repo_path,
                 head = %head,
                 current_branch = %branch,
-                "completed bounded local repository sync Git metadata execution"
+                content_file_count = content_paths,
+                "completed bounded local repository sync Git content discovery"
             );
             None
         }
@@ -1362,6 +1391,66 @@ mod tests {
                 .unwrap_or_default()
                 .contains("local repository sync execution failed"),
             "empty local repo should fail the real Git execution step after preflight: {failed_job:?}"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_closed_for_local_git_repository_without_tracked_content(
+    ) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-empty-tree-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "--allow-empty", "-m", "empty fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_empty_tree",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let failed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued local repository sync job should be terminally recorded");
+
+        assert_eq!(failed_job.id, "sync_job_local_empty_tree");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert!(
+            failed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("local repository sync execution failed: git ls-tree -r --name-only HEAD found no tracked content"),
+            "empty committed local repo should fail the content discovery step: {failed_job:?}"
         );
 
         let persisted = store.organization_state().await.unwrap();
