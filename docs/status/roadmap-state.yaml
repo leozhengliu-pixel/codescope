@@ -5,46 +5,47 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7d6f515fbffbbc8bba8b86d18741dd921208a404
+  head: 4cd1cac00033102967a13ae596a9a48a1841a821
 last_completed_task:
-  id: task102ad
-  title: Accelerated search artifact, code-nav URL, and Generic Git credential hardening batch
+  id: task102ae
+  title: Accelerated search artifact parent, code-nav URL, and Generic Git URL hardening batch
   status: done
   summary: >-
     Closed an accelerated three-worker integration batch with three accepted
-    implementation-backed hardening closures. Persisted local-sync search-index
-    artifacts now fail closed when the artifact path is not a direct regular file
-    or is a symlink, preventing indirection from being trusted as indexed search
-    evidence. Code-navigation definition/reference browse URLs now percent-encode
-    repository identifiers as well as path and revision values, so generated
-    symbol links remain structurally correct for repository ids containing reserved
-    URL characters. Generic Git repository-sync execution now rejects HTTP(S)
-    base_url values with embedded credentials before spawning git and emits a
-    stable redacted failure instead of echoing credential-bearing remotes.
+    implementation-backed hardening/evidence closures. Persisted local-sync
+    search-index artifact loading now rejects symlinked parent path components
+    before trusting an artifact path, reducing local artifact indirection risk
+    beyond direct file-symlink rejection. Code-navigation definition/reference
+    browse URL regression coverage now proves reserved revision characters are
+    percent-encoded for both generated symbol-link surfaces. Generic Git
+    repository-sync URL validation now rejects mixed-case HTTP(S) credential
+    URLs and percent-encoded userinfo separators before spawning git while
+    preserving the stable redacted failure prefix.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_persisted_index_artifacts -- --nocapture: passed with 1 unit test and 29 filtered out after RED failure in worker branch'
-    - 'cargo test -p sourcebot-search -- --nocapture: passed with 30 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api browse_url_encodes_repo_path_and_revision_values -- --nocapture: passed with 2 bin tests, 0 lib tests, and 440 filtered out after RED failure in worker branch'
-    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed with 9 bin tests, 0 lib tests, and 433 filtered out'
-    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 13 lib tests, zero-test non-lib targets noted, and 30 filtered out after RED failure in worker branch'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed with 17 lib tests, zero-test non-lib targets noted, and 26 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_persisted_index_artifact_parent -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 unit test and 30 filtered out'
+    - 'cargo test -p sourcebot-search -- --nocapture: passed in main with 31 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api definitions_and_references_browse_urls_encode_reserved_revisions -- --nocapture: passed in main with 1 bin test, 0 lib tests, and 441 filtered out'
+    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in main with 10 bin tests, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in main with 11 bin tests, 0 lib tests, and 431 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git_percent_encoded_userinfo_fails_closed_before_spawning_git -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 lib test, zero-test non-lib targets noted, and 44 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed in main with 15 lib tests, zero-test non-lib targets noted, and 30 filtered out'
+    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in main with 17 lib tests, zero-test non-lib targets noted, and 28 filtered out'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 240520fa506679724b9e53e81a3dab0b82d2d70f..HEAD: passed'
-    - 'added-lines security scan over 240520fa506679724b9e53e81a3dab0b82d2d70f..HEAD: passed with no findings'
-    - 'independent integration review over 240520fa506679724b9e53e81a3dab0b82d2d70f..HEAD: passed with no blocking security concerns or logic errors'
+    - 'git diff --check 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed'
+    - 'added-lines security scan over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no findings'
+    - 'independent integration review over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no blocking security concerns or logic errors'
   review:
     code: >-
       Independent integration review passed across the three-commit batch. The
-      reviewer found no security concerns or logic errors, confirmed symlink and
-      non-regular search-index artifacts are rejected with symlink_metadata plus
-      O_NOFOLLOW/opened-file metadata checks, confirmed generated code-navigation
-      links encode repository ids/path/revision values safely, and confirmed
-      credential-bearing Generic Git HTTP(S) remotes fail before git spawn with a
-      redacted stable error. Non-blocking follow-ups remain for extra mixed-case
-      Generic Git credential URL cases and documenting the search artifact parent
-      directory symlink boundary.
-  commit: 7d6f515fbffbbc8bba8b86d18741dd921208a404
+      reviewer found no security concerns or logic errors, confirmed search-index
+      artifact loading now rejects symlinked parent components while preserving
+      final-artifact no-follow checks, confirmed generated code-navigation links
+      use shared percent-encoding for repository ids, paths, and revisions, and
+      confirmed Generic Git URL validation rejects raw, mixed-case, and
+      percent-encoded credential-bearing remotes before git spawn with a redacted
+      stable error. The only suggestion was a future openat-style traversal to
+      further reduce symlink race exposure.
+  commit: 4cd1cac00033102967a13ae596a9a48a1841a821
   next_task: task102
 current_task:
   id: task102
@@ -55,28 +56,61 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/106/107/108 blockers when scopes are disjoint. The latest integrated
-    batch closed three practical hardening gaps: search-index artifact loading now
-    rejects symlink/non-direct-regular-file artifact paths instead of following
-    indirection; code-navigation generated browse links encode repository ids as
-    URL path segments; and Generic Git worker execution rejects credential-bearing
-    HTTP(S) remotes before spawning git. Existing search evidence now includes
-    bounded authenticated query-size validation, frontend-visible saved-context
-    management for non-empty repository scopes, fail-closed backend context
-    narrowing, explicit boolean/literal/regex modes, deterministic ordering,
-    repository-detail index-status visibility, indexed-empty/skipped-only
-    semantics, persisted artifact path/repo-id/count/status validation including
-    symlink/non-regular artifact rejection, hardened local-sync artifact loading
+    batch closed three practical hardening/evidence gaps: local-sync search-index
+    artifact loading rejects symlinked parent path components in addition to
+    symlink/non-regular artifact files; code-navigation generated browse URLs have
+    focused evidence that reserved revision characters are percent-encoded for
+    both definitions and references; and Generic Git worker execution rejects
+    mixed-case HTTP(S) and percent-encoded userinfo credential-bearing remotes
+    before spawning git. Existing search evidence now includes bounded
+    authenticated query-size validation, frontend-visible saved-context management
+    for non-empty repository scopes, fail-closed backend context narrowing,
+    explicit boolean/literal/regex modes, deterministic ordering, repository-detail
+    index-status visibility, indexed-empty/skipped-only semantics, persisted
+    artifact path/repo-id/count/status validation including symlink/non-regular
+    artifact and symlinked-parent rejection, hardened local-sync artifact loading
     for corrupt or inconsistent status/content evidence, fail-closed regex bounds,
     fail-closed empty search semantics for present malformed artifacts without
     aborting unscoped results from other visible repositories, fail-closed
     pagination validation, and authorization-domain pagination/count evidence.
     Remaining Task 102 work should move practical indexing/runtime behavior,
     operator-visible index lifecycle/status, failure recovery, relevance/pagination
-    stability at scale, branch/index availability, and production
-    search/indexing parity while preserving fail-closed visibility boundaries,
-    focused verification, bounded docs claims, independent review, commit, state
-    update, and push.
+    stability at scale, branch/index availability, and production search/indexing
+    parity while preserving fail-closed visibility boundaries, focused
+    verification, bounded docs claims, independent review, commit, state update,
+    and push.
 history:
+  - id: task102ae
+    status: done
+    summary: >-
+      Closed an accelerated three-worker integration batch. Local-sync
+      search-index artifact loading now rejects symlinked parent path components,
+      code-navigation generated browse URLs have regression evidence for
+      reserved revision percent-encoding across definitions and references, and
+      Generic Git repository-sync rejects mixed-case HTTP(S) plus percent-encoded
+      userinfo credential-bearing remotes before spawning git with a redacted
+      stable error.
+    commit: 4cd1cac00033102967a13ae596a9a48a1841a821
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_persisted_index_artifact_parent -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 unit test and 30 filtered out'
+      - 'cargo test -p sourcebot-search -- --nocapture: passed in main with 31 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api definitions_and_references_browse_urls_encode_reserved_revisions -- --nocapture: passed in main with 1 bin test, 0 lib tests, and 441 filtered out'
+      - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in main with 10 bin tests, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in main with 11 bin tests, 0 lib tests, and 431 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git_percent_encoded_userinfo_fails_closed_before_spawning_git -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 lib test, zero-test non-lib targets noted, and 44 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed in main with 15 lib tests, zero-test non-lib targets noted, and 30 filtered out'
+      - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in main with 17 lib tests, zero-test non-lib targets noted, and 28 filtered out'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed'
+      - 'added-lines security scan over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no findings'
+      - 'independent integration review over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no blocking issues'
+    review: >-
+      Independent integration review passed. The reviewer confirmed symlinked
+      parent path rejection for persisted search-index artifacts, URL-safe
+      code-navigation browse links for reserved revision values across definitions
+      and references, Generic Git raw/mixed-case/percent-encoded credential URL
+      rejection and redaction before git spawn, and bounded scope.
+    completed_at: '2026-04-28'
   - id: task102ad
     status: done
     summary: >-
