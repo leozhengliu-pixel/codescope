@@ -288,14 +288,12 @@ impl LocalSearchStore {
 
     fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
         let normalized_query = query.to_lowercase();
-        let query_terms: Vec<&str> = normalized_query.split_whitespace().collect();
+        let query_terms = parse_query_terms(&normalized_query);
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
-            .filter(|indexed_line| {
-                line_matches_query(&indexed_line.line, &normalized_query, &query_terms)
-            })
+            .filter(|indexed_line| line_matches_query(&indexed_line.line, &query_terms))
             .map(|indexed_line| SearchResult {
                 repo_id: repo_id.to_string(),
                 path: indexed_line.path.clone(),
@@ -425,14 +423,59 @@ impl SearchStore for LocalSearchStore {
     }
 }
 
-fn line_matches_query(line: &str, normalized_query: &str, query_terms: &[&str]) -> bool {
-    let normalized_line = line.to_lowercase();
-    if query_terms.len() <= 1 {
-        return normalized_line.contains(normalized_query);
+fn line_matches_query(line: &str, query_terms: &[String]) -> bool {
+    if query_terms.is_empty() {
+        return false;
     }
+
+    let normalized_line = line.to_lowercase();
     query_terms
         .iter()
         .all(|term| normalized_line.contains(term))
+}
+
+fn parse_query_terms(normalized_query: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    let mut pending = String::new();
+    let mut chars = normalized_query.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            if !pending.trim().is_empty() {
+                terms.extend(pending.split_whitespace().map(ToOwned::to_owned));
+                pending.clear();
+            }
+
+            let mut phrase = String::new();
+            let mut closed = false;
+            for phrase_ch in chars.by_ref() {
+                if phrase_ch == '"' {
+                    closed = true;
+                    break;
+                }
+                phrase.push(phrase_ch);
+            }
+
+            if closed {
+                let phrase = phrase.trim();
+                if !phrase.is_empty() {
+                    terms.push(phrase.to_string());
+                }
+            } else {
+                pending.push('"');
+                pending.push_str(&phrase);
+            }
+            continue;
+        }
+
+        pending.push(ch);
+    }
+
+    if !pending.trim().is_empty() {
+        terms.extend(pending.split_whitespace().map(ToOwned::to_owned));
+    }
+
+    terms
 }
 
 fn should_skip_file(path: &Path) -> bool {
@@ -750,6 +793,42 @@ mod tests {
                 && result.line == "build_router is documented here"
         }));
         assert!(response
+            .results
+            .iter()
+            .all(|result| result.path != "src/main.rs"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_matches_quoted_phrases_and_unquoted_terms() {
+        let (store, root) = create_test_store();
+
+        let exact_phrase_response = store.search("\"build router\"", Some("repo_test")).unwrap();
+        assert!(
+            exact_phrase_response.results.is_empty(),
+            "quoted phrases should not be split into broad all-term matches"
+        );
+
+        let empty_phrase_response = store.search("\"\"", Some("repo_test")).unwrap();
+        assert!(
+            empty_phrase_response.results.is_empty(),
+            "empty quoted phrases should not broaden into all indexed lines"
+        );
+
+        let mixed_phrase_response = store
+            .search("\"build_router is documented\" here", Some("repo_test"))
+            .unwrap();
+        assert_eq!(
+            mixed_phrase_response.query,
+            "\"build_router is documented\" here"
+        );
+        assert!(mixed_phrase_response.results.iter().any(|result| {
+            result.path == "README.md"
+                && result.line_number == 1
+                && result.line == "build_router is documented here"
+        }));
+        assert!(mixed_phrase_response
             .results
             .iter()
             .all(|result| result.path != "src/main.rs"));
