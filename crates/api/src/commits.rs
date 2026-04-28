@@ -19,6 +19,7 @@ const FIELD_SEPARATOR: char = '\u{1f}';
 const RECORD_SEPARATOR: char = '\u{1e}';
 const COMMIT_DIFF_PATCH_MAX_BYTES: usize = 64 * 1024;
 const COMMIT_DIFF_PATCH_TRUNCATED_MARKER: &str = "[Sourcebot diff truncated: patch exceeds 64 KiB]";
+const MAX_COMMIT_PAGE_LIMIT: usize = 100;
 
 pub trait CommitStore: Send + Sync {
     fn list_commits(
@@ -185,7 +186,7 @@ impl CommitStore for LocalCommitStore {
         offset: usize,
         revision: Option<&str>,
     ) -> Result<Option<CommitListResponse>> {
-        let page_limit = limit.max(1);
+        let page_limit = limit.clamp(1, MAX_COMMIT_PAGE_LIMIT);
         let Some(repo_root) = self.repo_root(repo_id) else {
             if self.supports_empty_history(repo_id) {
                 return Ok(Some(CommitListResponse {
@@ -887,6 +888,31 @@ mod tests {
         assert_eq!(second_page.commits[0].summary, "first");
         assert!(!second_page.page_info.has_next_page);
         assert_eq!(second_page.page_info.next_offset, None);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_clamps_oversized_commit_page_limits() {
+        let repo_root = create_temp_git_repo("commit-limit-clamp");
+        for summary in ["first", "second", "third"] {
+            fs::write(repo_root.join("history.txt"), format!("{summary}\n")).unwrap();
+            git_in(&repo_root, &["add", "history.txt"]);
+            git_in(&repo_root, &["commit", "-m", summary]);
+        }
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let response = store
+            .list_commits("repo_temp", 1_000, 0, None)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.page_info.limit, MAX_COMMIT_PAGE_LIMIT);
+        assert_eq!(response.commits.len(), 3);
+        assert!(!response.page_info.has_next_page);
 
         fs::remove_dir_all(repo_root).unwrap();
     }
