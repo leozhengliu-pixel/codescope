@@ -226,6 +226,10 @@ fn run_generic_git_repository_sync_execution(
     base_url: &str,
     timeout: Duration,
 ) -> Result<GenericGitRepositorySyncExecution, String> {
+    validate_non_blank_repository_sync_config_value("Generic Git base_url", base_url).map_err(
+        |error| format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"),
+    )?;
+
     let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
         Ok(Some(output)) if output.status.success() => output,
         Ok(Some(output)) => return Err(generic_git_failure_detail("git ls-remote --heads", &output)),
@@ -294,6 +298,12 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
     let Some(ConnectionConfig::Local { repo_path }) = &connection.config else {
         return None;
     };
+
+    if let Err(error) =
+        validate_non_blank_repository_sync_config_value("local repository repo_path", repo_path)
+    {
+        return Some(fail_local_repository_sync_job(job, finished_at, error));
+    }
 
     let preflight = run_git_working_tree_preflight(git_command, repo_path, preflight_timeout);
 
@@ -969,6 +979,17 @@ fn fail_local_repository_sync_job(
         finished_at,
         Some(error),
     )
+}
+
+fn validate_non_blank_repository_sync_config_value(
+    field_name: &str,
+    value: &str,
+) -> Result<(), String> {
+    if value.trim().is_empty() {
+        Err(format!("{field_name} is empty"))
+    } else {
+        Ok(())
+    }
 }
 
 pub fn execute_claimed_review_agent_run_stub(
@@ -2062,6 +2083,52 @@ mod tests {
         assert_eq!(persisted.repository_sync_jobs[1], failed_job);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_blank_repo_path_fails_closed_before_spawning_git() {
+        let state = OrganizationState {
+            connections: vec![local_connection("   ")],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_blank_path",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            Duration::from_millis(50),
+        )
+        .expect("blank local repo_path should terminally fail the job before git is spawned");
+
+        assert_eq!(failed_job.id, "sync_job_local_blank_path");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: local repository repo_path is empty")
+        );
+    }
+
+    #[test]
+    fn generic_git_blank_base_url_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            "\t  ",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("blank Generic Git base_url should fail before git is spawned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url is empty"
+        );
     }
 
     #[tokio::test]
