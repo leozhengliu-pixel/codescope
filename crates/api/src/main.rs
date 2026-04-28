@@ -50,8 +50,8 @@ use sourcebot_models::{
     SearchContext,
 };
 use sourcebot_search::{
-    build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexStatus,
-    SearchMode, SearchPagination, SearchResponse, SearchStore, SymbolKind,
+    build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexState,
+    RepositoryIndexStatus, SearchMode, SearchPagination, SearchResponse, SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read};
@@ -5997,12 +5997,19 @@ async fn local_sync_snapshot_index_status_for_repo(
             if !metadata.is_file() {
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
-            return LocalSearchStore::from_index_artifact(
+            return match LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             )
             .and_then(|search| search.repository_index_status(repo_id))
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+            {
+                Ok(status) => Ok(status),
+                Err(error) => Ok(Some(malformed_search_index_artifact_status(
+                    repo_id,
+                    &snapshot.search_index_artifact_path,
+                    error,
+                ))),
+            };
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -6016,6 +6023,27 @@ async fn local_sync_snapshot_index_status_for_repo(
     snapshot_search
         .repository_index_status(repo_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn malformed_search_index_artifact_status(
+    repo_id: &str,
+    artifact_path: &std::path::Path,
+    error: anyhow::Error,
+) -> RepositoryIndexStatus {
+    let artifact_path = artifact_path.display().to_string();
+    let mut error = error.to_string();
+    if !artifact_path.is_empty() {
+        error = error.replace(&artifact_path, "<redacted>");
+    }
+
+    RepositoryIndexStatus {
+        repo_id: repo_id.to_string(),
+        status: RepositoryIndexState::Error,
+        indexed_file_count: 0,
+        indexed_line_count: 0,
+        skipped_file_count: 0,
+        error: Some(error),
+    }
 }
 
 const DEFAULT_SEARCH_RESULT_LIMIT: usize = 100;
@@ -29195,6 +29223,101 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_index_status_surfaces_malformed_local_sync_search_index_artifact_reason() {
+        let repo_root = unique_test_path("index-status-corrupt-search-artifact-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn mutable_snapshot_should_not_be_used_when_artifact_is_corrupt() {}\n",
+        )
+        .unwrap();
+        fs::write(job_root.join("search-index.json"), b"{not valid json").unwrap();
+
+        let organization_state_path = unique_test_path("index-status-corrupt-artifact-orgs");
+        let local_session_state_path = unique_test_path("index-status-corrupt-artifact-sessions");
+        let user_id = "user_local_corrupt_artifact_index_status";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatusResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.status, "error");
+        assert_eq!(payload.indexed_file_count, 0);
+        assert_eq!(payload.indexed_line_count, 0);
+        assert_eq!(payload.skipped_file_count, 0);
+        let error = payload.error.expect("error status includes a reason");
+        assert!(
+            error.contains("failed to parse local search index artifact"),
+            "unexpected error: {error}"
+        );
+        assert!(!error.contains(repo_root.to_string_lossy().as_ref()));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
