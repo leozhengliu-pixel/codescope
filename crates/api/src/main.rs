@@ -81,6 +81,7 @@ struct AppState {
 
 const DEFAULT_ASK_USER_ID: &str = "local_user";
 const LOCAL_BOOTSTRAP_ADMIN_USER_ID: &str = "local_user_bootstrap_admin";
+const MAX_CODE_NAV_REFERENCE_RESULTS: usize = 1_000;
 static NEXT_ASK_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize)]
@@ -5807,6 +5808,7 @@ fn build_reference_responses(
             .then(left.browse_url.cmp(&right.browse_url))
     });
     references.dedup();
+    references.truncate(MAX_CODE_NAV_REFERENCE_RESULTS);
     references
 }
 
@@ -31486,6 +31488,32 @@ mod tests {
                 panic!("expected supported references response")
             }
         }
+    }
+
+    #[test]
+    fn reference_responses_are_capped_after_stable_ordering_and_deduplication() {
+        let mut references = (0..1_250)
+            .rev()
+            .map(|line_number| ReferenceMatch {
+                path: "src/lib.rs".into(),
+                line_number,
+                line: format!("call_{line_number}();"),
+            })
+            .collect::<Vec<_>>();
+        references.push(ReferenceMatch {
+            path: "src/lib.rs".into(),
+            line_number: 0,
+            line: "call_0();".into(),
+        });
+
+        let capped = build_reference_responses("repo_test", Some("HEAD"), references);
+
+        assert_eq!(capped.len(), MAX_CODE_NAV_REFERENCE_RESULTS);
+        assert_eq!(capped[0].line_number, 0);
+        assert_eq!(capped[MAX_CODE_NAV_REFERENCE_RESULTS - 1].line_number, 999);
+        assert!(capped
+            .iter()
+            .all(|reference| reference.browse_url.contains("revision=HEAD")));
     }
 
     #[tokio::test]
