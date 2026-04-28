@@ -209,9 +209,17 @@ type CommitSummary = {
   authored_at: string;
 };
 
+type CommitPageInfo = {
+  limit: number;
+  offset: number;
+  has_next_page: boolean;
+  next_offset: number | null;
+};
+
 type CommitsResponse = {
   repo_id: string;
   commits: CommitSummary[];
+  page_info?: CommitPageInfo;
 };
 
 type RepoRouteState = {
@@ -2569,10 +2577,14 @@ function RepoDetailPage({
   );
 }
 
+const COMMIT_PAGE_LIMIT = 20;
+
 function CommitsPanel({ repoId, revision }: { repoId: string; revision: string | null }) {
   const [commits, setCommits] = useState<CommitSummary[]>([]);
   const [commitsLoading, setCommitsLoading] = useState(true);
   const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [commitOffset, setCommitOffset] = useState(0);
+  const [commitPageInfo, setCommitPageInfo] = useState<CommitPageInfo | null>(null);
   const [selectedCommitId, setSelectedCommitId] = useState<string | null>(null);
   const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
   const [commitLoading, setCommitLoading] = useState(false);
@@ -2592,7 +2604,10 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
     setCommitDiffError(null);
     setCommitDiffLoading(false);
 
-    const params = new URLSearchParams({ limit: '20' });
+    const params = new URLSearchParams({ limit: String(COMMIT_PAGE_LIMIT) });
+    if (commitOffset > 0) {
+      params.set('offset', String(commitOffset));
+    }
     if (revision) {
       params.set('revision', revision);
     }
@@ -2601,12 +2616,21 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
       .then((data) => {
         if (!cancelled) {
           setCommits(data.commits);
+          setCommitPageInfo(
+            data.page_info ?? {
+              limit: COMMIT_PAGE_LIMIT,
+              offset: commitOffset,
+              has_next_page: false,
+              next_offset: null,
+            }
+          );
           setCommitsError(null);
         }
       })
       .catch((err: Error) => {
         if (!cancelled) {
           setCommits([]);
+          setCommitPageInfo(null);
           setCommitsError(err.message);
         }
       })
@@ -2619,7 +2643,7 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
     return () => {
       cancelled = true;
     };
-  }, [repoId, revision]);
+  }, [commitOffset, repoId, revision]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2698,18 +2722,61 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
     };
   }, [repoId, selectedCommitId]);
 
+  const commitPageStart = commitPageInfo ? commitPageInfo.offset + 1 : 0;
+  const commitPageEnd = commitPageInfo ? commitPageInfo.offset + commits.length : commits.length;
+  const previousCommitOffset = commitPageInfo ? Math.max(0, commitPageInfo.offset - commitPageInfo.limit) : 0;
+  const canGoPreviousCommitPage = Boolean(commitPageInfo && commitPageInfo.offset > 0 && !commitsLoading);
+  const canGoNextCommitPage = Boolean(commitPageInfo?.has_next_page && commitPageInfo.next_offset !== null && !commitsLoading);
+
+  const goToCommitPage = (nextOffset: number) => {
+    setCommitOffset(nextOffset);
+    setSelectedCommitId(null);
+    setCommitDetail(null);
+    setCommitError(null);
+    setCommitLoading(false);
+    setCommitDiff(null);
+    setCommitDiffError(null);
+    setCommitDiffLoading(false);
+  };
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 1fr) minmax(0, 2fr)', gap: 12 }}>
       <section style={browseSectionStyle}>
         <div style={browseSectionHeaderStyle}>
           <div>
             <div style={browseSectionTitleStyle}>Recent commits</div>
-            <div style={browseSectionMetaStyle}>Latest 20 commits from the repository API.</div>
+            <div style={browseSectionMetaStyle}>Paged commit history from the repository API.</div>
           </div>
         </div>
 
         {commitsLoading ? <div>Loading commits…</div> : null}
         {!commitsLoading && commitsError ? <div>Unable to load commits: {commitsError}</div> : null}
+        {!commitsLoading && !commitsError && commitPageInfo ? (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <span style={browseSectionMetaStyle}>Showing commits {commitPageStart}–{commitPageEnd}</span>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              disabled={!canGoPreviousCommitPage}
+              onClick={() => goToCommitPage(previousCommitOffset)}
+            >
+              Previous commits page
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              disabled={!canGoNextCommitPage}
+              onClick={() => {
+                if (commitPageInfo.next_offset === null) {
+                  return;
+                }
+                goToCommitPage(commitPageInfo.next_offset);
+              }}
+            >
+              Next commits page
+            </button>
+          </div>
+        ) : null}
         {!commitsLoading && !commitsError && commits.length === 0 ? <div>No commits found.</div> : null}
         {!commitsLoading && !commitsError && commits.length > 0 ? (
           <div style={{ display: 'grid', gap: 8 }}>

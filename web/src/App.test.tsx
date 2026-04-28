@@ -2401,6 +2401,100 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits/abc123def456/diff');
   });
 
+  it('renders commit pagination controls from page_info and requests the next offset', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'page1commit0001',
+              short_id: 'page1co',
+              summary: 'First page commit',
+              author_name: 'Alice Example',
+              authored_at: '2026-04-15T00:00:00Z',
+            },
+          ],
+          page_info: {
+            limit: 20,
+            offset: 0,
+            has_next_page: true,
+            next_offset: 20,
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20&offset=20') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          commits: [
+            {
+              id: 'page2commit0001',
+              short_id: 'page2co',
+              summary: 'Second page commit',
+              author_name: 'Bob Example',
+              authored_at: '2026-04-14T00:00:00Z',
+            },
+          ],
+          page_info: {
+            limit: 20,
+            offset: 20,
+            has_next_page: false,
+            next_offset: null,
+          },
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('First page commit')).toBeInTheDocument();
+    expect(screen.getByText('Showing commits 1–1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous commits page' })).toBeDisabled();
+
+    const nextPageButton = screen.getByRole('button', { name: 'Next commits page' });
+    expect(nextPageButton).toBeEnabled();
+    fireEvent.click(nextPageButton);
+
+    expect(await screen.findByText('Second page commit')).toBeInTheDocument();
+    expect(screen.getByText('Showing commits 21–21')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Previous commits page' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next commits page' })).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20&offset=20');
+  });
+
   it('shows a friendly fallback when a changed file has no patch text', async () => {
     window.location.hash = '#/repos/repo-42';
 
