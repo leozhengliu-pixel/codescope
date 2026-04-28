@@ -222,6 +222,8 @@ impl LocalSearchStore {
     }
 
     fn open_index_artifact(artifact_path: &Path) -> Result<File> {
+        validate_index_artifact_parent_components(artifact_path)?;
+
         let artifact_symlink_metadata = fs::symlink_metadata(artifact_path).with_context(|| {
             format!(
                 "failed to read local search index artifact metadata {}",
@@ -531,6 +533,29 @@ impl LocalSearchStore {
 
         Ok(())
     }
+}
+
+fn validate_index_artifact_parent_components(artifact_path: &Path) -> Result<()> {
+    for parent in artifact_path.ancestors().skip(1) {
+        if parent.as_os_str().is_empty() {
+            continue;
+        }
+
+        let parent_metadata = fs::symlink_metadata(parent).with_context(|| {
+            format!(
+                "failed to read local search index artifact parent metadata {}",
+                parent.display()
+            )
+        })?;
+        if parent_metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "search index artifact parent contains a symlink: {}",
+                parent.display()
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_persisted_index_artifact(
@@ -1666,6 +1691,35 @@ mod tests {
             error
                 .to_string()
                 .contains("search index artifact is not a regular file"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_rejects_symlinked_persisted_index_artifact_parent() {
+        let (store, root) = create_test_store();
+        let real_artifact_path = root.join("real-sourcebot").join("local-sync-index.json");
+        let symlinked_parent = root.join(".sourcebot");
+        let symlinked_artifact_path = symlinked_parent.join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &real_artifact_path)
+            .unwrap();
+        std::os::unix::fs::symlink(real_artifact_path.parent().unwrap(), &symlinked_parent)
+            .unwrap();
+
+        let error =
+            match LocalSearchStore::from_index_artifact("repo_test", &symlinked_artifact_path) {
+                Ok(_) => panic!("persisted index artifact under symlinked parent must fail closed"),
+                Err(error) => error,
+            };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact parent contains a symlink"),
             "unexpected error: {error:#}"
         );
 
