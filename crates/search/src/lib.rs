@@ -557,6 +557,12 @@ fn validate_persisted_index_artifact(
     }
 
     match artifact.index_status.status {
+        RepositoryIndexState::Indexed if artifact.index_status.indexed_file_count == 0 => {
+            anyhow::bail!(
+                "search index artifact indexed status has no indexed files in {}: writer should persist indexed_empty for empty indexes",
+                artifact_path.display()
+            );
+        }
         RepositoryIndexState::IndexedEmpty
             if artifact.index_status.indexed_file_count != 0
                 || artifact.index_status.indexed_line_count != 0 =>
@@ -1768,6 +1774,47 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_indexed_status_with_no_indexed_files() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-indexed-empty-status-artifact",
+            "",
+            "",
+            "target/generated.txt",
+        );
+        fs::remove_file(fixture.root.join("README.md")).unwrap();
+        fs::remove_dir_all(fixture.root.join("src")).unwrap();
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_empty".to_string(),
+            fixture.root.clone(),
+        )]));
+        let artifact_path = fixture
+            .root
+            .join(".sourcebot")
+            .join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_empty", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["status"] = serde_json::Value::String("indexed".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_empty", &artifact_path) {
+            Ok(_) => panic!("indexed-status artifact with no indexed files must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact indexed status has no indexed files"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
