@@ -410,6 +410,8 @@ impl LocalSearchStore {
     }
 
     fn index_repo(&self, root: &Path) -> Result<(Vec<IndexedLine>, usize, usize, usize)> {
+        validate_repository_root(root)?;
+
         let mut lines = Vec::new();
         let mut indexed_file_count = 0;
         let mut indexed_line_count = 0;
@@ -533,6 +535,42 @@ impl LocalSearchStore {
 
         Ok(())
     }
+}
+
+fn validate_repository_root(root: &Path) -> Result<()> {
+    let metadata_root = repository_root_metadata_path(root);
+    let root_metadata = fs::symlink_metadata(&metadata_root).with_context(|| {
+        format!(
+            "failed to read search repository root metadata {}",
+            root.display()
+        )
+    })?;
+    let root_file_type = root_metadata.file_type();
+    if root_file_type.is_symlink() {
+        anyhow::bail!("search repository root is a symlink: {}", root.display());
+    }
+    if !root_file_type.is_dir() {
+        anyhow::bail!(
+            "search repository root is not a directory: {}",
+            root.display()
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn repository_root_metadata_path(root: &Path) -> PathBuf {
+    root.components()
+        .fold(PathBuf::new(), |mut path, component| {
+            path.push(component.as_os_str());
+            path
+        })
+}
+
+#[cfg(not(unix))]
+fn repository_root_metadata_path(root: &Path) -> PathBuf {
+    root.to_path_buf()
 }
 
 fn validate_index_artifact_parent_components(artifact_path: &Path) -> Result<()> {
@@ -1631,6 +1669,131 @@ mod tests {
             .results
             .is_empty());
 
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_rejects_symlinked_repository_roots() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-symlinked-root-target",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let symlinked_root = fixture.root.with_extension("symlink");
+        std::os::unix::fs::symlink(&fixture.root, &symlinked_root).unwrap();
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_symlink".to_string(),
+            symlinked_root.clone(),
+        )]));
+        let status = store
+            .repository_index_status("repo_symlink")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(status.status, RepositoryIndexState::Error);
+        assert_eq!(status.indexed_file_count, 0);
+        assert_eq!(status.indexed_line_count, 0);
+        assert!(
+            status
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("search repository root is a symlink")),
+            "unexpected status: {status:?}"
+        );
+        assert!(store
+            .search("build_router", Some("repo_symlink"))
+            .unwrap()
+            .results
+            .is_empty());
+
+        fs::remove_file(symlinked_root).unwrap();
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_rejects_symlinked_repository_roots_with_trailing_separator() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-symlinked-root-trailing-target",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let symlinked_root = fixture.root.with_extension("symlink-trailing");
+        std::os::unix::fs::symlink(&fixture.root, &symlinked_root).unwrap();
+        let symlinked_root_with_separator = PathBuf::from(format!("{}/", symlinked_root.display()));
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_symlink_trailing".to_string(),
+            symlinked_root_with_separator,
+        )]));
+        let status = store
+            .repository_index_status("repo_symlink_trailing")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(status.status, RepositoryIndexState::Error);
+        assert_eq!(status.indexed_file_count, 0);
+        assert_eq!(status.indexed_line_count, 0);
+        assert!(
+            status
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("search repository root is a symlink")),
+            "unexpected status: {status:?}"
+        );
+        assert!(store
+            .search("build_router", Some("repo_symlink_trailing"))
+            .unwrap()
+            .results
+            .is_empty());
+
+        fs::remove_file(symlinked_root).unwrap();
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_rejects_symlinked_repository_roots_with_trailing_dot_component() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-symlinked-root-dot-target",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let symlinked_root = fixture.root.with_extension("symlink-dot");
+        std::os::unix::fs::symlink(&fixture.root, &symlinked_root).unwrap();
+        let symlinked_root_with_dot = symlinked_root.join(".");
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_symlink_dot".to_string(),
+            symlinked_root_with_dot,
+        )]));
+        let status = store
+            .repository_index_status("repo_symlink_dot")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(status.status, RepositoryIndexState::Error);
+        assert_eq!(status.indexed_file_count, 0);
+        assert_eq!(status.indexed_line_count, 0);
+        assert!(
+            status
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("search repository root is a symlink")),
+            "unexpected status: {status:?}"
+        );
+        assert!(store
+            .search("build_router", Some("repo_symlink_dot"))
+            .unwrap()
+            .results
+            .is_empty());
+
+        fs::remove_file(symlinked_root).unwrap();
         fs::remove_dir_all(fixture.root).unwrap();
     }
 
