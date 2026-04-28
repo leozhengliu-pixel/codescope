@@ -5,31 +5,33 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e5e0bbad704bb841202af5c373b3a2c70bfced31
+  head: 98bcbbd04e29b28be1e194da1626c10709c658a2
 last_completed_task:
-  id: task101
-  title: Durable metadata breadth and migration hardening
+  id: task102a
+  title: Bounded search pagination metadata
   status: done
   summary: >-
-    Closed the first practical-replacement blocker roadmap durable-metadata slice
-    by moving audit-event merge/persistence through the PostgreSQL-backed
-    `PgOrganizationStore` compatibility envelope. In `DATABASE_URL` mode,
-    `OrganizationState` now reads audit events from PostgreSQL, writes state-level
-    audit events into PostgreSQL in the same store transaction used by other
-    durable organization rows, and clears audit events from the fallback file so
-    rows are not stranded in split-backend state. The closure remains bounded:
-    it does not claim broad audit analytics, filtering/export/retention, external
-    identity audit coverage, connection-management durability, or full practical
-    Sourcebot replacement parity.
+    Closed one bounded Task 102 search/indexing runtime slice by adding
+    API-level `limit`/`offset` pagination metadata to `/api/v1/search`. The
+    response now includes `pagination.limit`, `pagination.offset`,
+    visibility-scoped `pagination.total_count`, and `pagination.has_more` after
+    the existing repository visibility, saved-context, API-key-scope, and local
+    sync fallback filters have selected the authorized result set. The closure
+    updates search acceptance and parity/audit wording while keeping the claim
+    bounded: it does not yet provide a real production indexing pipeline, richer
+    filter grammar, branch/index availability handling, relevance tuning,
+    streaming search, or full stable-pagination parity across changing indexes.
   tests:
-    - repo-local PostgreSQL preflight for DATABASE_URL and TEST_DATABASE_URL: passed
-    - cargo test -p sourcebot-api pg_organization_store_ -- --nocapture: passed with 11 lib-target and 11 bin-target tests
+    - cargo test -p sourcebot-api search_returns_paginated_results_with_total_count_and_has_more -- --nocapture: passed with 0 lib-target and 1 bin-target test
+    - cargo test -p sourcebot-search: passed with 10 unit tests and 0 doctests
+    - cargo test -p sourcebot-api search_ -- --nocapture: passed with 0 lib-target and 24 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
+    - docs pagination marker checks: passed
   review:
-    code: passed independent read-only review; no blocking SQL, FK, rollback, fixture-isolation, file-backed compatibility, documentation-overclaim, or security issues remained
-  commit: e5e0bbad704bb841202af5c373b3a2c70bfced31
+    code: passed independent read-only review; no blocking visibility-scope, response-shape, constructor-compatibility, bounded-doc-claim, or security issues remained
+  commit: 98bcbbd04e29b28be1e194da1626c10709c658a2
   next_task: task102
 current_task:
   id: task102
@@ -37,15 +39,41 @@ current_task:
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue the practical-replacement blocker roadmap with a meaningful
-    search/indexing runtime closure. The next slice should move beyond bounded
-    local/snapshot artifact fallback semantics toward practical search/indexing
-    behavior, status reporting, failure recovery, pagination/relevance
-    guarantees, or operator-visible index lifecycle evidence, while preserving
-    fail-closed visibility boundaries, focused verification, bounded docs claims,
+    Continue Task 102 with the next meaningful search/indexing runtime closure.
+    Prefer a slice that moves beyond API pagination metadata into practical
+    indexing/runtime behavior, operator-visible index lifecycle/status, failure
+    recovery, relevance/filter semantics, branch/index availability, streaming
+    behavior, or frontend pagination controls, while preserving fail-closed
+    visibility boundaries, focused verification, bounded docs claims,
     independent review, commit, state update, and push.
 
 history:
+  - id: task102a
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing runtime slice by adding
+      API-level `limit`/`offset` pagination metadata to `/api/v1/search`. The
+      response now includes `pagination.limit`, `pagination.offset`,
+      visibility-scoped `pagination.total_count`, and `pagination.has_more`
+      after the existing repository visibility, saved-context, API-key-scope,
+      and local sync fallback filters have selected the authorized result set.
+      This advances practical search parity by making result paging/counting an
+      explicit contract surface, but remains bounded: real production indexing,
+      richer grammar, branch/index availability handling, relevance tuning,
+      streaming search, and full stable-pagination parity across changing
+      indexes remain open.
+    tests:
+      - cargo test -p sourcebot-api search_returns_paginated_results_with_total_count_and_has_more -- --nocapture: passed with 0 lib-target and 1 bin-target test
+      - cargo test -p sourcebot-search: passed with 10 unit tests and 0 doctests
+      - cargo test -p sourcebot-api search_ -- --nocapture: passed with 0 lib-target and 24 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+      - docs pagination marker checks: passed
+    review:
+      code: passed independent read-only review; no blocking visibility-scope, response-shape, constructor-compatibility, bounded-doc-claim, or security issues remained
+    commit: 98bcbbd04e29b28be1e194da1626c10709c658a2
+    next_task: task102
   - id: task101
     status: done
     summary: >-
