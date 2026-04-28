@@ -5,38 +5,43 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 02975fe38dad248a29c703a53dc8edf87f14e36c
+  head: 34042acbd3cf51d683b89836665a907bdb7a3b4f
 last_completed_task:
-  id: task102ag
-  title: Search index artifact status/error consistency hardening
+  id: task103a-108a
+  title: Code-navigation hidden-repo fail-closed hardening and malformed worker lease recovery
   status: done
   summary: >-
-    Closed a production search/indexing runtime hardening closure. Persisted
-    local-sync search index artifacts now fail closed when an error-status
-    artifact lacks a non-empty operator-visible error message, or when an
-    indexed/indexed-empty success artifact carries a stale error message. This
-    prevents ambiguous artifact state from being trusted for search/index-status
-    surfaces while keeping valid local-sync artifact-backed search behavior
-    bounded and unchanged. The parallel batch attempted provider/worker and
-    browse/code-navigation workers as well, but both failed before producing
-    commits because their worker agent backend rejected the configured model, so
-    only the verified search closure was integrated.
+    Closed an accelerated two-closure integration batch from the parallel
+    controller. Code-navigation definitions and references now fail closed before
+    blob/code-navigation lookup when an authenticated caller's visible repository
+    set excludes the requested repository, preventing hidden repositories from
+    being resolved through code-navigation endpoints. Repository-sync workers now
+    fail malformed Running lease records with missing or invalid started_at values
+    before claiming more queued work, leaving operators with a terminal
+    operator-visible failure instead of a permanently stuck Running row. A third
+    search/index worker failed before producing a commit because the configured
+    delegated backend rejected the active model, so no search closure was
+    integrated from that worker.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_error_status_artifact_without_operator_visible_error -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
-    - 'cargo test -p sourcebot-search local_search_store_rejects_success_status_artifact_with_stale_error_message -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
-    - 'cargo test -p sourcebot-search: passed in the main worktree with 36 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api hidden_repository_before_code_nav_lookup -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 442 filtered out after worker-recorded RED failures where both endpoints returned 200 instead of 404'
+    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in the main worktree with 11 bin tests, 0 lib tests, and 433 filtered out'
+    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in the main worktree with 12 bin tests, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_malformed_running_started_at_before_claiming -- --nocapture: passed in the main worktree with 1 lib test and 45 filtered out after worker-recorded RED failure where the malformed Running job stayed Running'
+    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in the main worktree with 18 lib tests and zero-test non-lib targets noted'
+    - 'cargo test -p sourcebot-worker: passed in the main worktree with 46 lib tests, 3 main tests, 20 integration/smoke tests across worker smoke targets, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed'
-    - 'added-lines security scan over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with 92 added lines scanned and 0 findings'
-    - 'independent integration review over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with no security concerns, logic errors, or docs overclaims'
+    - 'git diff --check f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed'
+    - 'added-lines security scan over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with 169 added lines scanned and 0 findings'
+    - 'independent integration review over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with no security concerns or logic errors; non-blocking suggestion to add future API-key repo-scope code-navigation coverage'
   review:
     code: >-
-      Independent integration review passed. The reviewer confirmed the new
-      artifact validation rejects error-status artifacts without a non-empty
-      trimmed error and rejects indexed/indexed-empty artifacts carrying stale
-      error fields; the coupled search acceptance wording stays bounded and does
-      not upgrade the broader production search/indexing parity claim.
-  commit: 02975fe38dad248a29c703a53dc8edf87f14e36c
+      Independent integration review passed. The reviewer confirmed the
+      authenticated code-navigation visibility gate returns 404 before hidden
+      repo code-nav/blob lookup, malformed Running repository-sync leases now
+      fail closed before claiming queued work while preserving stale/fresh lease
+      behavior, and the worker-runtime wording remains bounded without claiming
+      full provider/runtime parity.
+  commit: 34042acbd3cf51d683b89836665a907bdb7a3b4f
   next_task: task102
 current_task:
   id: task102
@@ -46,13 +51,14 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. The latest integrated
-    closure hardened persisted local-sync search index artifact status/error
-    consistency so error-status artifacts require an operator-visible error and
-    successful indexed/indexed-empty artifacts cannot carry stale error messages.
-    Existing search evidence now includes bounded authenticated query-size
-    validation, frontend-visible saved-context management for non-empty
-    repository scopes, fail-closed backend context narrowing, explicit
+    Task 103/106/107/108 blockers when scopes are disjoint. This batch did not
+    land a search/index closure because the search worker failed before producing
+    a commit after the delegated backend rejected the configured model; however,
+    adjacent accepted closures improved practical replacement safety by adding a
+    code-navigation hidden-repo fail-closed gate and malformed repository-sync
+    lease recovery. Existing search evidence still includes bounded authenticated
+    query-size validation, frontend-visible saved-context management for
+    non-empty repository scopes, fail-closed backend context narrowing, explicit
     boolean/literal/regex modes, deterministic ordering, repository-detail
     index-status visibility, indexed-empty/skipped-only semantics, persisted
     artifact path/repo-id/count/status validation including symlink/non-regular
@@ -69,6 +75,37 @@ current_task:
     boundaries, focused verification, bounded docs claims, independent review,
     commit, state update, and push.
 history:
+  - id: task103a-108a
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with two accepted real
+      runtime hardening closures and one failed search worker. Code-navigation
+      definitions/references now enforce the authenticated caller's visible repo
+      set before resolving code-nav data, and repository-sync workers now fail
+      malformed Running lease records before claiming queued work. The search
+      worker was not integrated because it failed before producing a commit after
+      the delegated backend rejected the configured model.
+    commit: 34042acbd3cf51d683b89836665a907bdb7a3b4f
+    tests:
+      - 'cargo test -p sourcebot-api hidden_repository_before_code_nav_lookup -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 442 filtered out after worker-recorded RED failures where both endpoints returned 200 instead of 404'
+      - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in the main worktree with 11 bin tests, 0 lib tests, and 433 filtered out'
+      - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in the main worktree with 12 bin tests, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_malformed_running_started_at_before_claiming -- --nocapture: passed in the main worktree with 1 lib test and 45 filtered out after worker-recorded RED failure where the malformed Running job stayed Running'
+      - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in the main worktree with 18 lib tests and zero-test non-lib targets noted'
+      - 'cargo test -p sourcebot-worker: passed in the main worktree with 46 lib tests, 3 main tests, 20 integration/smoke tests across worker smoke targets, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed'
+      - 'added-lines security scan over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with 169 added lines scanned and 0 findings'
+      - 'independent integration review over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with no security concerns or logic errors; non-blocking suggestion to add future API-key repo-scope code-navigation coverage'
+    review: >-
+      Independent integration review passed with no blocking issues. Non-blocking
+      future hardening suggestion: add explicit API-key repo-scope exclusion
+      coverage for code-navigation endpoints in addition to the local-session
+      hidden-repo regressions.
+    workers:
+      - 'search/index worker: not integrated; worker failed before producing a commit because the delegated backend rejected the configured gpt-5.5 model for Codex/ChatGPT account use'
+      - 'browse/code-navigation worker: integrated worker commit a5be655a5d07cec47067d48cbc9f21c90dd8364b as main commit 03c5de1dc5cc1047b52ab2d21e2f5b89fba055b2'
+      - 'provider/worker worker: integrated worker commit ddbe5d9a5119d81b7486c8aff350d7b1f9214442 as main commit 34042acbd3cf51d683b89836665a907bdb7a3b4f'
   - id: task102ag
     status: done
     summary: >-
