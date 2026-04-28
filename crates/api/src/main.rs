@@ -31493,15 +31493,31 @@ mod tests {
     }
 
     #[test]
-    fn definition_browse_url_encodes_repo_path_and_revision_values() {
+    fn definitions_and_references_browse_urls_encode_reserved_revisions() {
+        let revision = "feature/a b?x=1&y=2";
+        let expected_revision = "feature%2Fa%20b%3Fx%3D1%26y%3D2";
+
         assert_eq!(
             build_definition_browse_url(
                 "repo sourcebot/rewrite?#",
                 "dir/hello world?#.rs",
-                Some("feature/test branch"),
+                Some(revision),
                 42,
             ),
-            "/api/v1/repos/repo%20sourcebot%2Frewrite%3F%23/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
+            format!(
+                "/api/v1/repos/repo%20sourcebot%2Frewrite%3F%23/blob?path=dir%2Fhello%20world%3F%23.rs&revision={expected_revision}#L42"
+            )
+        );
+        assert_eq!(
+            build_reference_browse_url(
+                "repo sourcebot/rewrite?#",
+                "dir/hello world?#.rs",
+                Some(revision),
+                43,
+            ),
+            format!(
+                "/api/v1/repos/repo%20sourcebot%2Frewrite%3F%23/blob?path=dir%2Fhello%20world%3F%23.rs&revision={expected_revision}#L43"
+            )
         );
     }
     #[tokio::test]
