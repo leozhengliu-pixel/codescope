@@ -14400,6 +14400,140 @@ describe('App', () => {
     });
   });
 
+  it('creates and deletes caller-owned search contexts from the dedicated search page without sending a blank context id', async () => {
+    window.location.hash = '#/search';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({
+        sessionId: 'session-local',
+        sessionSecret: 'secret-local',
+      })
+    );
+
+    const listedContexts = [
+      {
+        id: 'ctx-old',
+        name: 'Existing context',
+        repo_scope: ['repo-1'],
+        created_at: '2026-04-28T10:00:00Z',
+        updated_at: '2026-04-28T10:00:00Z',
+      },
+    ];
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+          {
+            id: 'repo-2',
+            name: 'beta-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/search-contexts' && init?.method === 'POST') {
+        expect(init?.headers).toMatchObject({
+          Authorization: 'Bearer session-local:secret-local',
+          'Content-Type': 'application/json',
+        });
+        expect(init?.body).toBe(
+          JSON.stringify({
+            name: 'Beta needle scope',
+            repo_scope: ['repo-2'],
+          })
+        );
+
+        const createdContext = {
+          id: 'ctx-created',
+          name: 'Beta needle scope',
+          repo_scope: ['repo-2'],
+          created_at: '2026-04-28T10:01:00Z',
+          updated_at: '2026-04-28T10:01:00Z',
+        };
+        listedContexts.unshift(createdContext);
+        return jsonResponse(createdContext, true, 201);
+      }
+
+      if (url === '/api/v1/auth/search-contexts') {
+        return jsonResponse(listedContexts);
+      }
+
+      if (url === '/api/v1/search?q=needle&repo_id=repo-2&context_id=ctx-created&limit=20&offset=0') {
+        return jsonResponse({
+          query: 'needle',
+          repo_id: 'repo-2',
+          results: [
+            {
+              repo_id: 'repo-2',
+              path: 'src/context-created.ts',
+              line_number: 14,
+              line: 'const createdContextNeedle = true;',
+            },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/auth/search-contexts/ctx-created') {
+        expect(init?.method).toBe('DELETE');
+        expect(init?.headers).toMatchObject({ Authorization: 'Bearer session-local:secret-local' });
+        listedContexts.splice(
+          0,
+          listedContexts.length,
+          ...listedContexts.filter((searchContext) => searchContext.id !== 'ctx-created')
+        );
+        return jsonResponse({}, true, 204);
+      }
+
+      if (url === '/api/v1/search?q=needle&repo_id=repo-2&limit=20&offset=0') {
+        return jsonResponse({
+          query: 'needle',
+          repo_id: 'repo-2',
+          results: [],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Existing context')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
+    fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-2' } });
+    fireEvent.change(screen.getByLabelText('New context name'), { target: { value: 'Beta needle scope' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save search context' }));
+
+    expect(await screen.findByText('Saved search context “Beta needle scope”.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search context')).toHaveValue('ctx-created');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(await screen.findByText('src/context-created.ts')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/search?q=needle&repo_id=repo-2&context_id=ctx-created');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete selected context' }));
+
+    await waitFor(() => expect(screen.queryByText('Beta needle scope')).not.toBeInTheDocument());
+    expect(screen.getByText('Deleted search context “Beta needle scope”.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Search context')).toHaveValue('');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(window.location.hash).toBe('#/search?q=needle&repo_id=repo-2'));
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=repo-2&limit=20&offset=0', {
+      headers: {
+        Authorization: 'Bearer session-local:secret-local',
+      },
+    });
+  });
+
   it('lets the dedicated search page request and preserve explicit search modes', async () => {
     window.location.hash = '#/search';
 

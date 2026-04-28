@@ -933,6 +933,10 @@ function SearchExperience({
   const [searchContexts, setSearchContexts] = useState<SearchContextSummary[]>([]);
   const [searchContextsLoading, setSearchContextsLoading] = useState(false);
   const [searchContextsError, setSearchContextsError] = useState<string | null>(null);
+  const [newContextName, setNewContextName] = useState('');
+  const [contextMutationLoading, setContextMutationLoading] = useState(false);
+  const [contextMutationMessage, setContextMutationMessage] = useState<string | null>(null);
+  const [contextMutationError, setContextMutationError] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>(initialMode);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -945,6 +949,13 @@ function SearchExperience({
   const [submittedMode, setSubmittedMode] = useState<SearchMode>(initialMode);
 
   const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
+  const hasStoredLocalSession = readStoredLocalSession() !== null;
+  const selectedSearchContext = searchContexts.find((searchContext) => searchContext.id === selectedContextId) ?? null;
+  const contextScopeLabel = selectedSearchContext
+    ? selectedSearchContext.repo_scope.length > 0
+      ? selectedSearchContext.repo_scope.map((repoId) => repoNamesById.get(repoId) ?? repoId).join(', ')
+      : 'All visible repositories'
+    : null;
   const resultStart = searchPagination && searchPagination.total_count > 0 ? searchPagination.offset + 1 : 0;
   const resultEnd = searchPagination
     ? searchPagination.offset + searchResults.length
@@ -1063,6 +1074,71 @@ function SearchExperience({
     void runSearch(initialQuery, initialRepoId, initialOffset, initialMode, initialContextId);
   }, [initialQuery, initialRepoId, initialOffset, initialMode, initialContextId]);
 
+  const createSearchContext = async () => {
+    if (!hasStoredLocalSession || contextMutationLoading) {
+      return;
+    }
+
+    const trimmedName = newContextName.trim() || (query.trim().length > 0 ? `Search: ${query.trim()}` : 'Saved search context');
+    const normalizedRepoId = selectedRepoId.trim();
+    const repoScope = normalizedRepoId.length > 0 ? [normalizedRepoId] : [];
+
+    setContextMutationLoading(true);
+    setContextMutationMessage(null);
+    setContextMutationError(null);
+
+    try {
+      const created = await fetchJson<SearchContextSummary>('/api/v1/auth/search-contexts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          repo_scope: repoScope,
+        }),
+      });
+      const normalizedCreated = created.id.trim().length > 0 ? created : null;
+      if (!normalizedCreated) {
+        throw new Error('Created search context did not include an id');
+      }
+      setSearchContexts((current) => [normalizedCreated, ...current.filter((searchContext) => searchContext.id !== normalizedCreated.id)]);
+      setSelectedContextId(normalizedCreated.id);
+      setNewContextName('');
+      setContextMutationMessage(`Saved search context “${normalizedCreated.name}”.`);
+    } catch (err) {
+      setContextMutationError((err as Error).message);
+    } finally {
+      setContextMutationLoading(false);
+    }
+  };
+
+  const deleteSelectedSearchContext = async () => {
+    if (!selectedSearchContext || contextMutationLoading) {
+      return;
+    }
+
+    setContextMutationLoading(true);
+    setContextMutationMessage(null);
+    setContextMutationError(null);
+
+    try {
+      const response = await authFetch(`/api/v1/auth/search-contexts/${encodeURIComponent(selectedSearchContext.id)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new HttpError(response.status);
+      }
+      setSearchContexts((current) => current.filter((searchContext) => searchContext.id !== selectedSearchContext.id));
+      setSelectedContextId('');
+      setContextMutationMessage(`Deleted search context “${selectedSearchContext.name}”.`);
+    } catch (err) {
+      setContextMutationError((err as Error).message);
+    } finally {
+      setContextMutationLoading(false);
+    }
+  };
+
   return (
     <Panel title="Search" subtitle={subtitle}>
       <form
@@ -1134,6 +1210,46 @@ function SearchExperience({
             </select>
           </label>
         </div>
+
+        {hasStoredLocalSession ? (
+          <div style={{ border: '1px solid #d0d7de', borderRadius: 12, padding: 12, background: '#ffffff', display: 'grid', gap: 10 }}>
+            <div style={{ fontWeight: 700 }}>Saved search contexts</div>
+            <div style={{ color: '#57606a', fontSize: 14 }}>
+              Save the current repository filter as a reusable search context. Blank context ids are not sent with search requests.
+            </div>
+            {selectedSearchContext ? (
+              <div style={{ color: '#57606a', fontSize: 14 }}>
+                Selected context scope: {contextScopeLabel}
+              </div>
+            ) : null}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) auto auto', gap: 12, alignItems: 'end' }}>
+              <label style={fieldLabelStyle}>
+                <span>New context name</span>
+                <input
+                  value={newContextName}
+                  onChange={(event) => setNewContextName(event.target.value)}
+                  placeholder={query.trim().length > 0 ? `Search: ${query.trim()}` : 'Saved search context'}
+                  style={inputStyle}
+                />
+              </label>
+              <button type="button" style={secondaryButtonStyle} disabled={contextMutationLoading} onClick={() => void createSearchContext()}>
+                {contextMutationLoading ? 'Saving…' : 'Save search context'}
+              </button>
+              <button
+                type="button"
+                style={secondaryButtonStyle}
+                disabled={contextMutationLoading || !selectedSearchContext}
+                onClick={() => void deleteSelectedSearchContext()}
+              >
+                Delete selected context
+              </button>
+            </div>
+            {contextMutationMessage ? <div style={{ color: '#1a7f37' }}>{contextMutationMessage}</div> : null}
+            {contextMutationError ? <div>Search context update failed: {contextMutationError}</div> : null}
+          </div>
+        ) : (
+          <div style={{ color: '#57606a' }}>Sign in to list, save, select, or delete saved search contexts.</div>
+        )}
 
         <div>
           <button type="submit" style={primaryButtonStyle} disabled={searchLoading || query.trim().length === 0}>
