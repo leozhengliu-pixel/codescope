@@ -13,6 +13,8 @@ use std::{
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_REGEX_QUERY_BYTES: usize = 1024;
+const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 #[cfg(unix)]
 const O_NONBLOCK: i32 = 0o4000;
 #[cfg(unix)]
@@ -662,7 +664,17 @@ impl QueryMatcher {
             SearchMode::Boolean => Self::Boolean(parse_query(&query.to_lowercase())),
             SearchMode::Literal => Self::Literal(query.to_lowercase()),
             SearchMode::Regex => {
-                Self::Regex(RegexBuilder::new(query).case_insensitive(true).build().ok())
+                if query.len() > MAX_REGEX_QUERY_BYTES {
+                    return Self::Regex(None);
+                }
+
+                Self::Regex(
+                    RegexBuilder::new(query)
+                        .case_insensitive(true)
+                        .size_limit(MAX_REGEX_COMPILED_SIZE_BYTES)
+                        .build()
+                        .ok(),
+                )
             }
         }
     }
@@ -1356,6 +1368,19 @@ mod tests {
         assert!(
             invalid_regex_response.results.is_empty(),
             "invalid regex mode queries should fail closed to no matches"
+        );
+
+        let oversized_matching_regex = format!("build_router|{}", "a".repeat(2_048));
+        let oversized_regex_response = store
+            .search_with_mode(
+                &oversized_matching_regex,
+                Some("repo_test"),
+                SearchMode::Regex,
+            )
+            .unwrap();
+        assert!(
+            oversized_regex_response.results.is_empty(),
+            "oversized regex mode queries should fail closed before compiling or matching"
         );
 
         fs::remove_dir_all(root).unwrap();
