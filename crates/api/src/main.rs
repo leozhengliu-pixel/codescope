@@ -1368,6 +1368,13 @@ fn accept_quality<'a>(parts: impl Iterator<Item = &'a str>) -> f32 {
     1.0
 }
 
+fn is_json_rpc_id(id: &serde_json::Value) -> bool {
+    matches!(
+        id,
+        serde_json::Value::Null | serde_json::Value::Number(_) | serde_json::Value::String(_)
+    )
+}
+
 async fn process_mcp_json_rpc_request(
     state: &AppState,
     visible_repo_ids: &[String],
@@ -1380,6 +1387,14 @@ async fn process_mcp_json_rpc_request(
     let is_notification = request
         .as_object()
         .is_some_and(|request| !request.contains_key("id"));
+
+    if !is_json_rpc_id(&id) {
+        return Ok(Some(mcp_json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "invalid JSON-RPC request: id must be a string, number, or null",
+        )));
+    }
 
     if request.get("jsonrpc") != Some(&serde_json::Value::String("2.0".into())) {
         if is_notification {
@@ -7893,6 +7908,63 @@ mod tests {
             .as_str()
             .expect("parse error should include a message")
             .contains("parse error"));
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_rejects_invalid_id_type_with_protocol_error() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-invalid-id-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-invalid-id-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-invalid-id-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        for invalid_id in [serde_json::json!({"nested": true}), serde_json::json!([1])] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/mcp")
+                        .header("content-type", "application/json")
+                        .header(header::AUTHORIZATION, &authorization)
+                        .body(Body::from(
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": invalid_id,
+                                "method": "ping"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value = read_json(response).await;
+            assert_eq!(body["jsonrpc"], "2.0");
+            assert_eq!(body["id"], serde_json::Value::Null);
+            assert_eq!(body["error"]["code"], -32600);
+            assert!(body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("id must be a string, number, or null"));
+        }
 
         fs::remove_file(organization_state_path).unwrap();
     }
