@@ -50,6 +50,7 @@ pub struct AppConfig {
     pub bootstrap_state_path: String,
     pub local_session_state_path: String,
     pub organization_state_path: String,
+    pub worker_status_path: Option<String>,
     pub llm_provider: Option<String>,
     pub llm_model: Option<String>,
     pub llm_api_base: Option<String>,
@@ -65,6 +66,7 @@ impl Default for AppConfig {
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".to_string(),
             local_session_state_path: ".sourcebot/local-sessions.json".to_string(),
             organization_state_path: ".sourcebot/organizations.json".to_string(),
+            worker_status_path: None,
             llm_provider: Some("disabled".to_string()),
             llm_model: None,
             llm_api_base: None,
@@ -101,6 +103,16 @@ impl AppConfig {
                 ".sourcebot/organizations.json",
                 "organizations.json",
             ),
+            worker_status_path: env::var("SOURCEBOT_WORKER_STATUS_PATH")
+                .ok()
+                .and_then(|value| {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                }),
             llm_provider: env::var("SOURCEBOT_LLM_PROVIDER")
                 .ok()
                 .or_else(|| Some("disabled".to_string())),
@@ -206,6 +218,28 @@ mod tests {
     }
 
     #[test]
+    fn from_env_reads_worker_status_path_and_treats_blank_as_unset() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        env::set_var(
+            "SOURCEBOT_WORKER_STATUS_PATH",
+            " /tmp/sourcebot-worker-status.json ",
+        );
+
+        let config = AppConfig::from_env();
+
+        assert_eq!(
+            config.worker_status_path.as_deref(),
+            Some("/tmp/sourcebot-worker-status.json")
+        );
+
+        env::set_var("SOURCEBOT_WORKER_STATUS_PATH", "   ");
+        let blank_config = AppConfig::from_env();
+        assert_eq!(blank_config.worker_status_path, None);
+
+        env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+    }
+
+    #[test]
     fn public_view_hides_llm_api_key_value() {
         let config = AppConfig {
             service_name: "sourcebot-api".into(),
@@ -214,6 +248,7 @@ mod tests {
             bootstrap_state_path: ".sourcebot/bootstrap-state.json".into(),
             local_session_state_path: ".sourcebot/local-sessions.json".into(),
             organization_state_path: ".sourcebot/organizations.json".into(),
+            worker_status_path: Some("/tmp/worker-status.json".into()),
             llm_provider: Some("stub".into()),
             llm_model: Some("stub-model".into()),
             llm_api_base: Some("https://llm.invalid".into()),
@@ -233,6 +268,7 @@ mod tests {
         env::remove_var("SOURCEBOT_BOOTSTRAP_STATE_PATH");
         env::remove_var("SOURCEBOT_LOCAL_SESSION_STATE_PATH");
         env::remove_var("SOURCEBOT_ORGANIZATION_STATE_PATH");
+        env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
 
         let config = AppConfig::from_env();
 
@@ -259,6 +295,7 @@ mod tests {
         env::remove_var("SOURCEBOT_BOOTSTRAP_STATE_PATH");
         env::remove_var("SOURCEBOT_LOCAL_SESSION_STATE_PATH");
         env::remove_var("SOURCEBOT_ORGANIZATION_STATE_PATH");
+        env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
 
         let config = AppConfig::from_env();
 
@@ -294,6 +331,7 @@ mod tests {
             "SOURCEBOT_ORGANIZATION_STATE_PATH",
             "/var/lib/sourcebot/custom-organizations.json",
         );
+        env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
 
         let config = AppConfig::from_env();
 

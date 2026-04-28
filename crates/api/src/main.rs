@@ -54,7 +54,7 @@ use sourcebot_search::{
     SearchResponse, SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -102,6 +102,16 @@ struct ReadyDatabaseStatus {
     applied_migrations: Option<i64>,
     error: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+struct WorkerStatusResponse {
+    status: &'static str,
+    configured: bool,
+    snapshot: Option<serde_json::Value>,
+    error: Option<String>,
+}
+
+const WORKER_STATUS_SNAPSHOT_MAX_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -202,6 +212,7 @@ fn build_router(
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .route("/api/v1/auth/worker-status", get(get_worker_status))
         .route(
             "/api/v1/auth/bootstrap",
             get(get_bootstrap_status).post(create_bootstrap_admin),
@@ -956,6 +967,101 @@ async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
         status: "ok",
         service: state.config.service_name,
     })
+}
+
+async fn get_worker_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<WorkerStatusResponse>, StatusCode> {
+    let _ = authenticate_local_session_record(&state, &headers).await?;
+    Ok(Json(worker_status_response_for_path(
+        state
+            .config
+            .worker_status_path
+            .as_deref()
+            .map(std::path::Path::new),
+    )))
+}
+
+fn worker_status_response_for_path(path: Option<&std::path::Path>) -> WorkerStatusResponse {
+    let Some(path) = path else {
+        return WorkerStatusResponse {
+            status: "not_configured",
+            configured: false,
+            snapshot: None,
+            error: None,
+        };
+    };
+
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return WorkerStatusResponse {
+                status: "error",
+                configured: true,
+                snapshot: None,
+                error: Some(format!("worker status snapshot is not readable: {error}")),
+            };
+        }
+    };
+    if !metadata.is_file() {
+        return WorkerStatusResponse {
+            status: "error",
+            configured: true,
+            snapshot: None,
+            error: Some("worker status snapshot path is not a file".into()),
+        };
+    }
+    if metadata.len() > WORKER_STATUS_SNAPSHOT_MAX_BYTES {
+        return WorkerStatusResponse {
+            status: "error",
+            configured: true,
+            snapshot: None,
+            error: Some("worker status snapshot exceeds the 64KiB read limit".into()),
+        };
+    }
+
+    let snapshot_bytes = match std::fs::File::open(path).and_then(|file| {
+        let mut bytes = Vec::new();
+        file.take(WORKER_STATUS_SNAPSHOT_MAX_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }) {
+        Ok(bytes) if bytes.len() as u64 <= WORKER_STATUS_SNAPSHOT_MAX_BYTES => bytes,
+        Ok(_) => {
+            return WorkerStatusResponse {
+                status: "error",
+                configured: true,
+                snapshot: None,
+                error: Some("worker status snapshot exceeds the 64KiB read limit".into()),
+            };
+        }
+        Err(error) => {
+            return WorkerStatusResponse {
+                status: "error",
+                configured: true,
+                snapshot: None,
+                error: Some(format!("worker status snapshot is not readable: {error}")),
+            };
+        }
+    };
+
+    match serde_json::from_slice::<serde_json::Value>(&snapshot_bytes)
+        .map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))
+    {
+        Ok(snapshot) => WorkerStatusResponse {
+            status: "ok",
+            configured: true,
+            snapshot: Some(snapshot),
+            error: None,
+        },
+        Err(error) => WorkerStatusResponse {
+            status: "error",
+            configured: true,
+            snapshot: None,
+            error: Some(format!("worker status snapshot is not valid JSON: {error}")),
+        },
+    }
 }
 
 async fn readyz(State(state): State<AppState>) -> (StatusCode, Json<ReadyResponse>) {
@@ -16415,6 +16521,145 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_worker_status_reports_not_configured_when_status_path_is_unset() {
+        let organization_state_path = unique_test_path("auth-worker-status-orgs");
+        let local_session_state_path = unique_test_path("auth-worker-status-sessions");
+        let user_id = "local_user_operator";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&OrganizationState {
+                accounts: vec![LocalAccount {
+                    id: user_id.into(),
+                    email: "operator@example.com".into(),
+                    name: "Operator User".into(),
+                    password_hash: None,
+                    created_at: "2026-04-27T00:00:00Z".into(),
+                }],
+                ..OrganizationState::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let app = test_app_with_config(AppConfig {
+            local_session_state_path: local_session_state_path.display().to_string(),
+            organization_state_path: organization_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/worker-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["status"], "not_configured");
+        assert_eq!(payload["configured"], false);
+        assert!(payload["snapshot"].is_null());
+
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[test]
+    fn worker_status_file_response_reads_bounded_json_snapshot() {
+        let status_path = unique_test_path("auth-worker-status-snapshot");
+        fs::write(
+            &status_path,
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "completed": true,
+                "max_ticks": 2,
+                "ticks_completed": 2,
+                "last_tick": 2,
+                "last_outcome": "repository_sync_job",
+                "last_work_item_id": "sync_1",
+                "last_work_item_status": "Succeeded"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let response = worker_status_response_for_path(Some(&status_path));
+
+        assert_eq!(response.status, "ok");
+        assert!(response.configured);
+        assert_eq!(response.error, None);
+        let snapshot = response.snapshot.unwrap();
+        assert_eq!(snapshot["completed"], true);
+        assert_eq!(snapshot["last_work_item_id"], "sync_1");
+
+        fs::remove_file(status_path).unwrap();
+    }
+
+    #[test]
+    fn worker_status_file_response_fails_closed_for_missing_invalid_and_oversized_snapshots() {
+        let missing_path = unique_test_path("auth-worker-status-missing");
+        let missing_response = worker_status_response_for_path(Some(&missing_path));
+        assert_eq!(missing_response.status, "error");
+        assert!(missing_response.configured);
+        assert!(missing_response.snapshot.is_none());
+        assert!(missing_response
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("worker status snapshot is not readable"));
+
+        let invalid_path = unique_test_path("auth-worker-status-invalid");
+        fs::write(&invalid_path, b"not json").unwrap();
+        let invalid_response = worker_status_response_for_path(Some(&invalid_path));
+        assert_eq!(invalid_response.status, "error");
+        assert!(invalid_response.configured);
+        assert!(invalid_response.snapshot.is_none());
+        assert!(invalid_response
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("worker status snapshot is not valid JSON"));
+        fs::remove_file(invalid_path).unwrap();
+
+        let oversized_path = unique_test_path("auth-worker-status-oversized");
+        fs::write(
+            &oversized_path,
+            vec![b' '; (WORKER_STATUS_SNAPSHOT_MAX_BYTES + 1) as usize],
+        )
+        .unwrap();
+        let oversized_response = worker_status_response_for_path(Some(&oversized_path));
+        assert_eq!(oversized_response.status, "error");
+        assert!(oversized_response.configured);
+        assert!(oversized_response.snapshot.is_none());
+        assert_eq!(
+            oversized_response.error.as_deref(),
+            Some("worker status snapshot exceeds the 64KiB read limit")
+        );
+        fs::remove_file(oversized_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_worker_status_requires_an_authenticated_session() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/worker-status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn auth_oauth_clients_lists_only_clients_for_admin_visible_organizations_and_hides_secret_hash(
     ) {
         let organization_state_path = unique_test_path("auth-oauth-clients-orgs");
@@ -25836,6 +26081,7 @@ mod tests {
                 organization_state_path: unique_test_path("config-organizations")
                     .display()
                     .to_string(),
+                worker_status_path: Some("/tmp/worker-status.json".into()),
                 llm_provider: Some("stub".into()),
                 llm_model: Some("stub-model".into()),
                 llm_api_base: Some("https://llm.invalid".into()),

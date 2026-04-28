@@ -1,13 +1,14 @@
 # Operator Runtime Acceptance
 
 ## Purpose
-This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, bounded metadata readiness, public config visibility, shared runtime-path wiring, and the documented local commands used to start the API plus the default one-tick/explicit bounded multi-tick worker.
+This acceptance spec defines the currently shipped operator-facing runtime baseline for local API and worker bring-up. It covers only black-box runtime liveness, bounded metadata readiness, public config visibility, authenticated worker status snapshot visibility, shared runtime-path wiring, and the documented local commands used to start the API plus the default one-tick/explicit bounded multi-tick worker.
 
 ## Scope
 This document covers:
 - `GET /healthz`
 - `GET /readyz`
 - `GET /api/v1/config`
+- `GET /api/v1/auth/worker-status`
 - the shared `SOURCEBOT_DATA_DIR` runtime-path contract
 - explicit per-file path overrides for bootstrap, local-session, and organization state
 - local bring-up with `make api` and `make worker`
@@ -77,6 +78,19 @@ This endpoint is a bounded local readiness baseline for metadata reachability an
 Given the API is running,
 when the operator requests `GET /api/v1/config`,
 then the service returns public runtime config needed by the frontend bootstrap surface while keeping secrets redacted to presence-only indicators rather than exposing raw secret values.
+
+### Authenticated worker status endpoint
+Given the API is running,
+when an unauthenticated caller requests `GET /api/v1/auth/worker-status`,
+then the service fails closed with `401` instead of exposing local runtime paths or status contents.
+
+Given an authenticated local-session caller requests `GET /api/v1/auth/worker-status` and `SOURCEBOT_WORKER_STATUS_PATH` is unset or blank,
+then the service returns `200` with `status: "not_configured"`, `configured: false`, and no snapshot.
+
+Given an authenticated local-session caller requests `GET /api/v1/auth/worker-status` and `SOURCEBOT_WORKER_STATUS_PATH` points at a readable JSON worker snapshot,
+then the service returns `200` with `status: "ok"`, `configured: true`, and the bounded JSON snapshot. Missing, invalid JSON, non-file, or oversized snapshots return a structured `status: "error"` response instead of panicking or reading unbounded data.
+
+This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. It does not claim a production metrics API, durable worker metadata, a heartbeat, scheduler supervision, retry orchestration, or broad observability parity.
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain explicitly outside the shipped baseline documented here:
