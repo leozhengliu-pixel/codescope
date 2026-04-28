@@ -5,33 +5,33 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 98bcbbd04e29b28be1e194da1626c10709c658a2
+  head: 38d7b098b6b92631456d92b37bea66a574017be7
 last_completed_task:
-  id: task102a
-  title: Bounded search pagination metadata
+  id: task102b
+  title: Frontend search pagination controls
   status: done
   summary: >-
-    Closed one bounded Task 102 search/indexing runtime slice by adding
-    API-level `limit`/`offset` pagination metadata to `/api/v1/search`. The
-    response now includes `pagination.limit`, `pagination.offset`,
-    visibility-scoped `pagination.total_count`, and `pagination.has_more` after
-    the existing repository visibility, saved-context, API-key-scope, and local
-    sync fallback filters have selected the authorized result set. The closure
-    updates search acceptance and parity/audit wording while keeping the claim
-    bounded: it does not yet provide a real production indexing pipeline, richer
-    filter grammar, branch/index availability handling, relevance tuning,
-    streaming search, or full stable-pagination parity across changing indexes.
+    Closed one bounded Task 102 search/indexing UI slice by wiring the existing
+    API pagination metadata into `#/search`. The frontend now requests
+    `/api/v1/search` with bounded `limit=20` and explicit `offset`, renders
+    result-count plus previous/next page controls from the API pagination
+    response, preserves non-zero offsets in search hashes and repository-detail
+    back links, and updates search acceptance/parity wording with the bounded UI
+    claim. This improves practical search usability, but remains partial: real
+    production indexing, richer filter grammar, branch/index availability,
+    relevance tuning, streaming search, SQL-backed saved contexts, and full
+    stable-pagination parity across changing indexes remain open.
   tests:
-    - cargo test -p sourcebot-api search_returns_paginated_results_with_total_count_and_has_more -- --nocapture: passed with 0 lib-target and 1 bin-target test
-    - cargo test -p sourcebot-search: passed with 10 unit tests and 0 doctests
-    - cargo test -p sourcebot-api search_ -- --nocapture: passed with 0 lib-target and 24 bin-target tests
-    - cargo fmt --check: passed
+    - 'npm test -- --run src/App.test.tsx -t "opens repository source from dedicated search results"': passed with 1 test and 178 skipped
+    - 'npm test -- --run src/App.test.tsx -t "renders API pagination metadata"': passed with 1 test and 178 skipped
+    - 'npm test -- --run src/App.test.tsx -t "search"': passed with 8 tests and 171 skipped
+    - 'npm test -- --run src/App.test.tsx': passed with 179 tests
+    - 'npm run build': passed
     - git diff --check: passed
     - added-lines security scan: passed
-    - docs pagination marker checks: passed
   review:
-    code: passed independent read-only review; no blocking visibility-scope, response-shape, constructor-compatibility, bounded-doc-claim, or security issues remained
-  commit: 98bcbbd04e29b28be1e194da1626c10709c658a2
+    code: passed independent read-only final review after adding direct non-zero-offset repository back-link and previous-page coverage; no blocking hash/URL, stale-state, previous/next, docs-overclaim, coverage, or security issues remained
+  commit: 38d7b098b6b92631456d92b37bea66a574017be7
   next_task: task102
 current_task:
   id: task102
@@ -40,14 +40,40 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 with the next meaningful search/indexing runtime closure.
-    Prefer a slice that moves beyond API pagination metadata into practical
-    indexing/runtime behavior, operator-visible index lifecycle/status, failure
-    recovery, relevance/filter semantics, branch/index availability, streaming
-    behavior, or frontend pagination controls, while preserving fail-closed
-    visibility boundaries, focused verification, bounded docs claims,
-    independent review, commit, state update, and push.
+    Prefer a slice that moves beyond API pagination metadata and bounded
+    frontend paging controls into practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, relevance/filter
+    semantics, branch/index availability, streaming behavior, or deeper
+    pagination stability, while preserving fail-closed visibility boundaries,
+    focused verification, bounded docs claims, independent review, commit, state
+    update, and push.
 
 history:
+  - id: task102b
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing UI slice by wiring the
+      existing API pagination metadata into `#/search`. The frontend now
+      requests `/api/v1/search` with bounded `limit=20` and explicit `offset`,
+      renders result-count plus previous/next page controls from the API
+      pagination response, preserves non-zero offsets in search hashes and
+      repository-detail back links, and updates search acceptance/parity wording
+      with a bounded UI claim. This improves practical search usability while
+      keeping production indexing, richer grammar, branch/index availability,
+      relevance tuning, streaming search, SQL-backed saved contexts, and full
+      stable-pagination parity open.
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "opens repository source from dedicated search results"': passed with 1 test and 178 skipped
+      - 'npm test -- --run src/App.test.tsx -t "renders API pagination metadata"': passed with 1 test and 178 skipped
+      - 'npm test -- --run src/App.test.tsx -t "search"': passed with 8 tests and 171 skipped
+      - 'npm test -- --run src/App.test.tsx': passed with 179 tests
+      - 'npm run build': passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only final review after adding direct non-zero-offset repository back-link and previous-page coverage; no blocking hash/URL, stale-state, previous/next, docs-overclaim, coverage, or security issues remained
+    commit: 38d7b098b6b92631456d92b37bea66a574017be7
+    next_task: task102
   - id: task102a
     status: done
     summary: >-
