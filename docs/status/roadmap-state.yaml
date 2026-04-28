@@ -5,35 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7a2a58f534483cd220b29988eaa3d74cee5c3c98
+  head: 02975fe38dad248a29c703a53dc8edf87f14e36c
 last_completed_task:
-  id: task102af
-  title: Search repository-root symlink hardening
+  id: task102ag
+  title: Search index artifact status/error consistency hardening
   status: done
   summary: >-
-    Closed a production search/indexing hardening closure. Local search indexing
-    now validates configured repository roots before traversal and fails closed
-    when the root is a symlink, including path spellings with trailing
-    separators or trailing dot components that would otherwise cause Unix
-    symlink metadata checks to observe the target directory. This prevents
-    local-sync/startup search from indexing escaped content through symlinked
-    repository roots while preserving bounded local search behavior.
+    Closed a production search/indexing runtime hardening closure. Persisted
+    local-sync search index artifacts now fail closed when an error-status
+    artifact lacks a non-empty operator-visible error message, or when an
+    indexed/indexed-empty success artifact carries a stale error message. This
+    prevents ambiguous artifact state from being trusted for search/index-status
+    surfaces while keeping valid local-sync artifact-backed search behavior
+    bounded and unchanged. The parallel batch attempted provider/worker and
+    browse/code-navigation workers as well, but both failed before producing
+    commits because their worker agent backend rejected the configured model, so
+    only the verified search closure was integrated.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots -- --nocapture: passed with 3 unit tests and 31 filtered out after RED failures for the original symlink-root case in the worker branch plus integrator-added trailing separator and trailing dot component regressions'
-    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots_with_trailing_dot_component -- --nocapture: RED failed before the reviewer-forced fix with left Indexed/right Error, then GREEN passed with 1 unit test and 33 filtered out'
-    - 'cargo test -p sourcebot-search -- --nocapture: passed with 34 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_error_status_artifact_without_operator_visible_error -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_success_status_artifact_with_stale_error_message -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
+    - 'cargo test -p sourcebot-search: passed in the main worktree with 36 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed'
-    - 'added-lines security scan over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed with no findings'
-    - 'independent integration review over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: initially failed on trailing separator and link/./ bypasses, then passed after both regressions and fixes landed'
+    - 'git diff --check 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed'
+    - 'added-lines security scan over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with 92 added lines scanned and 0 findings'
+    - 'independent integration review over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with no security concerns, logic errors, or docs overclaims'
   review:
     code: >-
-      Independent re-review passed with no blocking security concerns or logic
-      errors. The reviewer confirmed repository root validation runs before
-      traversal, rejects symlink and non-directory roots, and uses
-      component-based metadata-path normalization so symlink roots with trailing
-      separators or trailing dot components still fail closed before indexing.
-  commit: 7a2a58f534483cd220b29988eaa3d74cee5c3c98
+      Independent integration review passed. The reviewer confirmed the new
+      artifact validation rejects error-status artifacts without a non-empty
+      trimmed error and rejects indexed/indexed-empty artifacts carrying stale
+      error fields; the coupled search acceptance wording stays bounded and does
+      not upgrade the broader production search/indexing parity claim.
+  commit: 02975fe38dad248a29c703a53dc8edf87f14e36c
   next_task: task102
 current_task:
   id: task102
@@ -44,27 +47,59 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/106/107/108 blockers when scopes are disjoint. The latest integrated
-    closure hardened local search repository-root handling so symlinked roots fail
-    closed before traversal, including trailing-separator and trailing-dot path
-    spellings. Existing search evidence now includes bounded authenticated
-    query-size validation, frontend-visible saved-context management for non-empty
+    closure hardened persisted local-sync search index artifact status/error
+    consistency so error-status artifacts require an operator-visible error and
+    successful indexed/indexed-empty artifacts cannot carry stale error messages.
+    Existing search evidence now includes bounded authenticated query-size
+    validation, frontend-visible saved-context management for non-empty
     repository scopes, fail-closed backend context narrowing, explicit
     boolean/literal/regex modes, deterministic ordering, repository-detail
     index-status visibility, indexed-empty/skipped-only semantics, persisted
     artifact path/repo-id/count/status validation including symlink/non-regular
-    artifact and symlinked-parent rejection, hardened local-sync artifact loading
-    for corrupt or inconsistent status/content evidence, fail-closed regex bounds,
-    fail-closed empty search semantics for present malformed artifacts without
-    aborting unscoped results from other visible repositories, fail-closed
-    pagination validation, authorization-domain pagination/count evidence, and
-    symlinked repository-root rejection before startup/local indexing. Remaining
-    Task 102 work should move practical indexing/runtime behavior,
-    operator-visible index lifecycle/status, failure recovery, relevance/pagination
-    stability at scale, branch/index availability, and production search/indexing
-    parity while preserving fail-closed visibility boundaries, focused
-    verification, bounded docs claims, independent review, commit, state update,
-    and push.
+    artifact and symlinked-parent rejection, corrupt/inconsistent artifact
+    hardening, fail-closed status/error consistency validation, fail-closed regex
+    bounds, fail-closed empty search semantics for present malformed artifacts
+    without aborting unscoped results from other visible repositories,
+    fail-closed pagination validation, authorization-domain pagination/count
+    evidence, and symlinked repository-root rejection before startup/local
+    indexing. Remaining Task 102 work should move practical indexing/runtime
+    behavior, operator-visible index lifecycle/status, failure recovery,
+    relevance/pagination stability at scale, branch/index availability, and
+    production search/indexing parity while preserving fail-closed visibility
+    boundaries, focused verification, bounded docs claims, independent review,
+    commit, state update, and push.
 history:
+  - id: task102ag
+    status: done
+    summary: >-
+      Closed a production search/indexing runtime hardening closure. Persisted
+      local-sync search index artifacts now reject inconsistent status/error
+      envelopes: error status must include a non-empty operator-visible error,
+      and indexed/indexed-empty success status must not retain stale error text.
+      The batch launched three disjoint implementation workers, but the
+      provider/worker and browse/code-navigation workers failed before commits
+      because their agent backend rejected the configured model; the verified
+      search closure was integrated, amended with coupled acceptance wording,
+      reviewed, and left Task 102 as the next highest-value search/indexing
+      parity track.
+    commit: 02975fe38dad248a29c703a53dc8edf87f14e36c
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_error_status_artifact_without_operator_visible_error -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_success_status_artifact_with_stale_error_message -- --nocapture: passed in the main worktree with 1 unit test and 35 filtered out after worker-recorded RED failure before implementation'
+      - 'cargo test -p sourcebot-search: passed in the main worktree with 36 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed'
+      - 'added-lines security scan over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with 92 added lines scanned and 0 findings'
+      - 'independent integration review over 69cc25eb7a721f35f0c79f4c60fbb5262698bb10..02975fe38dad248a29c703a53dc8edf87f14e36c: passed with no security concerns, logic errors, or docs overclaims'
+    review: >-
+      Independent integration review passed with no blocking issues. Non-blocking
+      future hardening suggestion: if artifacts become untrusted inputs beyond
+      repo-local generation, consider requiring printable operator-visible error
+      text rather than only a non-whitespace string.
+    workers:
+      - 'search/index worker: integrated worker commit 44ddddb78b7c1cec0d91a15c707609a33d25aa7a as amended main commit 02975fe38dad248a29c703a53dc8edf87f14e36c'
+      - 'provider/worker worker: not integrated; worker failed before producing a commit because the backend rejected the configured gpt-5.5 model for Codex/ChatGPT account use'
+      - 'browse/code-navigation worker: not integrated; worker failed before producing a commit because the backend rejected the configured gpt-5.5 model for Codex/ChatGPT account use'
   - id: task102af
     status: done
     summary: >-
