@@ -540,6 +540,18 @@ fn validate_persisted_index_artifact(
         );
     }
 
+    if artifact.index_status.status == RepositoryIndexState::IndexedEmpty
+        && (artifact.index_status.indexed_file_count != 0
+            || artifact.index_status.indexed_line_count != 0)
+    {
+        anyhow::bail!(
+            "search index artifact status state mismatch in {}: indexed_empty status reports {} indexed files and {} indexed lines",
+            artifact_path.display(),
+            artifact.index_status.indexed_file_count,
+            artifact.index_status.indexed_line_count
+        );
+    }
+
     for indexed_line in &artifact.indexed_lines {
         if !is_safe_persisted_index_path(&indexed_line.path) {
             anyhow::bail!(
@@ -1642,6 +1654,34 @@ mod tests {
             error
                 .to_string()
                 .contains("search index artifact status count mismatch"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_status_state_mismatch() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["status"] =
+            serde_json::Value::String("indexed_empty".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index status state mismatch must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact status state mismatch"),
             "unexpected error: {error:#}"
         );
 
