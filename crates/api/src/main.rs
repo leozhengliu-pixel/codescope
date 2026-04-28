@@ -5478,6 +5478,7 @@ async fn get_repository_definitions(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
+    ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
     let requested_revision = query
         .revision
         .as_deref()
@@ -5586,6 +5587,7 @@ async fn get_repository_references(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
+    ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
     let requested_revision = query
         .revision
         .as_deref()
@@ -6061,6 +6063,18 @@ async fn ensure_repo_visible_for_request(
     let visible_repo_ids = visible_browse_repo_ids_for_request(state, headers).await?;
     if !visible_repo_ids.contains(repo_id) {
         return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(())
+}
+
+async fn ensure_repo_visible_for_code_nav_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo_id: &str,
+) -> Result<(), StatusCode> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        ensure_repo_visible_for_request(state, headers, repo_id).await?;
     }
 
     Ok(())
@@ -31319,6 +31333,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn definitions_returns_not_found_for_hidden_repository_before_code_nav_lookup() {
+        let organization_state_path = unique_test_path("definitions-hidden-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("definitions-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("definitions-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=crates/api/src/main.rs&symbol=build_router&revision=HEAD",
+                    )
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn definitions_returns_supported_rust_definitions_and_echoes_revision() {
         let response = test_app()
             .oneshot(
@@ -31604,6 +31654,42 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(unknown_path.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn references_returns_not_found_for_hidden_repository_before_code_nav_lookup() {
+        let organization_state_path = unique_test_path("references-hidden-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("references-hidden-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("references-hidden-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=crates/api/src/main.rs&symbol=build_router&revision=HEAD",
+                    )
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
