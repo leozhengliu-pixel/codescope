@@ -14418,6 +14418,13 @@ describe('App', () => {
         created_at: '2026-04-28T10:00:00Z',
         updated_at: '2026-04-28T10:00:00Z',
       },
+      {
+        id: 'ctx-empty',
+        name: 'Empty fail-closed context',
+        repo_scope: [],
+        created_at: '2026-04-28T10:00:00Z',
+        updated_at: '2026-04-28T10:00:00Z',
+      },
     ];
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -14507,6 +14514,9 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('Existing context')).toBeInTheDocument();
+    expect(screen.queryByText('Empty fail-closed context')).not.toBeInTheDocument();
+    expect(screen.getByText('Choose a specific repository before saving a context; all-repository contexts fail closed today.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save search context' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
     fireEvent.change(screen.getByLabelText('Repository filter'), { target: { value: 'repo-2' } });
     fireEvent.change(screen.getByLabelText('New context name'), { target: { value: 'Beta needle scope' } });

@@ -951,6 +951,7 @@ function SearchExperience({
   const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
   const hasStoredLocalSession = readStoredLocalSession() !== null;
   const selectedSearchContext = searchContexts.find((searchContext) => searchContext.id === selectedContextId) ?? null;
+  const canCreateSearchContext = hasStoredLocalSession && selectedRepoId.trim().length > 0;
   const contextScopeLabel = selectedSearchContext
     ? selectedSearchContext.repo_scope.length > 0
       ? selectedSearchContext.repo_scope.map((repoId) => repoNamesById.get(repoId) ?? repoId).join(', ')
@@ -978,7 +979,11 @@ function SearchExperience({
     fetchJson<SearchContextSummary[]>('/api/v1/auth/search-contexts')
       .then((data) => {
         if (!cancelled) {
-          setSearchContexts(data.filter((searchContext) => searchContext.id.trim().length > 0));
+          setSearchContexts(
+            data.filter(
+              (searchContext) => searchContext.id.trim().length > 0 && searchContext.repo_scope.length > 0,
+            ),
+          );
           setSearchContextsError(null);
         }
       })
@@ -1075,13 +1080,13 @@ function SearchExperience({
   }, [initialQuery, initialRepoId, initialOffset, initialMode, initialContextId]);
 
   const createSearchContext = async () => {
-    if (!hasStoredLocalSession || contextMutationLoading) {
+    if (!canCreateSearchContext || contextMutationLoading) {
       return;
     }
 
     const trimmedName = newContextName.trim() || (query.trim().length > 0 ? `Search: ${query.trim()}` : 'Saved search context');
     const normalizedRepoId = selectedRepoId.trim();
-    const repoScope = normalizedRepoId.length > 0 ? [normalizedRepoId] : [];
+    const repoScope = [normalizedRepoId];
 
     setContextMutationLoading(true);
     setContextMutationMessage(null);
@@ -1215,8 +1220,13 @@ function SearchExperience({
           <div style={{ border: '1px solid #d0d7de', borderRadius: 12, padding: 12, background: '#ffffff', display: 'grid', gap: 10 }}>
             <div style={{ fontWeight: 700 }}>Saved search contexts</div>
             <div style={{ color: '#57606a', fontSize: 14 }}>
-              Save the current repository filter as a reusable search context. Blank context ids are not sent with search requests.
+              Save a specific repository filter as a reusable search context. Blank context ids are not sent with search requests.
             </div>
+            {!canCreateSearchContext ? (
+              <div style={{ color: '#57606a', fontSize: 14 }}>
+                Choose a specific repository before saving a context; all-repository contexts fail closed today.
+              </div>
+            ) : null}
             {selectedSearchContext ? (
               <div style={{ color: '#57606a', fontSize: 14 }}>
                 Selected context scope: {contextScopeLabel}
@@ -1232,7 +1242,7 @@ function SearchExperience({
                   style={inputStyle}
                 />
               </label>
-              <button type="button" style={secondaryButtonStyle} disabled={contextMutationLoading} onClick={() => void createSearchContext()}>
+              <button type="button" style={secondaryButtonStyle} disabled={contextMutationLoading || !canCreateSearchContext} onClick={() => void createSearchContext()}>
                 {contextMutationLoading ? 'Saving…' : 'Save search context'}
               </button>
               <button
