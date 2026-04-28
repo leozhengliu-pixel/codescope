@@ -506,7 +506,10 @@ impl BrowseStore for LocalBrowseStore {
         };
 
         let mut matches = Vec::new();
-        for path in paths.into_iter().filter(|path| path.ends_with(".rs")) {
+        for path in paths
+            .into_iter()
+            .filter(|path| supports_text_reference_scan(path))
+        {
             let Some(bytes) = run_git_show_blob(repo_root, revision, &path)? else {
                 continue;
             };
@@ -605,6 +608,15 @@ impl GrepStore for BrowseGrepStoreAdapter {
                     .collect(),
             }))
     }
+}
+
+fn supports_text_reference_scan(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str()),
+        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs")
+    )
 }
 
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
@@ -1196,6 +1208,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(blob, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_finds_text_references_in_typescript_revision_files() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-typescript-references",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::create_dir_all(root.join("web").join("src")).unwrap();
+        fs::write(
+            root.join("web").join("src").join("App.tsx"),
+            "export function App() {\n  return <main><AppShell /></main>;\n}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("web").join("src").join("AppShell.ts"),
+            "export const AppShell = () => 'ready';\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "AppShell", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert!(references.iter().any(|reference| {
+            reference.path == "web/src/App.tsx"
+                && reference.line_number == 2
+                && reference.line.contains("AppShell")
+        }));
+        assert!(references.iter().any(|reference| {
+            reference.path == "web/src/AppShell.ts"
+                && reference.line_number == 1
+                && reference.line.contains("AppShell")
+        }));
 
         fs::remove_dir_all(root).unwrap();
     }

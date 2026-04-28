@@ -14,7 +14,7 @@
 
 ## Expected behavior
 1. A supported language returns one or more symbol definitions with file path and range. The current bounded extractor supports top-level Rust plus TypeScript/JavaScript declarations for functions, classes, interfaces, type aliases, enums, and constants.
-2. References lookup returns a deduplicated, navigable list of usages.
+2. References lookup returns a deduplicated, navigable list of usages; the bounded text-reference scanner covers Rust plus TypeScript/JavaScript source extensions (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`) so references parity matches the declaration extractor's supported language set.
 3. Navigation requests are revision-aware and stable for a given indexed revision.
 4. Unsupported languages fail gracefully with a capability message instead of a server error.
 5. Symbol results link back to browseable source locations using the effective source revision.

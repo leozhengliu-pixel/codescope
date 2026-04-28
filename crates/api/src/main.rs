@@ -30952,6 +30952,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn references_return_supported_typescript_hits_with_browse_urls() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/references?path=web/src/App.tsx&symbol=App&revision=HEAD",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: ReferencesResponse = read_json(response).await;
+        match payload {
+            ReferencesResponse::Supported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                references,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "web/src/App.tsx");
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert_eq!(symbol, "App");
+                assert!(references.iter().any(|reference| {
+                    reference.path == "web/src/App.tsx"
+                        && reference.line.contains("App")
+                        && reference.line_number > 0
+                        && reference.browse_url.starts_with(
+                            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=web%2Fsrc%2FApp.tsx&revision=HEAD#L",
+                        )
+                }));
+            }
+            ReferencesResponse::Unsupported { .. } => {
+                panic!("expected supported TypeScript references response")
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn references_return_supported_rust_hits_with_browse_urls_ordering_and_deduplication() {
         let response = test_app()
             .oneshot(
