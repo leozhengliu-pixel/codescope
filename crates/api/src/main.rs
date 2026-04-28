@@ -1204,6 +1204,25 @@ fn bind_mcp_http_active_repo(
     Ok(Some(repo_id.to_string()))
 }
 
+fn bind_mcp_json_rpc_active_repo(
+    request: &mut sourcebot_mcp::McpToolCallRequest,
+) -> Result<Option<String>, StatusCode> {
+    let Some(arguments) = request.arguments.as_object_mut() else {
+        return Ok(None);
+    };
+    let Some(repo_id) = arguments.remove("repo_id") else {
+        return Ok(None);
+    };
+    let Some(repo_id) = repo_id
+        .as_str()
+        .map(str::trim)
+        .filter(|repo_id| !repo_id.is_empty())
+    else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+    Ok(Some(repo_id.to_string()))
+}
+
 async fn call_mcp_tool(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1224,6 +1243,24 @@ async fn execute_mcp_tool_call_for_visible_repos(
     request: &mut sourcebot_mcp::McpToolCallRequest,
 ) -> Result<sourcebot_mcp::McpToolCallResponse, StatusCode> {
     let active_repo_id = bind_mcp_http_active_repo(request, &visible_repo_ids)?;
+    execute_mcp_tool_call_with_active_repo(state, visible_repo_ids, active_repo_id, request).await
+}
+
+async fn execute_mcp_json_rpc_tool_call_for_visible_repos(
+    state: &AppState,
+    visible_repo_ids: Vec<String>,
+    request: &mut sourcebot_mcp::McpToolCallRequest,
+) -> Result<sourcebot_mcp::McpToolCallResponse, StatusCode> {
+    let active_repo_id = bind_mcp_json_rpc_active_repo(request)?;
+    execute_mcp_tool_call_with_active_repo(state, visible_repo_ids, active_repo_id, request).await
+}
+
+async fn execute_mcp_tool_call_with_active_repo(
+    state: &AppState,
+    visible_repo_ids: Vec<String>,
+    active_repo_id: Option<String>,
+    request: &sourcebot_mcp::McpToolCallRequest,
+) -> Result<sourcebot_mcp::McpToolCallResponse, StatusCode> {
     let context = RetrievalToolContext {
         active_repo_id,
         repo_scope: visible_repo_ids.clone(),
@@ -1457,7 +1494,7 @@ async fn process_mcp_json_rpc_request(
                         )));
                     }
                 };
-            let tool_response = execute_mcp_tool_call_for_visible_repos(
+            let tool_response = execute_mcp_json_rpc_tool_call_for_visible_repos(
                 state,
                 visible_repo_ids.to_vec(),
                 &mut tool_request,
@@ -8509,6 +8546,72 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("params must match MCP tool-call schema"));
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_tools_call_invisible_repo_returns_protocol_tool_error() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-invisible-repo-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-invisible-repo-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-invisible-repo-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "invisible-repo-call",
+                            "method": "tools/call",
+                            "params": {
+                                "name": "read_file",
+                                "arguments": {
+                                    "repo_id": "repo_secret",
+                                    "path": "secrets.txt"
+                                }
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(response).await;
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["id"], "invisible-repo-call");
+        assert!(body.get("error").is_none());
+        assert_eq!(body["result"]["isError"], true);
+        assert_eq!(
+            body["result"]["structuredContent"]["error"]["code"],
+            "permission_denied"
+        );
+        assert_eq!(
+            body["result"]["structuredContent"]["error"]["message"],
+            "active repository repo_secret is not visible to the retrieval context"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
     }
