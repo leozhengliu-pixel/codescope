@@ -5,34 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ff6c480eb36e6aa3d712e65e58ee0069e90e29d6
+  head: ee9f767df1d6b28b64104ffcdfbe9daf3f33d9ca
 last_completed_task:
-  id: task103a
-  title: TypeScript and JavaScript symbol extraction baseline
+  id: task102k
+  title: Frontend search mode selector and deep-link preservation
   status: done
   summary: >-
-    Closed one manual Task 103 browse/code-navigation slice by extending the
-    bounded symbol extractor beyond Rust to top-level TypeScript and JavaScript
-    declarations. The definitions API can now return supported results for
-    `.ts`, `.tsx`, `.js`, and `.jsx` files covering functions, classes,
-    interfaces, type aliases, enums, constants, and arrow-function constants,
-    while unsupported language handling remains graceful. README,
-    code-navigation acceptance, parity-gap, and final-audit wording now ground
-    the shipped baseline while keeping tree-sitter precision, nested/member
-    symbols, cross-file reference indexing, branch-aware symbol indexes,
-    syntax highlighting, and production code-navigation parity open.
+    Closed one manual Task 102 frontend search usability slice by exposing the
+    previously shipped explicit `mode=boolean|literal|regex` search capability
+    on the dedicated `#/search` page. The UI now includes a search-mode
+    selector, keeps default boolean searches on the existing URL/API shape, adds
+    `mode=literal|regex` only when selected, restores mode from deep links,
+    preserves mode across result pagination and repository-detail back links,
+    and updates README, acceptance, parity-gap, and final-audit wording without
+    overclaiming real indexing, richer grammar, branch availability, relevance,
+    streaming, or stable-pagination parity.
   tests:
-    - 'cargo test -p sourcebot-search extract_symbols_returns_top_level_typescript_and_javascript_definitions -- --nocapture': red first for single-line declaration range bleed, then passed with 1 unit test and 17 filtered out
-    - 'cargo test -p sourcebot-api definitions_returns_supported_typescript_definitions -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
-    - 'cargo test -p sourcebot-search': passed with 18 unit tests and 0 doctests
-    - 'cargo test -p sourcebot-api definitions_ -- --nocapture': passed with 0 lib-target tests and 9 bin-target tests
-    - 'cargo test -p sourcebot-api references_ -- --nocapture': passed with 0 lib-target tests and 8 bin-target tests
-    - cargo fmt --check: passed
+    - 'npm test -- --run src/App.test.tsx -t "search"': passed with 9 focused search tests and 171 skipped
+    - npm run build: passed with Vite production build
+    - 'npm test -- --run src/App.test.tsx': passed with 180 frontend tests
     - git diff --check: passed
-    - added-lines security scan: passed
+    - added-lines security scan: reviewed documentation-only API-key wording; no secrets added
   review:
-    code: manual Codex review passed for language dispatch, top-level-only symbol boundaries, no-regression Rust extraction, definitions API compatibility, bounded-doc-claim accuracy, and unsupported-language behavior
-  commit: ff6c480eb36e6aa3d712e65e58ee0069e90e29d6
+    code: manual Codex review passed for route parsing, default boolean compatibility, explicit mode API propagation, pagination/back-link preservation, test coverage, and bounded-doc-claim accuracy
+  commit: ee9f767df1d6b28b64104ffcdfbe9daf3f33d9ca
   next_task: task102
 current_task:
   id: task102
@@ -48,14 +44,37 @@ current_task:
     matching, bounded unquoted `lang:`/`path:` local/index-artifact filters,
     deterministic repo/path/line ordering for identical indexed content,
     bounded unquoted OR line-term groups, and explicit bounded
-    `mode=boolean|literal|regex` search modes into practical indexing/runtime
-    behavior, operator-visible index lifecycle/status, failure recovery, richer
+    `mode=boolean|literal|regex` search modes plus their dedicated frontend
+    selector/deep-link preservation into practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer
     full-boolean/filter grammar, branch/index availability, streaming behavior,
     or deeper pagination/relevance stability, while preserving fail-closed
     visibility boundaries, focused verification, bounded docs claims,
     independent review, commit, state update, and push.
 
 history:
+  - id: task102k
+    status: done
+    summary: >-
+      Closed one manual Task 102 frontend search usability slice by exposing the
+      previously shipped explicit `mode=boolean|literal|regex` search capability
+      on the dedicated `#/search` page. The UI now includes a search-mode
+      selector, keeps default boolean searches on the existing URL/API shape,
+      adds `mode=literal|regex` only when selected, restores mode from deep
+      links, preserves mode across result pagination and repository-detail back
+      links, and updates README, acceptance, parity-gap, and final-audit wording
+      without overclaiming real indexing, richer grammar, branch availability,
+      relevance, streaming, or stable-pagination parity.
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "search"': passed with 9 focused search tests and 171 skipped
+      - npm run build: passed with Vite production build
+      - 'npm test -- --run src/App.test.tsx': passed with 180 frontend tests
+      - git diff --check: passed
+      - added-lines security scan: reviewed documentation-only API-key wording; no secrets added
+    review:
+      code: manual Codex review passed for route parsing, default boolean compatibility, explicit mode API propagation, pagination/back-link preservation, test coverage, and bounded-doc-claim accuracy
+    commit: ee9f767df1d6b28b64104ffcdfbe9daf3f33d9ca
+    next_task: task102
   - id: task103a
     status: done
     summary: >-
@@ -2725,4 +2744,3 @@ notes:
         `docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md`.
         The next live work item is the `current_task` recorded above, not any archived
         Task 87b2, Task 86-100, or pre-follow-on blocker thread.
-
