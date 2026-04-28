@@ -22,6 +22,7 @@ use axum::{
     body::Bytes,
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, patch, post, put},
     Json, Router,
 };
@@ -1250,7 +1251,7 @@ async fn handle_mcp_json_rpc(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(request): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Response, StatusCode> {
     let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
@@ -1261,7 +1262,8 @@ async fn handle_mcp_json_rpc(
                 serde_json::Value::Null,
                 -32600,
                 "invalid JSON-RPC batch: at least one request is required",
-            )));
+            ))
+            .into_response());
         }
 
         let mut responses = Vec::new();
@@ -1273,13 +1275,18 @@ async fn handle_mcp_json_rpc(
             }
         }
 
-        return Ok(Json(serde_json::Value::Array(responses)));
+        if responses.is_empty() {
+            return Ok(StatusCode::NO_CONTENT.into_response());
+        }
+
+        return Ok(Json(serde_json::Value::Array(responses)).into_response());
     }
 
-    let response = process_mcp_json_rpc_request(&state, &visible_repo_ids, request)
-        .await?
-        .unwrap_or(serde_json::Value::Null);
-    Ok(Json(response))
+    let Some(response) = process_mcp_json_rpc_request(&state, &visible_repo_ids, request).await?
+    else {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    };
+    Ok(Json(response).into_response())
 }
 
 async fn process_mcp_json_rpc_request(
@@ -1296,6 +1303,9 @@ async fn process_mcp_json_rpc_request(
         .is_some_and(|request| !request.contains_key("id"));
 
     if request.get("jsonrpc") != Some(&serde_json::Value::String("2.0".into())) {
+        if is_notification {
+            return Ok(None);
+        }
         return Ok(Some(mcp_json_rpc_error(
             id,
             -32600,
@@ -1304,6 +1314,9 @@ async fn process_mcp_json_rpc_request(
     }
 
     let Some(method) = request.get("method").and_then(|method| method.as_str()) else {
+        if is_notification {
+            return Ok(None);
+        }
         return Ok(Some(mcp_json_rpc_error(
             id,
             -32600,
@@ -1324,6 +1337,9 @@ async fn process_mcp_json_rpc_request(
         }),
         "tools/call" => {
             let Some(params) = request.get("params") else {
+                if is_notification {
+                    return Ok(None);
+                }
                 return Ok(Some(mcp_json_rpc_error(
                     id,
                     -32602,
@@ -1334,6 +1350,9 @@ async fn process_mcp_json_rpc_request(
                 match serde_json::from_value(params.clone()) {
                     Ok(request) => request,
                     Err(_) => {
+                        if is_notification {
+                            return Ok(None);
+                        }
                         return Ok(Some(mcp_json_rpc_error(
                             id,
                             -32602,
@@ -1350,6 +1369,9 @@ async fn process_mcp_json_rpc_request(
             mcp_json_rpc_tool_call_result(tool_response)
         }
         _ => {
+            if is_notification {
+                return Ok(None);
+            }
             return Ok(Some(mcp_json_rpc_error(
                 id,
                 -32601,
@@ -7806,6 +7828,88 @@ mod tests {
             .expect("tools/list result should include tools")
             .iter()
             .any(|tool| tool["name"] == "read_file"));
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_notifications_do_not_emit_success_or_error_responses() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-notification-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-notification-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-notification-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let single_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "method": "unknown/notification",
+                            "params": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(single_response.status(), StatusCode::NO_CONTENT);
+        let single_body = to_bytes(single_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(single_body.is_empty());
+
+        let batch_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!([
+                            {
+                                "jsonrpc": "2.0",
+                                "method": "notifications/initialized",
+                                "params": {}
+                            },
+                            {
+                                "jsonrpc": "2.0",
+                                "method": "tools/call",
+                                "params": {"arguments": {}}
+                            }
+                        ])
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(batch_response.status(), StatusCode::NO_CONTENT);
+        let batch_body = to_bytes(batch_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(batch_body.is_empty());
 
         fs::remove_file(organization_state_path).unwrap();
     }
