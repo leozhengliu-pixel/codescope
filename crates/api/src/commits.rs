@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     io::Read,
-    path::PathBuf,
+    path::{Component, Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::Arc,
     thread,
@@ -404,23 +404,23 @@ fn parse_diff_name_status(output: &str) -> Result<Vec<RawDiffStatus>> {
 
         let entry = match status.chars().next() {
             Some('A') => RawDiffStatus {
-                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                path: next_diff_path(&tokens, &mut index, "path")?.to_string(),
                 change_type: CommitDiffChangeType::Added,
                 old_path: None,
             },
             Some('M') | Some('T') => RawDiffStatus {
-                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                path: next_diff_path(&tokens, &mut index, "path")?.to_string(),
                 change_type: CommitDiffChangeType::Modified,
                 old_path: None,
             },
             Some('D') => RawDiffStatus {
-                path: next_token(&tokens, &mut index, "path")?.to_string(),
+                path: next_diff_path(&tokens, &mut index, "path")?.to_string(),
                 change_type: CommitDiffChangeType::Deleted,
                 old_path: None,
             },
             Some('R') => {
-                let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
-                let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+                let old_path = next_diff_path(&tokens, &mut index, "old path")?.to_string();
+                let new_path = next_diff_path(&tokens, &mut index, "new path")?.to_string();
                 RawDiffStatus {
                     path: new_path,
                     change_type: CommitDiffChangeType::Renamed,
@@ -428,8 +428,8 @@ fn parse_diff_name_status(output: &str) -> Result<Vec<RawDiffStatus>> {
                 }
             }
             Some('C') => {
-                let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
-                let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+                let old_path = next_diff_path(&tokens, &mut index, "old path")?.to_string();
+                let new_path = next_diff_path(&tokens, &mut index, "new path")?.to_string();
                 RawDiffStatus {
                     path: new_path,
                     change_type: CommitDiffChangeType::Copied,
@@ -461,7 +461,7 @@ fn parse_diff_numstat(output: &str) -> Result<Vec<RawNumstat>> {
 
         if let Some((additions, deletions, path)) = parse_regular_numstat(token)? {
             entries.push(RawNumstat {
-                path: path.to_string(),
+                path: validate_diff_path(path, "path")?.to_string(),
                 old_path: None,
                 additions,
                 deletions,
@@ -470,8 +470,8 @@ fn parse_diff_numstat(output: &str) -> Result<Vec<RawNumstat>> {
         }
 
         let (additions, deletions) = parse_rename_numstat_header(token)?;
-        let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
-        let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+        let old_path = next_diff_path(&tokens, &mut index, "old path")?.to_string();
+        let new_path = next_diff_path(&tokens, &mut index, "new path")?.to_string();
         entries.push(RawNumstat {
             path: new_path,
             old_path: Some(old_path),
@@ -590,6 +590,35 @@ fn next_token<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<
         .ok_or_else(|| anyhow!("missing git diff {label}"))?;
     *index += 1;
     Ok(value)
+}
+
+fn next_diff_path<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<&'a str> {
+    let value = next_token(tokens, index, label)?;
+    validate_diff_path(value, label)
+}
+
+fn validate_diff_path<'a>(path: &'a str, label: &str) -> Result<&'a str> {
+    if path.is_empty() {
+        return Err(anyhow!("unsafe git diff {label}: empty path"));
+    }
+    if path.contains('\\') {
+        return Err(anyhow!("unsafe git diff {label}: backslash path {path:?}"));
+    }
+
+    let parsed = Path::new(path);
+    if parsed.is_absolute() {
+        return Err(anyhow!("unsafe git diff {label}: absolute path {path:?}"));
+    }
+    if parsed.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(anyhow!("unsafe git diff {label}: parent path {path:?}"));
+    }
+
+    Ok(path)
 }
 
 fn run_git(repo_root: &PathBuf, args: &[&str]) -> Result<String> {
@@ -1005,6 +1034,45 @@ mod tests {
                 old_path: Some("src/original.rs".to_string()),
             }]
         );
+    }
+
+    #[test]
+    fn diff_metadata_parsers_reject_unsafe_paths() {
+        for path in [
+            "",
+            "/absolute",
+            "../parent",
+            "nested/../parent",
+            "windows\\path",
+        ] {
+            assert!(
+                parse_diff_name_status(&format!("fe7f21f\0M\0{path}\0")).is_err(),
+                "name-status parser should reject unsafe path {path:?}"
+            );
+            assert!(
+                parse_diff_numstat(&format!("fe7f21f\01\t2\t{path}\0")).is_err(),
+                "numstat parser should reject unsafe path {path:?}"
+            );
+        }
+
+        for old_path in [
+            "",
+            "/absolute",
+            "../parent",
+            "nested/../parent",
+            "windows\\path",
+        ] {
+            assert!(
+                parse_diff_name_status(&format!("fe7f21f\0R100\0{old_path}\0safe/new.txt\0"))
+                    .is_err(),
+                "name-status parser should reject unsafe old path {old_path:?}"
+            );
+            assert!(
+                parse_diff_numstat(&format!("fe7f21f\01\t2\t\0{old_path}\0safe/new.txt\0"))
+                    .is_err(),
+                "numstat parser should reject unsafe old path {old_path:?}"
+            );
+        }
     }
 
     #[test]
