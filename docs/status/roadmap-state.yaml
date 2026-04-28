@@ -5,43 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 31fc75f1a44713dcabb60dd668526378e3800b72
+  head: 8e8aa19a5e76e59edde25b81a0789d3f5738ee8c
 last_completed_task:
-  id: task102w
-  title: Accelerated search, code-navigation, and MCP client interoperability batch
+  id: task102x
+  title: Accelerated search pagination, commit-copy diff, and MCP parse-error batch
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now treats present but malformed local-sync
-    search-index artifacts as fail-closed empty search results for the affected
-    repository while preserving unscoped results from other visible repositories
-    and retaining operator-visible index-status error evidence. Task 103 now
-    extends bounded reference scanning beyond Rust to TypeScript/JavaScript source
-    files, with revisioned store and API route regressions proving browse URLs are
-    returned for supported TypeScript hits. Task 107 now answers authenticated MCP
-    JSON-RPC `ping` requests with the standard empty result object for client
-    liveness checks while preserving notification omission semantics.
+    replacement blockers. Task 102 now rejects unbounded `/api/v1/search`
+    pagination parameters instead of silently clamping oversized limits or
+    accepting excessive offsets. Task 103 now preserves copied-file semantics in
+    commit diffs by parsing `C*` git name-status entries and exposing `copied`
+    changes with source paths and copy metadata. Task 107 now returns
+    authenticated MCP/JSON-RPC protocol parse-error envelopes for malformed JSON
+    request bodies instead of Axum extractor HTTP 400 responses.
   tests:
-    - 'cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed with 3 bin tests, 0 lib tests, and 426 filtered out'
-    - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 422 filtered out'
-    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 419 filtered out'
-    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed with 9 bin tests, 0 lib tests, and 420 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 6 bin tests, 0 lib tests, and 423 filtered out'
-    - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api search_rejects_unbounded_pagination_parameters -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-api search_ -- --nocapture: passed with 32 bin tests, 0 lib tests, and 401 filtered out'
+    - 'cargo test -p sourcebot-api parse_diff_name_status_accepts_copies -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-api local_commit_store_reports_copied_files -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 13 bin tests, 0 lib tests, and 420 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_malformed_body_returns_protocol_parse_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 7 bin tests, 0 lib tests, and 426 filtered out'
+    - 'cargo test -p sourcebot-api --bin sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests and 429 filtered out'
+    - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed'
-    - 'added-lines security scan over 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed with no findings'
-    - 'independent integration review: passed with no security concerns or logic errors; one non-blocking wording suggestion remains for future declaration-vs-reference extension precision'
+    - 'git diff --check 83d9d81..HEAD: passed'
+    - 'added-lines security scan over 83d9d81..HEAD: passed with no findings'
+    - 'independent integration review: passed with no security concerns or logic errors; non-blocking suggestions remain for copied-file-with-modification coverage, copy-detection latency monitoring, and MCP content-type edge tests'
   review:
     code: >-
       Independent integration review approved the accelerated batch after checking
-      malformed artifact fail-closed search behavior, hidden-repo/scope boundaries,
-      MCP ping and notification semantics, TypeScript reference scanning, browse
-      URL construction, and bounded docs claims. The only suggestion was
-      non-blocking: future wording can distinguish declaration extraction
-      extensions from additional reference-scan target extensions.
-  commit: 31fc75f1a44713dcabb60dd668526378e3800b72
+      search pagination validation, auth/visibility preservation, git copy-diff
+      parsing and bounded patch behavior, MCP JSON-RPC parse-error semantics, and
+      bounded acceptance wording. Suggestions were non-blocking and recorded for
+      future hardening.
+  commit: 8e8aa19a5e76e59edde25b81a0789d3f5738ee8c
   next_task: task102
 current_task:
   id: task102
@@ -59,19 +58,22 @@ current_task:
     artifact path/repo-id validation, hardened local-sync artifact loading that
     rejects oversized, non-regular, FIFO/special, malformed regular,
     indexed-line-count-inconsistent, and `indexed_empty` state/count-inconsistent
-    artifacts before trusting persisted status evidence, and fail-closed empty
-    search semantics for present malformed artifacts without aborting unscoped
-    results from other visible repositories. Adjacent recent closures also added
-    revisioned blob type safety, frontend binary blob metadata-only source
+    artifacts before trusting persisted status evidence, fail-closed empty search
+    semantics for present malformed artifacts without aborting unscoped results
+    from other visible repositories, and fail-closed pagination validation for
+    zero/oversized limits and excessive offsets. Adjacent recent closures also
+    added revisioned blob type safety, frontend binary blob metadata-only source
     rendering, NUL-byte binary blob detection for local/revisioned reads, commit-diff
-    patch caps plus frontend truncation notice rendering, TypeScript/JavaScript
-    reference scanning, Generic Git remote advertisement/default-branch metadata
-    output plus direct-HEAD revision branch matching, local Git sync execution
-    output, authenticated JSON-RPC MCP initialize/tools/list/tools/call bridging,
-    batch request handling with notification omission, MCP ping liveness responses,
-    MCP retrieval permission-denied evidence, local per-tick worker status heartbeat
-    metadata, and redacted worker-status terminal error summaries. Prefer the next
-    closure to move practical indexing/runtime behavior, operator-visible index
+    patch caps plus frontend truncation notice rendering, copied-file commit diff
+    semantics, TypeScript/JavaScript reference scanning, Generic Git remote
+    advertisement/default-branch metadata output plus direct-HEAD revision branch
+    matching, local Git sync execution output, authenticated JSON-RPC MCP
+    initialize/tools/list/tools/call bridging, batch request handling with
+    notification omission, MCP ping liveness responses, MCP protocol-shaped
+    parse-error responses for malformed JSON bodies, MCP retrieval
+    permission-denied evidence, local per-tick worker status heartbeat metadata,
+    and redacted worker-status terminal error summaries. Prefer the next closure
+    to move practical indexing/runtime behavior, operator-visible index
     lifecycle/status, failure recovery, richer grammar, relevance/pagination
     stability, branch/index availability, provider/runtime parity, MCP
     session/client interoperability beyond the bounded JSON-RPC bridge, or worker
@@ -79,6 +81,34 @@ current_task:
     visibility boundaries, focused verification, bounded docs claims, independent
     review, commit, state update, and push.
 history:
+  - id: task102x
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch. Search now rejects
+      unbounded pagination parameters; commit diffs now surface copied-file
+      entries with source paths and copy metadata; and authenticated MCP JSON-RPC
+      malformed bodies now return protocol parse-error envelopes instead of
+      generic HTTP extractor failures.
+    commit: 8e8aa19a5e76e59edde25b81a0789d3f5738ee8c
+    tests:
+      - 'cargo test -p sourcebot-api search_rejects_unbounded_pagination_parameters -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-api search_ -- --nocapture: passed with 32 bin tests, 0 lib tests, and 401 filtered out'
+      - 'cargo test -p sourcebot-api parse_diff_name_status_accepts_copies -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-api local_commit_store_reports_copied_files -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 13 bin tests, 0 lib tests, and 420 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_malformed_body_returns_protocol_parse_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 7 bin tests, 0 lib tests, and 426 filtered out'
+      - 'cargo test -p sourcebot-api --bin sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests and 429 filtered out'
+      - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 83d9d81..HEAD: passed'
+      - 'added-lines security scan over 83d9d81..HEAD: passed with no findings'
+      - 'independent integration review: passed with no security concerns or logic errors'
+    review: >-
+      Independent integration review passed after inspecting search pagination
+      validation, copied-file commit diff parsing, MCP parse-error semantics,
+      auth/visibility preservation, bounded patch behavior, and docs claim bounds.
+    completed_at: '2026-04-28'
   - id: task102w
     status: done
     summary: >-
