@@ -6295,15 +6295,17 @@ async fn search_latest_local_sync_snapshot_for_repo(
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
             }
-            return LocalSearchStore::from_index_artifact(
+            return match LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             )
             .and_then(|search| search.search_with_mode(query, Some(repo_id), mode))
-            .map(Some)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
+            {
+                Ok(response) => Ok(Some(response)),
+                Err(_) => Ok(Some(empty_local_sync_search_response(query, mode, repo_id))),
+            };
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -6319,6 +6321,19 @@ async fn search_latest_local_sync_snapshot_for_repo(
         .search_with_mode(query, Some(repo_id), mode)
         .map(Some)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn empty_local_sync_search_response(
+    query: &str,
+    mode: SearchMode,
+    repo_id: &str,
+) -> SearchResponse {
+    SearchResponse::unpaginated_with_mode(
+        query.trim().to_string(),
+        mode,
+        Some(repo_id.to_string()),
+        Vec::new(),
+    )
 }
 
 fn authorized_organization_ids_for_repo(
@@ -29132,11 +29147,163 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert!(
+            payload.results.is_empty(),
+            "malformed local-sync search artifacts should fail closed to empty results without falling back to mutable snapshots"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unscoped_search_skips_malformed_local_sync_artifact_for_other_visible_repo() {
+        let bad_repo_root = unique_test_path("search-unscoped-bad-artifact-repo-root");
+        let good_repo_root = unique_test_path("search-unscoped-good-artifact-repo-root");
+        let bad_job_root = bad_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_bad")
+            .join("job_bad_latest");
+        let good_job_root = good_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_good")
+            .join("job_good_latest");
+        let bad_snapshot_root = bad_job_root.join("snapshot");
+        let good_snapshot_root = good_job_root.join("snapshot");
+        fs::create_dir_all(bad_snapshot_root.join("src")).unwrap();
+        fs::create_dir_all(good_snapshot_root.join("src")).unwrap();
+        fs::write(
+            bad_snapshot_root.join("src").join("lib.rs"),
+            "pub fn bad_mutable_snapshot_must_not_be_used() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            good_snapshot_root.join("src").join("lib.rs"),
+            "pub fn good_artifact_marker_survives_bad_neighbor() {}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(bad_job_root.join("search-index.json")).unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_good".to_string(),
+            good_snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_good", &good_job_root.join("search-index.json"))
+        .unwrap();
+        fs::write(
+            good_snapshot_root.join("src").join("lib.rs"),
+            "pub fn good_mutable_snapshot_must_not_be_used() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-unscoped-bad-artifact-orgs");
+        let local_session_state_path = unique_test_path("search-unscoped-bad-artifact-sessions");
+        let user_id = "user_unscoped_bad_artifact_search";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_bad", "repo_good"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.extend([
+            Connection {
+                id: "conn_bad".into(),
+                name: "Bad local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: bad_repo_root.display().to_string(),
+                }),
+            },
+            Connection {
+                id: "conn_good".into(),
+                name: "Good local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: good_repo_root.display().to_string(),
+                }),
+            },
+        ]);
+        organization_state.repository_sync_jobs.extend([
+            RepositorySyncJob {
+                id: "job_bad_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_bad".into(),
+                connection_id: "conn_bad".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("bad-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+            RepositorySyncJob {
+                id: "job_good_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_good".into(),
+                connection_id: "conn_good".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:11:00Z".into(),
+                started_at: Some("2026-04-21T00:11:01Z".into()),
+                finished_at: Some("2026-04-21T00:11:02Z".into()),
+                error: None,
+                synced_revision: Some("good-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+        ]);
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=good_artifact_marker_survives_bad_neighbor")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_good");
+        assert!(payload.results[0]
+            .line
+            .contains("good_artifact_marker_survives_bad_neighbor"));
+        assert!(!payload.results[0]
+            .line
+            .contains("good_mutable_snapshot_must_not_be_used"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(bad_repo_root).unwrap();
+        fs::remove_dir_all(good_repo_root).unwrap();
     }
 
     #[tokio::test]
