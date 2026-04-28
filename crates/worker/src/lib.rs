@@ -24,6 +24,7 @@ const LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
 const GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
     "generic Git repository sync execution failed";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
+const GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
     "repository sync job exceeded worker lease and was marked failed before the next claim";
@@ -231,8 +232,7 @@ fn run_generic_git_repository_sync_execution(
     )?;
 
     let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
-        Ok(Some(output)) if output.status.success() => output,
-        Ok(Some(output)) => return Err(generic_git_failure_detail("git ls-remote --heads", &output)),
+        Ok(Some(output)) => output,
         Ok(None) => {
             return Err(format!(
                 "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads timed out after {}ms",
@@ -245,6 +245,17 @@ fn run_generic_git_repository_sync_execution(
             ))
         }
     };
+
+    if output.stdout.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+        || output.stderr.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+    {
+        return Err(format!(
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads output exceeded {GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES} bytes"
+        ));
+    }
+    if !output.status.success() {
+        return Err(generic_git_failure_detail("git ls-remote --heads", &output));
+    }
 
     parse_git_ls_remote_heads(&output.stdout).ok_or_else(|| {
         format!(
@@ -896,7 +907,11 @@ fn run_git_ls_remote_heads(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    wait_for_child_output_with_timeout(child, timeout)
+    wait_for_child_output_with_timeout_and_output_limit(
+        child,
+        timeout,
+        GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES,
+    )
 }
 
 fn run_git_working_tree_preflight(
@@ -958,6 +973,43 @@ fn wait_for_child_output_with_timeout(
     }
 }
 
+fn wait_for_child_output_with_timeout_and_output_limit(
+    mut child: std::process::Child,
+    timeout: Duration,
+    output_limit_bytes: usize,
+) -> std::io::Result<Option<Output>> {
+    let stdout_reader = child
+        .stdout
+        .take()
+        .map(|reader| spawn_bounded_pipe_reader(reader, output_limit_bytes));
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|reader| spawn_bounded_pipe_reader(reader, output_limit_bytes));
+    let started_at = Instant::now();
+
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let stdout = join_pipe_reader(stdout_reader)?;
+            let stderr = join_pipe_reader(stderr_reader)?;
+            return Ok(Some(Output {
+                status,
+                stdout,
+                stderr,
+            }));
+        }
+        if started_at.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_pipe_reader(stdout_reader);
+            let _ = join_pipe_reader(stderr_reader);
+            return Ok(None);
+        }
+        let remaining = timeout.saturating_sub(started_at.elapsed());
+        thread::sleep(remaining.min(Duration::from_millis(10)));
+    }
+}
+
 fn spawn_pipe_reader<R>(mut reader: R) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
@@ -965,6 +1017,23 @@ where
     thread::spawn(move || {
         let mut output = Vec::new();
         reader.read_to_end(&mut output)?;
+        Ok(output)
+    })
+}
+
+fn spawn_bounded_pipe_reader<R>(
+    mut reader: R,
+    limit: usize,
+) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut output = Vec::with_capacity(limit.saturating_add(1).min(8192));
+        reader
+            .by_ref()
+            .take(limit.saturating_add(1) as u64)
+            .read_to_end(&mut output)?;
         Ok(output)
     })
 }
@@ -2153,6 +2222,49 @@ mod tests {
             error,
             "generic Git repository sync execution failed: Generic Git base_url is empty"
         );
+    }
+
+    #[test]
+    fn generic_git_ls_remote_stdout_over_cap_fails_closed() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-large-generic-git-output-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            format!(
+                "#!/bin/sh\npython3 - <<'PY'\nimport sys\nsys.stdout.write('a' * {})\nPY\n",
+                crate::GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES + 1
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(_) => panic!("oversized Generic Git ls-remote stdout should fail closed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads output exceeded {} bytes",
+                crate::GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+            )
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
     }
 
     #[tokio::test]
