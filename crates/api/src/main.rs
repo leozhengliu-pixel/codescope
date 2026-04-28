@@ -1256,6 +1256,9 @@ async fn handle_mcp_json_rpc(
     if !is_json_content_type(&headers) {
         return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
+    if !accepts_json_response(&headers) {
+        return Err(StatusCode::NOT_ACCEPTABLE);
+    }
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
     let request = match serde_json::from_slice::<serde_json::Value>(&body) {
@@ -1316,6 +1319,53 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
                 .eq_ignore_ascii_case("application/json")
         })
         .unwrap_or(false)
+}
+
+fn accepts_json_response(headers: &HeaderMap) -> bool {
+    let Some(accept) = headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+
+    let mut exact_json_quality: Option<f32> = None;
+    let mut application_wildcard_quality: Option<f32> = None;
+    let mut any_wildcard_quality: Option<f32> = None;
+
+    for item in accept.split(',') {
+        let mut parts = item.split(';').map(str::trim);
+        let media_type = parts.next().unwrap_or_default();
+        let quality = accept_quality(parts);
+        if media_type.eq_ignore_ascii_case("application/json") {
+            exact_json_quality =
+                Some(exact_json_quality.map_or(quality, |current| current.max(quality)));
+        } else if media_type.eq_ignore_ascii_case("application/*") {
+            application_wildcard_quality =
+                Some(application_wildcard_quality.map_or(quality, |current| current.max(quality)));
+        } else if media_type == "*/*" {
+            any_wildcard_quality =
+                Some(any_wildcard_quality.map_or(quality, |current| current.max(quality)));
+        }
+    }
+
+    exact_json_quality
+        .or(application_wildcard_quality)
+        .or(any_wildcard_quality)
+        .map(|quality| quality > 0.0)
+        .unwrap_or(false)
+}
+
+fn accept_quality<'a>(parts: impl Iterator<Item = &'a str>) -> f32 {
+    for part in parts {
+        let Some((name, value)) = part.split_once('=') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("q") {
+            return value.trim().parse::<f32>().unwrap_or(1.0);
+        }
+    }
+    1.0
 }
 
 async fn process_mcp_json_rpc_request(
@@ -7889,6 +7939,65 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_rejects_unacceptable_accept_header() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-accept-header-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-accept-header-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-accept-header-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        for accept in [
+            "text/event-stream",
+            "application/json;q=0.0, text/html",
+            "application/json;q=0, */*;q=1",
+            "application/*;q=0, */*;q=1",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/mcp")
+                        .header("content-type", "application/json")
+                        .header("accept", accept)
+                        .header(header::AUTHORIZATION, &authorization)
+                        .body(Body::from(
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": "unacceptable",
+                                "method": "ping"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_ACCEPTABLE,
+                "Accept header {accept:?} should fail closed"
+            );
+        }
 
         fs::remove_file(organization_state_path).unwrap();
     }
