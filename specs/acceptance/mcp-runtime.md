@@ -15,8 +15,9 @@ This document defines the currently shipped MCP runtime baseline for the authent
 3. `tools/list` returns the retrieval tool definitions, including the HTTP/API-required `repo_id` argument on repository-content tools.
 4. `tools/call` returns MCP-shaped text content plus structured content for successful retrieval calls, and MCP-shaped `isError: true` results for tool execution errors.
 5. JSON-RPC schema errors return JSON-RPC errors instead of panics or partial tool execution.
-6. JSON-RPC batch requests are supported on `POST /api/v1/mcp`: the endpoint evaluates each request in order, returns an array of responses, and omits response entries for JSON-RPC notifications such as `notifications/initialized`.
-7. Permission-scoped repository behavior is fail closed: callers can only bind `repo_id` to repositories visible through their authenticated organization membership, hidden repositories return `404`, and `list_repos` filters results to the authenticated visible repository set.
+6. `POST /api/v1/mcp` is fail-closed on media type: authenticated JSON-RPC requests must use `Content-Type: application/json` (parameters such as `charset=utf-8` are accepted), and non-JSON media types return `415` before request parsing or tool execution.
+7. JSON-RPC batch requests are supported on `POST /api/v1/mcp`: the endpoint evaluates each request in order, returns an array of responses, and omits response entries for JSON-RPC notifications such as `notifications/initialized`.
+8. Permission-scoped repository behavior is fail closed: callers can only bind `repo_id` to repositories visible through their authenticated organization membership, hidden repositories return `404`, and `list_repos` filters results to the authenticated visible repository set.
 
 ## Explicit deferrals
 The current MCP runtime acceptance does **not** claim:

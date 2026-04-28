@@ -1253,6 +1253,9 @@ async fn handle_mcp_json_rpc(
     body: Bytes,
 ) -> Result<Response, StatusCode> {
     let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+    if !is_json_content_type(&headers) {
+        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
     let request = match serde_json::from_slice::<serde_json::Value>(&body) {
@@ -1298,6 +1301,21 @@ async fn handle_mcp_json_rpc(
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
     Ok(Json(response).into_response())
+}
+
+fn is_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case("application/json")
+        })
+        .unwrap_or(false)
 }
 
 async fn process_mcp_json_rpc_request(
@@ -7830,6 +7848,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_json_rpc_rejects_non_json_content_type() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-content-type-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-content-type-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-content-type-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "text/plain")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "wrong-media-type",
+                            "method": "ping"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
     async fn mcp_json_rpc_ping_returns_empty_result_for_client_liveness_checks() {
         let organization_state_path = unique_test_path("mcp-json-rpc-ping-organizations");
         write_organization_state_fixture(
@@ -7855,7 +7919,7 @@ mod tests {
                 Request::builder()
                     .method(Method::POST)
                     .uri("/api/v1/mcp")
-                    .header("content-type", "application/json")
+                    .header("content-type", "application/json; charset=utf-8")
                     .header(header::AUTHORIZATION, &authorization)
                     .body(Body::from(
                         serde_json::json!({
