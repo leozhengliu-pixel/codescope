@@ -5,43 +5,43 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 827f744a35ef51f453a008232ef421c70f50b456
+  head: 1c79583cebacada96d024c8a8d395821f21c09d5
 last_completed_task:
-  id: task102n
-  title: Search artifact path validation, commit pagination metadata, and blank sync config guards
+  id: task102o
+  title: Search artifact repo-id validation, commit pagination UI, and Generic Git advertisement hardening
   status: done
   summary: >-
-    Closed one accelerated parallel-worker integration batch across the
-    practical replacement blockers. Task 102 now fails closed when loading
-    persisted local-sync search-index artifacts whose result paths are empty,
-    absolute/rooted, parent-directory escapes, or backslash-separated
-    non-normal paths, preventing corrupted artifacts from widening repository
-    path scope. Task 103 now exposes backend commit-history offset pagination
-    metadata (`limit`, `offset`, `has_next_page`, and `next_offset`) through
-    the commit store and `/api/v1/repos/{repo_id}/commits` route. Task 106/108
-    now fails blank local `repo_path` and blank Generic Git `base_url` sync
-    configs before spawning Git, preserving operator-visible terminal errors
-    for malformed provider runtime state. Acceptance/audit wording remains
-    bounded and still does not claim production-grade indexing, frontend
-    commit pagination controls, real provider fetch/import/reindex, automated
-    retry/backoff, worker supervision, or final practical replacement parity.
+    Closed one accelerated three-worker integration batch across the practical
+    replacement blockers. Task 102 now rejects persisted local-sync search-index
+    artifacts whose embedded `index_status.repo_id` does not match the requested
+    repository, preserving fail-closed artifact identity instead of rewriting
+    it. Task 103 now exposes frontend commit-history previous/next pagination
+    controls backed by existing backend `page_info` metadata and clears selected
+    commit detail/diff state when pages change. Task 106/108 now hardens the
+    bounded Generic Git metadata-only probe by parsing exact `git ls-remote
+    --heads -- <base_url>` tab-separated advertisements, accepting only
+    plausible object ids and valid branch refs, and failing closed for malformed
+    refs, extra fields, hidden/dot components, `.lock` suffixes, DEL/control,
+    and option-like hazards. Acceptance wording remains bounded and still does
+    not claim production-grade indexing, full commit UX parity, provider
+    fetch/import/reindex, automated retry/backoff, worker supervision, or final
+    practical replacement parity.
   tests:
+    - cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_repo_id_mismatch -- --nocapture: passed with 1 test and 20 filtered out
+    - cargo test -p sourcebot-search: passed with 21 unit tests and 0 doctests
+    - npm test -- -t "renders commit pagination controls from page_info" (web): passed with 1 focused test and 180 skipped
+    - npm test -- --run src/App.test.tsx (web): passed with 181 tests
+    - npm run build (web): passed
+    - cargo test -p sourcebot-worker generic_git_remote_with_malformed_head_advertisement_fails_closed -- --nocapture: RED first for hidden/ref-field truncation, then passed with 1 lib test and zero-test non-lib targets
+    - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed with 6 lib tests; non-lib targets matched 0 tests
+    - cargo test -p sourcebot-worker: passed with 36 lib tests, 18 integration tests, and 0 doctests
     - cargo fmt --check: passed
     - git diff --check: passed
-    - added-lines security scan: passed with no findings across 303 added lines
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_paths_that_escape_repo -- --nocapture': passed with 1 test and 19 filtered out
-    - cargo test -p sourcebot-search: passed with 20 unit tests and 0 doctests
-    - 'cargo test -p sourcebot-api search_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture': passed with 1 bin test; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-api local_commit_store_returns_commit_pagination_metadata -- --nocapture': passed with 1 bin test; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-api repo_commits_supports_offset_pagination_metadata -- --nocapture': passed with 1 bin test; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-api commits::tests -- --nocapture': passed with 9 bin tests; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-api repo_commit -- --nocapture': passed with 13 bin tests; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-api repo_commits -- --nocapture': passed with 7 bin tests; lib target matched 0 tests/68 filtered
-    - 'cargo test -p sourcebot-worker blank -- --nocapture': passed with 2 lib tests; other worker targets matched 0 tests
-    - cargo test -p sourcebot-worker: passed with 35 lib tests, 18 integration tests, and 0 doctests
+    - added-lines security scan: passed with no findings across 287 added lines
+    - independent integration review: passed after two Generic Git parser hardening fixes
   review:
-    code: Independent integration review passed with no blocking issues. Reviewer verified fail-closed persisted artifact path validation, coherent one-row-lookahead commit pagination metadata, pre-spawn blank provider config guards, and bounded docs claims; it recorded non-blocking follow-up notes that commit list limits remain unbounded at extreme values and broader URL/path policy remains outside this closure.
-  commit: 827f744a35ef51f453a008232ef421c70f50b456
+    code: Independent integration review passed after blocking Generic Git parser findings were fixed. Reviewer verified exact tab-separated ls-remote parsing, fail-closed malformed ref validation, bounded metadata-only provider claims, persisted search artifact repo-id mismatch rejection, frontend commit pagination contract, and bounded docs; no blocking issues remained.
+  commit: 1c79583cebacada96d024c8a8d395821f21c09d5
   next_task: task102
 current_task:
   id: task102
@@ -50,25 +50,62 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 with the next meaningful search/indexing runtime closure
-    while using the parallel-worker controller model for adjacent blockers
-    where it accelerates real parity. Search/indexing has now moved beyond
-    bounded pagination metadata, frontend paging controls, explicit blank
-    `repo_id` fail-closed hardening, case-insensitive local/index-artifact
-    matching, all-term/quoted/OR/filter/mode baselines, deterministic
-    identical-content ordering, repository-detail index-status visibility,
-    `indexed_empty`/skipped-only local artifact semantics, and fail-closed
-    persisted artifact path validation. Prefer the next closure to move
-    practical indexing/runtime behavior, operator-visible index
-    lifecycle/status, failure recovery, richer full-boolean/filter grammar,
-    branch/index availability, streaming behavior, or deeper
-    pagination/relevance stability, while preserving fail-closed visibility
-    boundaries, focused verification, bounded docs claims, independent review,
-    commit, state update, and push. Adjacent Task 103 commit frontend
-    pagination controls and Task 106/108 provider/runtime supervision,
-    retry/backoff, and real fetch/import/reindex remain high-value parallel
-    candidates.
+    while the parallel-worker controller may also take adjacent high-value Task
+    103/106/108 blockers when scopes are disjoint. Search/indexing has now added
+    fail-closed persisted artifact path and embedded repo-id validation on top
+    of bounded query grammar, deterministic ordering, repository-detail
+    index-status visibility, indexed-empty/skipped-only semantics, and
+    local-sync artifact-backed fallback surfaces. Adjacent recent closures also
+    added frontend commit pagination controls and hardened Generic Git metadata
+    advertisement parsing. Prefer the next closure to move practical
+    indexing/runtime behavior, operator-visible index lifecycle/status, failure
+    recovery, richer grammar/relevance/pagination stability, branch/index
+    availability, or deeper provider/runtime parity, while preserving
+    fail-closed visibility boundaries, focused verification, bounded docs
+    claims, independent review, commit, state update, and push.
 
 history:
+  - id: task102o
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch across the practical
+      replacement blockers. Task 102 now rejects persisted local-sync search-index
+      artifacts whose embedded `index_status.repo_id` does not match the requested
+      repository, preserving fail-closed artifact identity instead of rewriting
+      it. Task 103 now exposes frontend commit-history previous/next pagination
+      controls backed by existing backend `page_info` metadata and clears selected
+      commit detail/diff state when pages change. Task 106/108 now hardens the
+      bounded Generic Git metadata-only probe by parsing exact `git ls-remote
+      --heads -- <base_url>` tab-separated advertisements, accepting only
+      plausible object ids and valid branch refs, and failing closed for malformed
+      refs, extra fields, hidden/dot components, `.lock` suffixes, DEL/control,
+      and option-like hazards. Acceptance wording remains bounded and still does
+      not claim production-grade indexing, full commit UX parity, provider
+      fetch/import/reindex, automated retry/backoff, worker supervision, or final
+      practical replacement parity.
+    tests:
+      - cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_repo_id_mismatch -- --nocapture: passed with 1 test and 20 filtered out
+      - cargo test -p sourcebot-search: passed with 21 unit tests and 0 doctests
+      - npm test -- -t "renders commit pagination controls from page_info" (web): passed with 1 focused test and 180 skipped
+      - npm test -- --run src/App.test.tsx (web): passed with 181 tests
+      - npm run build (web): passed
+      - cargo test -p sourcebot-worker generic_git_remote_with_malformed_head_advertisement_fails_closed -- --nocapture: RED first for hidden/ref-field truncation, then passed with 1 lib test and zero-test non-lib targets
+      - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed with 6 lib tests; non-lib targets matched 0 tests
+      - cargo test -p sourcebot-worker: passed with 36 lib tests, 18 integration tests, and 0 doctests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed with no findings across 287 added lines
+      - independent integration review: passed after two Generic Git parser hardening fixes
+    review:
+      code: >-
+        Independent integration review passed after blocking Generic Git parser
+        findings were fixed. Reviewer verified exact tab-separated ls-remote
+        parsing, fail-closed malformed ref validation, bounded metadata-only
+        provider claims, persisted search artifact repo-id mismatch rejection,
+        frontend commit pagination contract, and bounded docs; no blocking issues
+        remained.
+    commit: 1c79583cebacada96d024c8a8d395821f21c09d5
+    completed_at: '2026-04-28'
   - id: task102n
     status: done
     summary: >-
