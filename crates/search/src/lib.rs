@@ -45,10 +45,36 @@ pub struct SearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SearchPagination {
+    pub limit: usize,
+    pub offset: usize,
+    pub total_count: usize,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SearchResponse {
     pub query: String,
     pub repo_id: Option<String>,
     pub results: Vec<SearchResult>,
+    pub pagination: SearchPagination,
+}
+
+impl SearchResponse {
+    pub fn unpaginated(query: String, repo_id: Option<String>, results: Vec<SearchResult>) -> Self {
+        let total_count = results.len();
+        Self {
+            query,
+            repo_id,
+            results,
+            pagination: SearchPagination {
+                limit: total_count,
+                offset: 0,
+                total_count,
+                has_more: false,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -383,11 +409,11 @@ impl SearchStore for LocalSearchStore {
             results.extend(self.search_repo(repo_id, query));
         }
 
-        Ok(SearchResponse {
-            query: query.to_string(),
-            repo_id: requested_repo_id.map(ToOwned::to_owned),
+        Ok(SearchResponse::unpaginated(
+            query.to_string(),
+            requested_repo_id.map(ToOwned::to_owned),
             results,
-        })
+        ))
     }
 
     fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>> {

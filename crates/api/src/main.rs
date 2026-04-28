@@ -51,7 +51,7 @@ use sourcebot_models::{
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexStatus,
-    SearchResponse, SearchStore, SymbolKind,
+    SearchPagination, SearchResponse, SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read};
@@ -523,6 +523,8 @@ struct SearchQuery {
     q: String,
     repo_id: Option<String>,
     context_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5813,6 +5815,9 @@ async fn local_sync_snapshot_index_status_for_repo(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
+const DEFAULT_SEARCH_RESULT_LIMIT: usize = 100;
+const MAX_SEARCH_RESULT_LIMIT: usize = 500;
+
 async fn search_repository_contents(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -5823,6 +5828,14 @@ async fn search_repository_contents(
     if query.q.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let search_limit = query
+        .limit
+        .unwrap_or(DEFAULT_SEARCH_RESULT_LIMIT)
+        .min(MAX_SEARCH_RESULT_LIMIT);
+    if search_limit == 0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let search_offset = query.offset.unwrap_or(0);
 
     let requested_context_id = match query.context_id.as_deref().map(str::trim) {
         Some("") => return Err(StatusCode::NOT_FOUND),
@@ -5893,7 +5906,25 @@ async fn search_repository_contents(
         }
     }
 
+    apply_search_pagination(&mut response, search_limit, search_offset);
     Ok(Json(response))
+}
+
+fn apply_search_pagination(response: &mut SearchResponse, limit: usize, offset: usize) {
+    let total_count = response.results.len();
+    response.results = response
+        .results
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+    response.pagination = SearchPagination {
+        limit,
+        offset,
+        total_count,
+        has_more: offset.saturating_add(limit) < total_count,
+    };
 }
 
 async fn search_latest_local_sync_snapshots_for_visible_repos(
@@ -5917,11 +5948,11 @@ async fn search_latest_local_sync_snapshots_for_visible_repos(
     if results.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(SearchResponse {
-            query: query.trim().to_string(),
-            repo_id: None,
+        Ok(Some(SearchResponse::unpaginated(
+            query.trim().to_string(),
+            None,
             results,
-        }))
+        )))
     }
 }
 
@@ -6453,10 +6484,19 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize, Serialize)]
+    struct SearchPaginationResponse {
+        limit: usize,
+        offset: usize,
+        total_count: usize,
+        has_more: bool,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
     struct SearchResponse {
         query: String,
         repo_id: Option<String>,
         results: Vec<SearchResultResponse>,
+        pagination: SearchPaginationResponse,
     }
 
     #[derive(Debug, Deserialize)]
@@ -27501,6 +27541,68 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(visible_search_root).unwrap();
         fs::remove_dir_all(hidden_search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_returns_paginated_results_with_total_count_and_has_more() {
+        let search_root = unique_test_path("search-pagination-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn paginated_marker_alpha() {}\npub fn paginated_marker_beta() {}\npub fn paginated_marker_gamma() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-pagination-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-pagination-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-pagination-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=paginated_marker&repo_id=repo_sourcebot_rewrite&limit=1&offset=1")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.query, "paginated_marker");
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
+        assert_eq!(payload.pagination.limit, 1);
+        assert_eq!(payload.pagination.offset, 1);
+        assert_eq!(payload.pagination.total_count, 3);
+        assert!(payload.pagination.has_more);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert_eq!(payload.results[0].line_number, 2);
+        assert!(payload.results[0].line.contains("paginated_marker_beta"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
     }
 
     #[tokio::test]

@@ -22,13 +22,14 @@
 6. Authenticated users can create, list, and delete saved search contexts through `/api/v1/auth/search-contexts`; `GET /api/v1/search?context_id=...` applies the saved context as an additional repository-scope filter.
 7. Empty-result queries return a successful response with zero hits, not an internal error.
 8. Invalid regex queries return a user-safe validation error.
-9. Pagination is stable for the same repository revision and query parameters.
+9. `/api/v1/search` accepts bounded `limit` and `offset` parameters and returns a `pagination` object containing `limit`, `offset`, visibility-scoped `total_count`, and `has_more` for the current query.
+10. Pagination is stable for the same repository revision and query parameters.
 
 ## Permission behavior
-- Results from repositories outside the caller's permissions must not appear in counts, snippets, suggestions, or facets.
+- Results from repositories outside the caller's permissions must not appear in results, pagination counts, snippets, suggestions, or facets.
 - Search contexts must only expand to repositories visible to the caller.
 - Saved search contexts are caller-owned. Unknown, deleted, or other-user context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
-- This saved-context baseline is backend/API-only and file-backed in the organization aggregate; it does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or stable pagination parity.
+- This saved-context and pagination baseline is backend/API-only and file-backed in the organization aggregate; it does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or full stable pagination parity across changing indexes/revisions.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
