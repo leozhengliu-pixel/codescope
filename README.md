@@ -13,7 +13,7 @@ CodeScope is a self-hosted code search, code navigation, repository browsing, an
 - Backend: Rust + Axum + Tokio
 - Frontend: React + TypeScript + Vite
 - Metadata DB: PostgreSQL
-- Search/indexing: Rust service targeting Tantivy + regex-automata + tree-sitter; the current bounded local baseline builds an in-memory line index at API startup for configured local repository roots and matches local/index-artifact searches case-insensitively with all-term semantics for space-separated query words plus quoted-phrase components.
+- Search/indexing: Rust service targeting Tantivy + regex-automata + tree-sitter; the current bounded local baseline builds an in-memory line index at API startup for configured local repository roots and matches local/index-artifact searches case-insensitively with all-term semantics for space-separated query words, quoted-phrase components, and minimal unquoted `lang:`/`path:` filters.
 - Object storage: S3-compatible
 
 ## Clean-room rule

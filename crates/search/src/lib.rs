@@ -133,6 +133,20 @@ struct PersistedIndexArtifact {
     index_status: RepositoryIndexStatus,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ParsedQuery {
+    line_terms: Vec<String>,
+    path_filters: Vec<String>,
+    language_filters: Vec<String>,
+    invalid_filter: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedTerm {
+    value: String,
+    quoted: bool,
+}
+
 impl LocalSearchStore {
     pub fn new(repo_roots: HashMap<String, PathBuf>) -> Self {
         Self::build(repo_roots, DEFAULT_MAX_FILE_SIZE_BYTES)
@@ -288,12 +302,12 @@ impl LocalSearchStore {
 
     fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
         let normalized_query = query.to_lowercase();
-        let query_terms = parse_query_terms(&normalized_query);
+        let parsed_query = parse_query(&normalized_query);
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
-            .filter(|indexed_line| line_matches_query(&indexed_line.line, &query_terms))
+            .filter(|indexed_line| indexed_line_matches_query(indexed_line, &parsed_query))
             .map(|indexed_line| SearchResult {
                 repo_id: repo_id.to_string(),
                 path: indexed_line.path.clone(),
@@ -423,18 +437,77 @@ impl SearchStore for LocalSearchStore {
     }
 }
 
-fn line_matches_query(line: &str, query_terms: &[String]) -> bool {
-    if query_terms.is_empty() {
+fn indexed_line_matches_query(indexed_line: &IndexedLine, parsed_query: &ParsedQuery) -> bool {
+    if parsed_query.invalid_filter || parsed_query.line_terms.is_empty() {
         return false;
     }
 
-    let normalized_line = line.to_lowercase();
-    query_terms
+    let normalized_line = indexed_line.line.to_lowercase();
+    let normalized_path = indexed_line.path.to_lowercase();
+    parsed_query
+        .line_terms
         .iter()
         .all(|term| normalized_line.contains(term))
+        && parsed_query
+            .path_filters
+            .iter()
+            .all(|filter| normalized_path.contains(filter))
+        && parsed_query
+            .language_filters
+            .iter()
+            .all(|language| path_matches_language(&normalized_path, language))
 }
 
-fn parse_query_terms(normalized_query: &str) -> Vec<String> {
+fn parse_query(normalized_query: &str) -> ParsedQuery {
+    let mut parsed = ParsedQuery::default();
+    for term in parse_query_terms(normalized_query) {
+        if !term.quoted {
+            if let Some(path_filter) = term.value.strip_prefix("path:") {
+                if path_filter.trim().is_empty() {
+                    parsed.invalid_filter = true;
+                } else {
+                    parsed.path_filters.push(path_filter.trim().to_string());
+                }
+                continue;
+            }
+            if let Some(language_filter) = term.value.strip_prefix("lang:") {
+                if language_filter.trim().is_empty() {
+                    parsed.invalid_filter = true;
+                } else {
+                    parsed
+                        .language_filters
+                        .push(language_filter.trim().to_string());
+                }
+                continue;
+            }
+        }
+        parsed.line_terms.push(term.value);
+    }
+    parsed
+}
+
+fn path_matches_language(normalized_path: &str, language: &str) -> bool {
+    let Some(extension) = language_to_extension(language) else {
+        return false;
+    };
+    normalized_path.ends_with(extension)
+}
+
+fn language_to_extension(language: &str) -> Option<&'static str> {
+    match language {
+        "rust" | "rs" => Some(".rs"),
+        "typescript" | "ts" => Some(".ts"),
+        "tsx" => Some(".tsx"),
+        "javascript" | "js" => Some(".js"),
+        "jsx" => Some(".jsx"),
+        "python" | "py" => Some(".py"),
+        "markdown" | "md" => Some(".md"),
+        "go" => Some(".go"),
+        _ => None,
+    }
+}
+
+fn parse_query_terms(normalized_query: &str) -> Vec<ParsedTerm> {
     let mut terms = Vec::new();
     let mut pending = String::new();
     let mut chars = normalized_query.chars();
@@ -442,7 +515,10 @@ fn parse_query_terms(normalized_query: &str) -> Vec<String> {
     while let Some(ch) = chars.next() {
         if ch == '"' {
             if !pending.trim().is_empty() {
-                terms.extend(pending.split_whitespace().map(ToOwned::to_owned));
+                terms.extend(pending.split_whitespace().map(|value| ParsedTerm {
+                    value: value.to_string(),
+                    quoted: false,
+                }));
                 pending.clear();
             }
 
@@ -459,7 +535,10 @@ fn parse_query_terms(normalized_query: &str) -> Vec<String> {
             if closed {
                 let phrase = phrase.trim();
                 if !phrase.is_empty() {
-                    terms.push(phrase.to_string());
+                    terms.push(ParsedTerm {
+                        value: phrase.to_string(),
+                        quoted: true,
+                    });
                 }
             } else {
                 pending.push('"');
@@ -472,7 +551,10 @@ fn parse_query_terms(normalized_query: &str) -> Vec<String> {
     }
 
     if !pending.trim().is_empty() {
-        terms.extend(pending.split_whitespace().map(ToOwned::to_owned));
+        terms.extend(pending.split_whitespace().map(|value| ParsedTerm {
+            value: value.to_string(),
+            quoted: false,
+        }));
     }
 
     terms
@@ -832,6 +914,61 @@ mod tests {
             .results
             .iter()
             .all(|result| result.path != "src/main.rs"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_applies_lang_and_path_filters_without_line_term_broadening() {
+        let (store, root) = create_test_store();
+
+        let response = store
+            .search("lang:rust path:src build_router", Some("repo_test"))
+            .unwrap();
+
+        assert_eq!(response.query, "lang:rust path:src build_router");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].path, "src/main.rs");
+        assert_eq!(response.results[0].line, "fn build_router() {}");
+
+        let missing_path_response = store
+            .search("path:README build_router", Some("repo_test"))
+            .unwrap();
+        assert!(
+            missing_path_response
+                .results
+                .iter()
+                .all(|result| result.path == "README.md"),
+            "path filters should constrain result paths rather than acting as line terms"
+        );
+        assert!(missing_path_response
+            .results
+            .iter()
+            .all(|result| result.path != "src/main.rs"));
+
+        let unknown_language_response = store
+            .search("lang:python build_router", Some("repo_test"))
+            .unwrap();
+        assert!(
+            unknown_language_response.results.is_empty(),
+            "unsupported or unmatched language filters should fail closed to empty results"
+        );
+
+        let malformed_language_response = store
+            .search("lang: build_router", Some("repo_test"))
+            .unwrap();
+        assert!(
+            malformed_language_response.results.is_empty(),
+            "empty language filters should fail closed instead of broadening to line terms"
+        );
+
+        let quoted_filter_response = store
+            .search("\"path:src\" build_router", Some("repo_test"))
+            .unwrap();
+        assert!(
+            quoted_filter_response.results.is_empty(),
+            "quoted path:/lang: text should remain a literal phrase rather than becoming a filter"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
