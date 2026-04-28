@@ -5,50 +5,51 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 84742591dbc782f61115de8c01a4dc4fdabbc860
+  head: cdf904665983c053f49c5121daab005006b0a98f
 last_completed_task:
-  id: task102t
-  title: Search index-status error surfacing, commit diff truncation UI, and Generic Git HEAD revision mapping
+  id: task102u
+  title: Search artifact consistency, binary source UX, and redacted worker status errors
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now surfaces malformed regular-file local-sync
-    `search-index.json` artifacts through `/api/v1/repos/{repo_id}/index-status`
-    as a structured `error` status with a redacted parse/load reason instead of
-    silently falling back to mutable snapshot traversal, while preserving
-    fail-closed non-regular artifact behavior. Task 103 now renders backend
-    `patch_truncated` commit-diff responses as an explicit UI truncation notice
-    instead of displaying the backend marker as if it were complete patch content.
-    Task 106 now maps a direct Generic Git `HEAD` revision advertisement back to
-    the matching advertised branch when symref default-branch metadata is absent,
-    while preserving symref-first behavior, bounded output handling, and
-    metadata-only provider claims.
+    replacement blockers. Task 102 now fails closed when a persisted local-sync
+    search-index artifact's `index_status.indexed_line_count` disagrees with the
+    stored indexed-line payload, preventing stale or corrupt artifact counts from
+    becoming trusted index-status evidence. Task 103 now renders backend binary blob
+    metadata in the repository source panel as an explicit metadata-only notice and
+    suppresses source text plus code-navigation controls for that binary blob. Task
+    108 now adds optional worker-status last work-item id/status plus a bounded,
+    redacted repository-sync terminal error summary; review-forced hardening changed
+    status snapshots to preserve only allowlisted stable failure summaries and redact
+    unknown/no-colon details before the authenticated worker-status API can surface
+    them. A follow-up frontend test-only commit also waits for asynchronous index
+    status details after the broader route-family selector exposed a race.
   tests:
-    - 'cargo test -p sourcebot-api repository_index_status_surfaces_malformed_local_sync_search_index_artifact_reason -- --nocapture: passed with 1 bin test and 0 lib tests'
-    - 'cargo test -p sourcebot-api repository_index_status_ -- --nocapture: passed with 4 bin tests and 0 lib tests'
-    - 'cargo test -p sourcebot-api local_sync_search -- --nocapture: passed with 7 bin tests and 0 lib tests'
-    - 'cargo test -p sourcebot-search: passed with 24 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-worker generic_git_sync_resolves_head_revision_when_remote_omits_symref -- --nocapture: passed with 1 lib test and zero-test nonmatching targets'
-    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 10 lib tests and zero-test nonmatching targets'
-    - 'cargo test -p sourcebot-worker: passed with 40 lib tests, 19 integration tests, and 0 doctests'
-    - 'npm test -- --run src/App.test.tsx -t "loads recent commits and shows commit details when a commit is selected" (web): passed with 1 focused test and 182 skipped'
-    - 'npm test -- --run src/App.test.tsx -t "loads repository detail|keeps branch|clears repo-scoped|preserves the search back link|shows browse errors|loads recent commits|renders commit pagination|friendly fallback|finds definitions|ignores stale navigation|finds references|non-fatal capability|no-results state" (web): passed with 13 route-family tests and 170 skipped'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture: passed with 1 unit test and 24 filtered out'
+    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 6 unit tests and 19 filtered out'
+    - 'cargo test -p sourcebot-search: passed with 25 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-worker --bin sourcebot-worker worker_status_error -- --nocapture: passed with 3 bin-unit tests'
+    - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_failed_repository_sync_error_detail -- --nocapture: passed with 1 integration test and 4 filtered out'
+    - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed with 5 integration tests'
+    - 'cargo test -p sourcebot-worker: passed with 40 lib tests, 3 bin-unit tests, 20 integration tests, and 0 doctests'
+    - 'npm test -- --run src/App.test.tsx -t "shows binary blob metadata" (web): passed with 1 focused test and 183 skipped'
+    - 'npm test -- --run src/App.test.tsx -t "loads repository detail|keeps branch|clears repo-scoped|preserves the search back link|shows browse errors|loads recent commits|renders commit pagination|friendly fallback|finds definitions|ignores stale navigation|finds references|non-fatal capability|no-results state|shows binary blob metadata" (web): passed with 14 route-family tests and 170 skipped after async index-status wait fix'
     - 'npm run build (web): passed'
     - 'cargo fmt --check: passed'
     - 'git diff --check: passed'
-    - 'added-lines security scan over 2349129..HEAD: passed with no findings'
-    - 'independent integration review: passed with no security concerns or logic errors'
+    - 'added-lines security scan over 5cadc11..HEAD: passed with no findings'
+    - 'independent integration review: passed after review-forced worker status error redaction hardening and final test-only re-review'
   review:
     code: >-
-      Independent integration review passed after inspecting the integrated diff
-      from 2349129 through the substantive batch. The reviewer verified the
-      malformed search artifact index-status path keeps visibility gates and
-      redacts local paths, non-regular artifacts still fail closed, the commit diff
-      UI suppresses backend truncation markers in favor of an explicit notice,
-      Generic Git still prefers symref default-branch metadata before direct-HEAD
-      branch matching and first-valid-head fallback, and docs remain bounded
-      rather than claiming full search/indexing, browse/commit, or provider parity.
-  commit: 84742591dbc782f61115de8c01a4dc4fdabbc860
+      Independent integration review initially failed closed on raw worker-status
+      error exposure, then on a sanitizer that preserved arbitrary pre-colon text.
+      The controller hardened the worker snapshot path to allowlist stable local,
+      Generic Git, and stub failure summaries while returning a generic redacted
+      summary for unknown or colonless errors. Final re-review passed with no
+      security concerns or logic errors; it also verified the search artifact
+      validation, binary blob metadata-only UI, and bounded docs claims. A final
+      quick re-review approved the test-only async wait fix.
+  commit: cdf904665983c053f49c5121daab005006b0a98f
   next_task: task102
 current_task:
   id: task102
@@ -64,23 +65,58 @@ current_task:
     explicit boolean/literal/regex modes, deterministic ordering,
     repository-detail index-status visibility, indexed-empty/skipped-only semantics,
     persisted artifact path/repo-id validation, hardened local-sync artifact
-    loading that rejects oversized, non-regular, and FIFO/special artifacts before
-    parsing, and structured index-status error surfacing for malformed regular-file
-    local-sync artifacts with redacted reasons instead of silent mutable snapshot
-    fallback. Adjacent recent closures also added revisioned blob type safety,
-    commit-diff patch caps plus frontend truncation notice rendering, Generic Git
-    remote advertisement/default-branch metadata output plus direct-HEAD revision
-    branch matching, local Git sync execution output, authenticated JSON-RPC MCP
-    initialize/tools/list/tools/call bridging, MCP retrieval permission-denied
-    evidence, and local per-tick worker status heartbeat metadata. Prefer the next
-    closure to move practical indexing/runtime behavior, operator-visible index
-    lifecycle/status, failure recovery, richer grammar, relevance/pagination
+    loading that rejects oversized, non-regular, FIFO/special, malformed regular,
+    and indexed-line-count-inconsistent artifacts before trusting persisted status
+    evidence. Adjacent recent closures also added revisioned blob type safety,
+    frontend binary blob metadata-only source rendering, commit-diff patch caps plus
+    frontend truncation notice rendering, Generic Git remote advertisement/default-
+    branch metadata output plus direct-HEAD revision branch matching, local Git sync
+    execution output, authenticated JSON-RPC MCP initialize/tools/list/tools/call
+    bridging, MCP retrieval permission-denied evidence, local per-tick worker status
+    heartbeat metadata, and redacted worker-status terminal error summaries. Prefer
+    the next closure to move practical indexing/runtime behavior, operator-visible
+    index lifecycle/status, failure recovery, richer grammar, relevance/pagination
     stability, branch/index availability, provider/runtime parity, MCP
     session/client interoperability beyond the bounded JSON-RPC bridge, or worker
     supervision beyond bounded local baselines, while preserving fail-closed
     visibility boundaries, focused verification, bounded docs claims, independent
     review, commit, state update, and push.
 history:
+  - id: task102u
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch across practical
+      replacement blockers. Search/index-status now rejects persisted local-sync
+      search-index artifacts whose indexed-line count disagrees with stored payloads;
+      browse/source now renders binary blobs as metadata-only in the UI; and worker
+      status snapshots now expose last work-item id/status plus allowlisted,
+      bounded/redacted terminal error summaries instead of raw provider/runtime
+      details. The controller also fixed a route-family async index-status test race
+      found during integration verification.
+    commit: cdf904665983c053f49c5121daab005006b0a98f
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture: passed with 1 unit test and 24 filtered out'
+      - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 6 unit tests and 19 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 25 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-worker --bin sourcebot-worker worker_status_error -- --nocapture: passed with 3 bin-unit tests'
+      - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_failed_repository_sync_error_detail -- --nocapture: passed with 1 integration test and 4 filtered out'
+      - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed with 5 integration tests'
+      - 'cargo test -p sourcebot-worker: passed with 40 lib tests, 3 bin-unit tests, 20 integration tests, and 0 doctests'
+      - 'npm test -- --run src/App.test.tsx -t "shows binary blob metadata" (web): passed with 1 focused test and 183 skipped'
+      - 'npm test -- --run src/App.test.tsx -t "loads repository detail|keeps branch|clears repo-scoped|preserves the search back link|shows browse errors|loads recent commits|renders commit pagination|friendly fallback|finds definitions|ignores stale navigation|finds references|non-fatal capability|no-results state|shows binary blob metadata" (web): passed with 14 route-family tests and 170 skipped after async index-status wait fix'
+      - 'npm run build (web): passed'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over 5cadc11..HEAD: passed with no findings'
+      - 'independent integration review: passed after review-forced worker status error redaction hardening and final test-only re-review'
+    review: >-
+      Independent integration review initially failed closed on worker-status raw
+      error exposure and then on incomplete pre-colon redaction. The integrated fix
+      now allowlists known local/Generic Git/stub summaries and returns a generic
+      redacted summary for unknown or colonless formats; final re-review passed with
+      no security concerns or logic errors and kept search, browse, and worker claims
+      bounded.
+    completed_at: '2026-04-28'
   - id: task102t
     status: done
     summary: >-
