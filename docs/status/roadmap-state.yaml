@@ -5,49 +5,73 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e6f8ff05953171b9ef92f6b86b4d533a236e6852
+  head: 576029c979e78e262340163dca0de595d4e02717
 last_completed_task:
-  id: task99a
-  title: Authenticated worker status snapshot visibility
+  id: task99b
+  title: Manifest-validated local runtime restore safety
   status: done
   summary: >-
-    Closed one bounded Task 99 operator/runtime observability slice by exposing
-    the optional supervisor-readable worker last-run JSON snapshot through
-    authenticated `GET /api/v1/auth/worker-status`. The API keeps the snapshot
-    path out of public config, requires a local session, reports `not_configured`
-    when `SOURCEBOT_WORKER_STATUS_PATH` is absent or blank, returns bounded JSON
-    snapshots when readable, and fails closed with structured read/parse/size
-    errors for missing, non-file, invalid, or oversized snapshot paths. The
-    release claim remains deliberately bounded: this is local authenticated
-    operator visibility for the existing status artifact, not production metrics,
-    durable worker metadata, heartbeat/supervision, retry orchestration,
-    migration automation, or full operator-runtime parity.
+    Closed one bounded Task 99 operator recovery/deployment-safety slice by
+    making `scripts/restore_local_runtime_state.sh` validate the captured
+    runtime backup manifest against the currently resolved `SOURCEBOT_DATA_DIR`
+    and explicit state-file override paths before creating parent directories or
+    copying files. A runtime backup captured for a different local runtime root
+    now fails closed instead of replaying bootstrap/session/organization state
+    into the wrong target. The release claim remains deliberately bounded: this
+    is local manifest-validated file-backed runtime restore safety plus existing
+    local metadata backup/restore evidence, not production rollback automation,
+    zero-downtime deployment, supervised runtime recovery, complete durable
+    metadata parity, or practical replacement parity yet.
   tests:
-    - cargo test -p sourcebot-config worker_status -- --nocapture: passed (1 matched)
-    - cargo test -p sourcebot-api worker_status -- --nocapture: passed (4 bin tests matched; lib target 0 tests)
-    - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed (1 bin test matched; lib target 0 tests)
-    - cargo test -p sourcebot-api --lib: passed after repo-local PostgreSQL preflight as hermes (66 lib tests)
-    - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: red first, then passed with manifest mismatch coverage
+    - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
+    - sh -n touched shell scripts, git diff --check, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking auth-boundary, path/status snapshot safety, unbounded read/parse, public-config leakage, security, logic, or bounded-doc-claim issues remained
-  commit: e6f8ff05953171b9ef92f6b86b4d533a236e6852
-  next_task: task99b
+    code: passed independent read-only review; no blocking shell/restore logic, fail-closed manifest mismatch, docs overclaiming, contract-wrapper drift, security, or bounded-claim issues remained
+  commit: 576029c979e78e262340163dca0de595d4e02717
+  next_task: task100
 current_task:
-  id: task99b
+  id: task100
   parent_task: phase-d-runtime-interoperability-and-release-closure
-  title: Operator recovery and deployment-safety parity
+  title: Release-candidate smoke matrix and parity re-audit
   status: pending
   summary: >-
-    Task 99a now gives authenticated operators bounded local visibility into
-    the worker's optional last-run status snapshot. The next meaningful Task 99
-    closure should continue operator/runtime parity with a real implementation
-    or contract surface around recovery/deployment safety, backup/restore
-    evidence, richer readiness/observability, or upgrade guidance while keeping
-    remaining gaps explicit: no production supervision, durable worker metadata,
-    heartbeat/metrics backend, broad retry orchestration, complete migration
-    automation, or practical replacement parity yet.
+    Task 99b adds a bounded manifest-validated local runtime restore safety
+    guard, but the final release verdict still cannot honestly claim practical
+    Sourcebot replacement parity while durable metadata coverage, real provider
+    integrations, end-to-end OIDC/SSO, real indexing/search depth, richer admin
+    and thread lifecycles, worker scheduling/supervision, and production-grade
+    operator/runtime parity remain incomplete. The next meaningful closure should
+    run the release-candidate smoke/parity audit path and fail closed with a
+    truthful blocker list unless the repo-local evidence can actually certify the
+    replacement claim.
 
 history:
+  - id: task99b
+    status: done
+    summary: >-
+      Closed one bounded Task 99 operator recovery/deployment-safety slice by
+      making runtime restore validate the captured backup manifest's resolved
+      bootstrap, local-session, and organization-state paths against the current
+      `SOURCEBOT_DATA_DIR` / explicit state-file override set before creating
+      parent directories or copying files. Cross-runtime restore attempts now
+      fail closed instead of replaying file-backed state into the wrong local
+      runtime root. The claim remains bounded to local manifest-validated restore
+      safety, not production rollback automation, zero-downtime deployment,
+      supervised recovery, complete durable metadata parity, or practical
+      replacement parity.
+    tests:
+      - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: red first, then passed
+      - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
+      - sh -n touched shell scripts, git diff --check, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking shell/restore logic, fail-closed manifest mismatch, docs overclaiming, contract-wrapper drift, security, or bounded-claim issues remained
+    commit: 576029c979e78e262340163dca0de595d4e02717
+    next_task: task100
   - id: task99a
     status: done
     summary: >-
