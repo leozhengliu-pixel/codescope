@@ -135,7 +135,7 @@ struct PersistedIndexArtifact {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ParsedQuery {
-    line_terms: Vec<String>,
+    line_term_groups: Vec<Vec<String>>,
     path_filters: Vec<String>,
     language_filters: Vec<String>,
     invalid_filter: bool,
@@ -441,16 +441,16 @@ impl SearchStore for LocalSearchStore {
 }
 
 fn indexed_line_matches_query(indexed_line: &IndexedLine, parsed_query: &ParsedQuery) -> bool {
-    if parsed_query.invalid_filter || parsed_query.line_terms.is_empty() {
+    if parsed_query.invalid_filter || parsed_query.line_term_groups.is_empty() {
         return false;
     }
 
     let normalized_line = indexed_line.line.to_lowercase();
     let normalized_path = indexed_line.path.to_lowercase();
     parsed_query
-        .line_terms
+        .line_term_groups
         .iter()
-        .all(|term| normalized_line.contains(term))
+        .any(|group| group.iter().all(|term| normalized_line.contains(term)))
         && parsed_query
             .path_filters
             .iter()
@@ -463,7 +463,18 @@ fn indexed_line_matches_query(indexed_line: &IndexedLine, parsed_query: &ParsedQ
 
 fn parse_query(normalized_query: &str) -> ParsedQuery {
     let mut parsed = ParsedQuery::default();
+    let mut current_line_terms = Vec::new();
     for term in parse_query_terms(normalized_query) {
+        if !term.quoted && term.value == "or" {
+            if current_line_terms.is_empty() {
+                parsed.invalid_filter = true;
+            } else {
+                parsed.line_term_groups.push(current_line_terms);
+                current_line_terms = Vec::new();
+            }
+            continue;
+        }
+
         if !term.quoted {
             if let Some(path_filter) = term.value.strip_prefix("path:") {
                 if path_filter.trim().is_empty() {
@@ -484,7 +495,14 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
                 continue;
             }
         }
-        parsed.line_terms.push(term.value);
+        current_line_terms.push(term.value);
+    }
+    if current_line_terms.is_empty() {
+        if !parsed.line_term_groups.is_empty() {
+            parsed.invalid_filter = true;
+        }
+    } else {
+        parsed.line_term_groups.push(current_line_terms);
     }
     parsed
 }
@@ -917,6 +935,51 @@ mod tests {
             .results
             .iter()
             .all(|result| result.path != "src/main.rs"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_matches_bounded_boolean_or_groups() {
+        let (store, root) = create_test_store();
+
+        let response = store
+            .search("build_router OR documented", Some("repo_test"))
+            .unwrap();
+
+        assert_eq!(response.query, "build_router OR documented");
+        assert!(response.results.iter().any(|result| {
+            result.path == "src/main.rs"
+                && result.line_number == 1
+                && result.line == "fn build_router() {}"
+        }));
+        assert!(response.results.iter().any(|result| {
+            result.path == "README.md"
+                && result.line_number == 1
+                && result.line == "build_router is documented here"
+        }));
+
+        let filtered_response = store
+            .search("lang:rust documented OR here", Some("repo_test"))
+            .unwrap();
+        assert!(
+            filtered_response.results.is_empty(),
+            "global filters should constrain every boolean OR group instead of widening across paths/languages"
+        );
+
+        let malformed_response = store.search("OR build_router", Some("repo_test")).unwrap();
+        assert!(
+            malformed_response.results.is_empty(),
+            "empty boolean OR groups should fail closed instead of being ignored"
+        );
+
+        let quoted_or_response = store
+            .search("\"build_router or documented\"", Some("repo_test"))
+            .unwrap();
+        assert!(
+            quoted_or_response.results.is_empty(),
+            "quoted OR text should remain a literal phrase rather than becoming a boolean operator"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
