@@ -1218,6 +1218,50 @@ impl PgOrganizationStore {
         rows.into_iter().map(review_agent_run_from_row).collect()
     }
 
+    async fn audit_events(&self) -> Result<Vec<AuditEvent>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id,
+                    to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS occurred_at,
+                    metadata
+             FROM audit_events
+             ORDER BY occurred_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(audit_event_from_row).collect()
+    }
+
+    async fn upsert_audit_event<'e, E>(executor: E, event: AuditEvent) -> Result<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        sqlx::query(
+            "INSERT INTO audit_events (id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id, occurred_at, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9)
+             ON CONFLICT (id) DO UPDATE SET
+                organization_id = EXCLUDED.organization_id,
+                actor_user_id = EXCLUDED.actor_user_id,
+                actor_api_key_id = EXCLUDED.actor_api_key_id,
+                action = EXCLUDED.action,
+                target_type = EXCLUDED.target_type,
+                target_id = EXCLUDED.target_id,
+                occurred_at = EXCLUDED.occurred_at,
+                metadata = EXCLUDED.metadata",
+        )
+        .bind(event.id)
+        .bind(event.organization_id)
+        .bind(event.actor.user_id)
+        .bind(event.actor.api_key_id)
+        .bind(event.action)
+        .bind(event.target_type)
+        .bind(event.target_id)
+        .bind(event.occurred_at)
+        .bind(event.metadata)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
+
     async fn upsert_repository_sync_job<'e, E>(executor: E, job: RepositorySyncJob) -> Result<()>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
@@ -1700,6 +1744,7 @@ impl OrganizationStore for PgOrganizationStore {
         state.repository_sync_jobs = self.repository_sync_jobs().await?;
         state.review_webhook_delivery_attempts = self.review_webhook_delivery_attempts().await?;
         state.review_agent_runs = self.review_agent_runs().await?;
+        state.audit_events = self.audit_events().await?;
         Ok(state)
     }
 
@@ -1708,6 +1753,7 @@ impl OrganizationStore for PgOrganizationStore {
         file_state.repository_sync_jobs.clear();
         file_state.review_webhook_delivery_attempts.clear();
         file_state.review_agent_runs.clear();
+        file_state.audit_events.clear();
 
         let mut transaction = self.pool.begin().await?;
         for job in state.repository_sync_jobs {
@@ -1718,6 +1764,9 @@ impl OrganizationStore for PgOrganizationStore {
         }
         for run in state.review_agent_runs {
             Self::upsert_review_agent_run(&mut *transaction, run).await?;
+        }
+        for event in state.audit_events {
+            Self::upsert_audit_event(&mut *transaction, event).await?;
         }
         transaction.commit().await?;
 
@@ -3965,6 +4014,25 @@ mod tests {
         }
     }
 
+    fn auth_audit_event(id: &str, occurred_at: &str) -> AuditEvent {
+        AuditEvent {
+            id: id.into(),
+            organization_id: "org_acme".into(),
+            actor: AuditActor {
+                user_id: Some("local_user_bootstrap_admin".into()),
+                api_key_id: None,
+            },
+            action: "auth.member_role.updated".into(),
+            target_type: "organization_membership".into(),
+            target_id: "local_user_member".into(),
+            occurred_at: occurred_at.into(),
+            metadata: serde_json::json!({
+                "previous_role": "viewer",
+                "role": "admin"
+            }),
+        }
+    }
+
     async fn review_agent_run_test_pool() -> sqlx::PgPool {
         let pool = org_auth_metadata_test_pool().await;
         sqlx::query(
@@ -3974,11 +4042,29 @@ mod tests {
         .await
         .expect("reset review agent run test tables");
         sqlx::query(
+            "TRUNCATE TABLE organization_memberships, local_accounts RESTART IDENTITY CASCADE",
+        )
+        .execute(&pool)
+        .await
+        .expect("reset local account fixtures");
+        sqlx::query(
             "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
         )
         .execute(&pool)
         .await
         .expect("insert organization");
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES ('local_user_bootstrap_admin', 'admin@example.com', 'Admin User', '2026-04-16T17:00:00Z'::timestamptz), ('local_user_member', 'member@example.com', 'Member User', '2026-04-22T09:05:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert local accounts");
+        sqlx::query(
+            "INSERT INTO organization_memberships (organization_id, user_id, role, joined_at) VALUES ('org_acme', 'local_user_bootstrap_admin', 'admin', '2026-04-16T17:05:00Z'::timestamptz), ('org_acme', 'local_user_member', 'viewer', '2026-04-22T09:10:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert organization memberships");
         sqlx::query(
             "INSERT INTO connections (id, name, kind) VALUES ('conn_github', 'GitHub', 'github')",
         )
@@ -4014,6 +4100,59 @@ mod tests {
             external_event_id: format!("event_{id}"),
             accepted_at: accepted_at.into(),
         }
+    }
+
+    #[tokio::test]
+    async fn pg_organization_store_audit_events_store_and_merge_postgres_events() {
+        let pool = review_agent_run_test_pool().await;
+        let path = unique_test_path("pg-organization-store-audit-events-state");
+        let store = PgOrganizationStore::new(FileOrganizationStore::new(&path), pool.clone());
+        let fallback_event = auth_audit_event("audit_fallback", "2026-04-25T00:09:00Z");
+        FileOrganizationStore::new(&path)
+            .store_organization_state(OrganizationState {
+                audit_events: vec![fallback_event],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+        let pg_event = auth_audit_event("audit_postgres", "2026-04-25T00:10:00Z");
+        sqlx::query(
+            "INSERT INTO audit_events (id, organization_id, actor_user_id, actor_api_key_id, action, target_type, target_id, occurred_at, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9)",
+        )
+        .bind(&pg_event.id)
+        .bind(&pg_event.organization_id)
+        .bind(&pg_event.actor.user_id)
+        .bind(&pg_event.actor.api_key_id)
+        .bind(&pg_event.action)
+        .bind(&pg_event.target_type)
+        .bind(&pg_event.target_id)
+        .bind(&pg_event.occurred_at)
+        .bind(&pg_event.metadata)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = store.organization_state().await.unwrap();
+        assert_eq!(state.audit_events, vec![pg_event.clone()]);
+
+        let stored_event = auth_audit_event("audit_stored", "2026-04-25T00:11:00Z");
+        store
+            .store_organization_state(OrganizationState {
+                audit_events: vec![stored_event.clone()],
+                ..OrganizationState::default()
+            })
+            .await
+            .unwrap();
+
+        let persisted_file: OrganizationState =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert!(persisted_file.audit_events.is_empty());
+        assert_eq!(
+            store.organization_state().await.unwrap().audit_events,
+            vec![stored_event, pg_event]
+        );
+        fs::remove_file(path).unwrap();
     }
 
     #[tokio::test]
