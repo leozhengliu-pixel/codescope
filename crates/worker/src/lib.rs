@@ -26,6 +26,7 @@ const GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
 const LOCAL_REPOSITORY_SYNC_GIT_OUTPUT_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
+const GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES: usize = 4096;
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
     "repository sync job exceeded worker lease and was marked failed before the next claim";
@@ -1053,7 +1054,20 @@ fn generic_git_failure_detail(command: &str, output: &Output) -> String {
     } else {
         format!("{command} exited with status {}", output.status)
     };
+    let detail = bounded_generic_git_failure_detail(&detail);
     format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
+}
+
+fn bounded_generic_git_failure_detail(detail: &str) -> String {
+    if detail.len() <= GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES {
+        return detail.to_owned();
+    }
+
+    let mut end = GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES;
+    while !detail.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...[truncated]", &detail[..end])
 }
 
 fn run_git_ls_remote_heads(
@@ -2486,6 +2500,54 @@ mod tests {
         assert_eq!(
             execution.revision,
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_failure_detail_is_bounded() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-large-error-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\npython3 - <<'PY' >&2\nimport sys\nsys.stderr.write('remote failure detail: ' + ('x' * 8192))\nPY\nexit 42\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(_) => panic!("failing Generic Git ls-remote should fail closed"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.starts_with(
+                "generic Git repository sync execution failed: remote failure detail: "
+            ),
+            "bounded error should preserve useful prefix: {error:?}"
+        );
+        assert!(
+            error.len() <= 4200,
+            "Generic Git failure detail must be bounded before persistence/logging: {} bytes",
+            error.len()
+        );
+        assert!(
+            error.ends_with("...[truncated]"),
+            "bounded Generic Git error should make truncation explicit: {error:?}"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
