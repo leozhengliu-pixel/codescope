@@ -5,43 +5,51 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 1c79583cebacada96d024c8a8d395821f21c09d5
+  head: 3bc20008040e56ef5a8142cf6a938292e7d3cd28
 last_completed_task:
-  id: task102o
-  title: Search artifact repo-id validation, commit pagination UI, and Generic Git advertisement hardening
+  id: task102p
+  title: Saved search-context UI, capped commit diffs, and bounded Generic Git output
   status: done
   summary: >-
-    Closed one accelerated three-worker integration batch across the practical
-    replacement blockers. Task 102 now rejects persisted local-sync search-index
-    artifacts whose embedded `index_status.repo_id` does not match the requested
-    repository, preserving fail-closed artifact identity instead of rewriting
-    it. Task 103 now exposes frontend commit-history previous/next pagination
-    controls backed by existing backend `page_info` metadata and clears selected
-    commit detail/diff state when pages change. Task 106/108 now hardens the
-    bounded Generic Git metadata-only probe by parsing exact `git ls-remote
-    --heads -- <base_url>` tab-separated advertisements, accepting only
-    plausible object ids and valid branch refs, and failing closed for malformed
-    refs, extra fields, hidden/dot components, `.lock` suffixes, DEL/control,
-    and option-like hazards. Acceptance wording remains bounded and still does
-    not claim production-grade indexing, full commit UX parity, provider
-    fetch/import/reindex, automated retry/backoff, worker supervision, or final
-    practical replacement parity.
+    Closed one accelerated three-worker integration batch across practical
+    replacement blockers. Task 102 now exposes caller-owned saved search contexts
+    on the dedicated search page, preserves selected context ids through search
+    submission, pagination, and repository-result back links, and sends only
+    non-blank `context_id` values to the existing fail-closed backend search
+    contract. Task 103 now caps large textual commit-diff patch payloads with an
+    explicit `patch_truncated` response marker and bounded Git stdout/stderr
+    capture, preserving binary-diff behavior while reducing request-path memory
+    and deadlock risk. Task 106/108 now caps Generic Git `ls-remote --heads`
+    advertisement output at 1 MiB and fails closed with an operator-visible
+    error before parsing oversized remote metadata. Acceptance/audit wording
+    remains bounded and still does not claim full search-context management,
+    production indexing/relevance parity, full commit UX/diff parity, provider
+    fetch/import/reindex, broad retry/backoff/supervision, or final practical
+    replacement parity.
   tests:
-    - cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_repo_id_mismatch -- --nocapture: passed with 1 test and 20 filtered out
-    - cargo test -p sourcebot-search: passed with 21 unit tests and 0 doctests
-    - npm test -- -t "renders commit pagination controls from page_info" (web): passed with 1 focused test and 180 skipped
-    - npm test -- --run src/App.test.tsx (web): passed with 181 tests
-    - npm run build (web): passed
-    - cargo test -p sourcebot-worker generic_git_remote_with_malformed_head_advertisement_fails_closed -- --nocapture: RED first for hidden/ref-field truncation, then passed with 1 lib test and zero-test non-lib targets
-    - cargo test -p sourcebot-worker generic_git_remote -- --nocapture: passed with 6 lib tests; non-lib targets matched 0 tests
-    - cargo test -p sourcebot-worker: passed with 36 lib tests, 18 integration tests, and 0 doctests
+    - 'npm test -- --run src/App.test.tsx -t "loads caller-owned search contexts" (web): passed with 1 focused test and 181 skipped on master'
+    - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 10 search-route tests and 172 skipped on master'
+    - 'npm run build (web): passed on master'
+    - 'cargo test -p sourcebot-api caps_large -- --nocapture: passed with 2 bin tests; lib target matched 0 tests'
+    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 11 bin tests; lib target matched 0 tests'
+    - 'cargo test -p sourcebot-api repo_commit_diff_returns_real_git_files -- --nocapture: passed with 1 bin test; lib target matched 0 tests'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
+    - 'cargo test -p sourcebot-worker: passed with 37 lib tests, 18 integration tests, and 0 doctests'
     - cargo fmt --check: passed
     - git diff --check: passed
-    - added-lines security scan: passed with no findings across 287 added lines
-    - independent integration review: passed after two Generic Git parser hardening fixes
+    - added-lines security scan: passed with no findings across the integrated batch
+    - independent integration review: passed with no blocking issues
   review:
-    code: Independent integration review passed after blocking Generic Git parser findings were fixed. Reviewer verified exact tab-separated ls-remote parsing, fail-closed malformed ref validation, bounded metadata-only provider claims, persisted search artifact repo-id mismatch rejection, frontend commit pagination contract, and bounded docs; no blocking issues remained.
-  commit: 1c79583cebacada96d024c8a8d395821f21c09d5
+    code: >-
+      Independent integration review passed with no blocking issues. Reviewer
+      verified saved search-context route/hash preservation and blank-context
+      omission, large commit-diff response capping plus bounded pipe draining,
+      Generic Git oversized advertisement fail-closed behavior, parser-hardening
+      preservation, and bounded docs claims. Non-blocking notes remain that noisy
+      oversized `ls-remote` processes may still run until the existing timeout
+      after the bounded reader stops and that very large commit diffs still rely
+      on bounded Git subprocess execution.
+  commit: 3bc20008040e56ef5a8142cf6a938292e7d3cd28
   next_task: task102
 current_task:
   id: task102
@@ -49,22 +57,65 @@ current_task:
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 with the next meaningful search/indexing runtime closure
-    while the parallel-worker controller may also take adjacent high-value Task
-    103/106/108 blockers when scopes are disjoint. Search/indexing has now added
-    fail-closed persisted artifact path and embedded repo-id validation on top
-    of bounded query grammar, deterministic ordering, repository-detail
-    index-status visibility, indexed-empty/skipped-only semantics, and
-    local-sync artifact-backed fallback surfaces. Adjacent recent closures also
-    added frontend commit pagination controls and hardened Generic Git metadata
-    advertisement parsing. Prefer the next closure to move practical
-    indexing/runtime behavior, operator-visible index lifecycle/status, failure
-    recovery, richer grammar/relevance/pagination stability, branch/index
-    availability, or deeper provider/runtime parity, while preserving
-    fail-closed visibility boundaries, focused verification, bounded docs
-    claims, independent review, commit, state update, and push.
-
+    Continue Task 102 with the next meaningful production search/indexing runtime
+    closure while the parallel-worker controller may also take adjacent
+    high-value Task 103/106/108 blockers when scopes are disjoint. Search now has
+    a frontend-visible saved-context selection baseline on top of fail-closed
+    backend context narrowing, explicit boolean/literal/regex modes, deterministic
+    ordering, repository-detail index-status visibility, indexed-empty/skipped-only
+    semantics, persisted artifact path/repo-id validation, and local-sync
+    artifact-backed fallback surfaces. Adjacent recent closures also capped large
+    commit-diff patch payloads and Generic Git remote advertisement output.
+    Prefer the next closure to move practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer grammar,
+    relevance/pagination stability, branch/index availability, provider/runtime
+    parity, or worker supervision beyond bounded local baselines, while
+    preserving fail-closed visibility boundaries, focused verification, bounded
+    docs claims, independent review, commit, state update, and push.
 history:
+  - id: task102p
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch across practical
+      replacement blockers. Task 102 now exposes caller-owned saved search contexts
+      on the dedicated search page, preserves selected context ids through search
+      submission, pagination, and repository-result back links, and sends only
+      non-blank `context_id` values to the existing fail-closed backend search
+      contract. Task 103 now caps large textual commit-diff patch payloads with an
+      explicit `patch_truncated` response marker and bounded Git stdout/stderr
+      capture, preserving binary-diff behavior while reducing request-path memory
+      and deadlock risk. Task 106/108 now caps Generic Git `ls-remote --heads`
+      advertisement output at 1 MiB and fails closed with an operator-visible
+      error before parsing oversized remote metadata. Acceptance/audit wording
+      remains bounded and still does not claim full search-context management,
+      production indexing/relevance parity, full commit UX/diff parity, provider
+      fetch/import/reindex, broad retry/backoff/supervision, or final practical
+      replacement parity.
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "loads caller-owned search contexts" (web): passed with 1 focused test and 181 skipped on master'
+      - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 10 search-route tests and 172 skipped on master'
+      - 'npm run build (web): passed on master'
+      - 'cargo test -p sourcebot-api caps_large -- --nocapture: passed with 2 bin tests; lib target matched 0 tests'
+      - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 11 bin tests; lib target matched 0 tests'
+      - 'cargo test -p sourcebot-api repo_commit_diff_returns_real_git_files -- --nocapture: passed with 1 bin test; lib target matched 0 tests'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
+      - 'cargo test -p sourcebot-worker: passed with 37 lib tests, 18 integration tests, and 0 doctests'
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed with no findings across the integrated batch
+      - independent integration review: passed with no blocking issues
+    review:
+      code: >-
+        Independent integration review passed with no blocking issues. Reviewer
+        verified saved search-context route/hash preservation and blank-context
+        omission, large commit-diff response capping plus bounded pipe draining,
+        Generic Git oversized advertisement fail-closed behavior, parser-hardening
+        preservation, and bounded docs claims. Non-blocking notes remain that noisy
+        oversized `ls-remote` processes may still run until the existing timeout
+        after the bounded reader stops and that very large commit diffs still rely
+        on bounded Git subprocess execution.
+    commit: 3bc20008040e56ef5a8142cf6a938292e7d3cd28
+    completed_at: '2026-04-28'
   - id: task102o
     status: done
     summary: >-
