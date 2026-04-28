@@ -688,6 +688,7 @@ fn validate_persisted_index_artifact(
         _ => {}
     }
 
+    let mut seen_line_keys = BTreeSet::new();
     for indexed_line in &artifact.indexed_lines {
         if !is_safe_persisted_index_path(&indexed_line.path) {
             anyhow::bail!(
@@ -700,6 +701,14 @@ fn validate_persisted_index_artifact(
             anyhow::bail!(
                 "invalid search index artifact line number 0 for '{}' in {}",
                 indexed_line.path,
+                artifact_path.display()
+            );
+        }
+        if !seen_line_keys.insert((indexed_line.path.as_str(), indexed_line.line_number)) {
+            anyhow::bail!(
+                "duplicate search index artifact line key '{}:{}' in {}",
+                indexed_line.path,
+                indexed_line.line_number,
                 artifact_path.display()
             );
         }
@@ -1973,6 +1982,38 @@ mod tests {
             error
                 .to_string()
                 .contains("invalid search index artifact line number"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_duplicate_line_keys() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        let duplicated_line = artifact_json["indexed_lines"][0].clone();
+        artifact_json["indexed_lines"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicated_line);
+        artifact_json["index_status"]["indexed_line_count"] = serde_json::Value::from(4);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index duplicate path/line entries must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("duplicate search index artifact line key"),
             "unexpected error: {error:#}"
         );
 
