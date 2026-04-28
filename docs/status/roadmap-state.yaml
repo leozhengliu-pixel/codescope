@@ -5,30 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ee9f767df1d6b28b64104ffcdfbe9daf3f33d9ca
+  head: 01276e230e4f053314440a89b26d74cfe03e5167
 last_completed_task:
-  id: task102k
-  title: Frontend search mode selector and deep-link preservation
+  id: task102l
+  title: Repository detail index-status visibility
   status: done
   summary: >-
-    Closed one manual Task 102 frontend search usability slice by exposing the
-    previously shipped explicit `mode=boolean|literal|regex` search capability
-    on the dedicated `#/search` page. The UI now includes a search-mode
-    selector, keeps default boolean searches on the existing URL/API shape, adds
-    `mode=literal|regex` only when selected, restores mode from deep links,
-    preserves mode across result pagination and repository-detail back links,
-    and updates README, acceptance, parity-gap, and final-audit wording without
-    overclaiming real indexing, richer grammar, branch availability, relevance,
-    streaming, or stable-pagination parity.
+    Closed one manual Task 102 repository-operations/indexing visibility slice
+    by exposing the existing `/api/v1/repos/{repo_id}/index-status` contract in
+    the repository detail UI. Repo detail now renders a read-only Index status
+    panel with indexed/error state, indexed file count, indexed line count,
+    skipped file count, and optional index error text while keeping the
+    endpoint's existing fail-closed authorization boundary. README,
+    repository-operations acceptance, parity-gap, and final-audit wording now
+    ground the frontend-visible baseline while keeping durable/background
+    indexing, queue depth, retry controls, and real provider reindex execution
+    open.
   tests:
-    - 'npm test -- --run src/App.test.tsx -t "search"': passed with 9 focused search tests and 171 skipped
+    - 'npm test -- --run src/App.test.tsx -t "loads repository detail"': passed with 1 focused repo-detail test and 179 skipped
     - npm run build: passed with Vite production build
     - 'npm test -- --run src/App.test.tsx': passed with 180 frontend tests
     - git diff --check: passed
     - added-lines security scan: reviewed documentation-only API-key wording; no secrets added
   review:
-    code: manual Codex review passed for route parsing, default boolean compatibility, explicit mode API propagation, pagination/back-link preservation, test coverage, and bounded-doc-claim accuracy
-  commit: ee9f767df1d6b28b64104ffcdfbe9daf3f33d9ca
+    code: manual Codex review passed for typed index-status response handling, repo-detail lifecycle isolation, loading/error states, existing repository visibility contract reuse, focused UI coverage, and bounded-doc-claim accuracy
+  commit: 01276e230e4f053314440a89b26d74cfe03e5167
   next_task: task102
 current_task:
   id: task102
@@ -45,7 +46,8 @@ current_task:
     deterministic repo/path/line ordering for identical indexed content,
     bounded unquoted OR line-term groups, and explicit bounded
     `mode=boolean|literal|regex` search modes plus their dedicated frontend
-    selector/deep-link preservation into practical indexing/runtime behavior,
+    selector/deep-link preservation, and repository-detail read-only
+    index-status visibility into practical indexing/runtime behavior,
     operator-visible index lifecycle/status, failure recovery, richer
     full-boolean/filter grammar, branch/index availability, streaming behavior,
     or deeper pagination/relevance stability, while preserving fail-closed
@@ -53,6 +55,29 @@ current_task:
     independent review, commit, state update, and push.
 
 history:
+  - id: task102l
+    status: done
+    summary: >-
+      Closed one manual Task 102 repository-operations/indexing visibility slice
+      by exposing the existing `/api/v1/repos/{repo_id}/index-status` contract
+      in the repository detail UI. Repo detail now renders a read-only Index
+      status panel with indexed/error state, indexed file count, indexed line
+      count, skipped file count, and optional index error text while keeping the
+      endpoint's existing fail-closed authorization boundary. README,
+      repository-operations acceptance, parity-gap, and final-audit wording now
+      ground the frontend-visible baseline while keeping durable/background
+      indexing, queue depth, retry controls, and real provider reindex execution
+      open.
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "loads repository detail"': passed with 1 focused repo-detail test and 179 skipped
+      - npm run build: passed with Vite production build
+      - 'npm test -- --run src/App.test.tsx': passed with 180 frontend tests
+      - git diff --check: passed
+      - added-lines security scan: reviewed documentation-only API-key wording; no secrets added
+    review:
+      code: manual Codex review passed for typed index-status response handling, repo-detail lifecycle isolation, loading/error states, existing repository visibility contract reuse, focused UI coverage, and bounded-doc-claim accuracy
+    commit: 01276e230e4f053314440a89b26d74cfe03e5167
+    next_task: task102
   - id: task102k
     status: done
     summary: >-
