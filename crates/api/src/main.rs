@@ -29580,6 +29580,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn definitions_returns_supported_typescript_definitions() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/definitions?path=web/src/App.tsx&symbol=App&revision=HEAD",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let payload: DefinitionsResponse = read_json(response).await;
+        match payload {
+            DefinitionsResponse::Supported {
+                repo_id,
+                path,
+                revision,
+                symbol,
+                definitions,
+            } => {
+                assert_eq!(repo_id, "repo_sourcebot_rewrite");
+                assert_eq!(path, "web/src/App.tsx");
+                assert_eq!(revision.as_deref(), Some("HEAD"));
+                assert_eq!(symbol, "App");
+                assert!(definitions.iter().any(|definition| {
+                    definition.name == "App"
+                        && definition.kind == SymbolKind::Function
+                        && definition.path == "web/src/App.tsx"
+                        && definition.browse_url.contains("revision=HEAD")
+                }));
+            }
+            DefinitionsResponse::Unsupported { .. } => {
+                panic!("expected supported TypeScript definitions response")
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn definitions_default_revision_resolves_to_head_in_response_and_browse_url() {
         let response = test_app()
             .oneshot(

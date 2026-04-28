@@ -13,7 +13,7 @@
 - Authenticated user context
 
 ## Expected behavior
-1. A supported language returns one or more symbol definitions with file path and range.
+1. A supported language returns one or more symbol definitions with file path and range. The current bounded extractor supports top-level Rust plus TypeScript/JavaScript declarations for functions, classes, interfaces, type aliases, enums, and constants.
 2. References lookup returns a deduplicated, navigable list of usages.
 3. Navigation requests are revision-aware and stable for a given indexed revision.
 4. Unsupported languages fail gracefully with a capability message instead of a server error.
@@ -30,6 +30,6 @@
 - Generated files may be excluded from navigation indexes based on policy.
 
 ## Black-box examples
-- Clicking a function symbol in a Rust file opens definition candidates.
+- Clicking a function symbol in a Rust or TypeScript file opens definition candidates.
 - Requesting references for a helper function returns usages across accessible repositories.
 - Requesting navigation in an unsupported file type returns a non-fatal capability response.

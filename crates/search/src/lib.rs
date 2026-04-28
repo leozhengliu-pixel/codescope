@@ -118,6 +118,10 @@ pub enum SymbolKind {
     Struct,
     Enum,
     Trait,
+    Class,
+    Interface,
+    TypeAlias,
+    Constant,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -698,6 +702,9 @@ pub fn extract_symbols(path: &str, content: &str) -> SymbolExtraction {
         Some("rs") => SymbolExtraction::Supported {
             symbols: extract_rust_symbols(path, content),
         },
+        Some("ts" | "tsx" | "js" | "jsx") => SymbolExtraction::Supported {
+            symbols: extract_typescript_like_symbols(path, content),
+        },
         Some(ext) => SymbolExtraction::Unsupported {
             capability: format!("symbol extraction is not supported for .{ext} files"),
             symbols: Vec::new(),
@@ -729,7 +736,38 @@ fn extract_rust_symbols(path: &str, content: &str) -> Vec<SymbolDefinition> {
             kind,
             range: SymbolRange {
                 start_line: index + 1,
-                end_line: find_rust_symbol_end_line(&lines, index),
+                end_line: find_braced_symbol_end_line(&lines, index),
+            },
+        });
+    }
+
+    symbols
+}
+
+fn extract_typescript_like_symbols(path: &str, content: &str) -> Vec<SymbolDefinition> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut symbols = Vec::new();
+
+    for (index, line) in lines.iter().enumerate() {
+        if line.trim().is_empty() || line.trim_start() != *line {
+            continue;
+        }
+
+        let Some((kind, name)) = parse_typescript_like_symbol_line(line) else {
+            continue;
+        };
+
+        symbols.push(SymbolDefinition {
+            path: path.to_string(),
+            name,
+            kind,
+            range: SymbolRange {
+                start_line: index + 1,
+                end_line: if line.contains('{') {
+                    find_braced_symbol_end_line(&lines, index)
+                } else {
+                    index + 1
+                },
             },
         });
     }
@@ -754,6 +792,53 @@ fn parse_rust_symbol_line(line: &str) -> Option<(SymbolKind, String)> {
     None
 }
 
+fn parse_typescript_like_symbol_line(line: &str) -> Option<(SymbolKind, String)> {
+    let mut trimmed = line.trim();
+
+    for prefix in ["export default ", "export ", "declare ", "abstract "] {
+        trimmed = trimmed.strip_prefix(prefix).unwrap_or(trimmed).trim_start();
+    }
+    trimmed = trimmed
+        .strip_prefix("async ")
+        .unwrap_or(trimmed)
+        .trim_start();
+
+    for (keyword, kind) in [
+        ("function", SymbolKind::Function),
+        ("class", SymbolKind::Class),
+        ("interface", SymbolKind::Interface),
+        ("enum", SymbolKind::Enum),
+        ("type", SymbolKind::TypeAlias),
+    ] {
+        if let Some(name) = extract_typescript_like_symbol_name(trimmed, keyword) {
+            return Some((kind, name));
+        }
+    }
+
+    for keyword in ["const", "let", "var"] {
+        let Some(remainder) = trimmed.strip_prefix(keyword) else {
+            continue;
+        };
+        let declaration = remainder.trim_start();
+        let name = declaration
+            .chars()
+            .take_while(|ch| ch.is_alphanumeric() || *ch == '_' || *ch == '$')
+            .collect::<String>();
+        if name.is_empty() {
+            return None;
+        }
+        let remainder = declaration[name.len()..].trim_start();
+        if remainder.contains("=>") || remainder.starts_with("= function") {
+            return Some((SymbolKind::Function, name));
+        }
+        if keyword == "const" {
+            return Some((SymbolKind::Constant, name));
+        }
+    }
+
+    None
+}
+
 fn extract_rust_symbol_name(line: &str, keyword: &str) -> Option<String> {
     let remainder = strip_rust_visibility(line).unwrap_or(line).trim_start();
     let remainder = remainder.strip_prefix("async ").unwrap_or(remainder);
@@ -763,6 +848,20 @@ fn extract_rust_symbol_name(line: &str, keyword: &str) -> Option<String> {
         .trim_start()
         .chars()
         .take_while(|ch| ch.is_alphanumeric() || *ch == '_')
+        .collect::<String>();
+
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn extract_typescript_like_symbol_name(line: &str, keyword: &str) -> Option<String> {
+    let remainder = line.strip_prefix(keyword)?.trim_start();
+    let name = remainder
+        .chars()
+        .take_while(|ch| ch.is_alphanumeric() || *ch == '_' || *ch == '$')
         .collect::<String>();
 
     if name.is_empty() {
@@ -788,7 +887,7 @@ fn strip_rust_visibility(line: &str) -> Option<&str> {
     }
 }
 
-fn find_rust_symbol_end_line(lines: &[&str], start_index: usize) -> usize {
+fn find_braced_symbol_end_line(lines: &[&str], start_index: usize) -> usize {
     let mut brace_depth = 0usize;
     let mut saw_open_brace = false;
 
@@ -1383,6 +1482,116 @@ impl Widget {
                 ],
             }
         );
+    }
+
+    #[test]
+    fn extract_symbols_returns_top_level_typescript_and_javascript_definitions() {
+        let extraction = extract_symbols(
+            "src/App.tsx",
+            r#"import React from "react";
+
+export function App() {
+  return <main />;
+}
+
+export class WidgetPanel {
+  render() {
+    return null;
+  }
+}
+
+export interface WidgetProps {
+  name: string;
+}
+
+export type WidgetMode = "fast" | "safe";
+
+export const useWidget = () => {
+  return "widget";
+};
+
+const LOCAL_CONSTANT = "value";
+
+  function nestedIndented() {}
+"#,
+        );
+
+        assert_eq!(
+            extraction,
+            SymbolExtraction::Supported {
+                symbols: vec![
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "App".to_string(),
+                        kind: SymbolKind::Function,
+                        range: SymbolRange {
+                            start_line: 3,
+                            end_line: 5,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "WidgetPanel".to_string(),
+                        kind: SymbolKind::Class,
+                        range: SymbolRange {
+                            start_line: 7,
+                            end_line: 11,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "WidgetProps".to_string(),
+                        kind: SymbolKind::Interface,
+                        range: SymbolRange {
+                            start_line: 13,
+                            end_line: 15,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "WidgetMode".to_string(),
+                        kind: SymbolKind::TypeAlias,
+                        range: SymbolRange {
+                            start_line: 17,
+                            end_line: 17,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "useWidget".to_string(),
+                        kind: SymbolKind::Function,
+                        range: SymbolRange {
+                            start_line: 19,
+                            end_line: 21,
+                        },
+                    },
+                    SymbolDefinition {
+                        path: "src/App.tsx".to_string(),
+                        name: "LOCAL_CONSTANT".to_string(),
+                        kind: SymbolKind::Constant,
+                        range: SymbolRange {
+                            start_line: 23,
+                            end_line: 23,
+                        },
+                    },
+                ],
+            }
+        );
+
+        let js_extraction = extract_symbols(
+            "src/util.js",
+            "export default function createUtil() {\\n  return true;\\n}\\n",
+        );
+        match js_extraction {
+            SymbolExtraction::Supported { symbols } => {
+                assert_eq!(symbols.len(), 1);
+                assert_eq!(symbols[0].name, "createUtil");
+                assert_eq!(symbols[0].kind, SymbolKind::Function);
+            }
+            SymbolExtraction::Unsupported { .. } => {
+                panic!("expected JavaScript symbol extraction to be supported")
+            }
+        }
     }
 
     #[test]
