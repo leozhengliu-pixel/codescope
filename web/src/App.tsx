@@ -139,6 +139,14 @@ type SearchPagination = {
 
 type SearchMode = 'boolean' | 'literal' | 'regex';
 
+type SearchContextSummary = {
+  id: string;
+  name: string;
+  repo_scope: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 type SearchResponse = {
   query: string;
   mode?: SearchMode;
@@ -767,11 +775,15 @@ function parseSearchMode(value: string | null | undefined): SearchMode {
   return 'boolean';
 }
 
-function buildSearchHash(query: string, repoId: string, offset = 0, mode: SearchMode = 'boolean') {
+function buildSearchHash(query: string, repoId: string, offset = 0, mode: SearchMode = 'boolean', contextId = '') {
   const params = new URLSearchParams({ q: query });
   const normalizedRepoId = repoId.trim();
   if (normalizedRepoId.length > 0) {
     params.set('repo_id', normalizedRepoId);
+  }
+  const normalizedContextId = contextId.trim();
+  if (normalizedContextId.length > 0) {
+    params.set('context_id', normalizedContextId);
   }
   if (offset > 0) {
     params.set('offset', String(offset));
@@ -871,6 +883,10 @@ function buildRepoHash(
     if (searchRepoId.length > 0) {
       params.set('repo_id', searchRepoId);
     }
+    const searchContextId = searchParams.get('context_id')?.trim() ?? '';
+    if (searchContextId.length > 0) {
+      params.set('context_id', searchContextId);
+    }
     const searchOffset = parseSearchOffset(searchParams.get('offset'));
     if (searchOffset > 0) {
       params.set('offset', String(searchOffset));
@@ -901,6 +917,7 @@ function SearchExperience({
   initialRepoId,
   initialOffset,
   initialMode,
+  initialContextId,
 }: {
   repos: RepoSummary[];
   subtitle: string;
@@ -908,9 +925,14 @@ function SearchExperience({
   initialRepoId: string;
   initialOffset: number;
   initialMode: SearchMode;
+  initialContextId: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [selectedRepoId, setSelectedRepoId] = useState(initialRepoId);
+  const [selectedContextId, setSelectedContextId] = useState(initialContextId);
+  const [searchContexts, setSearchContexts] = useState<SearchContextSummary[]>([]);
+  const [searchContextsLoading, setSearchContextsLoading] = useState(false);
+  const [searchContextsError, setSearchContextsError] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>(initialMode);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -918,6 +940,7 @@ function SearchExperience({
   const [searchPagination, setSearchPagination] = useState<SearchPagination | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(initialQuery.trim().length > 0 ? initialQuery.trim() : null);
   const [submittedRepoId, setSubmittedRepoId] = useState(initialRepoId);
+  const [submittedContextId, setSubmittedContextId] = useState(initialContextId);
   const [submittedOffset, setSubmittedOffset] = useState(initialOffset);
   const [submittedMode, setSubmittedMode] = useState<SearchMode>(initialMode);
 
@@ -930,11 +953,53 @@ function SearchExperience({
   const canGoPrevious = Boolean(searchPagination && searchPagination.offset > 0 && !searchLoading);
   const canGoNext = Boolean(searchPagination?.has_more && !searchLoading);
 
-  const runSearch = async (queryValue = query, repoIdValue = selectedRepoId, offsetValue = 0, modeValue: SearchMode = searchMode) => {
+  useEffect(() => {
+    if (!readStoredLocalSession()) {
+      setSearchContexts([]);
+      setSearchContextsLoading(false);
+      setSearchContextsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchContextsLoading(true);
+
+    fetchJson<SearchContextSummary[]>('/api/v1/auth/search-contexts')
+      .then((data) => {
+        if (!cancelled) {
+          setSearchContexts(data.filter((searchContext) => searchContext.id.trim().length > 0));
+          setSearchContextsError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setSearchContexts([]);
+          setSearchContextsError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSearchContextsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const runSearch = async (
+    queryValue = query,
+    repoIdValue = selectedRepoId,
+    offsetValue = 0,
+    modeValue: SearchMode = searchMode,
+    contextIdValue = selectedContextId
+  ) => {
     const trimmedQuery = queryValue.trim();
     if (!trimmedQuery) {
       setSubmittedQuery(null);
       setSubmittedRepoId('');
+      setSubmittedContextId('');
       setSubmittedOffset(0);
       setSubmittedMode('boolean');
       setSearchResults([]);
@@ -950,6 +1015,10 @@ function SearchExperience({
       const normalizedRepoId = repoIdValue.trim();
       if (normalizedRepoId.length > 0) {
         params.set('repo_id', normalizedRepoId);
+      }
+      const normalizedContextId = contextIdValue.trim();
+      if (normalizedContextId.length > 0) {
+        params.set('context_id', normalizedContextId);
       }
       params.set('limit', String(SEARCH_PAGE_LIMIT));
       params.set('offset', String(offsetValue));
@@ -968,6 +1037,7 @@ function SearchExperience({
       );
       setSubmittedQuery(data.query);
       setSubmittedRepoId(data.repo_id ?? '');
+      setSubmittedContextId(normalizedContextId);
       setSubmittedOffset(offsetValue);
       setSubmittedMode(parseSearchMode(data.mode ?? modeValue));
       setSearchError(null);
@@ -976,6 +1046,7 @@ function SearchExperience({
       setSearchPagination(null);
       setSubmittedQuery(trimmedQuery);
       setSubmittedRepoId(repoIdValue);
+      setSubmittedContextId(contextIdValue.trim());
       setSubmittedOffset(offsetValue);
       setSubmittedMode(modeValue);
       setSearchError((err as Error).message);
@@ -989,8 +1060,8 @@ function SearchExperience({
       return;
     }
 
-    void runSearch(initialQuery, initialRepoId, initialOffset, initialMode);
-  }, [initialQuery, initialRepoId, initialOffset, initialMode]);
+    void runSearch(initialQuery, initialRepoId, initialOffset, initialMode, initialContextId);
+  }, [initialQuery, initialRepoId, initialOffset, initialMode, initialContextId]);
 
   return (
     <Panel title="Search" subtitle={subtitle}>
@@ -1005,13 +1076,13 @@ function SearchExperience({
             return;
           }
 
-          const targetHash = buildSearchHash(trimmedQuery, selectedRepoId, 0, searchMode);
+          const targetHash = buildSearchHash(trimmedQuery, selectedRepoId, 0, searchMode, selectedContextId);
           if (window.location.hash !== targetHash) {
             window.location.hash = targetHash;
             return;
           }
 
-          void runSearch(query, selectedRepoId, 0, searchMode);
+          void runSearch(query, selectedRepoId, 0, searchMode, selectedContextId);
         }}
       >
         <div style={searchFormGridStyle}>
@@ -1038,6 +1109,23 @@ function SearchExperience({
           </label>
 
           <label style={fieldLabelStyle}>
+            <span>Search context</span>
+            <select
+              value={selectedContextId}
+              onChange={(event) => setSelectedContextId(event.target.value)}
+              style={inputStyle}
+              disabled={searchContextsLoading || searchContexts.length === 0}
+            >
+              <option value="">No saved context</option>
+              {searchContexts.map((searchContext) => (
+                <option key={searchContext.id} value={searchContext.id}>
+                  {searchContext.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={fieldLabelStyle}>
             <span>Search mode</span>
             <select value={searchMode} onChange={(event) => setSearchMode(parseSearchMode(event.target.value))} style={inputStyle}>
               <option value="boolean">Boolean</option>
@@ -1052,6 +1140,7 @@ function SearchExperience({
             {searchLoading ? 'Searching…' : 'Search'}
           </button>
         </div>
+        {searchContextsError ? <div style={{ color: '#57606a' }}>Search contexts unavailable: {searchContextsError}</div> : null}
       </form>
 
       <div style={{ marginTop: 20 }}>
@@ -1071,7 +1160,7 @@ function SearchExperience({
                 if (!submittedQuery) {
                   return;
                 }
-                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, previousOffset, submittedMode);
+                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, previousOffset, submittedMode, submittedContextId);
               }}
             >
               Previous page
@@ -1084,7 +1173,7 @@ function SearchExperience({
                 if (!submittedQuery || !searchPagination) {
                   return;
                 }
-                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, searchPagination.offset + searchPagination.limit, submittedMode);
+                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, searchPagination.offset + searchPagination.limit, submittedMode, submittedContextId);
               }}
             >
               Next page
@@ -1097,7 +1186,7 @@ function SearchExperience({
         {!searchLoading && !searchError && searchResults.length > 0 ? (
           <div style={{ display: 'grid', gap: 12 }}>
             {searchResults.map((result, index) => {
-              const searchHash = buildSearchHash(submittedQuery ?? '', submittedRepoId, submittedOffset, submittedMode);
+              const searchHash = buildSearchHash(submittedQuery ?? '', submittedRepoId, submittedOffset, submittedMode, submittedContextId);
               const sourceHref = buildRepoHash(result.repo_id, {
                 path: result.path,
                 treePath: null,
@@ -1147,11 +1236,13 @@ function SearchPage({
   initialRepoId,
   initialOffset,
   initialMode,
+  initialContextId,
 }: {
   initialQuery: string;
   initialRepoId: string;
   initialOffset: number;
   initialMode: SearchMode;
+  initialContextId: string;
 }) {
   const { repos, loading, error } = useRepoSummaries();
 
@@ -1166,6 +1257,7 @@ function SearchPage({
       initialRepoId={initialRepoId}
       initialOffset={initialOffset}
       initialMode={initialMode}
+      initialContextId={initialContextId}
     />
   );
 }
@@ -6607,6 +6699,7 @@ export function App() {
         initialRepoId: params.get('repo_id') ?? '',
         initialOffset: parseSearchOffset(params.get('offset')),
         initialMode: parseSearchMode(params.get('mode')),
+        initialContextId: params.get('context_id') ?? '',
       };
     }
 
@@ -6655,6 +6748,7 @@ export function App() {
       const initialTreePath = params.get('tree_path');
       const searchQuery = params.get('q') ?? '';
       const searchRepoId = params.get('repo_id') ?? '';
+      const searchContextId = params.get('context_id') ?? '';
       const searchOffset = parseSearchOffset(params.get('offset'));
       const searchMode = parseSearchMode(params.get('mode'));
       return {
@@ -6664,7 +6758,7 @@ export function App() {
         initialTreePath: initialTreePath && initialTreePath.length > 0 ? initialTreePath : null,
         initialRevision: params.get('revision')?.trim() ? params.get('revision') : null,
         from: params.get('from') === 'search' ? ('search' as const) : null,
-        searchHash: buildSearchHash(searchQuery, searchRepoId, searchOffset, searchMode),
+        searchHash: buildSearchHash(searchQuery, searchRepoId, searchOffset, searchMode, searchContextId),
       };
     }
     return { kind: 'home' as const };
@@ -6732,6 +6826,7 @@ export function App() {
           initialRepoId={route.initialRepoId}
           initialOffset={route.initialOffset}
           initialMode={route.initialMode}
+          initialContextId={route.initialContextId}
         />
       ) : null}
       {route.kind === 'agents' ? <AgentsPage initialRunId={route.initialRunId} /> : null}

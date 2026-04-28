@@ -14320,6 +14320,86 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=repo-2&limit=20&offset=0');
   });
 
+  it('loads caller-owned search contexts and submits the selected context id from the dedicated search page', async () => {
+    window.location.hash = '#/search';
+    window.localStorage.setItem(
+      'sourcebot-local-session',
+      JSON.stringify({
+        sessionId: 'session-local',
+        sessionSecret: 'secret-local',
+      })
+    );
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos') {
+        expect(init?.headers).toMatchObject({ Authorization: 'Bearer session-local:secret-local' });
+        return jsonResponse([
+          {
+            id: 'repo-1',
+            name: 'alpha-repo',
+            default_branch: 'main',
+            sync_state: 'ready',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/search-contexts') {
+        expect(init?.headers).toMatchObject({ Authorization: 'Bearer session-local:secret-local' });
+        return jsonResponse([
+          {
+            id: 'ctx-owned',
+            name: 'Owned backend context',
+            repo_scope: ['repo-1'],
+            created_at: '2026-04-28T10:00:00Z',
+            updated_at: '2026-04-28T10:00:00Z',
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/search?q=needle&context_id=ctx-owned&limit=20&offset=0') {
+        expect(init?.headers).toMatchObject({ Authorization: 'Bearer session-local:secret-local' });
+        return jsonResponse({
+          query: 'needle',
+          repo_id: null,
+          results: [
+            {
+              repo_id: 'repo-1',
+              path: 'src/context.ts',
+              line_number: 8,
+              line: 'const contextNeedle = true;',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('Enter a query to search indexed code.')).toBeInTheDocument();
+    expect(await screen.findByText('Owned backend context')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Search query'), { target: { value: 'needle' } });
+    fireEvent.change(screen.getByLabelText('Search context'), { target: { value: 'ctx-owned' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByText('src/context.ts')).toBeInTheDocument();
+    expect(screen.getByText('const contextNeedle = true;')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/search?q=needle&context_id=ctx-owned');
+    expect(screen.getByRole('link', { name: 'Open source in repository detail' })).toHaveAttribute(
+      'href',
+      '#/repos/repo-1?path=src%2Fcontext.ts&from=search&q=needle&context_id=ctx-owned',
+    );
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&context_id=ctx-owned&limit=20&offset=0', {
+      headers: {
+        Authorization: 'Bearer session-local:secret-local',
+      },
+    });
+  });
+
   it('lets the dedicated search page request and preserve explicit search modes', async () => {
     window.location.hash = '#/search';
 
