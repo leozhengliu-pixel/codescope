@@ -13,6 +13,7 @@ use std::{
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_SEARCH_RESULTS: usize = 1_000;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 #[cfg(unix)]
@@ -107,16 +108,27 @@ impl SearchResponse {
         results: Vec<SearchResult>,
     ) -> Self {
         let total_count = results.len();
+        Self::limited_with_mode(query, mode, repo_id, results, total_count, total_count)
+    }
+
+    pub fn limited_with_mode(
+        query: String,
+        mode: SearchMode,
+        repo_id: Option<String>,
+        results: Vec<SearchResult>,
+        total_count: usize,
+        limit: usize,
+    ) -> Self {
         Self {
             query,
             mode,
             repo_id,
             results,
             pagination: SearchPagination {
-                limit: total_count,
+                limit,
                 offset: 0,
                 total_count,
-                has_more: false,
+                has_more: total_count > limit,
             },
         }
     }
@@ -413,19 +425,31 @@ impl LocalSearchStore {
         ))
     }
 
-    fn search_repo(&self, repo_id: &str, matcher: &QueryMatcher) -> Vec<SearchResult> {
+    fn collect_search_results(
+        &self,
+        repo_id: &str,
+        matcher: &QueryMatcher,
+        results: &mut Vec<SearchResult>,
+        limit: usize,
+    ) -> usize {
+        let mut matched_count = 0;
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
             .filter(|indexed_line| indexed_line_matches_query(indexed_line, matcher))
-            .map(|indexed_line| SearchResult {
-                repo_id: repo_id.to_string(),
-                path: indexed_line.path.clone(),
-                line_number: indexed_line.line_number,
-                line: indexed_line.line.clone(),
-            })
-            .collect()
+            .for_each(|indexed_line| {
+                matched_count += 1;
+                if results.len() < limit {
+                    results.push(SearchResult {
+                        repo_id: repo_id.to_string(),
+                        path: indexed_line.path.clone(),
+                        line_number: indexed_line.line_number,
+                        line: indexed_line.line.clone(),
+                    });
+                }
+            });
+        matched_count
     }
 
     fn collect_indexed_lines(
@@ -641,15 +665,19 @@ impl SearchStore for LocalSearchStore {
         repos.sort();
 
         let mut results = Vec::new();
+        let mut total_count = 0;
         for repo_id in repos {
-            results.extend(self.search_repo(repo_id, &matcher));
+            total_count +=
+                self.collect_search_results(repo_id, &matcher, &mut results, MAX_SEARCH_RESULTS);
         }
 
-        Ok(SearchResponse::unpaginated_with_mode(
+        Ok(SearchResponse::limited_with_mode(
             query.to_string(),
             mode,
             requested_repo_id.map(ToOwned::to_owned),
             results,
+            total_count,
+            MAX_SEARCH_RESULTS,
         ))
     }
 
@@ -1530,6 +1558,35 @@ mod tests {
             .all(|result| result.path != "large.txt"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_caps_returned_results_and_reports_has_more() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-result-cap",
+            &"common_marker in readme\n".repeat(600),
+            &"common_marker in source\n".repeat(405),
+            "target/generated.txt",
+        );
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_cap".to_string(),
+            fixture.root.clone(),
+        )]));
+
+        let response = store.search("common_marker", Some("repo_cap")).unwrap();
+
+        assert_eq!(response.results.len(), MAX_SEARCH_RESULTS);
+        assert_eq!(response.pagination.limit, MAX_SEARCH_RESULTS);
+        assert_eq!(response.pagination.offset, 0);
+        assert_eq!(response.pagination.total_count, 1_005);
+        assert!(
+            response.pagination.has_more,
+            "capped search responses should make truncation visible to callers"
+        );
+        assert_eq!(response.results[0].path, "README.md");
+        assert_eq!(response.results[MAX_SEARCH_RESULTS - 1].path, "src/main.rs");
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
