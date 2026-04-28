@@ -5,34 +5,32 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 156e3153167a738d50624f5c9e3933679b2b17db
+  head: 9022be6c19058e6c42d48ac56a5b9df2cee576e9
 last_completed_task:
-  id: task102h
-  title: Deterministic local search result ordering
+  id: task102i
+  title: Bounded boolean OR local search groups
   status: done
   summary: >-
-    Closed one bounded Task 102 search/indexing ordering slice by making the
-    startup/local-sync `LocalSearchStore` return deterministic repo/path/line
-    ordering for identical indexed content. Repository ids are sorted before
-    unscoped local searches, recursive directory entries are sorted before
-    indexing, and the new focused regression locks stable cross-repo and
-    cross-path result order without changing authorization, query parsing,
-    symlink/file-safety, or bounded local/index-artifact scope. README, search
-    acceptance, parity-gap, and final-audit wording now ground this deterministic
-    ordering baseline while keeping real indexing, richer grammar, cross-branch
-    semantics, relevance ranking, streaming search, stronger stable-pagination
-    guarantees across changing indexes/revisions, and practical replacement
-    readiness open.
+    Closed one bounded Task 102 search/indexing grammar slice by making the
+    startup/local-sync `LocalSearchStore` treat an unquoted `OR` token as a
+    boolean separator between line-term groups. Existing no-OR queries keep the
+    all-term semantics, quoted `or` text remains a literal phrase, malformed
+    leading/trailing/empty OR groups fail closed to no matches, and global
+    `lang:`/`path:` filters continue to constrain every OR group. README,
+    search acceptance, parity-gap, and final-audit wording now ground this
+    bounded OR baseline while keeping real indexing, regex/full boolean grammar,
+    cross-branch semantics, relevance ranking, streaming search, stronger
+    stable-pagination guarantees, and practical replacement readiness open.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_returns_deterministic_repo_path_line_order -- --nocapture': red first for nondeterministic repo/path order, then passed with 1 unit test and 14 filtered out
-    - 'cargo test -p sourcebot-search': passed with 15 unit tests and 0 doctests
+    - 'cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups -- --nocapture': red first for missing OR grouping, then passed with 1 unit test and 15 filtered out
+    - 'cargo test -p sourcebot-search': passed with 16 unit tests and 0 doctests
     - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking deterministic-order, visibility-boundary, symlink/file-safety, bounded-doc-claim, performance, or security issues remained
-  commit: 156e3153167a738d50624f5c9e3933679b2b17db
+    code: passed independent read-only review; no blocking OR parsing, malformed-query fail-closed, quoted literal, filter-scope, bounded-doc-claim, performance, or security issues remained
+  commit: 9022be6c19058e6c42d48ac56a5b9df2cee576e9
   next_task: task102
 current_task:
   id: task102
@@ -45,15 +43,41 @@ current_task:
     controls, explicit blank `repo_id` fail-closed hardening,
     case-insensitive local/index-artifact matching, space-separated all-term
     local/index-artifact matching, bounded quoted-phrase local/index-artifact
-    matching, bounded unquoted `lang:`/`path:` local/index-artifact filters, and
-    deterministic repo/path/line ordering for identical indexed content into
-    practical indexing/runtime behavior, operator-visible index lifecycle/status,
-    failure recovery, richer regex/boolean/filter grammar, branch/index
-    availability, streaming behavior, or deeper pagination/relevance stability,
-    while preserving fail-closed visibility boundaries, focused verification,
-    bounded docs claims, independent review, commit, state update, and push.
+    matching, bounded unquoted `lang:`/`path:` local/index-artifact filters,
+    deterministic repo/path/line ordering for identical indexed content, and
+    bounded unquoted OR line-term groups into practical indexing/runtime
+    behavior, operator-visible index lifecycle/status, failure recovery, richer
+    regex/full-boolean/filter grammar, branch/index availability, streaming
+    behavior, or deeper pagination/relevance stability, while preserving
+    fail-closed visibility boundaries, focused verification, bounded docs claims,
+    independent review, commit, state update, and push.
 
 history:
+  - id: task102i
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing grammar slice by making the
+      startup/local-sync `LocalSearchStore` treat an unquoted `OR` token as a
+      boolean separator between line-term groups. Existing no-OR queries keep the
+      all-term semantics, quoted `or` text remains a literal phrase, malformed
+      leading/trailing/empty OR groups fail closed to no matches, and global
+      `lang:`/`path:` filters continue to constrain every OR group. README,
+      search acceptance, parity-gap, and final-audit wording now ground this
+      bounded OR baseline while keeping real indexing, regex/full boolean
+      grammar, cross-branch semantics, relevance ranking, streaming search,
+      stronger stable-pagination guarantees, and practical replacement readiness
+      open.
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups -- --nocapture': red first for missing OR grouping, then passed with 1 unit test and 15 filtered out
+      - 'cargo test -p sourcebot-search': passed with 16 unit tests and 0 doctests
+      - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking OR parsing, malformed-query fail-closed, quoted literal, filter-scope, bounded-doc-claim, performance, or security issues remained
+    commit: 9022be6c19058e6c42d48ac56a5b9df2cee576e9
+    next_task: task102
   - id: task102h
     status: done
     summary: >-
