@@ -24,6 +24,7 @@ const LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
 const GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX: &str =
     "generic Git repository sync execution failed";
 const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10);
+const LOCAL_REPOSITORY_SYNC_GIT_OUTPUT_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
@@ -326,6 +327,24 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
     git_command: &OsStr,
     preflight_timeout: Duration,
 ) -> Option<RepositorySyncJob> {
+    complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+        state,
+        job,
+        finished_at,
+        git_command,
+        preflight_timeout,
+        LOCAL_REPOSITORY_SYNC_GIT_OUTPUT_LIMIT_BYTES,
+    )
+}
+
+fn complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+    state: &OrganizationState,
+    job: &RepositorySyncJob,
+    finished_at: &str,
+    git_command: &OsStr,
+    preflight_timeout: Duration,
+    output_limit_bytes: usize,
+) -> Option<RepositorySyncJob> {
     let connection = state
         .connections
         .iter()
@@ -351,6 +370,7 @@ fn complete_local_repository_sync_job_with_git_command_if_applicable(
                 repo_path,
                 job,
                 preflight_timeout,
+                output_limit_bytes,
             ) {
                 Ok(execution) => execution,
                 Err(execution_failure) => {
@@ -412,8 +432,23 @@ fn run_local_repository_sync_execution(
     repo_path: &str,
     job: &RepositorySyncJob,
     timeout: Duration,
+    output_limit_bytes: usize,
 ) -> Result<LocalRepositorySyncExecution, String> {
-    let head = match run_git_command(git_command, repo_path, &["rev-parse", "HEAD"], timeout) {
+    let head = match run_git_command_with_output_limit(
+        git_command,
+        repo_path,
+        &["rev-parse", "HEAD"],
+        timeout,
+        output_limit_bytes,
+    ) {
+        Ok(Some(output))
+            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
+        {
+            return Err(local_git_output_limit_failure_detail(
+                "git rev-parse HEAD",
+                output_limit_bytes,
+            ));
+        }
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             String::from_utf8_lossy(&output.stdout).trim().to_owned()
         }
@@ -427,12 +462,21 @@ fn run_local_repository_sync_execution(
         Err(error) => return Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
-    let content_paths = match run_git_command(
+    let content_paths = match run_git_command_with_output_limit(
         git_command,
         repo_path,
         &["ls-tree", "-rz", "--name-only", "HEAD"],
         timeout,
+        output_limit_bytes,
     ) {
+        Ok(Some(output))
+            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
+        {
+            return Err(local_git_output_limit_failure_detail(
+                "git ls-tree -rz --name-only HEAD",
+                output_limit_bytes,
+            ));
+        }
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             parse_nul_delimited_git_paths(&output.stdout)
         }
@@ -451,12 +495,21 @@ fn run_local_repository_sync_execution(
         Err(error) => return Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
-    match run_git_command(
+    match run_git_command_with_output_limit(
         git_command,
         repo_path,
         &["symbolic-ref", "--short", "HEAD"],
         timeout,
+        output_limit_bytes,
     ) {
+        Ok(Some(output))
+            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
+        {
+            Err(local_git_output_limit_failure_detail(
+                "git symbolic-ref --short HEAD",
+                output_limit_bytes,
+            ))
+        }
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
             let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             write_local_repository_sync_snapshot(
@@ -465,6 +518,7 @@ fn run_local_repository_sync_execution(
                 job,
                 &content_paths,
                 timeout,
+                output_limit_bytes,
             )?;
             write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
             write_local_repository_sync_search_index(repo_path, job)?;
@@ -504,6 +558,7 @@ fn write_local_repository_sync_snapshot(
     job: &RepositorySyncJob,
     content_paths: &[String],
     timeout: Duration,
+    output_limit_bytes: usize,
 ) -> Result<(), String> {
     let manifest_path = local_repository_sync_manifest_path(repo_path, job);
     let job_dir = manifest_path.parent().ok_or_else(|| {
@@ -536,12 +591,23 @@ fn write_local_repository_sync_snapshot(
                 return Err(error);
             }
         };
-        let output = match run_git_command(
+        let output = match run_git_command_with_output_limit(
             git_command,
             repo_path,
             &["show", &format!("HEAD:{content_path}")],
             timeout,
+            output_limit_bytes,
         ) {
+            Ok(Some(output))
+                if output.stdout.len() > output_limit_bytes
+                    || output.stderr.len() > output_limit_bytes =>
+            {
+                let _ = fs::remove_dir_all(&tmp_path);
+                return Err(local_git_output_limit_failure_detail(
+                    "git show HEAD:<tracked-path>",
+                    output_limit_bytes,
+                ));
+            }
             Ok(Some(output)) if output.status.success() => output,
             Ok(Some(output)) => {
                 let _ = fs::remove_dir_all(&tmp_path);
@@ -884,6 +950,12 @@ fn git_failure_detail(command: &str, output: &Output) -> String {
     format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
 }
 
+fn local_git_output_limit_failure_detail(command: &str, output_limit_bytes: usize) -> String {
+    format!(
+        "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {command} output exceeded {output_limit_bytes} bytes"
+    )
+}
+
 fn generic_git_failure_detail(command: &str, output: &Output) -> String {
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
@@ -941,6 +1013,23 @@ fn run_git_command(
         .stderr(Stdio::piped())
         .spawn()?;
     wait_for_child_output_with_timeout(child, timeout)
+}
+
+fn run_git_command_with_output_limit(
+    git_command: &OsStr,
+    repo_path: &str,
+    args: &[&str],
+    timeout: Duration,
+    output_limit_bytes: usize,
+) -> std::io::Result<Option<Output>> {
+    let child = Command::new(git_command)
+        .arg("-C")
+        .arg(repo_path)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    wait_for_child_output_with_timeout_and_output_limit(child, timeout, output_limit_bytes)
 }
 
 fn wait_for_child_output_with_timeout(
@@ -1151,12 +1240,14 @@ mod tests {
     use super::{
         claim_next_repository_sync_job_from_store_at, claim_next_review_agent_run,
         claim_next_review_agent_run_from_store,
+        complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable,
         complete_local_repository_sync_job_with_git_command_if_applicable,
         execute_claimed_repository_sync_job_stub_at, execute_claimed_review_agent_run_stub,
-        persist_stub_review_agent_run_execution_outcome, run_generic_git_repository_sync_execution,
-        run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
-        safe_manifest_path_component, StubRepositorySyncJobExecutionOutcome,
-        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
+        local_repository_sync_manifest_path, persist_stub_review_agent_run_execution_outcome,
+        run_generic_git_repository_sync_execution, run_repository_sync_claim_tick,
+        run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
+        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
+        WorkerTickOutcome,
     };
     use crate::{
         GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX,
@@ -2397,6 +2488,89 @@ mod tests {
                 .unwrap_or_default()
                 .contains("local repository sync preflight failed: git preflight timed out"),
             "timed out preflight should surface an operator-visible bounded failure: {failed_job:?}"
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-oversized-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("large.txt"), "x".repeat(128)).unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "large.txt"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "large fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_oversized_output",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &state,
+                &state.repository_sync_jobs[0],
+                "2026-04-26T10:02:00Z",
+                OsStr::new("git"),
+                Duration::from_secs(2),
+                64,
+            )
+            .expect("oversized local repository Git output should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_oversized_output");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        let error = failed_job.error.as_deref().unwrap_or_default();
+        assert!(
+            error.starts_with("local repository sync execution failed"),
+            "oversized output should use stable execution failure prefix: {failed_job:?}"
+        );
+        assert!(
+            error.contains("git show HEAD:<tracked-path> output exceeded 64 bytes"),
+            "oversized output should identify capped local Git command: {failed_job:?}"
+        );
+        let manifest_path = local_repository_sync_manifest_path(
+            &repo_path.display().to_string(),
+            &state.repository_sync_jobs[0],
+        );
+        assert!(
+            !manifest_path.exists(),
+            "oversized output must fail before manifest persistence"
+        );
+        assert!(
+            !manifest_path
+                .parent()
+                .unwrap()
+                .join("snapshot")
+                .join("large.txt")
+                .exists(),
+            "oversized output must fail before snapshot persistence"
         );
 
         fs::remove_dir_all(repo_path).unwrap();
