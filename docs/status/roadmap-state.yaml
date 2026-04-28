@@ -5,31 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f6817a7e3460c959b3e82fa3b21acfaa3f69db76
+  head: c6bca3addd3bdf1e58caa1dac82f85742f38b9ed
 last_completed_task:
-  id: task102c
-  title: Search blank repository filter fail-closed
+  id: task102d
+  title: Case-insensitive local search matching
   status: done
   summary: >-
-    Closed one bounded Task 102 search/indexing authorization-hardening slice by
-    making `/api/v1/search` distinguish an absent `repo_id` from a present but
-    blank/whitespace `repo_id`. Explicit blank repository filters such as
-    `repo_id=%20%20` now fail closed with `404` instead of being treated as an
-    absent filter that broadens the search across all visible repositories. The
-    acceptance spec, parity-gap report, and final audit/checklist now document
-    this bounded fail-closed repository-filter behavior while preserving open
-    blockers for real production indexing, richer grammar, branch/index
-    availability, relevance/stability, streaming search, SQL-backed saved
-    contexts, and full practical search parity.
+    Closed one bounded Task 102 search/indexing semantics slice by making the
+    startup/local-sync `LocalSearchStore` match indexed line text
+    case-insensitively while preserving the caller's trimmed query text in the
+    API response. This improves practical search usability for the current
+    bounded local/index-artifact search baseline and updates acceptance,
+    parity-gap, and final-audit wording without claiming real indexing, richer
+    grammar, full relevance ranking, streaming search, stable-pagination parity,
+    or practical replacement readiness.
   tests:
-    - 'cargo test -p sourcebot-api search_rejects_blank_present_repo_id_without_broadening_results -- --nocapture': red first with 0 lib-target tests and 1 bin-target test failing 200 vs 404, then passed with 0 lib-target tests and 1 bin-target test
-    - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 25 bin-target tests
+    - 'cargo test -p sourcebot-search local_search_store_matches_queries_case_insensitively -- --nocapture': red first with 1 failing unit test, then passed with 1 unit test
+    - 'cargo test -p sourcebot-api search_trims_query_before_searching_and_reporting_response -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
+    - 'cargo test -p sourcebot-search': passed with 11 unit tests and 0 doctests
+    - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 26 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking absent-vs-blank repo_id, hidden repo_id, pagination/saved-context visibility, bounded-doc-claim, or security issues remained
-  commit: f6817a7e3460c959b3e82fa3b21acfaa3f69db76
+    code: passed independent read-only review; no blocking search-semantics, API-trim, authorization/fallback-scope, docs-overclaim, performance-regression, or security issues remained
+  commit: c6bca3addd3bdf1e58caa1dac82f85742f38b9ed
   next_task: task102
 current_task:
   id: task102
@@ -39,14 +39,38 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful search/indexing runtime closure.
     Prefer a slice that moves beyond bounded pagination metadata, frontend paging
-    controls, and explicit blank `repo_id` fail-closed hardening into practical
-    indexing/runtime behavior, operator-visible index lifecycle/status, failure
-    recovery, relevance/filter semantics, branch/index availability, streaming
-    behavior, or deeper pagination stability, while preserving fail-closed
-    visibility boundaries, focused verification, bounded docs claims,
-    independent review, commit, state update, and push.
+    controls, explicit blank `repo_id` fail-closed hardening, and
+    case-insensitive local/index-artifact matching into practical indexing/runtime
+    behavior, operator-visible index lifecycle/status, failure recovery, richer
+    filter grammar, branch/index availability, streaming behavior, or deeper
+    pagination/relevance stability, while preserving fail-closed visibility
+    boundaries, focused verification, bounded docs claims, independent review,
+    commit, state update, and push.
 
 history:
+  - id: task102d
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing semantics slice by making the
+      startup/local-sync `LocalSearchStore` match indexed line text
+      case-insensitively while preserving the caller's trimmed query text in the
+      API response. This improves practical search usability for the current
+      bounded local/index-artifact search baseline and updates acceptance,
+      parity-gap, and final-audit wording without claiming real indexing, richer
+      grammar, full relevance ranking, streaming search, stable-pagination
+      parity, or practical replacement readiness.
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_matches_queries_case_insensitively -- --nocapture': red first with 1 failing unit test, then passed with 1 unit test
+      - 'cargo test -p sourcebot-api search_trims_query_before_searching_and_reporting_response -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
+      - 'cargo test -p sourcebot-search': passed with 11 unit tests and 0 doctests
+      - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 26 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking search-semantics, API-trim, authorization/fallback-scope, docs-overclaim, performance-regression, or security issues remained
+    commit: c6bca3addd3bdf1e58caa1dac82f85742f38b9ed
+    next_task: task102
   - id: task102c
     status: done
     summary: >-
