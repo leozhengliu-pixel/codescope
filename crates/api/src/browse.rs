@@ -387,7 +387,11 @@ impl BrowseStore for LocalBrowseStore {
             return Ok(None);
         };
 
-        let Some(entries) = run_git_list_tree_entries_at_revision(repo_root, revision, path)?
+        let Some(revision) = resolve_single_commit(repo_root, revision)? else {
+            return Ok(None);
+        };
+
+        let Some(entries) = run_git_list_tree_entries_at_revision(repo_root, &revision, path)?
         else {
             return Ok(None);
         };
@@ -457,8 +461,11 @@ impl BrowseStore for LocalBrowseStore {
                 let Some(repo_root) = self.repo_roots.get(repo_id) else {
                     return Ok(None);
                 };
+                let Some(revision) = resolve_single_commit(repo_root, revision)? else {
+                    return Ok(None);
+                };
 
-                let Some(bytes) = run_git_show_blob(repo_root, revision, path)? else {
+                let Some(bytes) = run_git_show_blob(repo_root, &revision, path)? else {
                     return Ok(None);
                 };
                 let size_bytes = bytes.len() as u64;
@@ -500,8 +507,11 @@ impl BrowseStore for LocalBrowseStore {
         let Some(repo_root) = self.repo_root(repo_id) else {
             return Ok(None);
         };
+        let Some(revision) = resolve_single_commit(repo_root, revision)? else {
+            return Ok(None);
+        };
 
-        let Some(paths) = run_git_list_files_at_revision(repo_root, revision)? else {
+        let Some(paths) = run_git_list_files_at_revision(repo_root, &revision)? else {
             return Ok(None);
         };
 
@@ -510,7 +520,7 @@ impl BrowseStore for LocalBrowseStore {
             .into_iter()
             .filter(|path| supports_text_reference_scan(path))
         {
-            let Some(bytes) = run_git_show_blob(repo_root, revision, &path)? else {
+            let Some(bytes) = run_git_show_blob(repo_root, &revision, &path)? else {
                 continue;
             };
             let blob_content = decode_blob_content(bytes);
@@ -617,6 +627,40 @@ fn supports_text_reference_scan(path: &str) -> bool {
             .and_then(|extension| extension.to_str()),
         Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs")
     )
+}
+
+fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<String>> {
+    let verify_arg = format!("{revision}^{{commit}}");
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", "--end-of-options", &verify_arg])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git rev-parse in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let resolved = stdout.trim();
+        return if resolved.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(resolved.to_string()))
+        };
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            "<revision>^{commit}",
+        ],
+        &output,
+    ))
 }
 
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
@@ -773,6 +817,7 @@ fn git_object_not_found_output(output: &Output) -> bool {
         || stderr.contains("bad object")
         || stderr.contains("fatal: invalid object name")
         || stderr.contains("ambiguous argument")
+        || stderr.contains("expected commit type")
 }
 
 fn git_command_error(repo_root: &PathBuf, args: &[&str], output: &Output) -> anyhow::Error {
@@ -902,6 +947,21 @@ mod tests {
         git_in(repo_root, &["commit", "-m", "base"]);
     }
 
+    fn git_stdout_trimmed(repo_root: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repo_root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
+    }
+
     #[test]
     fn shared_repo_tree_fixture_exposes_browse_common_layout() {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
@@ -1018,6 +1078,39 @@ mod tests {
             .entries
             .iter()
             .all(|entry| entry.path.starts_with("src/")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_rejects_non_commit_revision_objects() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-non-commit",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+        let tree_id = git_stdout_trimmed(&root, &["rev-parse", "HEAD^{tree}"]);
+        let blob_id = git_stdout_trimmed(&root, &["rev-parse", "HEAD:README.md"]);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        for non_commit_revision in [&tree_id, &blob_id] {
+            assert!(store
+                .get_tree_at_revision("repo_test", "", Some(non_commit_revision))
+                .unwrap()
+                .is_none());
+            assert!(store
+                .get_blob_at_revision("repo_test", "README.md", Some(non_commit_revision))
+                .unwrap()
+                .is_none());
+            assert!(store
+                .find_text_references_at_revision("repo_test", "main", non_commit_revision)
+                .unwrap()
+                .is_none());
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
