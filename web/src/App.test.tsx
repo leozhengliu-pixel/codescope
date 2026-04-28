@@ -2365,6 +2365,16 @@ describe('App', () => {
               additions: 0,
               deletions: 0,
               patch: '@@ -1 +1 @@\n-export * from "./OldName"\n+export * from "./NewName"',
+              patch_truncated: false,
+            },
+            {
+              path: 'web/src/LargeGenerated.ts',
+              change_type: 'modified',
+              old_path: null,
+              additions: 2048,
+              deletions: 1024,
+              patch: '[Sourcebot diff truncated: patch exceeds 64 KiB]',
+              patch_truncated: true,
             },
           ],
         });
@@ -2376,7 +2386,7 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('Recent commits')).toBeInTheDocument();
-    expect(screen.getByText('Add commit browser')).toBeInTheDocument();
+    expect(await screen.findByText('Add commit browser')).toBeInTheDocument();
     expect(screen.getByText('Alice Example')).toBeInTheDocument();
     expect(screen.getByText('abc123d')).toBeInTheDocument();
     expect(screen.getByText('Select a commit to inspect its details.')).toBeInTheDocument();
@@ -2390,10 +2400,13 @@ describe('App', () => {
     expect(screen.getByText('parent-2')).toBeInTheDocument();
     expect(await screen.findByText('Changed files')).toBeInTheDocument();
     expect(screen.getByText('web/src/App.tsx')).toBeInTheDocument();
-    expect(screen.getByText('modified')).toBeInTheDocument();
+    expect(screen.getAllByText('modified')).toHaveLength(2);
     expect(screen.getByText('+12')).toBeInTheDocument();
     expect(screen.getByText('-3')).toBeInTheDocument();
     expect(screen.getByText('web/src/OldName.tsx → web/src/NewName.tsx')).toBeInTheDocument();
+    expect(screen.getByText('web/src/LargeGenerated.ts')).toBeInTheDocument();
+    expect(screen.getByText('Patch truncated for display. Open this commit locally to inspect the full diff.')).toBeInTheDocument();
+    expect(screen.queryByText('[Sourcebot diff truncated: patch exceeds 64 KiB]')).not.toBeInTheDocument();
     expect(screen.getByText(/@@ -1,3 \+1,4 @@/)).toBeInTheDocument();
     expect(screen.getByText(/\+import newThing/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/commits?limit=20');

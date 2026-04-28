@@ -256,6 +256,7 @@ type CommitDiffFile = {
   additions: number;
   deletions: number;
   patch: string | null;
+  patch_truncated?: boolean;
 };
 
 type CommitDiffResponse = {
@@ -3072,7 +3073,9 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
                           <span style={diffStatAdditionsStyle}>+{file.additions}</span>
                           <span style={diffStatDeletionsStyle}>-{file.deletions}</span>
                         </div>
-                        {file.patch ? (
+                        {file.patch_truncated ? (
+                          <div style={browseSectionMetaStyle}>Patch truncated for display. Open this commit locally to inspect the full diff.</div>
+                        ) : file.patch ? (
                           <pre style={diffPatchStyle}>{file.patch}</pre>
                         ) : (
                           <div style={browseSectionMetaStyle}>Binary file or patch unavailable.</div>
