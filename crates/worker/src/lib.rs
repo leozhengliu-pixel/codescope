@@ -30,6 +30,8 @@ const GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES: usize = 4096;
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
     "repository sync job exceeded worker lease and was marked failed before the next claim";
+const REPOSITORY_SYNC_MALFORMED_RUNNING_LEASE_PREFIX: &str =
+    "repository sync job had malformed running lease timestamp and was marked failed before the next claim";
 
 pub use sourcebot_core::claim_next_review_agent_run;
 
@@ -961,9 +963,13 @@ fn fail_stale_running_repository_sync_jobs(state: &mut OrganizationState, now: &
             continue;
         }
         let Some(started_at) = job.started_at.as_deref() else {
+            mark_malformed_running_repository_sync_job_failed(job, &now, "missing started_at");
+            changed = true;
             continue;
         };
         let Ok(started_at) = OffsetDateTime::parse(started_at, &Rfc3339) else {
+            mark_malformed_running_repository_sync_job_failed(job, &now, "invalid started_at");
+            changed = true;
             continue;
         };
         let age = now - started_at;
@@ -982,6 +988,21 @@ fn fail_stale_running_repository_sync_jobs(state: &mut OrganizationState, now: &
         changed = true;
     }
     changed
+}
+
+fn mark_malformed_running_repository_sync_job_failed(
+    job: &mut RepositorySyncJob,
+    now: &OffsetDateTime,
+    detail: &str,
+) {
+    let finished_at = now
+        .format(&Rfc3339)
+        .expect("current UTC timestamp should format as RFC3339");
+    job.status = RepositorySyncJobStatus::Failed;
+    job.finished_at = Some(finished_at.clone());
+    job.error = Some(format!(
+        "{REPOSITORY_SYNC_MALFORMED_RUNNING_LEASE_PREFIX}: {detail} at {finished_at}"
+    ));
 }
 
 fn local_repository_sync_manifest_path(repo_path: &str, job: &RepositorySyncJob) -> PathBuf {
@@ -2184,6 +2205,66 @@ mod tests {
         assert_eq!(fresh_job.status, RepositorySyncJobStatus::Running);
         assert_eq!(fresh_job.finished_at, None);
         assert_eq!(fresh_job.error, None);
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_malformed_running_started_at_before_claiming() {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            repository_sync_jobs: vec![
+                {
+                    let mut job = repository_sync_job(
+                        "sync_job_malformed_running",
+                        RepositorySyncJobStatus::Running,
+                        "2026-04-26T09:00:00Z",
+                    );
+                    job.started_at = Some("not-rfc3339".into());
+                    job
+                },
+                repository_sync_job(
+                    "sync_job_queued",
+                    RepositorySyncJobStatus::Queued,
+                    "2026-04-26T10:01:00Z",
+                ),
+            ],
+            ..OrganizationState::default()
+        });
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect(
+            "queued repository sync job should still be claimed after malformed running recovery",
+        );
+
+        assert_eq!(completed_job.id, "sync_job_queued");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+
+        let persisted = store.organization_state().await.unwrap();
+        let malformed_job = persisted
+            .repository_sync_jobs
+            .iter()
+            .find(|job| job.id == "sync_job_malformed_running")
+            .expect("malformed running job should remain in history");
+        assert_eq!(malformed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            malformed_job.finished_at,
+            malformed_job
+                .error
+                .as_ref()
+                .and_then(|error| error.split(" at ").last())
+                .map(str::to_owned)
+        );
+        assert!(
+            malformed_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with("repository sync job had malformed running lease timestamp and was marked failed before the next claim"),
+            "malformed running lease timestamp should produce operator-visible failure detail: {malformed_job:?}"
+        );
     }
 
     #[tokio::test]
