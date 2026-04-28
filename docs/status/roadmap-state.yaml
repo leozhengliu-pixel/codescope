@@ -5,47 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4cd1cac00033102967a13ae596a9a48a1841a821
+  head: 7a2a58f534483cd220b29988eaa3d74cee5c3c98
 last_completed_task:
-  id: task102ae
-  title: Accelerated search artifact parent, code-nav URL, and Generic Git URL hardening batch
+  id: task102af
+  title: Search repository-root symlink hardening
   status: done
   summary: >-
-    Closed an accelerated three-worker integration batch with three accepted
-    implementation-backed hardening/evidence closures. Persisted local-sync
-    search-index artifact loading now rejects symlinked parent path components
-    before trusting an artifact path, reducing local artifact indirection risk
-    beyond direct file-symlink rejection. Code-navigation definition/reference
-    browse URL regression coverage now proves reserved revision characters are
-    percent-encoded for both generated symbol-link surfaces. Generic Git
-    repository-sync URL validation now rejects mixed-case HTTP(S) credential
-    URLs and percent-encoded userinfo separators before spawning git while
-    preserving the stable redacted failure prefix.
+    Closed a production search/indexing hardening closure. Local search indexing
+    now validates configured repository roots before traversal and fails closed
+    when the root is a symlink, including path spellings with trailing
+    separators or trailing dot components that would otherwise cause Unix
+    symlink metadata checks to observe the target directory. This prevents
+    local-sync/startup search from indexing escaped content through symlinked
+    repository roots while preserving bounded local search behavior.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_persisted_index_artifact_parent -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 unit test and 30 filtered out'
-    - 'cargo test -p sourcebot-search -- --nocapture: passed in main with 31 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api definitions_and_references_browse_urls_encode_reserved_revisions -- --nocapture: passed in main with 1 bin test, 0 lib tests, and 441 filtered out'
-    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in main with 10 bin tests, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in main with 11 bin tests, 0 lib tests, and 431 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git_percent_encoded_userinfo_fails_closed_before_spawning_git -- --nocapture: RED failed in worker branch, GREEN passed in main with 1 lib test, zero-test non-lib targets noted, and 44 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed in main with 15 lib tests, zero-test non-lib targets noted, and 30 filtered out'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in main with 17 lib tests, zero-test non-lib targets noted, and 28 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots -- --nocapture: passed with 3 unit tests and 31 filtered out after RED failures for the original symlink-root case in the worker branch plus integrator-added trailing separator and trailing dot component regressions'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots_with_trailing_dot_component -- --nocapture: RED failed before the reviewer-forced fix with left Indexed/right Error, then GREEN passed with 1 unit test and 33 filtered out'
+    - 'cargo test -p sourcebot-search -- --nocapture: passed with 34 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed'
-    - 'added-lines security scan over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no findings'
-    - 'independent integration review over 3141d0452c24600eb9a74182a0d66a76ae83aad3..HEAD: passed with no blocking security concerns or logic errors'
+    - 'git diff --check 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed'
+    - 'added-lines security scan over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed with no findings'
+    - 'independent integration review over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: initially failed on trailing separator and link/./ bypasses, then passed after both regressions and fixes landed'
   review:
     code: >-
-      Independent integration review passed across the three-commit batch. The
-      reviewer found no security concerns or logic errors, confirmed search-index
-      artifact loading now rejects symlinked parent components while preserving
-      final-artifact no-follow checks, confirmed generated code-navigation links
-      use shared percent-encoding for repository ids, paths, and revisions, and
-      confirmed Generic Git URL validation rejects raw, mixed-case, and
-      percent-encoded credential-bearing remotes before git spawn with a redacted
-      stable error. The only suggestion was a future openat-style traversal to
-      further reduce symlink race exposure.
-  commit: 4cd1cac00033102967a13ae596a9a48a1841a821
+      Independent re-review passed with no blocking security concerns or logic
+      errors. The reviewer confirmed repository root validation runs before
+      traversal, rejects symlink and non-directory roots, and uses
+      component-based metadata-path normalization so symlink roots with trailing
+      separators or trailing dot components still fail closed before indexing.
+  commit: 7a2a58f534483cd220b29988eaa3d74cee5c3c98
   next_task: task102
 current_task:
   id: task102
@@ -56,30 +44,51 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/106/107/108 blockers when scopes are disjoint. The latest integrated
-    batch closed three practical hardening/evidence gaps: local-sync search-index
-    artifact loading rejects symlinked parent path components in addition to
-    symlink/non-regular artifact files; code-navigation generated browse URLs have
-    focused evidence that reserved revision characters are percent-encoded for
-    both definitions and references; and Generic Git worker execution rejects
-    mixed-case HTTP(S) and percent-encoded userinfo credential-bearing remotes
-    before spawning git. Existing search evidence now includes bounded
-    authenticated query-size validation, frontend-visible saved-context management
-    for non-empty repository scopes, fail-closed backend context narrowing,
-    explicit boolean/literal/regex modes, deterministic ordering, repository-detail
+    closure hardened local search repository-root handling so symlinked roots fail
+    closed before traversal, including trailing-separator and trailing-dot path
+    spellings. Existing search evidence now includes bounded authenticated
+    query-size validation, frontend-visible saved-context management for non-empty
+    repository scopes, fail-closed backend context narrowing, explicit
+    boolean/literal/regex modes, deterministic ordering, repository-detail
     index-status visibility, indexed-empty/skipped-only semantics, persisted
     artifact path/repo-id/count/status validation including symlink/non-regular
     artifact and symlinked-parent rejection, hardened local-sync artifact loading
     for corrupt or inconsistent status/content evidence, fail-closed regex bounds,
     fail-closed empty search semantics for present malformed artifacts without
     aborting unscoped results from other visible repositories, fail-closed
-    pagination validation, and authorization-domain pagination/count evidence.
-    Remaining Task 102 work should move practical indexing/runtime behavior,
+    pagination validation, authorization-domain pagination/count evidence, and
+    symlinked repository-root rejection before startup/local indexing. Remaining
+    Task 102 work should move practical indexing/runtime behavior,
     operator-visible index lifecycle/status, failure recovery, relevance/pagination
     stability at scale, branch/index availability, and production search/indexing
     parity while preserving fail-closed visibility boundaries, focused
     verification, bounded docs claims, independent review, commit, state update,
     and push.
 history:
+  - id: task102af
+    status: done
+    summary: >-
+      Closed a production search/indexing hardening closure. Local search now
+      rejects symlinked repository roots before indexing, including trailing
+      separator and trailing dot component path spellings that previously bypassed
+      plain symlink metadata checks. Two other parallel worker attempts did not
+      land because their agents failed before producing commits, so this batch
+      integrated only the verified search closure.
+    commit: 7a2a58f534483cd220b29988eaa3d74cee5c3c98
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots -- --nocapture: passed with 3 unit tests and 31 filtered out after RED failures for the original symlink-root case in the worker branch plus integrator-added trailing separator and trailing dot component regressions'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_symlinked_repository_roots_with_trailing_dot_component -- --nocapture: RED failed before the reviewer-forced fix with left Indexed/right Error, then GREEN passed with 1 unit test and 33 filtered out'
+      - 'cargo test -p sourcebot-search -- --nocapture: passed with 34 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed'
+      - 'added-lines security scan over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: passed with no findings'
+      - 'independent integration review over 23499cd73db94c4e70cda9288d99f006196a30b7..HEAD: initially failed on trailing separator and link/./ bypasses, then passed after both regressions and fixes landed'
+    review: >-
+      Independent re-review passed. The reviewer confirmed pre-traversal
+      repository-root validation, symlink and non-directory fail-closed behavior,
+      component-normalized metadata checks for trailing separator/dot path
+      spellings, and bounded search-only scope.
+    completed_at: '2026-04-28'
   - id: task102ae
     status: done
     summary: >-
