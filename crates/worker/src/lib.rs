@@ -248,26 +248,50 @@ fn run_generic_git_repository_sync_execution(
 
     parse_git_ls_remote_heads(&output.stdout).ok_or_else(|| {
         format!(
-            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no branch refs"
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
         )
     })
 }
 
 fn parse_git_ls_remote_heads(stdout: &[u8]) -> Option<GenericGitRepositorySyncExecution> {
     String::from_utf8_lossy(stdout).lines().find_map(|line| {
-        let mut fields = line.split_whitespace();
-        let revision = fields.next()?;
-        let reference = fields.next()?;
+        let (revision, reference) = line.split_once('\t')?;
+        if reference.contains('\t') {
+            return None;
+        }
         let branch = reference.strip_prefix("refs/heads/")?;
-        if revision.is_empty() || branch.is_empty() {
-            None
-        } else {
+        if is_valid_git_object_id(revision) && is_valid_git_branch_name(branch) {
             Some(GenericGitRepositorySyncExecution {
                 revision: revision.to_owned(),
                 branch: branch.to_owned(),
             })
+        } else {
+            None
         }
     })
+}
+
+fn is_valid_git_object_id(revision: &str) -> bool {
+    matches!(revision.len(), 40 | 64) && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_valid_git_branch_name(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch != "@"
+        && !branch.starts_with('-')
+        && !branch.ends_with('.')
+        && !branch.ends_with('/')
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch.contains("//")
+        && branch.split('/').all(|component| {
+            !component.is_empty() && !component.starts_with('.') && !component.ends_with(".lock")
+        })
+        && !branch.bytes().any(|byte| {
+            byte <= 0x20
+                || byte == 0x7f
+                || matches!(byte, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\')
+        })
 }
 
 fn complete_local_repository_sync_job_if_applicable(
@@ -2521,6 +2545,50 @@ mod tests {
             error.starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
             "option-like base_url should fail closed with operator-visible prefix: {error}"
         );
+    }
+
+    #[test]
+    fn generic_git_remote_with_malformed_head_advertisement_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-malformed-generic-git-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nprintf '%s\\t%s\\n' 'not-a-revision' 'refs/heads/main'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/.hidden'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/release.lock'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad\\177ref'\nprintf '%s\\t%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad' 'ref'\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.test/repo.git",
+            Duration::from_secs(2),
+        ) {
+            Ok(execution) => panic!(
+                "malformed Generic Git head advertisement should fail closed, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
+            "malformed head advertisements should fail closed with operator-visible prefix: {error}"
+        );
+        assert!(
+            error.contains("advertised no valid branch refs"),
+            "malformed head advertisements should not be treated as synced metadata: {error}"
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
     }
 
     #[test]
