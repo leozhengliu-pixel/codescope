@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 
 type SyncState = 'pending' | 'ready' | 'error';
 
+type RepositoryIndexState = 'indexed' | 'error';
+
 type RepoSummary = {
   id: string;
   name: string;
@@ -22,6 +24,15 @@ type RepoDetail = {
     name: string;
     kind: string;
   };
+};
+
+type RepositoryIndexStatus = {
+  repo_id: string;
+  status: RepositoryIndexState;
+  indexed_file_count: number;
+  indexed_line_count: number;
+  skipped_file_count: number;
+  error: string | null;
 };
 
 type BrowseEntry = {
@@ -655,6 +666,15 @@ function StatusBadge({ state }: { state: SyncState }) {
   };
 
   return <span style={sharedStatusBadgeStyle(colors[state])}>{state}</span>;
+}
+
+function RepositoryIndexStatusBadge({ status }: { status: RepositoryIndexState }) {
+  const colors: Record<RepositoryIndexState, string> = {
+    indexed: '#1a7f37',
+    error: '#cf222e',
+  };
+
+  return <span style={sharedStatusBadgeStyle(colors[status])}>{status}</span>;
 }
 
 function RepositorySyncJobStatusBadge({ status }: { status: RepositorySyncJobStatus }) {
@@ -2333,6 +2353,57 @@ function AuthPage({
   );
 }
 
+function RepositoryIndexStatusPanel({ repoId }: { repoId: string }) {
+  const [status, setStatus] = useState<RepositoryIndexStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    fetchJson<RepositoryIndexStatus>(`/api/v1/repos/${repoId}/index-status`)
+      .then((data) => {
+        if (!cancelled) {
+          setStatus(data);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setStatus(null);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId]);
+
+  return (
+    <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Index status</div>
+      {loading ? <div>Loading index status…</div> : null}
+      {!loading && error ? <div>Index status unavailable: {error}</div> : null}
+      {!loading && !error && status ? (
+        <div style={detailGridStyle}>
+          <Detail label="Index state" value={<RepositoryIndexStatusBadge status={status.status} />} />
+          <Detail label="Indexed files" value={status.indexed_file_count} />
+          <Detail label="Indexed lines" value={status.indexed_line_count} />
+          <Detail label="Skipped files" value={status.skipped_file_count} />
+          {status.error ? <Detail label="Index error" value={status.error} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function RepoDetailPage({
   repoId,
   initialPath,
@@ -2445,6 +2516,7 @@ function RepoDetailPage({
         <Detail label="Connection" value={repo.connection.name} />
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
+      <RepositoryIndexStatusPanel repoId={repoId} />
       <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={fieldLabelStyle}>

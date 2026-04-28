@@ -1825,6 +1825,17 @@ describe('App', () => {
         });
       }
 
+      if (url === '/api/v1/repos/repo-42/index-status') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          status: 'indexed',
+          indexed_file_count: 12,
+          indexed_line_count: 345,
+          skipped_file_count: 2,
+          error: null,
+        });
+      }
+
       if (url === '/api/v1/repos/repo-42/tree?path=') {
         return jsonResponse({
           repo_id: 'repo-42',
@@ -1861,6 +1872,15 @@ describe('App', () => {
     expect(await screen.findByText('beta-repo')).toBeInTheDocument();
     expect(screen.getByText('Repository id: repo-42')).toBeInTheDocument();
     expect(screen.getByText('GitHub App')).toBeInTheDocument();
+    expect(await screen.findByText('Index status')).toBeInTheDocument();
+    expect(screen.getByText('Index state')).toBeInTheDocument();
+    expect(screen.getByText('indexed')).toBeInTheDocument();
+    expect(screen.getByText('Indexed files')).toBeInTheDocument();
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('Indexed lines')).toBeInTheDocument();
+    expect(screen.getByText('345')).toBeInTheDocument();
+    expect(screen.getByText('Skipped files')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
     const srcButton = (await screen.findByText('src/')).closest('button');
     const readmeButton = screen.getByText('README.md').closest('button');
 
@@ -1880,6 +1900,7 @@ describe('App', () => {
     expect(screen.getByText('export function App() { return null; }')).toBeInTheDocument();
 
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/tree?path=');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/index-status');
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/tree?path=src');
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2FApp.tsx');
   });

@@ -26,7 +26,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 - `/api/v1/repos` returns repository summaries that already include `sync_state`.
 - `/api/v1/repos/{repo_id}` returns repository detail that includes repository metadata plus `sync_state` and connection metadata.
 - `#/` in `web/src/App.tsx` renders repository cards with a visible sync-state badge.
-- `#/repos/:repoId` in `web/src/App.tsx` renders repository detail with a visible sync-state field.
+- `#/repos/:repoId` in `web/src/App.tsx` renders repository detail with a visible sync-state field plus a read-only index-status panel.
 `/api/v1/auth/repository-sync-jobs` returns authenticated sync-job history filtered to the caller's currently visible `(organization_id, repository_id)` bindings and sorted newest-first; when `DATABASE_URL` is configured, that filtering uses PostgreSQL-backed organization membership and repository-permission metadata even though the sync-job records themselves still come from the configured organization-state store. The same route now accepts a bounded admin-only `POST` for an already visible repository, derives `connection_id` from the catalog detail instead of caller input, and appends a queued job without letting non-admin callers mutate the queue. `POST /api/v1/auth/repository-sync-jobs/{job_id}/retry` requeues admin-visible failed jobs by appending a fresh queued job while preserving the original terminal history row.
 - `/api/v1/repos/{repo_id}/index-status` returns the search store's current startup-built local in-memory index status for visible repositories, including indexed file count, indexed line count, skipped file count, and error text when startup indexing failed for that repo; if the startup search store has no status and the latest authorized local sync has a `search-index.json` artifact, the endpoint reports the artifact-backed counts before falling back to pre-artifact snapshot traversal. Hidden or unknown repositories fail closed with `404` through the same repository-visibility gate as browse/search.
 - The catalog-backed repo list/detail path now has bounded PostgreSQL reads for `/api/v1/repos` and repository detail lookup when `DATABASE_URL` is configured, and the search store now exposes truthful in-memory index counts, but that does not yet close persisted index-status, retry, or full repository-operations parity.
@@ -40,7 +40,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 
 ## Expected behavior
 1. Repository list surfaces show each visible repository's current `sync_state` as user-visible readiness metadata.
-2. Repository detail surfaces show repository metadata plus the same `sync_state` without requiring a separate operator-only page.
+2. Repository detail surfaces show repository metadata, the same `sync_state`, and read-only index-status counts without requiring a separate operator-only page.
 3. Authenticated repository sync-job history is available from an endpoint that returns only jobs visible to the current user and lets organization admins enqueue a queued sync job only for an already visible repository or append a queued retry for an already visible failed job.
 4. Sync-job history ordering is newest-first by queue time so operators/admins can inspect recent activity first.
 5. Sync-job responses expose operator-relevant status metadata including job id, organization/repository ids, status, timestamps, and error text when present.
@@ -65,7 +65,7 @@ This document creates the dedicated black-box acceptance home for repository syn
 
 ## Black-box examples
 - Opening `#/` shows repository cards with visible sync-state badges such as `ready`, `pending`, or `error`.
-- Opening `#/repos/:repoId` shows the repository detail panel with a sync-state field and connection metadata.
+- Opening `#/repos/:repoId` shows the repository detail panel with a sync-state field, connection metadata, and an Index status panel with index state plus indexed-file, indexed-line, and skipped-file counts.
 - An authenticated user calling `/api/v1/auth/repository-sync-jobs` receives only the newest-first jobs for repositories they can currently access.
 - An authenticated organization admin can post `{"organization_id":"org_acme","repository_id":"repo_visible"}` to `/api/v1/auth/repository-sync-jobs` and receive a `queued` job whose `connection_id` comes from the visible repository's catalog detail; for a visible failed job, the admin can post to `/api/v1/auth/repository-sync-jobs/{job_id}/retry` and receive a fresh queued retry while the failed history row remains unchanged.
 - A user who loses repository visibility no longer sees that repository's sync jobs in the authenticated history endpoint.
@@ -76,7 +76,7 @@ This spec intentionally records the remaining gaps instead of over-claiming pari
 
 1. **Persisted repository-operations parity is still partial.** `PgCatalogStore::list_repositories()` and `PgCatalogStore::get_repository_detail()` now provide bounded durable catalog reads, the search store exposes startup-built in-memory index counts, requested-repo index-status/search can fall back to the latest authorized local sync artifact, requested-repo no-revision tree/blob/code-navigation reads can fall back to the latest authorized local sync snapshot, requested-repo commit list/detail/diff can fall back to the latest authorized local Git sync job, and admins can manually requeue visible failed jobs, but persisted index-status, richer last-run/failure detail, automated retry/backoff, and management semantics are still incomplete.
 2. **Index-status parity is still bounded.** The rewrite now provides a truthful search-store-backed index-status API for the local startup-built in-memory index, but not a Tantivy-backed, persisted, background-updated, retry-aware, queue-depth-aware, or production-grade repository indexing surface.
-3. **Frontend repository-operations parity is still shallow.** The current UI shows coarse sync-state badges/fields and read-only history, but not last-run timestamps, queue depth, failure history management, retry controls, or settings-level operator surfaces.
+3. **Frontend repository-operations parity is still shallow.** The current UI shows coarse sync-state badges/fields, repository-detail index-status counts, and read-only history, but not last-run timestamps, queue depth, failure history management, retry controls, or settings-level operator surfaces.
 4. **Worker/recovery parity is still incomplete.** The current worker slices only prove stub sync-job transitions and read-only visibility; real fetch/mirror execution, retries, recovery, and rescheduling remain deferred.
 5. **Settings/admin navigation parity is still incomplete.** The rewrite has a limited `#/settings/connections` settings shell, but it still lacks a broader auth/admin/settings route family that exposes repository operations as a first-class management surface.
 
