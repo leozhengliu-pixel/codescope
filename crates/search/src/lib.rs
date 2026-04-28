@@ -326,16 +326,18 @@ impl LocalSearchStore {
         indexed_line_count: &mut usize,
         skipped_file_count: &mut usize,
     ) -> Result<()> {
-        let entries = fs::read_dir(current_path)
-            .with_context(|| format!("failed to read directory {}", current_path.display()))?;
-
-        for entry in entries {
-            let entry = entry.with_context(|| {
+        let mut entries: Vec<_> = fs::read_dir(current_path)
+            .with_context(|| format!("failed to read directory {}", current_path.display()))?
+            .collect::<std::result::Result<_, _>>()
+            .with_context(|| {
                 format!(
                     "failed to read directory entry under {}",
                     current_path.display()
                 )
             })?;
+        entries.sort_by_key(|entry: &fs::DirEntry| entry.path());
+
+        for entry in entries {
             let path = entry.path();
             let file_type = entry
                 .file_type()
@@ -410,7 +412,7 @@ impl SearchStore for LocalSearchStore {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim).filter(|value| !value.is_empty());
 
-        let repos: Vec<&String> = match requested_repo_id {
+        let mut repos: Vec<&String> = match requested_repo_id {
             Some(repo_id) => self
                 .repo_roots
                 .get_key_value(repo_id)
@@ -419,6 +421,7 @@ impl SearchStore for LocalSearchStore {
                 .collect(),
             None => self.repo_roots.keys().collect(),
         };
+        repos.sort();
 
         let mut results = Vec::new();
         for repo_id in repos {
@@ -971,6 +974,65 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_returns_deterministic_repo_path_line_order() {
+        let root_a = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-order-a",
+            "common_marker in readme\n",
+            "common_marker in source\ncommon_marker second source line\n",
+            "target/generated.txt",
+        )
+        .root;
+        fs::create_dir_all(root_a.join("docs")).unwrap();
+        fs::write(
+            root_a.join("docs").join("guide.md"),
+            "common_marker in docs\n",
+        )
+        .unwrap();
+
+        let root_b = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-order-b",
+            "common_marker in other repo\n",
+            "common_marker in other source\n",
+            "target/generated.txt",
+        )
+        .root;
+
+        let store = LocalSearchStore::new(HashMap::from([
+            ("repo_z".to_string(), root_b.clone()),
+            ("repo_a".to_string(), root_a.clone()),
+        ]));
+
+        let response = store.search("common_marker", None).unwrap();
+        let actual_order: Vec<_> = response
+            .results
+            .iter()
+            .map(|result| {
+                (
+                    result.repo_id.as_str(),
+                    result.path.as_str(),
+                    result.line_number,
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            actual_order,
+            vec![
+                ("repo_a", "README.md", 1),
+                ("repo_a", "docs/guide.md", 1),
+                ("repo_a", "src/main.rs", 1),
+                ("repo_a", "src/main.rs", 2),
+                ("repo_z", "README.md", 1),
+                ("repo_z", "src/main.rs", 1),
+            ],
+            "local search results should be stable by repo id, path, then line number"
+        );
+
+        fs::remove_dir_all(root_a).unwrap();
+        fs::remove_dir_all(root_b).unwrap();
     }
 
     #[test]
