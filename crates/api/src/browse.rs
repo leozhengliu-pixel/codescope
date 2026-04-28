@@ -112,6 +112,13 @@ struct DecodedBlobContent {
 }
 
 fn decode_blob_content(bytes: Vec<u8>) -> DecodedBlobContent {
+    if bytes.contains(&0) {
+        return DecodedBlobContent {
+            content: String::new(),
+            is_binary: true,
+        };
+    }
+
     match String::from_utf8(bytes) {
         Ok(content) => DecodedBlobContent {
             content,
@@ -1103,6 +1110,24 @@ mod tests {
     }
 
     #[test]
+    fn local_browse_store_treats_utf8_nul_bytes_as_binary_blob_metadata() {
+        let (store, root) = create_test_store();
+        fs::write(root.join("nul-delimited.dat"), b"version\0payload\n").unwrap();
+
+        let blob = store
+            .get_blob("repo_test", "nul-delimited.dat")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(blob.path, "nul-delimited.dat");
+        assert_eq!(blob.content, "");
+        assert_eq!(blob.size_bytes, 16);
+        assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_browse_store_returns_binary_blob_metadata_at_revision() {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
             "browse-revision-binary-blob",
@@ -1123,6 +1148,32 @@ mod tests {
         assert_eq!(blob.path, "assets.bin");
         assert_eq!(blob.content, "");
         assert_eq!(blob.size_bytes, 4);
+        assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_treats_utf8_nul_bytes_as_binary_blob_metadata_at_revision() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-nul-binary-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::write(root.join("nul-delimited.dat"), b"version\0payload\n").unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let blob = store
+            .get_blob_at_revision("repo_test", "nul-delimited.dat", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(blob.path, "nul-delimited.dat");
+        assert_eq!(blob.content, "");
+        assert_eq!(blob.size_bytes, 16);
         assert!(blob.is_binary);
 
         fs::remove_dir_all(root).unwrap();

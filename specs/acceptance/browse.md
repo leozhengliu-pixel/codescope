@@ -33,7 +33,7 @@
 - Large directories must be progressively loaded or paginated.
 - Missing files at a selected revision return a clear not-found response.
 - Directories selected through a revisioned file-source/blob read fail closed as not found instead of returning a textual `git show` tree listing as file contents.
-- Binary files should expose metadata/download behavior instead of broken text rendering; the current backend/API baseline returns path and size metadata with `is_binary: true` and empty text content for non-UTF-8 local or revisioned blobs, and the frontend source panel now renders a binary metadata notice while suppressing text/code-navigation controls for that blob.
+- Binary files should expose metadata/download behavior instead of broken text rendering; the current backend/API baseline returns path and size metadata with `is_binary: true` and empty text content for non-UTF-8 or NUL-containing local or revisioned blobs, and the frontend source panel now renders a binary metadata notice while suppressing text/code-navigation controls for that blob.
 - Huge per-file textual diff patches are truncated at the backend's 64 KiB response cap with an explicit `patch_truncated` indicator; the UI shows a truncation notice and does not render the backend marker as full patch content. Binary patches remain unavailable as patch text.
 
 ## Black-box examples
