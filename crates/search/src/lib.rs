@@ -665,6 +665,26 @@ fn validate_persisted_index_artifact(
                 artifact.indexed_lines.len()
             );
         }
+        RepositoryIndexState::Error
+            if artifact
+                .index_status
+                .error
+                .as_deref()
+                .is_none_or(|error| error.trim().is_empty()) =>
+        {
+            anyhow::bail!(
+                "search index artifact error status is missing an operator-visible error in {}",
+                artifact_path.display()
+            );
+        }
+        RepositoryIndexState::Indexed | RepositoryIndexState::IndexedEmpty
+            if artifact.index_status.error.is_some() =>
+        {
+            anyhow::bail!(
+                "search index artifact success status carries an error in {}",
+                artifact_path.display()
+            );
+        }
         _ => {}
     }
 
@@ -2099,6 +2119,76 @@ mod tests {
             error
                 .to_string()
                 .contains("search index artifact error status carries indexed content"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_error_status_artifact_without_operator_visible_error() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-error-status-without-error-artifact",
+            "",
+            "",
+            "target/generated.txt",
+        );
+        fs::remove_file(fixture.root.join("README.md")).unwrap();
+        fs::remove_dir_all(fixture.root.join("src")).unwrap();
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_empty".to_string(),
+            fixture.root.clone(),
+        )]));
+        let artifact_path = fixture
+            .root
+            .join(".sourcebot")
+            .join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_empty", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["status"] = serde_json::Value::String("error".to_string());
+        artifact_json["index_status"]["error"] = serde_json::Value::Null;
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_empty", &artifact_path) {
+            Ok(_) => panic!("error-status artifact without an error message must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains(
+                "search index artifact error status is missing an operator-visible error"
+            ),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_success_status_artifact_with_stale_error_message() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["error"] =
+            serde_json::Value::String("stale previous indexing failure".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("success-status artifact with a stale error message must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact success status carries an error"),
             "unexpected error: {error:#}"
         );
 
