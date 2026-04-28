@@ -5866,11 +5866,10 @@ async fn search_repository_contents(
         visible_repo_ids = scoped_visible_repo_ids;
     }
 
-    let requested_repo_id = query
-        .repo_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let requested_repo_id = match query.repo_id.as_deref().map(str::trim) {
+        Some("") => return Err(StatusCode::NOT_FOUND),
+        repo_id => repo_id,
+    };
     if let Some(repo_id) = requested_repo_id {
         if !visible_repo_ids.contains(repo_id) {
             return Err(StatusCode::NOT_FOUND);
@@ -27541,6 +27540,57 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(visible_search_root).unwrap();
         fs::remove_dir_all(hidden_search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_rejects_blank_present_repo_id_without_broadening_results() {
+        let search_root = unique_test_path("search-blank-repo-id-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn blank_repo_id_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-blank-repo-id-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-blank-repo-id-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-blank-repo-id-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=blank_repo_id_marker&repo_id=%20%20")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
     }
 
     #[tokio::test]

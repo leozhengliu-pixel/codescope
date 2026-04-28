@@ -28,8 +28,9 @@
 ## Permission behavior
 - Results from repositories outside the caller's permissions must not appear in results, pagination counts, snippets, suggestions, or facets.
 - Search contexts must only expand to repositories visible to the caller.
-- Saved search contexts are caller-owned. Unknown, deleted, or other-user context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
-- This saved-context and pagination baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or full stable pagination parity across changing indexes/revisions.
+- Saved search contexts are caller-owned. Unknown, deleted, other-user, or present-but-blank context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
+- Explicit `repo_id` filters are fail-closed: hidden, unknown, or present-but-blank repository ids return `404` instead of being treated as absent and broadening the search across all visible repositories.
+- This saved-context and pagination baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages and explicit blank-`repo_id` fail-closed behavior; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or full stable pagination parity across changing indexes/revisions.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
