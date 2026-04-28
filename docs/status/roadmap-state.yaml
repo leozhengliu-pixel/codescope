@@ -5,46 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: db0ea954c6fbd3ab04c6ab70cb89916b0c89ab0d
+  head: 58c1eb1f3de284c639fef581db0f5f61072b2b95
 last_completed_task:
-  id: task102z
-  title: Accelerated search index, commit pagination, and MCP content-negotiation hardening batch
+  id: task102aa
+  title: Accelerated search, commit, provider-runtime, and MCP hardening batch
   status: done
   summary: >-
-    Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now rejects persisted local-sync search-index
-    artifacts whose indexed_file_count undercounts the number of unique stored
-    result paths, preventing corrupt operator-visible index status from being
-    trusted. Task 103 now clamps commit-list page-size requests to 1..100 before
-    invoking Git, bounding oversized history scans while reporting the effective
-    limit in page_info. Task 107 now enforces JSON-RPC response content
-    negotiation on /api/v1/mcp, rejecting unacceptable Accept headers with 406
-    while honoring exact application/json, application/*, and */* specificity and
-    q=0 fail-closed semantics.
+    Closed one accelerated integration batch spanning six real release-blocker
+    hardening commits. Search now fails closed for oversized regex-mode queries
+    and persisted local-sync search-index artifacts that claim indexed status with
+    zero indexed files. Commit navigation now resolves caller-supplied revisions
+    through `rev-parse --verify --end-of-options` before Git history reads and
+    rejects unsafe diff metadata paths before patch loading or response surfacing.
+    Generic Git worker failures now bound persisted/operator-visible ls-remote
+    stderr/stdout details with explicit truncation, and MCP JSON-RPC now rejects
+    invalid object/array id values with protocol error -32600 and `id: null`.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_indexed_file_undercount -- --nocapture: passed with 1 unit test and 27 filtered out'
-    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 8 unit tests and 20 filtered out'
-    - 'cargo test -p sourcebot-search -- --nocapture: passed with 28 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api local_commit_store_clamps_oversized_commit_page_limits -- --nocapture: passed with 1 bin test, 0 lib tests, and 436 filtered out'
-    - 'cargo test -p sourcebot-api commits:: -- --nocapture: passed with 14 bin tests, 0 lib tests, and 423 filtered out'
-    - 'cargo test -p sourcebot-api browse:: -- --nocapture: passed with 26 bin tests, 0 lib tests, and 411 filtered out'
-    - 'cargo test -p sourcebot-api reference -- --nocapture: passed with 12 bin tests, 0 lib tests, and 425 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_unacceptable_accept_header -- --nocapture: RED failed with application/json;q=0 and wildcard precedence before the fix; GREEN passed with 1 bin test, 0 lib tests, and 436 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 9 bin tests, 0 lib tests, and 428 filtered out'
-    - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests, 0 lib tests, and 433 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture: passed with 1 unit test and 28 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_indexed_status_with_no_indexed_files -- --nocapture: passed with 1 unit test and 28 filtered out'
+    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 9 unit tests and 20 filtered out'
+    - 'cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+    - 'cargo test -p sourcebot-api commits::tests::diff_metadata_parsers_reject_unsafe_paths -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 15 bin tests, 0 lib tests, and 424 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_failure_detail_is_bounded -- --nocapture: passed with 1 lib test, 0 matched non-lib targets, and 40 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 11 lib tests, 0 matched non-lib targets, and 30 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_invalid_id_type_with_protocol_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 10 bin tests, 0 lib tests, and 429 filtered out'
     - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check: passed'
-    - 'added-lines security scan over fad9848ac6d16aa517134f1cd796369572fbfdd1..HEAD: passed with no findings'
-    - 'independent integration review: initially found MCP Accept q/specificity fail-open edges; after fixes, final review passed with no blocking issues, security concerns, or logic errors'
+    - 'git diff --check origin/master..HEAD: passed'
+    - 'added-lines security scan over origin/master..HEAD: passed with no findings'
+    - 'independent integration review over origin/master..HEAD: passed with no blocking issues, security concerns, or logic errors'
   review:
     code: >-
-      Independent integration review approved the final amended range after the
-      controller fixed reviewer-found MCP Accept q=0 and wildcard-specificity
-      fail-open cases. Review found no remaining security concerns or logic errors
-      in the search artifact undercount guard, commit page clamp, MCP content
-      negotiation, or bounded acceptance wording.
-  commit: db0ea954c6fbd3ab04c6ab70cb89916b0c89ab0d
+      Independent integration review inspected the six-commit unpushed batch for
+      search regex bounds, persisted artifact status validation, commit revision
+      and path parsing, generic Git error-detail bounds, MCP JSON-RPC id
+      validation, auth/scope preservation, Git/path safety, and bounded docs
+      claims. Review passed with no blocking security or logic issues; only
+      non-blocking defense-in-depth notes remain.
+  commit: 58c1eb1f3de284c639fef581db0f5f61072b2b95
   next_task: task102
 current_task:
   id: task102
@@ -61,34 +61,69 @@ current_task:
     index-status visibility, indexed-empty/skipped-only semantics, persisted
     artifact path/repo-id validation, hardened local-sync artifact loading that
     rejects oversized, non-regular, FIFO/special, malformed regular,
-    indexed-line-count-inconsistent, indexed-file-under-count, `indexed_empty`
-    state/count-inconsistent, and error-status-with-indexed-content artifacts
-    before trusting persisted status or content evidence, fail-closed empty search
+    indexed-line-count-inconsistent, indexed-file-under-count, indexed-without-files,
+    `indexed_empty` state/count-inconsistent, and error-status-with-indexed-content
+    artifacts before trusting persisted status or content evidence, fail-closed
+    regex bounds for overlong patterns/compiled programs, fail-closed empty search
     semantics for present malformed artifacts without aborting unscoped results
     from other visible repositories, and fail-closed pagination validation for
     zero/oversized limits and excessive offsets. Adjacent recent closures also
     added revisioned blob type safety, frontend binary blob metadata-only source
     rendering, NUL-byte binary blob detection for local/revisioned reads, explicit
     browse/code-navigation revision commit-object validation, bounded commit-list
-    page sizes before Git history scans, commit-diff patch caps plus frontend
-    truncation notice rendering, copied-file commit diff semantics,
-    TypeScript/JavaScript reference scanning, Generic Git remote
+    page sizes before Git history scans, commit revision option parsing through
+    `rev-parse --verify --end-of-options`, commit-diff path validation, commit-diff
+    patch caps plus frontend truncation notice rendering, copied-file commit diff
+    semantics, TypeScript/JavaScript reference scanning, Generic Git remote
     advertisement/default-branch metadata output plus direct-HEAD revision branch
-    matching, local Git sync execution output, authenticated JSON-RPC MCP
-    initialize/tools/list/tools/call bridging, batch request handling with
-    notification omission, MCP ping liveness responses, MCP protocol-shaped
-    parse-error responses for malformed JSON bodies, MCP fail-closed non-JSON
-    media-type rejection, MCP JSON-RPC Accept content negotiation with q=0 and
-    specificity handling, MCP retrieval permission-denied evidence, local per-tick
-    worker status heartbeat metadata, and redacted worker-status terminal error
-    summaries. Prefer the next closure to move practical indexing/runtime
-    behavior, operator-visible index lifecycle/status, failure recovery, richer
-    grammar, relevance/pagination stability, branch/index availability,
-    provider/runtime parity, MCP session/client interoperability beyond the
-    bounded JSON-RPC bridge, or worker supervision beyond bounded local baselines,
-    while preserving fail-closed visibility boundaries, focused verification,
-    bounded docs claims, independent review, commit, state update, and push.
+    matching and bounded failure-detail persistence, local Git sync execution
+    output, authenticated JSON-RPC MCP initialize/tools/list/tools/call bridging,
+    batch request handling with notification omission, MCP ping liveness responses,
+    MCP protocol-shaped parse-error responses for malformed JSON bodies, MCP
+    fail-closed non-JSON media-type rejection, MCP JSON-RPC Accept content
+    negotiation with q=0 and specificity handling, MCP invalid-id protocol-error
+    handling, MCP retrieval permission-denied evidence, local per-tick worker
+    status heartbeat metadata, and redacted worker-status terminal error summaries.
+    Prefer the next closure to move practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer grammar,
+    relevance/pagination stability, branch/index availability, provider/runtime
+    parity, MCP session/client interoperability beyond the bounded JSON-RPC bridge,
+    or worker supervision beyond bounded local baselines, while preserving
+    fail-closed visibility boundaries, focused verification, bounded docs claims,
+    independent review, commit, state update, and push.
 history:
+  - id: task102aa
+    status: done
+    summary: >-
+      Closed an accelerated six-commit hardening batch. Search regex and
+      persisted artifact status validation now fail closed on over-broad/corrupt
+      inputs; commit navigation hardens revision and diff path parsing before Git
+      execution/response surfacing; Generic Git failure details are bounded before
+      persistence/logging; and MCP JSON-RPC rejects invalid id types with protocol
+      error semantics.
+    commit: 58c1eb1f3de284c639fef581db0f5f61072b2b95
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture: passed with 1 unit test and 28 filtered out'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_indexed_status_with_no_indexed_files -- --nocapture: passed with 1 unit test and 28 filtered out'
+      - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 9 unit tests and 20 filtered out'
+      - 'cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+      - 'cargo test -p sourcebot-api commits::tests::diff_metadata_parsers_reject_unsafe_paths -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+      - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 15 bin tests, 0 lib tests, and 424 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_failure_detail_is_bounded -- --nocapture: passed with 1 lib test, 0 matched non-lib targets, and 40 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 11 lib tests, 0 matched non-lib targets, and 30 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_invalid_id_type_with_protocol_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 10 bin tests, 0 lib tests, and 429 filtered out'
+      - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check origin/master..HEAD: passed'
+      - 'added-lines security scan over origin/master..HEAD: passed with no findings'
+      - 'independent integration review over origin/master..HEAD: passed with no blocking issues, security concerns, or logic errors'
+    review: >-
+      Independent integration review passed after inspecting search bounds,
+      artifact validation, commit revision/path safety, generic Git error-detail
+      bounding, MCP protocol id validation, auth/scope preservation, and bounded
+      docs claims across origin/master..HEAD.
+    completed_at: '2026-04-28'
   - id: task102z
     status: done
     summary: >-
