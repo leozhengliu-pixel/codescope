@@ -5,51 +5,51 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3bc20008040e56ef5a8142cf6a938292e7d3cd28
+  head: 336709046720e25cee7829d128a378a3e784933d
 last_completed_task:
-  id: task102p
-  title: Saved search-context UI, capped commit diffs, and bounded Generic Git output
+  id: task102q
+  title: Saved search-context management, local Git output caps, and MCP retrieval scope evidence
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now exposes caller-owned saved search contexts
-    on the dedicated search page, preserves selected context ids through search
-    submission, pagination, and repository-result back links, and sends only
-    non-blank `context_id` values to the existing fail-closed backend search
-    contract. Task 103 now caps large textual commit-diff patch payloads with an
-    explicit `patch_truncated` response marker and bounded Git stdout/stderr
-    capture, preserving binary-diff behavior while reducing request-path memory
-    and deadlock risk. Task 106/108 now caps Generic Git `ls-remote --heads`
-    advertisement output at 1 MiB and fails closed with an operator-visible
-    error before parsing oversized remote metadata. Acceptance/audit wording
-    remains bounded and still does not claim full search-context management,
-    production indexing/relevance parity, full commit UX/diff parity, provider
-    fetch/import/reindex, broad retry/backoff/supervision, or final practical
-    replacement parity.
+    replacement blockers. Task 102 now exposes a bounded saved-search-context
+    management baseline on `#/search`: authenticated users can list, select, create,
+    and delete caller-owned contexts with non-empty repository scopes, while
+    empty/all-repository saved-context scopes stay fail-closed instead of widening
+    search. Task 106/108 now caps local Git sync execution command stdout/stderr for
+    revision, current-branch, tracked-content, and snapshot materialization probes,
+    failing oversized output before manifest/snapshot/search-index artifact success
+    with the stable `local repository sync execution failed` prefix. Task 107 now
+    adds MCP `read_file` permission-scope evidence and returns structured
+    `permission_denied` errors before blob-store lookup for out-of-scope active
+    repositories. Acceptance/audit wording remains bounded and still does not claim
+    SQL-backed saved-context durability, production search/indexing parity, real
+    provider fetch/import/reindex, broad retry/backoff/supervision, full MCP
+    protocol/session interoperability, or final practical replacement parity.
   tests:
-    - 'npm test -- --run src/App.test.tsx -t "loads caller-owned search contexts" (web): passed with 1 focused test and 181 skipped on master'
-    - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 10 search-route tests and 172 skipped on master'
+    - 'npm test -- --run src/App.test.tsx -t "creates and deletes caller-owned search contexts" (web): RED first on empty fail-closed context visibility, then passed with 1 focused test and 182 skipped on master'
+    - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 11 search-route tests and 172 skipped on master'
     - 'npm run build (web): passed on master'
-    - 'cargo test -p sourcebot-api caps_large -- --nocapture: passed with 2 bin tests; lib target matched 0 tests'
-    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 11 bin tests; lib target matched 0 tests'
-    - 'cargo test -p sourcebot-api repo_commit_diff_returns_real_git_files -- --nocapture: passed with 1 bin test; lib target matched 0 tests'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
-    - 'cargo test -p sourcebot-worker: passed with 37 lib tests, 18 integration tests, and 0 doctests'
-    - cargo fmt --check: passed
-    - git diff --check: passed
-    - added-lines security scan: passed with no findings across the integrated batch
-    - independent integration review: passed with no blocking issues
+    - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
+    - 'cargo test -p sourcebot-worker: passed with 38 lib tests, 18 integration tests, and 0 doctests'
+    - 'cargo test -p sourcebot-mcp execute_tool_call_read_file_denies_out_of_scope_active_repo_before_blob_lookup -- --nocapture: passed with 1 lib test'
+    - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests; lib target matched 0 tests'
+    - 'cargo fmt --check: passed'
+    - 'git diff --check: passed'
+    - 'added-lines security scan: passed with no findings across the integrated batch and review fix'
+    - 'independent integration review: initially requested changes for empty saved-context UI semantics, then passed after fail-closed UI/docs fix'
   review:
     code: >-
-      Independent integration review passed with no blocking issues. Reviewer
-      verified saved search-context route/hash preservation and blank-context
-      omission, large commit-diff response capping plus bounded pipe draining,
-      Generic Git oversized advertisement fail-closed behavior, parser-hardening
-      preservation, and bounded docs claims. Non-blocking notes remain that noisy
-      oversized `ls-remote` processes may still run until the existing timeout
-      after the bounded reader stops and that very large commit diffs still rely
-      on bounded Git subprocess execution.
-  commit: 3bc20008040e56ef5a8142cf6a938292e7d3cd28
+      Independent integration review passed after one blocking saved-context UI
+      truthfulness issue was fixed. The first reviewer found that empty `repo_scope`
+      contexts were labeled as all-visible and could be created from the all-repository
+      filter even though backend search fails them closed. The fix filters empty-scope
+      contexts from the UI, disables creation until a specific repository is selected,
+      adds a focused regression, and updates specs to say empty/all-repository scopes
+      remain fail-closed. Re-review approved the integrated batch and also verified
+      local Git sync output caps and MCP `permission_denied` scope evidence.
+  commit: 336709046720e25cee7829d128a378a3e784933d
   next_task: task102
 current_task:
   id: task102
@@ -58,21 +58,66 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
-    closure while the parallel-worker controller may also take adjacent
-    high-value Task 103/106/108 blockers when scopes are disjoint. Search now has
-    a frontend-visible saved-context selection baseline on top of fail-closed
-    backend context narrowing, explicit boolean/literal/regex modes, deterministic
-    ordering, repository-detail index-status visibility, indexed-empty/skipped-only
-    semantics, persisted artifact path/repo-id validation, and local-sync
-    artifact-backed fallback surfaces. Adjacent recent closures also capped large
-    commit-diff patch payloads and Generic Git remote advertisement output.
-    Prefer the next closure to move practical indexing/runtime behavior,
-    operator-visible index lifecycle/status, failure recovery, richer grammar,
-    relevance/pagination stability, branch/index availability, provider/runtime
-    parity, or worker supervision beyond bounded local baselines, while
-    preserving fail-closed visibility boundaries, focused verification, bounded
-    docs claims, independent review, commit, state update, and push.
+    closure while the parallel-worker controller may also take adjacent high-value
+    Task 103/106/107/108 blockers when scopes are disjoint. Search now has a
+    frontend-visible saved-context management baseline for non-empty repository
+    scopes on top of fail-closed backend context narrowing, explicit
+    boolean/literal/regex modes, deterministic ordering, repository-detail
+    index-status visibility, indexed-empty/skipped-only semantics, persisted artifact
+    path/repo-id validation, and local-sync artifact-backed fallback surfaces.
+    Adjacent recent closures also capped large commit-diff patch payloads, Generic
+    Git remote advertisement output, local Git sync execution output, and added MCP
+    retrieval tool permission-denied evidence. Prefer the next closure to move
+    practical indexing/runtime behavior, operator-visible index lifecycle/status,
+    failure recovery, richer grammar, relevance/pagination stability,
+    branch/index availability, provider/runtime parity, MCP session/client
+    interoperability, or worker supervision beyond bounded local baselines, while
+    preserving fail-closed visibility boundaries, focused verification, bounded docs
+    claims, independent review, commit, state update, and push.
 history:
+  - id: task102q
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch across practical
+      replacement blockers. Task 102 now exposes a bounded saved-search-context
+      management baseline on `#/search`: authenticated users can list, select, create,
+      and delete caller-owned contexts with non-empty repository scopes, while
+      empty/all-repository saved-context scopes stay fail-closed instead of widening
+      search. Task 106/108 now caps local Git sync execution command stdout/stderr for
+      revision, current-branch, tracked-content, and snapshot materialization probes,
+      failing oversized output before manifest/snapshot/search-index artifact success
+      with the stable `local repository sync execution failed` prefix. Task 107 now
+      adds MCP `read_file` permission-scope evidence and returns structured
+      `permission_denied` errors before blob-store lookup for out-of-scope active
+      repositories. Acceptance/audit wording remains bounded and still does not claim
+      SQL-backed saved-context durability, production search/indexing parity, real
+      provider fetch/import/reindex, broad retry/backoff/supervision, full MCP
+      protocol/session interoperability, or final practical replacement parity.
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "creates and deletes caller-owned search contexts" (web): RED first on empty fail-closed context visibility, then passed with 1 focused test and 182 skipped on master'
+      - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 11 search-route tests and 172 skipped on master'
+      - 'npm run build (web): passed on master'
+      - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
+      - 'cargo test -p sourcebot-worker: passed with 38 lib tests, 18 integration tests, and 0 doctests'
+      - 'cargo test -p sourcebot-mcp execute_tool_call_read_file_denies_out_of_scope_active_repo_before_blob_lookup -- --nocapture: passed with 1 lib test'
+      - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests; lib target matched 0 tests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan: passed with no findings across the integrated batch and review fix'
+      - 'independent integration review: initially requested changes for empty saved-context UI semantics, then passed after fail-closed UI/docs fix'
+    review:
+      code: >-
+        Independent integration review passed after one blocking saved-context UI
+        truthfulness issue was fixed. The first reviewer found that empty `repo_scope`
+        contexts were labeled as all-visible and could be created from the all-repository
+        filter even though backend search fails them closed. The fix filters empty-scope
+        contexts from the UI, disables creation until a specific repository is selected,
+        adds a focused regression, and updates specs to say empty/all-repository scopes
+        remain fail-closed. Re-review approved the integrated batch and also verified
+        local Git sync output caps and MCP `permission_denied` scope evidence.
+    commit: 336709046720e25cee7829d128a378a3e784933d
+    completed_at: '2026-04-28'
   - id: task102p
     status: done
     summary: >-
