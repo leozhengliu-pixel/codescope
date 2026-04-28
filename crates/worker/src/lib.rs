@@ -1257,11 +1257,19 @@ where
     R: Read + Send + 'static,
 {
     thread::spawn(move || {
-        let mut output = Vec::with_capacity(limit.saturating_add(1).min(8192));
-        reader
-            .by_ref()
-            .take(limit.saturating_add(1) as u64)
-            .read_to_end(&mut output)?;
+        let retained_limit = limit.saturating_add(1);
+        let mut output = Vec::with_capacity(retained_limit.min(8192));
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let bytes_read = reader.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            let remaining_retained = retained_limit.saturating_sub(output.len());
+            if remaining_retained > 0 {
+                output.extend_from_slice(&buffer[..bytes_read.min(remaining_retained)]);
+            }
+        }
         Ok(output)
     })
 }
@@ -1437,8 +1445,8 @@ mod tests {
         local_repository_sync_manifest_path, persist_stub_review_agent_run_execution_outcome,
         run_generic_git_repository_sync_execution, run_repository_sync_claim_tick,
         run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
-        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
-        WorkerTickOutcome,
+        wait_for_child_output_with_timeout_and_output_limit, StubRepositorySyncJobExecutionOutcome,
+        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
     };
     use crate::{
         GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX,
@@ -1457,7 +1465,7 @@ mod tests {
         ffi::OsStr,
         fs,
         os::unix::fs::PermissionsExt,
-        process::Command,
+        process::{Command, Stdio},
         sync::Mutex,
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
@@ -3355,6 +3363,31 @@ mod tests {
         );
 
         fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn oversized_child_output_is_drained_after_the_retained_cap() {
+        let child = Command::new("python3")
+            .args([
+                "-c",
+                "import os, sys\ntry:\n    chunk = b'x' * 65536\n    for _ in range(4096):\n        os.write(sys.stdout.fileno(), chunk)\nexcept BrokenPipeError:\n    sys.exit(7)\n",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("oversized output fixture should spawn");
+
+        let output = wait_for_child_output_with_timeout_and_output_limit(
+            child,
+            Duration::from_secs(2),
+            1024,
+        )
+        .expect("oversized child output should be collected without io failure")
+        .expect("finite oversized output should not block until timeout");
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), 1025);
+        assert!(output.stderr.is_empty());
     }
 
     #[test]
