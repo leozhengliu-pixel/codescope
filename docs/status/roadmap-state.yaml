@@ -5,46 +5,71 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b8f5dac07cea3b2fecbae942af6804a0b6914d9a
+  head: e5e0bbad704bb841202af5c373b3a2c70bfced31
 last_completed_task:
-  id: task100
-  title: Release-candidate smoke matrix and parity re-audit
+  id: task101
+  title: Durable metadata breadth and migration hardening
   status: done
   summary: >-
-    Closed the Task 100 release-candidate audit path by running the bounded
-    end-to-end smoke matrix contract, updating the final parity audit to record a
-    truthful NOT READY verdict for practical Sourcebot replacement parity, and
-    creating a blocker-focused follow-on roadmap instead of pretending Task
-    86-100 completion equals release readiness. The green smoke proves one
-    bounded repo-local path across local bootstrap/login, authenticated
-    connections, search, ask, review-webhook intake, repository-sync queue
-    visibility, and default one-tick worker completion; it does not close the
-    remaining durable metadata, provider/identity, production indexing,
-    ask/admin lifecycle, MCP protocol/client, worker supervision, or operator
-    runtime blockers.
+    Closed the first practical-replacement blocker roadmap durable-metadata slice
+    by moving audit-event merge/persistence through the PostgreSQL-backed
+    `PgOrganizationStore` compatibility envelope. In `DATABASE_URL` mode,
+    `OrganizationState` now reads audit events from PostgreSQL, writes state-level
+    audit events into PostgreSQL in the same store transaction used by other
+    durable organization rows, and clears audit events from the fallback file so
+    rows are not stranded in split-backend state. The closure remains bounded:
+    it does not claim broad audit analytics, filtering/export/retention, external
+    identity audit coverage, connection-management durability, or full practical
+    Sourcebot replacement parity.
   tests:
-    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - task100 audit/roadmap marker checks: passed
+    - repo-local PostgreSQL preflight for DATABASE_URL and TEST_DATABASE_URL: passed
+    - cargo test -p sourcebot-api pg_organization_store_ -- --nocapture: passed with 11 lib-target and 11 bin-target tests
+    - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review after fixing stale placeholder wording; no blocking bounded-claim, final-audit, acceptance-index, or follow-on-roadmap issues remained
-  commit: b8f5dac07cea3b2fecbae942af6804a0b6914d9a
-  next_task: task101
+    code: passed independent read-only review; no blocking SQL, FK, rollback, fixture-isolation, file-backed compatibility, documentation-overclaim, or security issues remained
+  commit: e5e0bbad704bb841202af5c373b3a2c70bfced31
+  next_task: task102
 current_task:
-  id: task101
+  id: task102
   parent_task: practical-replacement-blockers
-  title: Durable metadata breadth and migration hardening
+  title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Task 100 failed closed: the release-candidate smoke contract is green, but
-    practical Sourcebot replacement parity remains blocked. The next meaningful
-    closure should start the new blocker roadmap by moving one actually used
-    runtime surface from file-backed or split-backend semantics into durable
-    PostgreSQL metadata with SQLx coverage, fail-closed compatibility behavior,
-    focused docs, independent review, commit, state update, and push.
+    Continue the practical-replacement blocker roadmap with a meaningful
+    search/indexing runtime closure. The next slice should move beyond bounded
+    local/snapshot artifact fallback semantics toward practical search/indexing
+    behavior, status reporting, failure recovery, pagination/relevance
+    guarantees, or operator-visible index lifecycle evidence, while preserving
+    fail-closed visibility boundaries, focused verification, bounded docs claims,
+    independent review, commit, state update, and push.
 
 history:
+  - id: task101
+    status: done
+    summary: >-
+      Closed the first practical-replacement blocker roadmap durable-metadata
+      slice by moving audit-event merge/persistence through the PostgreSQL-backed
+      `PgOrganizationStore` compatibility envelope. In `DATABASE_URL` mode,
+      `OrganizationState` now reads audit events from PostgreSQL, writes
+      state-level audit events into PostgreSQL in the same store transaction used
+      by other durable organization rows, and clears audit events from the
+      fallback file so rows are not stranded in split-backend state. This
+      advances release parity by making a real audit/runtime metadata surface
+      durable under SQLx coverage, but it remains bounded: broad audit analytics,
+      filtering/export/retention, external identity audit coverage, connection
+      management durability, and full practical replacement parity remain open.
+    tests:
+      - repo-local PostgreSQL preflight for DATABASE_URL and TEST_DATABASE_URL: passed
+      - cargo test -p sourcebot-api pg_organization_store_ -- --nocapture: passed with 11 lib-target and 11 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking SQL, FK, rollback, fixture-isolation, file-backed compatibility, documentation-overclaim, or security issues remained
+    commit: e5e0bbad704bb841202af5c373b3a2c70bfced31
+    next_task: task102
   - id: task100
     status: done
     summary: >-
