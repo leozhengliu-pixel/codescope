@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::PathBuf,
@@ -22,6 +22,7 @@ pub trait CommitStore: Send + Sync {
         &self,
         repo_id: &str,
         limit: usize,
+        offset: usize,
         revision: Option<&str>,
     ) -> Result<Option<CommitListResponse>>;
     fn get_commit(&self, repo_id: &str, commit_id: &str) -> Result<Option<CommitDetailResponse>>;
@@ -29,7 +30,7 @@ pub trait CommitStore: Send + Sync {
         -> Result<Option<CommitDiffResponse>>;
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitSummary {
     pub id: String,
     pub short_id: String,
@@ -38,7 +39,7 @@ pub struct CommitSummary {
     pub authored_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitDetail {
     pub id: String,
     pub short_id: String,
@@ -49,19 +50,28 @@ pub struct CommitDetail {
     pub parents: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommitPageInfo {
+    pub limit: usize,
+    pub offset: usize,
+    pub has_next_page: bool,
+    pub next_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitListResponse {
     pub repo_id: String,
     pub commits: Vec<CommitSummary>,
+    pub page_info: CommitPageInfo,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitDetailResponse {
     pub repo_id: String,
     pub commit: CommitDetail,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitDiffChangeType {
     Added,
@@ -70,7 +80,7 @@ pub enum CommitDiffChangeType {
     Renamed,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitDiffFile {
     pub path: String,
     pub change_type: CommitDiffChangeType,
@@ -80,7 +90,7 @@ pub struct CommitDiffFile {
     pub patch: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitDiffResponse {
     pub repo_id: String,
     pub commit_id: String,
@@ -161,13 +171,21 @@ impl CommitStore for LocalCommitStore {
         &self,
         repo_id: &str,
         limit: usize,
+        offset: usize,
         revision: Option<&str>,
     ) -> Result<Option<CommitListResponse>> {
+        let page_limit = limit.max(1);
         let Some(repo_root) = self.repo_root(repo_id) else {
             if self.supports_empty_history(repo_id) {
                 return Ok(Some(CommitListResponse {
                     repo_id: repo_id.to_string(),
                     commits: Vec::new(),
+                    page_info: CommitPageInfo {
+                        limit: page_limit,
+                        offset,
+                        has_next_page: false,
+                        next_offset: None,
+                    },
                 }));
             }
             return Ok(None);
@@ -183,7 +201,8 @@ impl CommitStore for LocalCommitStore {
 
         let mut args = vec![
             "log".to_string(),
-            format!("--max-count={}", limit.max(1)),
+            format!("--max-count={}", page_limit.saturating_add(1)),
+            format!("--skip={offset}"),
             "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e".to_string(),
         ];
         if let Some(revision) = resolved_revision.as_deref() {
@@ -192,14 +211,23 @@ impl CommitStore for LocalCommitStore {
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         let output = run_git(repo_root, &arg_refs)?;
 
-        let commits = parse_records(&output)
+        let mut commits = parse_records(&output)
             .into_iter()
             .map(|record| self.parse_summary_record(record))
             .collect::<Result<Vec<_>>>()?;
+        let has_next_page = commits.len() > page_limit;
+        commits.truncate(page_limit);
+        let next_offset = has_next_page.then_some(offset + commits.len());
 
         Ok(Some(CommitListResponse {
             repo_id: repo_id.to_string(),
             commits,
+            page_info: CommitPageInfo {
+                limit: page_limit,
+                offset,
+                has_next_page,
+                next_offset,
+            },
         }))
     }
 
@@ -633,7 +661,7 @@ mod tests {
         let store = LocalCommitStore::seeded();
 
         let response = store
-            .list_commits("repo_sourcebot_rewrite", 2, None)
+            .list_commits("repo_sourcebot_rewrite", 2, 0, None)
             .unwrap()
             .unwrap();
 
@@ -662,7 +690,7 @@ mod tests {
     fn local_commit_store_reads_real_commit_detail() {
         let store = LocalCommitStore::seeded();
         let commit_id = store
-            .list_commits("repo_sourcebot_rewrite", 2, None)
+            .list_commits("repo_sourcebot_rewrite", 2, 0, None)
             .unwrap()
             .unwrap()
             .commits
@@ -701,11 +729,11 @@ mod tests {
         )]));
 
         let feature_commits = store
-            .list_commits("repo_temp", 5, Some("feature/revision-list"))
+            .list_commits("repo_temp", 5, 0, Some("feature/revision-list"))
             .unwrap()
             .unwrap();
         let master_commits = store
-            .list_commits("repo_temp", 5, Some("master"))
+            .list_commits("repo_temp", 5, 0, Some("master"))
             .unwrap()
             .unwrap();
 
@@ -716,13 +744,62 @@ mod tests {
     }
 
     #[test]
+    fn local_commit_store_returns_commit_pagination_metadata() {
+        let repo_root = create_temp_git_repo("commit-pagination");
+        for summary in ["first", "second", "third"] {
+            fs::write(repo_root.join("history.txt"), format!("{summary}\n")).unwrap();
+            git_in(&repo_root, &["add", "history.txt"]);
+            git_in(&repo_root, &["commit", "-m", summary]);
+        }
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let first_page = store
+            .list_commits("repo_temp", 2, 0, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            first_page
+                .commits
+                .iter()
+                .map(|commit| commit.summary.as_str())
+                .collect::<Vec<_>>(),
+            vec!["third", "second"]
+        );
+        assert_eq!(first_page.page_info.limit, 2);
+        assert_eq!(first_page.page_info.offset, 0);
+        assert!(first_page.page_info.has_next_page);
+        assert_eq!(first_page.page_info.next_offset, Some(2));
+
+        let second_page = store
+            .list_commits(
+                "repo_temp",
+                2,
+                first_page.page_info.next_offset.unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_page.commits[0].summary, "first");
+        assert!(!second_page.page_info.has_next_page);
+        assert_eq!(second_page.page_info.next_offset, None);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
     fn local_commit_store_returns_none_for_unknown_repo_or_commit() {
         let store = LocalCommitStore::seeded();
 
-        assert!(store.list_commits("missing", 20, None).unwrap().is_none());
+        assert!(store
+            .list_commits("missing", 20, 0, None)
+            .unwrap()
+            .is_none());
         assert_eq!(
             store
-                .list_commits("repo_demo_docs", 20, None)
+                .list_commits("repo_demo_docs", 20, 0, None)
                 .unwrap()
                 .unwrap()
                 .commits,
@@ -821,7 +898,7 @@ mod tests {
     fn local_commit_store_reads_real_commit_diff() {
         let store = LocalCommitStore::seeded();
         let commit_id = store
-            .list_commits("repo_sourcebot_rewrite", 1, None)
+            .list_commits("repo_sourcebot_rewrite", 1, 0, None)
             .unwrap()
             .unwrap()
             .commits

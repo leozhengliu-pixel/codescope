@@ -959,6 +959,8 @@ enum ReferencesResponse {
 struct CommitListQuery {
     #[serde(default = "default_commit_limit")]
     limit: usize,
+    #[serde(default)]
+    offset: usize,
     revision: Option<String>,
 }
 
@@ -5513,14 +5515,14 @@ async fn list_repository_commits(
 
     let commits = if let Some(commits) = state
         .commits
-        .list_commits(&repo_id, query.limit, revision)
+        .list_commits(&repo_id, query.limit, query.offset, revision)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     {
         commits
     } else if revision.is_none() {
         if let Some(store) = local_sync_commit_store_for_repo(&state, &headers, &repo_id).await? {
             store
-                .list_commits(&repo_id, query.limit, revision)
+                .list_commits(&repo_id, query.limit, query.offset, revision)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
                 .ok_or(StatusCode::NOT_FOUND)?
         } else {
@@ -6594,9 +6596,18 @@ mod tests {
     }
 
     #[derive(Debug, Deserialize, Serialize)]
+    struct CommitPageInfoResponse {
+        limit: usize,
+        offset: usize,
+        has_next_page: bool,
+        next_offset: Option<usize>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
     struct CommitListResponse {
         repo_id: String,
         commits: Vec<CommitSummaryResponse>,
+        page_info: CommitPageInfoResponse,
     }
 
     #[derive(Debug, Deserialize, Serialize)]
@@ -27030,7 +27041,7 @@ mod tests {
             "repo_local_import".to_string(),
             repo_root.clone(),
         )]))
-        .list_commits("repo_local_import", 1, None)
+        .list_commits("repo_local_import", 1, 0, None)
         .unwrap()
         .unwrap();
 
@@ -27259,7 +27270,7 @@ mod tests {
     #[tokio::test]
     async fn repo_commits_returns_real_git_history() {
         let expected = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 2, None)
+            .list_commits("repo_sourcebot_rewrite", 2, 0, None)
             .unwrap()
             .unwrap();
 
@@ -27285,6 +27296,51 @@ mod tests {
         assert_eq!(payload.commits[0].author_name, "Hermes Agent");
         assert_eq!(payload.commits[0].id.len(), 40);
         assert!(payload.commits[0].authored_at.ends_with('Z'));
+        assert_eq!(payload.page_info.limit, 2);
+        assert_eq!(payload.page_info.offset, 0);
+    }
+
+    #[tokio::test]
+    async fn repo_commits_supports_offset_pagination_metadata() {
+        let first_page = LocalCommitStore::seeded()
+            .list_commits("repo_sourcebot_rewrite", 1, 0, None)
+            .unwrap()
+            .unwrap();
+        let expected_second_page = LocalCommitStore::seeded()
+            .list_commits(
+                "repo_sourcebot_rewrite",
+                1,
+                first_page.page_info.next_offset.unwrap(),
+                None,
+            )
+            .unwrap()
+            .unwrap();
+
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/repos/repo_sourcebot_rewrite/commits?limit=1&offset={}",
+                        first_page.page_info.next_offset.unwrap()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: CommitListResponse = read_json(response).await;
+        assert_eq!(
+            serde_json::to_value(&payload).unwrap(),
+            serde_json::to_value(&expected_second_page).unwrap()
+        );
+        assert_eq!(payload.commits.len(), 1);
+        assert_eq!(payload.page_info.limit, 1);
+        assert_eq!(
+            payload.page_info.offset,
+            first_page.page_info.next_offset.unwrap()
+        );
     }
 
     #[tokio::test]
@@ -27320,7 +27376,7 @@ mod tests {
     #[tokio::test]
     async fn repo_commit_detail_returns_real_git_commit() {
         let commit_id = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 2, None)
+            .list_commits("repo_sourcebot_rewrite", 2, 0, None)
             .unwrap()
             .unwrap()
             .commits
@@ -27411,7 +27467,7 @@ mod tests {
     #[tokio::test]
     async fn repo_commit_diff_returns_real_git_files() {
         let commit_id = LocalCommitStore::seeded()
-            .list_commits("repo_sourcebot_rewrite", 1, None)
+            .list_commits("repo_sourcebot_rewrite", 1, 0, None)
             .unwrap()
             .unwrap()
             .commits
