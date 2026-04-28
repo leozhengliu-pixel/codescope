@@ -22,7 +22,7 @@
 6. Authenticated users can create, list, select, and delete saved search contexts through `/api/v1/auth/search-contexts`; the dedicated `#/search` route exposes a bounded management baseline for caller-owned contexts with non-empty repository scopes, and `GET /api/v1/search?context_id=...` applies the saved context as an additional repository-scope filter.
 7. Empty-result queries return a successful response with zero hits, not an internal error.
 8. Invalid regex queries return a user-safe validation error.
-9. `/api/v1/search` accepts bounded `limit` and `offset` parameters and returns a `pagination` object containing `limit`, `offset`, visibility-scoped `total_count`, and `has_more` for the current query.
+9. `/api/v1/search` accepts bounded `limit` and `offset` parameters, rejects `limit=0`, `limit>500`, and `offset>10000` with `400 Bad Request`, and returns a `pagination` object containing `limit`, `offset`, visibility-scoped `total_count`, and `has_more` for the current query.
 10. `/api/v1/search` rejects empty queries and queries over 1024 bytes with `400 Bad Request` after authentication so oversized search input cannot force unbounded runtime matching work.
 11. Pagination is stable for the same repository revision and query parameters.
 

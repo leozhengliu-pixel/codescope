@@ -6117,6 +6117,7 @@ fn malformed_search_index_artifact_status(
 
 const DEFAULT_SEARCH_RESULT_LIMIT: usize = 100;
 const MAX_SEARCH_RESULT_LIMIT: usize = 500;
+const MAX_SEARCH_RESULT_OFFSET: usize = 10_000;
 const MAX_SEARCH_QUERY_BYTES: usize = 1024;
 
 async fn search_repository_contents(
@@ -6134,14 +6135,14 @@ async fn search_repository_contents(
     if query.q.len() > MAX_SEARCH_QUERY_BYTES || trimmed_query.len() > MAX_SEARCH_QUERY_BYTES {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let search_limit = query
-        .limit
-        .unwrap_or(DEFAULT_SEARCH_RESULT_LIMIT)
-        .min(MAX_SEARCH_RESULT_LIMIT);
-    if search_limit == 0 {
+    let search_limit = query.limit.unwrap_or(DEFAULT_SEARCH_RESULT_LIMIT);
+    if search_limit == 0 || search_limit > MAX_SEARCH_RESULT_LIMIT {
         return Err(StatusCode::BAD_REQUEST);
     }
     let search_offset = query.offset.unwrap_or(0);
+    if search_offset > MAX_SEARCH_RESULT_OFFSET {
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     let requested_context_id = match query.context_id.as_deref().map(str::trim) {
         Some("") => return Err(StatusCode::NOT_FOUND),
@@ -28719,6 +28720,69 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_rejects_unbounded_pagination_parameters() {
+        let search_root = unique_test_path("search-pagination-limit-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn pagination_limit_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-pagination-limit-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-pagination-limit-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-pagination-limit-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let oversized_limit_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=pagination_limit_marker&repo_id=repo_sourcebot_rewrite&limit=501")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized_limit_response.status(), StatusCode::BAD_REQUEST);
+
+        let oversized_offset_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=pagination_limit_marker&repo_id=repo_sourcebot_rewrite&offset=10001")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(oversized_offset_response.status(), StatusCode::BAD_REQUEST);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
