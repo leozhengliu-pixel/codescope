@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
@@ -223,6 +223,7 @@ impl LocalSearchStore {
                     artifact_path.display()
                 )
             })?;
+        validate_persisted_index_artifact_paths(&artifact, artifact_path)?;
         artifact.index_status.repo_id = repo_id.to_string();
 
         Ok(Self {
@@ -446,6 +447,38 @@ impl LocalSearchStore {
 
         Ok(())
     }
+}
+
+fn validate_persisted_index_artifact_paths(
+    artifact: &PersistedIndexArtifact,
+    artifact_path: &Path,
+) -> Result<()> {
+    for indexed_line in &artifact.indexed_lines {
+        if !is_safe_persisted_index_path(&indexed_line.path) {
+            anyhow::bail!(
+                "unsafe search index artifact path '{}' in {}",
+                indexed_line.path,
+                artifact_path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn is_safe_persisted_index_path(path: &str) -> bool {
+    if path.is_empty() || path.contains('\\') {
+        return false;
+    }
+
+    let mut saw_component = false;
+    for component in Path::new(path).components() {
+        match component {
+            Component::Normal(_) => saw_component = true,
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
+        }
+    }
+    saw_component
 }
 
 impl SearchStore for LocalSearchStore {
@@ -1433,6 +1466,42 @@ mod tests {
         assert_eq!(status.indexed_file_count, 2);
         assert_eq!(status.indexed_line_count, 3);
         assert_eq!(status.skipped_file_count, 4);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_paths_that_escape_repo() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+
+        for unsafe_path in ["../secret.rs", "/tmp/secret.rs", "src\\secret.rs"] {
+            let mut unsafe_artifact_json = artifact_json.clone();
+            unsafe_artifact_json["indexed_lines"][0]["path"] =
+                serde_json::Value::String(unsafe_path.to_string());
+            fs::write(
+                &artifact_path,
+                serde_json::to_vec(&unsafe_artifact_json).unwrap(),
+            )
+            .unwrap();
+
+            let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+                Ok(_) => panic!("persisted index path {unsafe_path:?} must fail closed"),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsafe search index artifact path"),
+                "unexpected error for {unsafe_path:?}: {error:#}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
