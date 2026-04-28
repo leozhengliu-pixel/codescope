@@ -5853,6 +5853,7 @@ async fn local_sync_snapshot_index_status_for_repo(
 
 const DEFAULT_SEARCH_RESULT_LIMIT: usize = 100;
 const MAX_SEARCH_RESULT_LIMIT: usize = 500;
+const MAX_SEARCH_QUERY_BYTES: usize = 1024;
 
 async fn search_repository_contents(
     State(state): State<AppState>,
@@ -5862,7 +5863,11 @@ async fn search_repository_contents(
     let (user_id, mut visible_repo_ids) = search_request_context(&state, &headers).await?;
     let search_mode = query.mode.unwrap_or_default();
 
-    if query.q.trim().is_empty() {
+    let trimmed_query = query.q.trim();
+    if trimmed_query.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if trimmed_query.len() > MAX_SEARCH_QUERY_BYTES {
         return Err(StatusCode::BAD_REQUEST);
     }
     let search_limit = query
@@ -27599,6 +27604,60 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn search_rejects_queries_over_bounded_runtime_limit() {
+        let search_root = unique_test_path("search-query-limit-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn query_limit_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-query-limit-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-query-limit-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-query-limit-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+        let oversized_query = "a".repeat(MAX_SEARCH_QUERY_BYTES + 1);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/search?q={oversized_query}&repo_id=repo_sourcebot_rewrite"
+                    ))
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
     }
 
     #[tokio::test]
