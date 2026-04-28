@@ -5,42 +5,41 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8e8aa19a5e76e59edde25b81a0789d3f5738ee8c
+  head: 397bee16dcada0face2b50d075099f8afa601a63
 last_completed_task:
-  id: task102x
-  title: Accelerated search pagination, commit-copy diff, and MCP parse-error batch
+  id: task102y
+  title: Accelerated search artifact, browse revision, and MCP media-type hardening batch
   status: done
   summary: >-
-    Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now rejects unbounded `/api/v1/search`
-    pagination parameters instead of silently clamping oversized limits or
-    accepting excessive offsets. Task 103 now preserves copied-file semantics in
-    commit diffs by parsing `C*` git name-status entries and exposing `copied`
-    changes with source paths and copy metadata. Task 107 now returns
-    authenticated MCP/JSON-RPC protocol parse-error envelopes for malformed JSON
-    request bodies instead of Axum extractor HTTP 400 responses.
+    Closed one accelerated three-worker integration batch across practical replacement
+    blockers. Task 102 now rejects persisted local-sync search-index artifacts that
+    report error status while still carrying indexed files, indexed lines, or stored
+    content. Task 103 now requires explicit browse/source/code-navigation revisions
+    to resolve to commit objects, failing closed for raw tree/blob object ids instead
+    of treating arbitrary Git objects as browsable revisions. Task 107 now rejects
+    authenticated MCP JSON-RPC-over-HTTP requests with non-JSON Content-Type values
+    with 415 before parsing or tool execution, while preserving JSON media types with
+    parameters.
   tests:
-    - 'cargo test -p sourcebot-api search_rejects_unbounded_pagination_parameters -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-api search_ -- --nocapture: passed with 32 bin tests, 0 lib tests, and 401 filtered out'
-    - 'cargo test -p sourcebot-api parse_diff_name_status_accepts_copies -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-api local_commit_store_reports_copied_files -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 13 bin tests, 0 lib tests, and 420 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc_malformed_body_returns_protocol_parse_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 7 bin tests, 0 lib tests, and 426 filtered out'
-    - 'cargo test -p sourcebot-api --bin sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests and 429 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_error_status_artifact_that_carries_indexed_content -- --nocapture: passed with 1 unit test and 26 filtered out'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact -- --nocapture: passed with 4 unit tests and 23 filtered out'
+    - 'cargo test -p sourcebot-api local_browse_store_rejects_non_commit_revision_objects -- --nocapture: passed with 1 bin test, 0 lib tests, and 434 filtered out'
+    - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed with 26 bin tests, 0 lib tests, and 409 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_non_json_content_type -- --nocapture: passed with 1 bin test, 0 lib tests, and 434 filtered out'
+    - 'cargo test -p sourcebot-api mcp_ -- --nocapture: passed with 12 bin tests, 0 lib tests, and 423 filtered out'
     - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 83d9d81..HEAD: passed'
-    - 'added-lines security scan over 83d9d81..HEAD: passed with no findings'
-    - 'independent integration review: passed with no security concerns or logic errors; non-blocking suggestions remain for copied-file-with-modification coverage, copy-detection latency monitoring, and MCP content-type edge tests'
+    - 'git diff --check: passed'
+    - 'added-lines security scan over e5752d42c874771a32f7c4d0453f58cf3b699560..HEAD: passed with no findings'
+    - 'independent integration review: passed with no security concerns or logic errors; non-blocking suggestions remain for MCP Content-Type edge coverage and browse option-like/annotated-tag revision coverage'
   review:
     code: >-
       Independent integration review approved the accelerated batch after checking
-      search pagination validation, auth/visibility preservation, git copy-diff
-      parsing and bounded patch behavior, MCP JSON-RPC parse-error semantics, and
-      bounded acceptance wording. Suggestions were non-blocking and recorded for
-      future hardening.
-  commit: 8e8aa19a5e76e59edde25b81a0789d3f5738ee8c
+      search artifact fail-closed semantics, browse revision commit-object validation,
+      MCP JSON-RPC media-type rejection, Git argument safety, auth/visibility
+      preservation, and bounded acceptance wording. Suggestions were non-blocking and
+      recorded for future hardening.
+  commit: 397bee16dcada0face2b50d075099f8afa601a63
   next_task: task102
 current_task:
   id: task102
@@ -57,30 +56,59 @@ current_task:
     index-status visibility, indexed-empty/skipped-only semantics, persisted
     artifact path/repo-id validation, hardened local-sync artifact loading that
     rejects oversized, non-regular, FIFO/special, malformed regular,
-    indexed-line-count-inconsistent, and `indexed_empty` state/count-inconsistent
-    artifacts before trusting persisted status evidence, fail-closed empty search
-    semantics for present malformed artifacts without aborting unscoped results
-    from other visible repositories, and fail-closed pagination validation for
-    zero/oversized limits and excessive offsets. Adjacent recent closures also
-    added revisioned blob type safety, frontend binary blob metadata-only source
-    rendering, NUL-byte binary blob detection for local/revisioned reads, commit-diff
-    patch caps plus frontend truncation notice rendering, copied-file commit diff
-    semantics, TypeScript/JavaScript reference scanning, Generic Git remote
-    advertisement/default-branch metadata output plus direct-HEAD revision branch
-    matching, local Git sync execution output, authenticated JSON-RPC MCP
-    initialize/tools/list/tools/call bridging, batch request handling with
-    notification omission, MCP ping liveness responses, MCP protocol-shaped
-    parse-error responses for malformed JSON bodies, MCP retrieval
-    permission-denied evidence, local per-tick worker status heartbeat metadata,
-    and redacted worker-status terminal error summaries. Prefer the next closure
-    to move practical indexing/runtime behavior, operator-visible index
-    lifecycle/status, failure recovery, richer grammar, relevance/pagination
-    stability, branch/index availability, provider/runtime parity, MCP
-    session/client interoperability beyond the bounded JSON-RPC bridge, or worker
-    supervision beyond bounded local baselines, while preserving fail-closed
-    visibility boundaries, focused verification, bounded docs claims, independent
-    review, commit, state update, and push.
+    indexed-line-count-inconsistent, `indexed_empty` state/count-inconsistent, and
+    error-status-with-indexed-content artifacts before trusting persisted status or
+    content evidence, fail-closed empty search semantics for present malformed
+    artifacts without aborting unscoped results from other visible repositories, and
+    fail-closed pagination validation for zero/oversized limits and excessive
+    offsets. Adjacent recent closures also added revisioned blob type safety,
+    frontend binary blob metadata-only source rendering, NUL-byte binary blob
+    detection for local/revisioned reads, explicit browse/code-navigation revision
+    commit-object validation, commit-diff patch caps plus frontend truncation notice
+    rendering, copied-file commit diff semantics, TypeScript/JavaScript reference
+    scanning, Generic Git remote advertisement/default-branch metadata output plus
+    direct-HEAD revision branch matching, local Git sync execution output,
+    authenticated JSON-RPC MCP initialize/tools/list/tools/call bridging, batch
+    request handling with notification omission, MCP ping liveness responses, MCP
+    protocol-shaped parse-error responses for malformed JSON bodies, MCP
+    fail-closed non-JSON media-type rejection, MCP retrieval permission-denied
+    evidence, local per-tick worker status heartbeat metadata, and redacted
+    worker-status terminal error summaries. Prefer the next closure to move
+    practical indexing/runtime behavior, operator-visible index lifecycle/status,
+    failure recovery, richer grammar, relevance/pagination stability, branch/index
+    availability, provider/runtime parity, MCP session/client interoperability beyond
+    the bounded JSON-RPC bridge, or worker supervision beyond bounded local
+    baselines, while preserving fail-closed visibility boundaries, focused
+    verification, bounded docs claims, independent review, commit, state update, and
+    push.
 history:
+  - id: task102y
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch. Search now rejects
+      local-sync search-index artifacts that report error status while carrying
+      indexed content; browse/source/code-navigation explicit revisions now fail
+      closed unless they peel to commit objects; and MCP JSON-RPC-over-HTTP now
+      rejects non-JSON media types with 415 before parsing or tool execution.
+    commit: 397bee16dcada0face2b50d075099f8afa601a63
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_error_status_artifact_that_carries_indexed_content -- --nocapture: passed with 1 unit test and 26 filtered out'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact -- --nocapture: passed with 4 unit tests and 23 filtered out'
+      - 'cargo test -p sourcebot-api local_browse_store_rejects_non_commit_revision_objects -- --nocapture: passed with 1 bin test, 0 lib tests, and 434 filtered out'
+      - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed with 26 bin tests, 0 lib tests, and 409 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_non_json_content_type -- --nocapture: passed with 1 bin test, 0 lib tests, and 434 filtered out'
+      - 'cargo test -p sourcebot-api mcp_ -- --nocapture: passed with 12 bin tests, 0 lib tests, and 423 filtered out'
+      - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over e5752d42c874771a32f7c4d0453f58cf3b699560..HEAD: passed with no findings'
+      - 'independent integration review: passed with no security concerns or logic errors; non-blocking suggestions remain for MCP Content-Type edge coverage and browse option-like/annotated-tag revision coverage'
+    review: >-
+      Independent integration review passed after inspecting search artifact
+      fail-closed semantics, browse revision commit-object validation, MCP JSON-RPC
+      media-type rejection, auth/visibility preservation, Git argument safety, and
+      bounded docs claims.
+    completed_at: '2026-04-28'
   - id: task102x
     status: done
     summary: >-
