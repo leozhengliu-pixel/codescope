@@ -759,7 +759,11 @@ function parseSearchMode(value: string | null | undefined): SearchMode {
 }
 
 function buildSearchHash(query: string, repoId: string, offset = 0, mode: SearchMode = 'boolean') {
-  const params = new URLSearchParams({ q: query, repo_id: repoId });
+  const params = new URLSearchParams({ q: query });
+  const normalizedRepoId = repoId.trim();
+  if (normalizedRepoId.length > 0) {
+    params.set('repo_id', normalizedRepoId);
+  }
   if (offset > 0) {
     params.set('offset', String(offset));
   }
@@ -854,7 +858,10 @@ function buildRepoHash(
     const [, searchQuery = ''] = (options.searchHash ?? '#/search').split('?');
     const searchParams = new URLSearchParams(searchQuery);
     params.set('q', searchParams.get('q') ?? '');
-    params.set('repo_id', searchParams.get('repo_id') ?? '');
+    const searchRepoId = searchParams.get('repo_id')?.trim() ?? '';
+    if (searchRepoId.length > 0) {
+      params.set('repo_id', searchRepoId);
+    }
     const searchOffset = parseSearchOffset(searchParams.get('offset'));
     if (searchOffset > 0) {
       params.set('offset', String(searchOffset));
@@ -930,12 +937,13 @@ function SearchExperience({
     setSearchLoading(true);
 
     try {
-      const params = new URLSearchParams({
-        q: trimmedQuery,
-        repo_id: repoIdValue,
-        limit: String(SEARCH_PAGE_LIMIT),
-        offset: String(offsetValue),
-      });
+      const params = new URLSearchParams({ q: trimmedQuery });
+      const normalizedRepoId = repoIdValue.trim();
+      if (normalizedRepoId.length > 0) {
+        params.set('repo_id', normalizedRepoId);
+      }
+      params.set('limit', String(SEARCH_PAGE_LIMIT));
+      params.set('offset', String(offsetValue));
       if (modeValue !== 'boolean') {
         params.set('mode', modeValue);
       }

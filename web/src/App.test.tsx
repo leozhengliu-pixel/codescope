@@ -14243,7 +14243,7 @@ describe('App', () => {
         ]);
       }
 
-      if (url === '/api/v1/search?q=needle&repo_id=&limit=20&offset=0&mode=regex') {
+      if (url === '/api/v1/search?q=needle&limit=20&offset=0&mode=regex') {
         return jsonResponse({
           query: 'needle',
           mode: 'regex',
@@ -14265,7 +14265,7 @@ describe('App', () => {
         });
       }
 
-      if (url === '/api/v1/search?q=needle&repo_id=&limit=20&offset=20&mode=regex') {
+      if (url === '/api/v1/search?q=needle&limit=20&offset=20&mode=regex') {
         return jsonResponse({
           query: 'needle',
           mode: 'regex',
@@ -14300,26 +14300,26 @@ describe('App', () => {
 
     expect(await screen.findByText('src/regex.ts')).toBeInTheDocument();
     expect(screen.getByLabelText('Search mode')).toHaveValue('regex');
-    expect(window.location.hash).toBe('#/search?q=needle&repo_id=&mode=regex');
+    expect(window.location.hash).toBe('#/search?q=needle&mode=regex');
     expect(screen.getByRole('link', { name: 'Open source in repository detail' })).toHaveAttribute(
       'href',
-      '#/repos/repo-1?path=src%2Fregex.ts&from=search&q=needle&repo_id=&mode=regex',
+      '#/repos/repo-1?path=src%2Fregex.ts&from=search&q=needle&mode=regex',
     );
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=&limit=20&offset=0&mode=regex');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&limit=20&offset=0&mode=regex');
 
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
 
     expect(await screen.findByText('src/regex-page-two.ts')).toBeInTheDocument();
-    expect(window.location.hash).toBe('#/search?q=needle&repo_id=&offset=20&mode=regex');
+    expect(window.location.hash).toBe('#/search?q=needle&offset=20&mode=regex');
     expect(screen.getByRole('link', { name: 'Open source in repository detail' })).toHaveAttribute(
       'href',
-      '#/repos/repo-1?path=src%2Fregex-page-two.ts&from=search&q=needle&repo_id=&offset=20&mode=regex',
+      '#/repos/repo-1?path=src%2Fregex-page-two.ts&from=search&q=needle&offset=20&mode=regex',
     );
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=&limit=20&offset=20&mode=regex');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&limit=20&offset=20&mode=regex');
   });
 
   it('opens repository source from dedicated search results and keeps a contextual back link to search', async () => {
-    window.location.hash = '#/search?q=needle&repo_id=&offset=20';
+    window.location.hash = '#/search?q=needle&offset=20';
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
@@ -14335,7 +14335,7 @@ describe('App', () => {
         ]);
       }
 
-      if (url === '/api/v1/search?q=needle&repo_id=&limit=20&offset=20') {
+      if (url === '/api/v1/search?q=needle&limit=20&offset=20') {
         return jsonResponse({
           query: 'needle',
           repo_id: null,
@@ -14400,11 +14400,11 @@ describe('App', () => {
     expect(await screen.findByText('src/search.ts')).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(window.location.hash).toBe('#/search?q=needle&repo_id=&offset=20');
+      expect(window.location.hash).toBe('#/search?q=needle&offset=20');
     });
 
     const openSourceLink = await screen.findByRole('link', { name: 'Open source in repository detail' });
-    expect(openSourceLink).toHaveAttribute('href', '#/repos/repo-2?path=src%2Fsearch.ts&from=search&q=needle&repo_id=&offset=20');
+    expect(openSourceLink).toHaveAttribute('href', '#/repos/repo-2?path=src%2Fsearch.ts&from=search&q=needle&offset=20');
 
     fireEvent.click(openSourceLink);
 
@@ -14413,16 +14413,16 @@ describe('App', () => {
     expect(screen.getByText('const needle = true;')).toBeInTheDocument();
 
     const backToSearchLink = screen.getByRole('link', { name: '← Back to search results' });
-    expect(backToSearchLink).toHaveAttribute('href', '#/search?q=needle&repo_id=&offset=20');
+    expect(backToSearchLink).toHaveAttribute('href', '#/search?q=needle&offset=20');
 
     fireEvent.click(backToSearchLink);
 
     await waitFor(() => {
-      expect(window.location.hash).toBe('#/search?q=needle&repo_id=&offset=20');
+      expect(window.location.hash).toBe('#/search?q=needle&offset=20');
     });
     expect(await screen.findByLabelText('Search query')).toHaveValue('needle');
     expect(screen.getByText('Results')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=&limit=20&offset=20');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&limit=20&offset=20');
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-2/tree?path=src');
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-2/blob?path=src%2Fsearch.ts');
   });
@@ -14509,7 +14509,7 @@ describe('App', () => {
         ]);
       }
 
-      if (url === '/api/v1/search?q=needle&repo_id=&limit=20&offset=0') {
+      if (url === '/api/v1/search?q=needle&limit=20&offset=0') {
         return jsonResponse({
           query: 'needle',
           repo_id: null,
@@ -14530,7 +14530,7 @@ describe('App', () => {
         });
       }
 
-      if (url === '/api/v1/search?q=needle&repo_id=&limit=20&offset=20') {
+      if (url === '/api/v1/search?q=needle&limit=20&offset=20') {
         return jsonResponse({
           query: 'needle',
           repo_id: null,
@@ -14571,17 +14571,17 @@ describe('App', () => {
     expect(screen.getByText('Showing 21–21 of 42 matches')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open source in repository detail' })).toHaveAttribute(
       'href',
-      '#/repos/repo-1?path=src%2Fpage-two.ts&from=search&q=needle&repo_id=&offset=20',
+      '#/repos/repo-1?path=src%2Fpage-two.ts&from=search&q=needle&offset=20',
     );
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=&limit=20&offset=0');
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&repo_id=&limit=20&offset=20');
-    expect(window.location.hash).toBe('#/search?q=needle&repo_id=&offset=20');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&limit=20&offset=0');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/search?q=needle&limit=20&offset=20');
+    expect(window.location.hash).toBe('#/search?q=needle&offset=20');
 
     fireEvent.click(screen.getByRole('button', { name: 'Previous page' }));
 
     expect(await screen.findByText('src/page-one.ts')).toBeInTheDocument();
     expect(screen.getByText('Showing 1–1 of 42 matches')).toBeInTheDocument();
-    expect(window.location.hash).toBe('#/search?q=needle&repo_id=');
+    expect(window.location.hash).toBe('#/search?q=needle');
   });
 
   it('shows an empty search state when no matches are returned on the dedicated search page', async () => {
@@ -14601,7 +14601,7 @@ describe('App', () => {
         ]);
       }
 
-      if (url === '/api/v1/search?q=missing&repo_id=&limit=20&offset=0') {
+      if (url === '/api/v1/search?q=missing&limit=20&offset=0') {
         return jsonResponse({
           query: 'missing',
           repo_id: null,
