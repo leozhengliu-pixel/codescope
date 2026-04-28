@@ -81,6 +81,7 @@ pub enum CommitDiffChangeType {
     Modified,
     Deleted,
     Renamed,
+    Copied,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -294,7 +295,10 @@ impl CommitStore for LocalCommitStore {
                 "--root",
                 "-r",
                 "--find-renames",
+                "--find-copies",
+                "--find-copies-harder",
                 "-M",
+                "-C",
                 "--name-status",
                 "-z",
                 &commit_id,
@@ -311,7 +315,10 @@ impl CommitStore for LocalCommitStore {
                 "--root",
                 "-r",
                 "--find-renames",
+                "--find-copies",
+                "--find-copies-harder",
                 "-M",
+                "-C",
                 "--numstat",
                 "-z",
                 &commit_id,
@@ -419,6 +426,15 @@ fn parse_diff_name_status(output: &str) -> Result<Vec<RawDiffStatus>> {
                     old_path: Some(old_path),
                 }
             }
+            Some('C') => {
+                let old_path = next_token(&tokens, &mut index, "old path")?.to_string();
+                let new_path = next_token(&tokens, &mut index, "new path")?.to_string();
+                RawDiffStatus {
+                    path: new_path,
+                    change_type: CommitDiffChangeType::Copied,
+                    old_path: Some(old_path),
+                }
+            }
             other => return Err(anyhow!("unsupported git name-status entry: {:?}", other)),
         };
         entries.push(entry);
@@ -508,7 +524,10 @@ fn load_patch_for_diff_entry(
         "show".to_string(),
         "--format=".to_string(),
         "--find-renames".to_string(),
+        "--find-copies".to_string(),
+        "--find-copies-harder".to_string(),
         "-M".to_string(),
+        "-C".to_string(),
         "--unified=3".to_string(),
         commit_id.to_string(),
         "--".to_string(),
@@ -925,6 +944,21 @@ mod tests {
     }
 
     #[test]
+    fn parse_diff_name_status_accepts_copies() {
+        let entries =
+            parse_diff_name_status("fe7f21f\0C100\0src/original.rs\0src/copied.rs\0").unwrap();
+
+        assert_eq!(
+            entries,
+            vec![RawDiffStatus {
+                path: "src/copied.rs".to_string(),
+                change_type: CommitDiffChangeType::Copied,
+                old_path: Some("src/original.rs".to_string()),
+            }]
+        );
+    }
+
+    #[test]
     fn normalize_patch_output_marks_binary_patches_as_unavailable() {
         let normalized = normalize_patch_output(
             "diff --git a/assets/logo.png b/assets/logo.png\nBinary files a/assets/logo.png and b/assets/logo.png differ\n",
@@ -990,6 +1024,47 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("new file mode 120000"));
+        assert!(!file.patch_truncated);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_reports_copied_files() {
+        let repo_root = create_temp_git_repo("copy-diff");
+        write_text_file(&repo_root.join("original.txt"), "same content\n");
+        git_in(&repo_root, &["add", "original.txt"]);
+        git_in(&repo_root, &["commit", "-m", "init"]);
+
+        fs::copy(repo_root.join("original.txt"), repo_root.join("copied.txt")).unwrap();
+        git_in(&repo_root, &["add", "copied.txt"]);
+        git_in(&repo_root, &["commit", "-m", "copy file"]);
+
+        let commit_id = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let response = store
+            .get_commit_diff("repo_temp", &commit_id)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.files.len(), 1);
+        let file = &response.files[0];
+        assert_eq!(file.path, "copied.txt");
+        assert_eq!(file.old_path.as_deref(), Some("original.txt"));
+        assert_eq!(file.change_type, CommitDiffChangeType::Copied);
+        assert_eq!(file.additions, 0);
+        assert_eq!(file.deletions, 0);
+        let patch = file
+            .patch
+            .as_deref()
+            .expect("copy metadata patch should be present");
+        assert!(patch.contains("similarity index 100%"));
+        assert!(patch.contains("copy from original.txt"));
+        assert!(patch.contains("copy to copied.txt"));
         assert!(!file.patch_truncated);
 
         fs::remove_dir_all(repo_root).unwrap();
