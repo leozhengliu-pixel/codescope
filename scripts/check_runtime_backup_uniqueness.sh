@@ -50,4 +50,16 @@ if [ ! -d "$first_backup" ] || [ ! -d "$second_backup" ]; then
   exit 1
 fi
 
-printf 'runtime backup uniqueness OK\n'
+other_runtime_dir="$tmpdir/other-runtime"
+mkdir -p "$other_runtime_dir"
+SOURCEBOT_DATA_DIR="$other_runtime_dir" bash "$restore_script" "$first_backup" >"$tmpdir/restore.out" 2>"$tmpdir/restore.err" && {
+  printf 'restore helper accepted a backup manifest captured for a different runtime directory\n' >&2
+  exit 1
+}
+if ! grep -Eq 'backup manifest .* does not match current .* path' "$tmpdir/restore.err"; then
+  printf 'restore helper failed without the expected manifest mismatch message\n' >&2
+  cat "$tmpdir/restore.err" >&2
+  exit 1
+fi
+
+printf 'runtime backup uniqueness and manifest validation OK\n'

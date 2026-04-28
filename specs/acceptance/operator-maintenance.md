@@ -38,7 +38,9 @@ If the bootstrap state file is absent, the helper fails clearly instead of inven
 ## Runtime-state restore contract
 Given the operator has a captured runtime backup directory from the helper,
 when they run the runtime restore helper against that directory,
-then the helper refuses missing or incomplete backup directories and otherwise copies the captured runtime files back to the currently resolved runtime paths, creating parent directories as needed.
+then the helper refuses missing or incomplete backup directories, validates that the backup manifest's resolved runtime paths match the currently resolved runtime paths, and otherwise copies the captured runtime files back to those paths, creating parent directories as needed.
+
+If the current `SOURCEBOT_DATA_DIR` or explicit state-file override set does not match the backup manifest, the helper fails before copying any runtime files so operators do not accidentally replay a backup captured for a different local runtime root.
 
 ## Metadata backup contract
 Given the operator is using the current local metadata baseline,

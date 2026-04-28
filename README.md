@@ -117,7 +117,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    make api
    make worker
    ```
-8. If maintenance fails, restore the file-backed runtime baseline from the captured runtime backup directory:
+8. If maintenance fails, restore the file-backed runtime baseline from the captured runtime backup directory. The restore helper validates the backup manifest against the currently resolved runtime paths before copying files so an operator does not accidentally replay a backup captured for a different `SOURCEBOT_DATA_DIR` or explicit state-file override set:
    ```bash
    BACKUP_DIR=/absolute/path/to/backups/runtime/20260422T000000Z
    make runtime-restore BACKUP_DIR="$BACKUP_DIR"

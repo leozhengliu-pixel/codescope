@@ -94,7 +94,7 @@ retries, and production-grade operator/runtime parity.
 - [ ] Provider parity is complete across GitHub, GitLab, Gitea, Gerrit, Bitbucket, Azure DevOps, and generic/local Git.
 - [ ] MCP parity is complete beyond the new bounded authenticated HTTP/API bridge, including full MCP protocol/session transport interoperability, client integration, richer tool coverage, and broader end-to-end evidence.
 - [ ] Worker/runtime parity is complete with real scheduling, retries, supervision, and richer observability.
-- [ ] Operator/runtime parity is complete beyond the current local stub-backed baseline.
+- [ ] Operator/runtime parity is complete beyond the current local stub-backed and manifest-validated local maintenance baseline.
 - [ ] The rewrite can honestly be described as a practical Sourcebot replacement rather than a bounded clean-room subset.
 
 ## Conclusion
