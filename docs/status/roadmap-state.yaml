@@ -1,54 +1,74 @@
 version: 1
 roadmap:
-  path: docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md
-  total_tasks: 15
+  path: docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md
+  total_tasks: 9
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 576029c979e78e262340163dca0de595d4e02717
+  head: b8f5dac07cea3b2fecbae942af6804a0b6914d9a
 last_completed_task:
-  id: task99b
-  title: Manifest-validated local runtime restore safety
+  id: task100
+  title: Release-candidate smoke matrix and parity re-audit
   status: done
   summary: >-
-    Closed one bounded Task 99 operator recovery/deployment-safety slice by
-    making `scripts/restore_local_runtime_state.sh` validate the captured
-    runtime backup manifest against the currently resolved `SOURCEBOT_DATA_DIR`
-    and explicit state-file override paths before creating parent directories or
-    copying files. A runtime backup captured for a different local runtime root
-    now fails closed instead of replaying bootstrap/session/organization state
-    into the wrong target. The release claim remains deliberately bounded: this
-    is local manifest-validated file-backed runtime restore safety plus existing
-    local metadata backup/restore evidence, not production rollback automation,
-    zero-downtime deployment, supervised runtime recovery, complete durable
-    metadata parity, or practical replacement parity yet.
+    Closed the Task 100 release-candidate audit path by running the bounded
+    end-to-end smoke matrix contract, updating the final parity audit to record a
+    truthful NOT READY verdict for practical Sourcebot replacement parity, and
+    creating a blocker-focused follow-on roadmap instead of pretending Task
+    86-100 completion equals release readiness. The green smoke proves one
+    bounded repo-local path across local bootstrap/login, authenticated
+    connections, search, ask, review-webhook intake, repository-sync queue
+    visibility, and default one-tick worker completion; it does not close the
+    remaining durable metadata, provider/identity, production indexing,
+    ask/admin lifecycle, MCP protocol/client, worker supervision, or operator
+    runtime blockers.
   tests:
-    - bash scripts/check_runtime_backup_uniqueness.sh /opt/data/projects/sourcebot-rewrite: red first, then passed with manifest mismatch coverage
-    - bash scripts/check_operator_maintenance_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_local_metadata_backup_contract.sh /opt/data/projects/sourcebot-rewrite: passed
-    - bash scripts/check_local_metadata_backup_restore_smoke.sh /opt/data/projects/sourcebot-rewrite: passed
-    - sh -n touched shell scripts, git diff --check, and added-lines security scan: passed
+    - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+    - task100 audit/roadmap marker checks: passed
+    - git diff --check: passed
+    - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking shell/restore logic, fail-closed manifest mismatch, docs overclaiming, contract-wrapper drift, security, or bounded-claim issues remained
-  commit: 576029c979e78e262340163dca0de595d4e02717
-  next_task: task100
+    code: passed independent read-only review after fixing stale placeholder wording; no blocking bounded-claim, final-audit, acceptance-index, or follow-on-roadmap issues remained
+  commit: b8f5dac07cea3b2fecbae942af6804a0b6914d9a
+  next_task: task101
 current_task:
-  id: task100
-  parent_task: phase-d-runtime-interoperability-and-release-closure
-  title: Release-candidate smoke matrix and parity re-audit
+  id: task101
+  parent_task: practical-replacement-blockers
+  title: Durable metadata breadth and migration hardening
   status: pending
   summary: >-
-    Task 99b adds a bounded manifest-validated local runtime restore safety
-    guard, but the final release verdict still cannot honestly claim practical
-    Sourcebot replacement parity while durable metadata coverage, real provider
-    integrations, end-to-end OIDC/SSO, real indexing/search depth, richer admin
-    and thread lifecycles, worker scheduling/supervision, and production-grade
-    operator/runtime parity remain incomplete. The next meaningful closure should
-    run the release-candidate smoke/parity audit path and fail closed with a
-    truthful blocker list unless the repo-local evidence can actually certify the
-    replacement claim.
+    Task 100 failed closed: the release-candidate smoke contract is green, but
+    practical Sourcebot replacement parity remains blocked. The next meaningful
+    closure should start the new blocker roadmap by moving one actually used
+    runtime surface from file-backed or split-backend semantics into durable
+    PostgreSQL metadata with SQLx coverage, fail-closed compatibility behavior,
+    focused docs, independent review, commit, state update, and push.
 
 history:
+  - id: task100
+    status: done
+    summary: >-
+      Closed the release-candidate smoke and parity re-audit path by proving the
+      bounded smoke matrix contract still passes, updating the final parity audit
+      to record a truthful NOT READY verdict for practical Sourcebot replacement
+      parity, and creating `docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md`
+      as the new blocker-focused roadmap. This closure intentionally fails closed:
+      the smoke covers a useful local path across bootstrap/login, authenticated
+      connections, search, ask, review-webhook intake, repository-sync queue
+      visibility, and default one-tick worker completion, but durable metadata
+      breadth, real provider/identity flows, production search/indexing depth,
+      richer ask/admin lifecycle parity, MCP client/protocol interoperability,
+      worker supervision/retry orchestration, and production-grade operator
+      runtime behavior still block the practical replacement claim.
+    tests:
+      - bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite: passed
+      - task100 audit/roadmap marker checks: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review after fixing stale placeholder wording; no blocking bounded-claim, final-audit, acceptance-index, or follow-on-roadmap issues remained
+    commit: b8f5dac07cea3b2fecbae942af6804a0b6914d9a
+    next_task: task101
   - id: task99b
     status: done
     summary: >-
@@ -2380,17 +2400,16 @@ notes:
     - After each task, update this file with status, summary, tests, commit, and next task.
     - If a task is too large, split it toward a user-visible, operator-visible, or real implementation-backed closure rather than a paperwork-only fragment.
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
-    - Use docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md as the governing full-parity roadmap until it is explicitly superseded.
+    - Use docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md as the governing practical-replacement blocker roadmap until it is explicitly superseded.
   blockers:
     - id: follow-on-roadmap-bootstrap
       title: Prior per-task blockers archived by the follow-on roadmap bootstrap
       status: resolved
       evidence: >-
-        The previous roadmap-specific blocker notes belonged to superseded pre-audit task
-        splits. The governing roadmap is now
-        `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; the follow-on
-        sequence has advanced beyond the archived pre-follow-on blocker thread through
-        durable metadata, auth/admin, provider/runtime, MCP, worker-runtime, and Task 99a
-        operator-status closures. The next live work item is the `current_task` recorded
-        above, not any archived Task 87b2 or pre-follow-on blocker thread.
+        The previous roadmap-specific blocker notes belonged to superseded pre-audit and
+        pre-Task-100 task splits. Task 100 completed the follow-on release-candidate
+        audit and failed closed; the governing roadmap is now
+        `docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md`.
+        The next live work item is the `current_task` recorded above, not any archived
+        Task 87b2, Task 86-100, or pre-follow-on blocker thread.
 
