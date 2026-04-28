@@ -1304,10 +1304,43 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
         return Ok(());
     };
     let authority = authority.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') {
+    if authority.contains('@') || percent_decode_ascii(authority).contains('@') {
         Err("Generic Git base_url must not include embedded credentials".to_owned())
     } else {
         Ok(())
+    }
+}
+
+fn percent_decode_ascii(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = String::with_capacity(value.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (
+                hex_digit_value(bytes[index + 1]),
+                hex_digit_value(bytes[index + 2]),
+            ) {
+                decoded.push((high << 4 | low) as char);
+                index += 3;
+                continue;
+            }
+        }
+
+        decoded.push(bytes[index] as char);
+        index += 1;
+    }
+
+    decoded
+}
+
+fn hex_digit_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -2470,6 +2503,52 @@ mod tests {
             "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
         );
         assert!(!error.contains("token@example.com"));
+    }
+
+    #[test]
+    fn generic_git_mixed_case_http_url_with_embedded_credentials_fails_closed_before_spawning_git()
+    {
+        let secret_url = format!("{}{}", "HtTpS://user:pass", "@example.com/org/repo.git");
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("definitely-not-a-real-git-binary"),
+            &secret_url,
+            Duration::from_millis(100),
+        ) {
+            Ok(_) => panic!(
+                "mixed-case credential-bearing Generic Git base_url must fail before git is spawned"
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
+        );
+        assert!(!error.contains(&secret_url));
+        assert!(!error.contains("user:pass"));
+    }
+
+    #[test]
+    fn generic_git_percent_encoded_userinfo_fails_closed_before_spawning_git() {
+        let secret_url = "https://user%3Apass%40example.com/org/repo.git";
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("definitely-not-a-real-git-binary"),
+            secret_url,
+            Duration::from_millis(100),
+        ) {
+            Ok(_) => panic!(
+                "percent-encoded credential-bearing Generic Git base_url must fail before git is spawned"
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
+        );
+        assert!(!error.contains(secret_url));
+        assert!(!error.contains("user%3Apass"));
+        assert!(!error.contains("user:pass"));
     }
 
     #[test]
