@@ -1427,23 +1427,19 @@ async fn process_mcp_json_rpc_request(
         )));
     };
 
+    if is_notification {
+        return Ok(None);
+    }
+
     let result = match method {
         "initialize" => mcp_json_rpc_initialize_result(),
         "ping" => serde_json::json!({}),
-        "notifications/initialized" => {
-            if is_notification {
-                return Ok(None);
-            }
-            serde_json::json!({})
-        }
+        "notifications/initialized" => serde_json::json!({}),
         "tools/list" => serde_json::json!({
             "tools": mcp_json_rpc_tool_definitions(),
         }),
         "tools/call" => {
             let Some(params) = request.get("params") else {
-                if is_notification {
-                    return Ok(None);
-                }
                 return Ok(Some(mcp_json_rpc_error(
                     id,
                     -32602,
@@ -1454,9 +1450,6 @@ async fn process_mcp_json_rpc_request(
                 match serde_json::from_value(params.clone()) {
                     Ok(request) => request,
                     Err(_) => {
-                        if is_notification {
-                            return Ok(None);
-                        }
                         return Ok(Some(mcp_json_rpc_error(
                             id,
                             -32602,
@@ -1473,9 +1466,6 @@ async fn process_mcp_json_rpc_request(
             mcp_json_rpc_tool_call_result(tool_response)
         }
         _ => {
-            if is_notification {
-                return Ok(None);
-            }
             return Ok(Some(mcp_json_rpc_error(
                 id,
                 -32601,
@@ -1483,10 +1473,6 @@ async fn process_mcp_json_rpc_request(
             )));
         }
     };
-
-    if is_notification {
-        return Ok(None);
-    }
 
     Ok(Some(serde_json::json!({
         "jsonrpc": "2.0",
@@ -8392,6 +8378,7 @@ mod tests {
         assert!(single_body.is_empty());
 
         let batch_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::POST)
@@ -8422,6 +8409,34 @@ mod tests {
             .await
             .unwrap();
         assert!(batch_body.is_empty());
+
+        let tool_notification_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "method": "tools/call",
+                            "params": {
+                                "name": "list_repos",
+                                "arguments": {"repo_id": "repo_not_visible"}
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(tool_notification_response.status(), StatusCode::NO_CONTENT);
+        let tool_notification_body = to_bytes(tool_notification_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(tool_notification_body.is_empty());
 
         fs::remove_file(organization_state_path).unwrap();
     }
