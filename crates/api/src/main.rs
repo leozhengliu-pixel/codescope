@@ -51,7 +51,7 @@ use sourcebot_models::{
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexStatus,
-    SearchPagination, SearchResponse, SearchStore, SymbolKind,
+    SearchMode, SearchPagination, SearchResponse, SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read};
@@ -523,6 +523,7 @@ struct SearchQuery {
     q: String,
     repo_id: Option<String>,
     context_id: Option<String>,
+    mode: Option<SearchMode>,
     limit: Option<usize>,
     offset: Option<usize>,
 }
@@ -5824,6 +5825,7 @@ async fn search_repository_contents(
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
     let (user_id, mut visible_repo_ids) = search_request_context(&state, &headers).await?;
+    let search_mode = query.mode.unwrap_or_default();
 
     if query.q.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
@@ -5878,7 +5880,7 @@ async fn search_repository_contents(
 
     let mut response = state
         .search
-        .search(&query.q, requested_repo_id)
+        .search_with_mode(&query.q, requested_repo_id, search_mode)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     response
         .results
@@ -5886,9 +5888,14 @@ async fn search_repository_contents(
 
     if response.results.is_empty() {
         if let Some(repo_id) = requested_repo_id {
-            if let Some(snapshot_response) =
-                search_latest_local_sync_snapshot_for_repo(&state, &query.q, &user_id, repo_id)
-                    .await?
+            if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
+                &state,
+                &query.q,
+                search_mode,
+                &user_id,
+                repo_id,
+            )
+            .await?
             {
                 response = snapshot_response;
             }
@@ -5896,6 +5903,7 @@ async fn search_repository_contents(
             search_latest_local_sync_snapshots_for_visible_repos(
                 &state,
                 &query.q,
+                search_mode,
                 &user_id,
                 &visible_repo_ids,
             )
@@ -5929,6 +5937,7 @@ fn apply_search_pagination(response: &mut SearchResponse, limit: usize, offset: 
 async fn search_latest_local_sync_snapshots_for_visible_repos(
     state: &AppState,
     query: &str,
+    mode: SearchMode,
     user_id: &str,
     visible_repo_ids: &HashSet<String>,
 ) -> Result<Option<SearchResponse>, StatusCode> {
@@ -5938,7 +5947,8 @@ async fn search_latest_local_sync_snapshots_for_visible_repos(
     let mut results = Vec::new();
     for repo_id in repo_ids {
         if let Some(mut snapshot_response) =
-            search_latest_local_sync_snapshot_for_repo(state, query, user_id, &repo_id).await?
+            search_latest_local_sync_snapshot_for_repo(state, query, mode, user_id, &repo_id)
+                .await?
         {
             results.append(&mut snapshot_response.results);
         }
@@ -5947,8 +5957,9 @@ async fn search_latest_local_sync_snapshots_for_visible_repos(
     if results.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(SearchResponse::unpaginated(
+        Ok(Some(SearchResponse::unpaginated_with_mode(
             query.trim().to_string(),
+            mode,
             None,
             results,
         )))
@@ -5958,6 +5969,7 @@ async fn search_latest_local_sync_snapshots_for_visible_repos(
 async fn search_latest_local_sync_snapshot_for_repo(
     state: &AppState,
     query: &str,
+    mode: SearchMode,
     user_id: &str,
     repo_id: &str,
 ) -> Result<Option<SearchResponse>, StatusCode> {
@@ -5986,7 +5998,7 @@ async fn search_latest_local_sync_snapshot_for_repo(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             )
-            .and_then(|search| search.search(query, Some(repo_id)))
+            .and_then(|search| search.search_with_mode(query, Some(repo_id), mode))
             .map(Some)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -6001,7 +6013,7 @@ async fn search_latest_local_sync_snapshot_for_repo(
     let snapshot_search =
         LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot.path)]));
     snapshot_search
-        .search(query, Some(repo_id))
+        .search_with_mode(query, Some(repo_id), mode)
         .map(Some)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -6493,6 +6505,7 @@ mod tests {
     #[derive(Debug, Deserialize, Serialize)]
     struct SearchResponse {
         query: String,
+        mode: String,
         repo_id: Option<String>,
         results: Vec<SearchResultResponse>,
         pagination: SearchPaginationResponse,
@@ -27650,6 +27663,100 @@ mod tests {
         assert_eq!(payload.results[0].repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.results[0].path, "src/lib.rs");
         assert!(payload.results[0].line.contains("tokenized_query_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_supports_explicit_literal_and_regex_modes() {
+        let search_root = unique_test_path("search-mode-query-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn search_mode_marker() {}\nlet phrase = \"literal filter text\";\n",
+        )
+        .unwrap();
+        fs::write(
+            search_root.join("README.md"),
+            "literal filter text appears in docs\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-mode-query-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-mode-query-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-mode-query-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let literal_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=literal%20filter%20text&repo_id=repo_sourcebot_rewrite&mode=literal")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(literal_response.status(), StatusCode::OK);
+        let literal_payload: SearchResponse = read_json(literal_response).await;
+        assert_eq!(literal_payload.mode, "literal");
+        assert_eq!(literal_payload.results.len(), 2);
+
+        let regex_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=search_mode_%5Ba-z%5D%2B&repo_id=repo_sourcebot_rewrite&mode=regex")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(regex_response.status(), StatusCode::OK);
+        let regex_payload: SearchResponse = read_json(regex_response).await;
+        assert_eq!(regex_payload.mode, "regex");
+        assert_eq!(regex_payload.results.len(), 1);
+        assert_eq!(regex_payload.results[0].path, "src/lib.rs");
+
+        let invalid_regex_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=%5B&repo_id=repo_sourcebot_rewrite&mode=regex")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(invalid_regex_response.status(), StatusCode::OK);
+        let invalid_payload: SearchResponse = read_json(invalid_regex_response).await;
+        assert_eq!(invalid_payload.mode, "regex");
+        assert!(
+            invalid_payload.results.is_empty(),
+            "invalid regex syntax should fail closed instead of broadening search"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();

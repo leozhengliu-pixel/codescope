@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -15,8 +16,30 @@ const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 pub type DynSearchStore = Arc<dyn SearchStore>;
 
 pub trait SearchStore: Send + Sync {
-    fn search(&self, query: &str, repo_id: Option<&str>) -> Result<SearchResponse>;
+    fn search(&self, query: &str, repo_id: Option<&str>) -> Result<SearchResponse> {
+        self.search_with_mode(query, repo_id, SearchMode::Boolean)
+    }
+    fn search_with_mode(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        mode: SearchMode,
+    ) -> Result<SearchResponse>;
     fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>>;
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchMode {
+    Boolean,
+    Literal,
+    Regex,
+}
+
+impl Default for SearchMode {
+    fn default() -> Self {
+        Self::Boolean
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -55,6 +78,7 @@ pub struct SearchPagination {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SearchResponse {
     pub query: String,
+    pub mode: SearchMode,
     pub repo_id: Option<String>,
     pub results: Vec<SearchResult>,
     pub pagination: SearchPagination,
@@ -62,9 +86,19 @@ pub struct SearchResponse {
 
 impl SearchResponse {
     pub fn unpaginated(query: String, repo_id: Option<String>, results: Vec<SearchResult>) -> Self {
+        Self::unpaginated_with_mode(query, SearchMode::Boolean, repo_id, results)
+    }
+
+    pub fn unpaginated_with_mode(
+        query: String,
+        mode: SearchMode,
+        repo_id: Option<String>,
+        results: Vec<SearchResult>,
+    ) -> Self {
         let total_count = results.len();
         Self {
             query,
+            mode,
             repo_id,
             results,
             pagination: SearchPagination {
@@ -300,14 +334,12 @@ impl LocalSearchStore {
         ))
     }
 
-    fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
-        let normalized_query = query.to_lowercase();
-        let parsed_query = parse_query(&normalized_query);
+    fn search_repo(&self, repo_id: &str, matcher: &QueryMatcher) -> Vec<SearchResult> {
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
-            .filter(|indexed_line| indexed_line_matches_query(indexed_line, &parsed_query))
+            .filter(|indexed_line| indexed_line_matches_query(indexed_line, matcher))
             .map(|indexed_line| SearchResult {
                 repo_id: repo_id.to_string(),
                 path: indexed_line.path.clone(),
@@ -408,9 +440,15 @@ impl LocalSearchStore {
 }
 
 impl SearchStore for LocalSearchStore {
-    fn search(&self, query: &str, repo_id: Option<&str>) -> Result<SearchResponse> {
+    fn search_with_mode(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        mode: SearchMode,
+    ) -> Result<SearchResponse> {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim).filter(|value| !value.is_empty());
+        let matcher = QueryMatcher::from_query(query, mode);
 
         let mut repos: Vec<&String> = match requested_repo_id {
             Some(repo_id) => self
@@ -425,11 +463,12 @@ impl SearchStore for LocalSearchStore {
 
         let mut results = Vec::new();
         for repo_id in repos {
-            results.extend(self.search_repo(repo_id, query));
+            results.extend(self.search_repo(repo_id, &matcher));
         }
 
-        Ok(SearchResponse::unpaginated(
+        Ok(SearchResponse::unpaginated_with_mode(
             query.to_string(),
+            mode,
             requested_repo_id.map(ToOwned::to_owned),
             results,
         ))
@@ -440,25 +479,52 @@ impl SearchStore for LocalSearchStore {
     }
 }
 
-fn indexed_line_matches_query(indexed_line: &IndexedLine, parsed_query: &ParsedQuery) -> bool {
-    if parsed_query.invalid_filter || parsed_query.line_term_groups.is_empty() {
-        return false;
-    }
+enum QueryMatcher {
+    Boolean(ParsedQuery),
+    Literal(String),
+    Regex(Option<Regex>),
+}
 
+impl QueryMatcher {
+    fn from_query(query: &str, mode: SearchMode) -> Self {
+        match mode {
+            SearchMode::Boolean => Self::Boolean(parse_query(&query.to_lowercase())),
+            SearchMode::Literal => Self::Literal(query.to_lowercase()),
+            SearchMode::Regex => {
+                Self::Regex(RegexBuilder::new(query).case_insensitive(true).build().ok())
+            }
+        }
+    }
+}
+
+fn indexed_line_matches_query(indexed_line: &IndexedLine, matcher: &QueryMatcher) -> bool {
     let normalized_line = indexed_line.line.to_lowercase();
-    let normalized_path = indexed_line.path.to_lowercase();
-    parsed_query
-        .line_term_groups
-        .iter()
-        .any(|group| group.iter().all(|term| normalized_line.contains(term)))
-        && parsed_query
-            .path_filters
-            .iter()
-            .all(|filter| normalized_path.contains(filter))
-        && parsed_query
-            .language_filters
-            .iter()
-            .all(|language| path_matches_language(&normalized_path, language))
+
+    match matcher {
+        QueryMatcher::Boolean(parsed_query) => {
+            if parsed_query.invalid_filter || parsed_query.line_term_groups.is_empty() {
+                return false;
+            }
+            let normalized_path = indexed_line.path.to_lowercase();
+            parsed_query
+                .line_term_groups
+                .iter()
+                .any(|group| group.iter().all(|term| normalized_line.contains(term)))
+                && parsed_query
+                    .path_filters
+                    .iter()
+                    .all(|filter| normalized_path.contains(filter))
+                && parsed_query
+                    .language_filters
+                    .iter()
+                    .all(|language| path_matches_language(&normalized_path, language))
+        }
+        QueryMatcher::Literal(literal) => {
+            !literal.is_empty() && normalized_line.contains(literal.as_str())
+        }
+        QueryMatcher::Regex(Some(regex)) => regex.is_match(&indexed_line.line),
+        QueryMatcher::Regex(None) => false,
+    }
 }
 
 fn parse_query(normalized_query: &str) -> ParsedQuery {
@@ -517,7 +583,6 @@ fn path_matches_language(normalized_path: &str, language: &str) -> bool {
 fn language_to_extension(language: &str) -> Option<&'static str> {
     match language {
         "rust" | "rs" => Some(".rs"),
-        "typescript" | "ts" => Some(".ts"),
         "tsx" => Some(".tsx"),
         "javascript" | "js" => Some(".js"),
         "jsx" => Some(".jsx"),
@@ -979,6 +1044,52 @@ mod tests {
         assert!(
             quoted_or_response.results.is_empty(),
             "quoted OR text should remain a literal phrase rather than becoming a boolean operator"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_supports_explicit_literal_and_regex_modes() {
+        let (store, root) = create_test_store();
+
+        let literal_response = store
+            .search_with_mode(
+                "lang:rust path:src build_router",
+                Some("repo_test"),
+                SearchMode::Literal,
+            )
+            .unwrap();
+        assert_eq!(literal_response.mode, SearchMode::Literal);
+        assert!(
+            literal_response.results.is_empty(),
+            "literal mode should treat filter-looking text as the exact line substring instead of parser syntax"
+        );
+
+        let literal_phrase_response = store
+            .search_with_mode(
+                "build_router is documented",
+                Some("repo_test"),
+                SearchMode::Literal,
+            )
+            .unwrap();
+        assert!(literal_phrase_response.results.iter().any(|result| {
+            result.path == "README.md" && result.line == "build_router is documented here"
+        }));
+
+        let regex_response = store
+            .search_with_mode(r"fn\s+build_router", Some("repo_test"), SearchMode::Regex)
+            .unwrap();
+        assert_eq!(regex_response.mode, SearchMode::Regex);
+        assert_eq!(regex_response.results.len(), 1);
+        assert_eq!(regex_response.results[0].path, "src/main.rs");
+
+        let invalid_regex_response = store
+            .search_with_mode("[", Some("repo_test"), SearchMode::Regex)
+            .unwrap();
+        assert!(
+            invalid_regex_response.results.is_empty(),
+            "invalid regex mode queries should fail closed to no matches"
         );
 
         fs::remove_dir_all(root).unwrap();
