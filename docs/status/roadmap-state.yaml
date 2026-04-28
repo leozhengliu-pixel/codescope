@@ -5,43 +5,45 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 34042acbd3cf51d683b89836665a907bdb7a3b4f
+  head: 1a04a4e0e8fcdb7350516d589ee927f7da8b07bf
 last_completed_task:
-  id: task103a-108a
-  title: Code-navigation hidden-repo fail-closed hardening and malformed worker lease recovery
+  id: task102ah-103b-107a
+  title: Search artifact line-number validation, newline-safe revision references, and MCP JSON-RPC permission errors
   status: done
   summary: >-
-    Closed an accelerated two-closure integration batch from the parallel
-    controller. Code-navigation definitions and references now fail closed before
-    blob/code-navigation lookup when an authenticated caller's visible repository
-    set excludes the requested repository, preventing hidden repositories from
-    being resolved through code-navigation endpoints. Repository-sync workers now
-    fail malformed Running lease records with missing or invalid started_at values
-    before claiming more queued work, leaving operators with a terminal
-    operator-visible failure instead of a permanently stuck Running row. A third
-    search/index worker failed before producing a commit because the configured
-    delegated backend rejected the active model, so no search closure was
-    integrated from that worker.
+    Integrated an accelerated three-worker batch with three real runtime
+    closures. Persisted local-sync search index artifacts now fail closed when an
+    artifact result carries line_number zero instead of allowing impossible
+    source locations into search results. Revision code-navigation reference
+    scans now preserve committed Git paths containing embedded newlines by
+    consuming NUL-delimited tree output before invoking git show. MCP JSON-RPC
+    tools/call now keeps invisible repository requests inside the JSON-RPC/MCP
+    transport as permission_denied tool errors while direct HTTP tool calls keep
+    the existing transport-level fail-closed behavior.
   tests:
-    - 'cargo test -p sourcebot-api hidden_repository_before_code_nav_lookup -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 442 filtered out after worker-recorded RED failures where both endpoints returned 200 instead of 404'
-    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed in the main worktree with 11 bin tests, 0 lib tests, and 433 filtered out'
-    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed in the main worktree with 12 bin tests, 0 lib tests, and 432 filtered out'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_malformed_running_started_at_before_claiming -- --nocapture: passed in the main worktree with 1 lib test and 45 filtered out after worker-recorded RED failure where the malformed Running job stayed Running'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture: passed in the main worktree with 18 lib tests and zero-test non-lib targets noted'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 46 lib tests, 3 main tests, 20 integration/smoke tests across worker smoke targets, and 0 doctests'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_zero_line_numbers -- --nocapture: passed in the main worktree with 1 test and 36 filtered out after worker-recorded RED failure where the malformed artifact was accepted'
+    - 'cargo test -p sourcebot-search: passed in the main worktree with 37 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api local_browse_store_finds_text_references_in_revision_paths_with_newlines -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 445 filtered out after worker-recorded RED failure returning no reference for the newline path'
+    - 'cargo test -p sourcebot-api browse::tests::: passed in the main worktree with 27 bin tests, 0 lib tests, and 419 filtered out'
+    - 'cargo test -p sourcebot-api references: passed in the main worktree with 13 bin tests, 0 lib tests, and 433 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_tools_call_invisible_repo_returns_protocol_tool_error -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 445 filtered out after worker-recorded RED failure where JSON-RPC returned transport 404'
+    - 'cargo test -p sourcebot-api mcp_json_rpc: passed in the main worktree with 12 bin tests, 0 lib tests, and 434 filtered out'
+    - 'cargo test -p sourcebot-api mcp_http: passed in the main worktree with 4 bin tests, 0 lib tests, and 442 filtered out'
+    - 'cargo test -p sourcebot-mcp: passed in the main worktree with 9 unit tests and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed'
-    - 'added-lines security scan over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with 169 added lines scanned and 0 findings'
-    - 'independent integration review over f1fc87a9d2a0661a5891b664b0828e7a62cf9ea4..34042acbd3cf51d683b89836665a907bdb7a3b4f: passed with no security concerns or logic errors; non-blocking suggestion to add future API-key repo-scope code-navigation coverage'
+    - 'git diff --check e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed'
+    - 'added-lines security scan over e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed with 181 added lines scanned and 0 findings'
+    - 'independent integration review over e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed with no security concerns or logic errors; non-blocking suggestions to add future explicit direct-HTTP invisible-repo and malformed JSON-RPC repo_id regressions'
   review:
     code: >-
-      Independent integration review passed. The reviewer confirmed the
-      authenticated code-navigation visibility gate returns 404 before hidden
-      repo code-nav/blob lookup, malformed Running repository-sync leases now
-      fail closed before claiming queued work while preserving stale/fresh lease
-      behavior, and the worker-runtime wording remains bounded without claiming
-      full provider/runtime parity.
-  commit: 34042acbd3cf51d683b89836665a907bdb7a3b4f
+      Independent integration review passed. The reviewer confirmed zero-line
+      persisted search artifact validation, NUL-delimited Git tree path handling
+      for newline-containing revision paths, and MCP JSON-RPC invisible-repo
+      behavior preserve fail-closed permission boundaries without docs
+      overclaiming. Non-blocking future suggestions were to add an explicit
+      direct HTTP invisible-repo MCP regression and JSON-RPC malformed repo_id
+      protocol-shape regressions.
+  commit: 1a04a4e0e8fcdb7350516d589ee927f7da8b07bf
   next_task: task102
 current_task:
   id: task102
@@ -51,12 +53,10 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. This batch did not
-    land a search/index closure because the search worker failed before producing
-    a commit after the delegated backend rejected the configured model; however,
-    adjacent accepted closures improved practical replacement safety by adding a
-    code-navigation hidden-repo fail-closed gate and malformed repository-sync
-    lease recovery. Existing search evidence still includes bounded authenticated
+    Task 103/106/107/108 blockers when scopes are disjoint. This batch landed a
+    search/index fail-closed artifact validation closure, a code-navigation
+    revision path correctness closure, and an MCP JSON-RPC permission-error
+    closure. Existing search evidence now includes bounded authenticated
     query-size validation, frontend-visible saved-context management for
     non-empty repository scopes, fail-closed backend context narrowing, explicit
     boolean/literal/regex modes, deterministic ordering, repository-detail
@@ -67,14 +67,46 @@ current_task:
     bounds, fail-closed empty search semantics for present malformed artifacts
     without aborting unscoped results from other visible repositories,
     fail-closed pagination validation, authorization-domain pagination/count
-    evidence, and symlinked repository-root rejection before startup/local
-    indexing. Remaining Task 102 work should move practical indexing/runtime
-    behavior, operator-visible index lifecycle/status, failure recovery,
-    relevance/pagination stability at scale, branch/index availability, and
-    production search/indexing parity while preserving fail-closed visibility
-    boundaries, focused verification, bounded docs claims, independent review,
-    commit, state update, and push.
+    evidence, symlinked repository-root rejection before startup/local indexing,
+    and zero-line-number result rejection for persisted artifacts. Remaining Task
+    102 work should move practical indexing/runtime behavior, operator-visible
+    index lifecycle/status, failure recovery, relevance/pagination stability at
+    scale, branch/index availability, and production search/indexing parity while
+    preserving fail-closed visibility boundaries, focused verification, bounded
+    docs claims, independent review, commit, state update, and push.
 history:
+  - id: task102ah-103b-107a
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      runtime closures. Search artifacts now reject impossible line-number-zero
+      result locations, revision reference scans preserve Git paths with embedded
+      newlines, and MCP JSON-RPC invisible repository tool calls return scoped
+      permission errors inside the protocol instead of widening access or
+      breaking batch transport semantics.
+    commit: 1a04a4e0e8fcdb7350516d589ee927f7da8b07bf
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_zero_line_numbers -- --nocapture: passed in the main worktree with 1 test and 36 filtered out after worker-recorded RED failure where the malformed artifact was accepted'
+      - 'cargo test -p sourcebot-search: passed in the main worktree with 37 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api local_browse_store_finds_text_references_in_revision_paths_with_newlines -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 445 filtered out after worker-recorded RED failure returning no reference for the newline path'
+      - 'cargo test -p sourcebot-api browse::tests::: passed in the main worktree with 27 bin tests, 0 lib tests, and 419 filtered out'
+      - 'cargo test -p sourcebot-api references: passed in the main worktree with 13 bin tests, 0 lib tests, and 433 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_tools_call_invisible_repo_returns_protocol_tool_error -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 445 filtered out after worker-recorded RED failure where JSON-RPC returned transport 404'
+      - 'cargo test -p sourcebot-api mcp_json_rpc: passed in the main worktree with 12 bin tests, 0 lib tests, and 434 filtered out'
+      - 'cargo test -p sourcebot-api mcp_http: passed in the main worktree with 4 bin tests, 0 lib tests, and 442 filtered out'
+      - 'cargo test -p sourcebot-mcp: passed in the main worktree with 9 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed'
+      - 'added-lines security scan over e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed with 181 added lines scanned and 0 findings'
+      - 'independent integration review over e404f33a8e21af948de37468362463ec009ef44e..1a04a4e0e8fcdb7350516d589ee927f7da8b07bf: passed with no security concerns or logic errors; non-blocking suggestions to add future explicit direct-HTTP invisible-repo and malformed JSON-RPC repo_id regressions'
+    review: >-
+      Independent integration review passed with no blocking issues. Non-blocking
+      future hardening suggestions were to add explicit direct HTTP invisible-repo
+      MCP coverage and JSON-RPC malformed repo_id protocol-shape regressions.
+    workers:
+      - 'search/index worker: integrated worker commit 1ad043779707928fb260b4139a695f7ace43e853 as main commit 7575407bf40a0bc8868a982305f6fafe255f7aba'
+      - 'browse/code-navigation worker: integrated worker commit d6df14334bd9ff3a9bd0b582a47c2ed8aca4ad1e as main commit c9f6a26d75dbe218c42c115787514179883d6c4b'
+      - 'MCP/runtime worker: integrated worker commit 07ebe4df71c7337c4229cf1c77d6dd1ae152a3a2 as main commit 1a04a4e0e8fcdb7350516d589ee927f7da8b07bf'
   - id: task103a-108a
     status: done
     summary: >-
