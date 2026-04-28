@@ -781,7 +781,7 @@ fn run_git_list_files_at_revision(
     revision: &str,
 ) -> Result<Option<Vec<String>>> {
     let output = Command::new("git")
-        .args(["ls-tree", "-r", "--name-only", revision])
+        .args(["ls-tree", "-rz", "--name-only", revision])
         .current_dir(repo_root)
         .output()
         .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
@@ -789,9 +789,8 @@ fn run_git_list_files_at_revision(
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
         let files = stdout
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
+            .split('\0')
+            .filter(|path| !path.is_empty())
             .map(ToOwned::to_owned)
             .collect();
         return Ok(Some(files));
@@ -803,7 +802,7 @@ fn run_git_list_files_at_revision(
 
     Err(git_command_error(
         repo_root,
-        &["ls-tree", "-r", "--name-only", "<revision>"],
+        &["ls-tree", "-rz", "--name-only", "<revision>"],
         &output,
     ))
 }
@@ -1301,6 +1300,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(blob, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_finds_text_references_in_revision_paths_with_newlines() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-newline-path-references",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        let newline_path = root.join("src").join("generated\nreference.rs");
+        fs::write(
+            &newline_path,
+            "pub fn generated_reference() { /* newline_path_symbol */ }\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "newline_path_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            references,
+            vec![ReferenceMatch {
+                path: "src/generated\nreference.rs".into(),
+                line_number: 1,
+                line: "pub fn generated_reference() { /* newline_path_symbol */ }".into(),
+            }]
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
