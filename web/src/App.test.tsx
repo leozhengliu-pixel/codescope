@@ -1905,6 +1905,76 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2FApp.tsx');
   });
 
+  it('shows binary blob metadata without rendering source or code navigation controls', async () => {
+    window.location.hash = '#/repos/repo-42?path=assets%2Flogo.png';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/index-status') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          status: 'indexed',
+          indexed_file_count: 1,
+          indexed_line_count: 0,
+          skipped_file_count: 0,
+          error: null,
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=assets') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'assets',
+          entries: [{ name: 'logo.png', path: 'assets/logo.png', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=assets%2Flogo.png') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'assets/logo.png',
+          size_bytes: 2048,
+          is_binary: true,
+          content: '',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/commits?limit=20') {
+        return jsonResponse({ repo_id: 'repo-42', commits: [] });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('assets/logo.png')).toBeInTheDocument();
+    expect(await screen.findByText('2048 bytes')).toBeInTheDocument();
+    expect(screen.getByText('Binary file preview unavailable.')).toBeInTheDocument();
+    expect(screen.getByText('This file is binary, so Sourcebot is showing metadata instead of attempting to render text.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Symbol token')).not.toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=assets%2Flogo.png');
+  });
+
   it('keeps branch or revision controls in the repo route and reloads browse plus commits for the selected revision', async () => {
     window.location.hash = '#/repos/repo-42?path=src%2Ffeature.ts&from=search&q=router&repo_id=repo-42&revision=feature%2Fdemo';
 

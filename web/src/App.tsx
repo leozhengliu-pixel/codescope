@@ -52,6 +52,7 @@ type BlobResponse = {
   path: string;
   content: string;
   size_bytes: number;
+  is_binary: boolean;
 };
 
 type DefinitionRange = {
@@ -3469,7 +3470,7 @@ function BrowsePanel({
           </div>
         </div>
 
-        {selectedFilePath ? (
+        {selectedFilePath && !blob?.is_binary ? (
           <div
             style={{
               display: 'grid',
@@ -3572,7 +3573,26 @@ function BrowsePanel({
 
         {blobLoading ? <div>Loading source…</div> : null}
         {!blobLoading && blobError ? <div>Unable to load source: {blobError}</div> : null}
-        {!blobLoading && !blobError && blob ? (
+        {!blobLoading && !blobError && blob?.is_binary ? (
+          <div
+            style={{
+              display: 'grid',
+              gap: 8,
+              margin: 0,
+              padding: 16,
+              borderRadius: 12,
+              border: '1px solid #d8dee4',
+              background: '#f6f8fa',
+              color: '#1f2328',
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>Binary file preview unavailable.</div>
+            <div style={browseSectionMetaStyle}>
+              This file is binary, so Sourcebot is showing metadata instead of attempting to render text.
+            </div>
+          </div>
+        ) : null}
+        {!blobLoading && !blobError && blob && !blob.is_binary ? (
           <pre
             style={{
               margin: 0,

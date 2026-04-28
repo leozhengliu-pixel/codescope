@@ -20,7 +20,7 @@
 4. File tree browsing supports nested directories without requiring a full repository clone in the browser; for a visible repository with a successful local sync snapshot and no startup browse-store tree, no-revision tree reads may fall back to that latest caller-authorized snapshot.
 5. Browse loading failures keep repository detail visible and offer a focused retry affordance instead of collapsing the page.
 6. Empty directories render an explicit empty-state message without pretending a file is selected.
-7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; for a visible repository with a successful local sync snapshot and no startup browse-store blob, no-revision blob reads may fall back to that latest caller-authorized snapshot; binary blobs expose metadata with an explicit binary flag instead of attempting lossy UTF-8 source rendering.
+7. File source view renders syntax-highlighted text for supported languages and a safe fallback for unknown text formats; for a visible repository with a successful local sync snapshot and no startup browse-store blob, no-revision blob reads may fall back to that latest caller-authorized snapshot; binary blobs expose metadata with an explicit binary flag, and the repository detail source panel shows a binary preview-unavailable notice instead of attempting lossy UTF-8 source rendering or code-navigation controls.
 8. Commit list is ordered consistently and the repository-detail UI renders previous/next history controls from explicit `limit`/`offset` request controls plus response `page_info` (`limit`, `offset`, `has_next_page`, `next_offset`); for a visible repository with a successful local sync job and no seeded commit-store history, commit list/detail/diff reads may fall back to the latest caller-authorized local Git working tree.
 9. Commit detail view exposes changed files and summary metadata.
 10. Diff view renders additions/deletions and handles renamed files; backend diff-file patch text is bounded to 64 KiB per file and returns `patch_truncated: true` plus an inline truncation marker when that cap is reached, and the UI renders that state as an explicit truncation notice instead of displaying the marker as if it were the complete patch.
@@ -33,7 +33,7 @@
 - Large directories must be progressively loaded or paginated.
 - Missing files at a selected revision return a clear not-found response.
 - Directories selected through a revisioned file-source/blob read fail closed as not found instead of returning a textual `git show` tree listing as file contents.
-- Binary files should expose metadata/download behavior instead of broken text rendering; the current backend/API baseline returns path and size metadata with `is_binary: true` and empty text content for non-UTF-8 local or revisioned blobs.
+- Binary files should expose metadata/download behavior instead of broken text rendering; the current backend/API baseline returns path and size metadata with `is_binary: true` and empty text content for non-UTF-8 local or revisioned blobs, and the frontend source panel now renders a binary metadata notice while suppressing text/code-navigation controls for that blob.
 - Huge per-file textual diff patches are truncated at the backend's 64 KiB response cap with an explicit `patch_truncated` indicator; the UI shows a truncation notice and does not render the backend marker as full patch content. Binary patches remain unavailable as patch text.
 
 ## Black-box examples
