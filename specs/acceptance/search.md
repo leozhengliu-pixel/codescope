@@ -29,7 +29,7 @@
 - Results from repositories outside the caller's permissions must not appear in results, pagination counts, snippets, suggestions, or facets.
 - Search contexts must only expand to repositories visible to the caller.
 - Saved search contexts are caller-owned. Unknown, deleted, or other-user context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
-- This saved-context and pagination baseline is backend/API-only and file-backed in the organization aggregate; it does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or full stable pagination parity across changing indexes/revisions.
+- This saved-context and pagination baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, relevance tuning, or full stable pagination parity across changing indexes/revisions.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
@@ -38,7 +38,7 @@
 - Branches missing an index should surface partial availability rather than silent omission.
 
 ## Black-box examples
-- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, result list, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
+- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, bounded result-page summary, previous/next controls backed by `/api/v1/search?limit=20&offset=...`, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
 - Query `router` across all accessible repos returns matches from multiple repos.
 - Query `lang:rust path:crates/api healthz` returns matches only under `crates/api` in Rust files.
 - Query with invalid regex `([a-z` returns a validation error with no server crash.

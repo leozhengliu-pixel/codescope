@@ -119,10 +119,18 @@ type SearchResult = {
   line: string;
 };
 
+type SearchPagination = {
+  limit: number;
+  offset: number;
+  total_count: number;
+  has_more: boolean;
+};
+
 type SearchResponse = {
   query: string;
   repo_id: string | null;
   results: SearchResult[];
+  pagination?: SearchPagination;
 };
 
 type AskCitation = {
@@ -708,8 +716,22 @@ function useRepoSummaries() {
   return { repos, loading, error };
 }
 
-function buildSearchHash(query: string, repoId: string) {
+const SEARCH_PAGE_LIMIT = 20;
+
+function parseSearchOffset(value: string | null) {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function buildSearchHash(query: string, repoId: string, offset = 0) {
   const params = new URLSearchParams({ q: query, repo_id: repoId });
+  if (offset > 0) {
+    params.set('offset', String(offset));
+  }
   return `#/search?${params.toString()}`;
 }
 
@@ -799,6 +821,10 @@ function buildRepoHash(
     const searchParams = new URLSearchParams(searchQuery);
     params.set('q', searchParams.get('q') ?? '');
     params.set('repo_id', searchParams.get('repo_id') ?? '');
+    const searchOffset = parseSearchOffset(searchParams.get('offset'));
+    if (searchOffset > 0) {
+      params.set('offset', String(searchOffset));
+    }
   }
 
   if (options.revision) {
@@ -814,23 +840,46 @@ function navigateToHash(event: MouseEvent<HTMLAnchorElement>, targetHash: string
   window.location.hash = targetHash;
 }
 
-function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { repos: RepoSummary[]; subtitle: string; initialQuery: string; initialRepoId: string }) {
+function SearchExperience({
+  repos,
+  subtitle,
+  initialQuery,
+  initialRepoId,
+  initialOffset,
+}: {
+  repos: RepoSummary[];
+  subtitle: string;
+  initialQuery: string;
+  initialRepoId: string;
+  initialOffset: number;
+}) {
   const [query, setQuery] = useState(initialQuery);
   const [selectedRepoId, setSelectedRepoId] = useState(initialRepoId);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchPagination, setSearchPagination] = useState<SearchPagination | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(initialQuery.trim().length > 0 ? initialQuery.trim() : null);
   const [submittedRepoId, setSubmittedRepoId] = useState(initialRepoId);
+  const [submittedOffset, setSubmittedOffset] = useState(initialOffset);
 
   const repoNamesById = useMemo(() => new Map(repos.map((repo) => [repo.id, repo.name])), [repos]);
+  const resultStart = searchPagination && searchPagination.total_count > 0 ? searchPagination.offset + 1 : 0;
+  const resultEnd = searchPagination
+    ? searchPagination.offset + searchResults.length
+    : searchResults.length;
+  const previousOffset = searchPagination ? Math.max(0, searchPagination.offset - searchPagination.limit) : 0;
+  const canGoPrevious = Boolean(searchPagination && searchPagination.offset > 0 && !searchLoading);
+  const canGoNext = Boolean(searchPagination?.has_more && !searchLoading);
 
-  const runSearch = async (queryValue = query, repoIdValue = selectedRepoId) => {
+  const runSearch = async (queryValue = query, repoIdValue = selectedRepoId, offsetValue = 0) => {
     const trimmedQuery = queryValue.trim();
     if (!trimmedQuery) {
       setSubmittedQuery(null);
       setSubmittedRepoId('');
+      setSubmittedOffset(0);
       setSearchResults([]);
+      setSearchPagination(null);
       setSearchError(null);
       return;
     }
@@ -838,16 +887,32 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
     setSearchLoading(true);
 
     try {
-      const params = new URLSearchParams({ q: trimmedQuery, repo_id: repoIdValue });
+      const params = new URLSearchParams({
+        q: trimmedQuery,
+        repo_id: repoIdValue,
+        limit: String(SEARCH_PAGE_LIMIT),
+        offset: String(offsetValue),
+      });
       const data = await fetchJson<SearchResponse>(`/api/v1/search?${params.toString()}`);
       setSearchResults(data.results);
+      setSearchPagination(
+        data.pagination ?? {
+          limit: SEARCH_PAGE_LIMIT,
+          offset: offsetValue,
+          total_count: data.results.length,
+          has_more: false,
+        },
+      );
       setSubmittedQuery(data.query);
       setSubmittedRepoId(data.repo_id ?? '');
+      setSubmittedOffset(offsetValue);
       setSearchError(null);
     } catch (err) {
       setSearchResults([]);
+      setSearchPagination(null);
       setSubmittedQuery(trimmedQuery);
       setSubmittedRepoId(repoIdValue);
+      setSubmittedOffset(offsetValue);
       setSearchError((err as Error).message);
     } finally {
       setSearchLoading(false);
@@ -859,8 +924,8 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
       return;
     }
 
-    void runSearch(initialQuery, initialRepoId);
-  }, [initialQuery, initialRepoId]);
+    void runSearch(initialQuery, initialRepoId, initialOffset);
+  }, [initialQuery, initialRepoId, initialOffset]);
 
   return (
     <Panel title="Search" subtitle={subtitle}>
@@ -875,13 +940,13 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
             return;
           }
 
-          const targetHash = buildSearchHash(trimmedQuery, selectedRepoId);
+          const targetHash = buildSearchHash(trimmedQuery, selectedRepoId, 0);
           if (window.location.hash !== targetHash) {
             window.location.hash = targetHash;
             return;
           }
 
-          void runSearch();
+          void runSearch(query, selectedRepoId, 0);
         }}
       >
         <div style={searchFormGridStyle}>
@@ -919,6 +984,39 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Results</div>
         {searchLoading ? <div>Searching code…</div> : null}
         {!searchLoading && searchError ? <div>Search failed: {searchError}</div> : null}
+        {!searchLoading && !searchError && searchPagination ? (
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+            <span>
+              Showing {resultStart}–{resultEnd} of {searchPagination.total_count} matches
+            </span>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              disabled={!canGoPrevious}
+              onClick={() => {
+                if (!submittedQuery) {
+                  return;
+                }
+                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, previousOffset);
+              }}
+            >
+              Previous page
+            </button>
+            <button
+              type="button"
+              style={secondaryButtonStyle}
+              disabled={!canGoNext}
+              onClick={() => {
+                if (!submittedQuery || !searchPagination) {
+                  return;
+                }
+                window.location.hash = buildSearchHash(submittedQuery, submittedRepoId, searchPagination.offset + searchPagination.limit);
+              }}
+            >
+              Next page
+            </button>
+          </div>
+        ) : null}
         {!searchLoading && !searchError && submittedQuery && searchResults.length === 0 ? (
           <div>No matches found for “{submittedQuery}”.</div>
         ) : null}
@@ -934,11 +1032,11 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
                 <pre style={searchLineStyle}>{result.line}</pre>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
                   <a
-                    href={`#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`}
+                    href={`#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}${submittedOffset > 0 ? `&offset=${submittedOffset}` : ''}`}
                     onClick={(event) =>
                       navigateToHash(
                         event,
-                        `#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`,
+                        `#/repos/${encodeURIComponent(result.repo_id)}?path=${encodeURIComponent(result.path)}&from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}${submittedOffset > 0 ? `&offset=${submittedOffset}` : ''}`,
                       )
                     }
                     style={{ color: '#0969da', fontWeight: 600 }}
@@ -946,11 +1044,11 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
                     Open source in repository detail
                   </a>
                   <a
-                    href={`#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`}
+                    href={`#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}${submittedOffset > 0 ? `&offset=${submittedOffset}` : ''}`}
                     onClick={(event) =>
                       navigateToHash(
                         event,
-                        `#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}`,
+                        `#/repos/${encodeURIComponent(result.repo_id)}?from=search&q=${encodeURIComponent(submittedQuery ?? '')}&repo_id=${encodeURIComponent(submittedRepoId)}${submittedOffset > 0 ? `&offset=${submittedOffset}` : ''}`,
                       )
                     }
                     style={{ color: '#0969da', fontWeight: 600 }}
@@ -970,7 +1068,7 @@ function SearchExperience({ repos, subtitle, initialQuery, initialRepoId }: { re
   );
 }
 
-function SearchPage({ initialQuery, initialRepoId }: { initialQuery: string; initialRepoId: string }) {
+function SearchPage({ initialQuery, initialRepoId, initialOffset }: { initialQuery: string; initialRepoId: string; initialOffset: number }) {
   const { repos, loading, error } = useRepoSummaries();
 
   if (loading) return <Panel title="Search" subtitle="Run API-backed code search across repositories from a dedicated route.">Loading repositories…</Panel>;
@@ -982,6 +1080,7 @@ function SearchPage({ initialQuery, initialRepoId }: { initialQuery: string; ini
       subtitle="Run API-backed code search across repositories from a dedicated route."
       initialQuery={initialQuery}
       initialRepoId={initialRepoId}
+      initialOffset={initialOffset}
     />
   );
 }
@@ -6310,6 +6409,7 @@ export function App() {
         kind: 'search' as const,
         initialQuery: params.get('q') ?? '',
         initialRepoId: params.get('repo_id') ?? '',
+        initialOffset: parseSearchOffset(params.get('offset')),
       };
     }
 
@@ -6358,6 +6458,7 @@ export function App() {
       const initialTreePath = params.get('tree_path');
       const searchQuery = params.get('q') ?? '';
       const searchRepoId = params.get('repo_id') ?? '';
+      const searchOffset = parseSearchOffset(params.get('offset'));
       return {
         kind: 'repo' as const,
         repoId: decodeURIComponent(match[1]),
@@ -6365,7 +6466,7 @@ export function App() {
         initialTreePath: initialTreePath && initialTreePath.length > 0 ? initialTreePath : null,
         initialRevision: params.get('revision')?.trim() ? params.get('revision') : null,
         from: params.get('from') === 'search' ? ('search' as const) : null,
-        searchHash: buildSearchHash(searchQuery, searchRepoId),
+        searchHash: buildSearchHash(searchQuery, searchRepoId, searchOffset),
       };
     }
     return { kind: 'home' as const };
@@ -6426,7 +6527,7 @@ export function App() {
       ) : null}
       {route.kind === 'chat' ? <ChatPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
       {route.kind === 'ask' ? <AskPage initialRepoId={route.initialRepoId} initialThreadId={route.initialThreadId} /> : null}
-      {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} /> : null}
+      {route.kind === 'search' ? <SearchPage key={hash} initialQuery={route.initialQuery} initialRepoId={route.initialRepoId} initialOffset={route.initialOffset} /> : null}
       {route.kind === 'agents' ? <AgentsPage initialRunId={route.initialRunId} /> : null}
       {route.kind === 'settings-landing' ? (
         <SettingsShell>
