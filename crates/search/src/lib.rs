@@ -287,11 +287,12 @@ impl LocalSearchStore {
     }
 
     fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
+        let normalized_query = query.to_lowercase();
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
-            .filter(|indexed_line| indexed_line.line.contains(query))
+            .filter(|indexed_line| indexed_line.line.to_lowercase().contains(&normalized_query))
             .map(|indexed_line| SearchResult {
                 repo_id: repo_id.to_string(),
                 path: indexed_line.path.clone(),
@@ -699,6 +700,26 @@ mod tests {
             post_index_response.results.is_empty(),
             "search must use the startup-built index rather than rewalking the filesystem per query"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_matches_queries_case_insensitively() {
+        let (store, root) = create_test_store();
+
+        let response = store.search("BUILD_ROUTER", Some("repo_test")).unwrap();
+
+        assert_eq!(response.query, "BUILD_ROUTER");
+        assert!(response.results.iter().any(|result| {
+            result.path == "src/main.rs"
+                && result.line_number == 1
+                && result.line == "fn build_router() {}"
+        }));
+        assert!(response
+            .results
+            .iter()
+            .any(|result| result.path == "README.md" && result.line_number == 1));
 
         fs::remove_dir_all(root).unwrap();
     }
