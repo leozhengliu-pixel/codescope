@@ -334,6 +334,7 @@ fn build_router(
         .route("/api/v1/auth/logout", post(logout_local_admin))
         .route("/api/v1/auth/revoke", post(revoke_local_admin_session))
         .route("/api/v1/config", get(public_config))
+        .route("/api/v1/mcp", post(handle_mcp_json_rpc))
         .route("/api/v1/mcp/manifest", get(get_mcp_manifest))
         .route("/api/v1/mcp/tools", get(list_mcp_tools))
         .route("/api/v1/mcp/tools/call", post(call_mcp_tool))
@@ -1209,7 +1210,18 @@ async fn call_mcp_tool(
     let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
-    let active_repo_id = bind_mcp_http_active_repo(&mut request, &visible_repo_ids)?;
+    let response =
+        execute_mcp_tool_call_for_visible_repos(&state, visible_repo_ids, &mut request).await?;
+
+    Ok(Json(response))
+}
+
+async fn execute_mcp_tool_call_for_visible_repos(
+    state: &AppState,
+    visible_repo_ids: Vec<String>,
+    request: &mut sourcebot_mcp::McpToolCallRequest,
+) -> Result<sourcebot_mcp::McpToolCallResponse, StatusCode> {
+    let active_repo_id = bind_mcp_http_active_repo(request, &visible_repo_ids)?;
     let context = RetrievalToolContext {
         active_repo_id,
         repo_scope: visible_repo_ids.clone(),
@@ -1227,11 +1239,157 @@ async fn call_mcp_tool(
         &globs,
         &greps,
         &context,
-        request,
+        request.clone(),
     )
     .await;
 
-    Ok(Json(response))
+    Ok(response)
+}
+
+async fn handle_mcp_json_rpc(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+    let id = request
+        .get("id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    if request.get("jsonrpc") != Some(&serde_json::Value::String("2.0".into())) {
+        return Ok(Json(mcp_json_rpc_error(
+            id,
+            -32600,
+            "invalid JSON-RPC request: jsonrpc must be \"2.0\"",
+        )));
+    }
+
+    let Some(method) = request.get("method").and_then(|method| method.as_str()) else {
+        return Ok(Json(mcp_json_rpc_error(
+            id,
+            -32600,
+            "invalid JSON-RPC request: method is required",
+        )));
+    };
+
+    let result = match method {
+        "initialize" => mcp_json_rpc_initialize_result(),
+        "tools/list" => serde_json::json!({
+            "tools": mcp_json_rpc_tool_definitions(),
+        }),
+        "tools/call" => {
+            let Some(params) = request.get("params") else {
+                return Ok(Json(mcp_json_rpc_error(
+                    id,
+                    -32602,
+                    "invalid params for tools/call: params object is required",
+                )));
+            };
+            let mut tool_request: sourcebot_mcp::McpToolCallRequest =
+                serde_json::from_value(params.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
+            let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
+            visible_repo_ids.sort();
+            let tool_response = execute_mcp_tool_call_for_visible_repos(
+                &state,
+                visible_repo_ids,
+                &mut tool_request,
+            )
+            .await?;
+            mcp_json_rpc_tool_call_result(tool_response)
+        }
+        _ => {
+            return Ok(Json(mcp_json_rpc_error(
+                id,
+                -32601,
+                format!("method not found: {method}"),
+            )));
+        }
+    };
+
+    Ok(Json(serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result,
+    })))
+}
+
+fn mcp_json_rpc_initialize_result() -> serde_json::Value {
+    let manifest = sourcebot_mcp::server_manifest();
+    serde_json::json!({
+        "protocolVersion": manifest.protocol_version,
+        "serverInfo": {
+            "name": manifest.server_info.name,
+            "version": manifest.server_info.version,
+        },
+        "capabilities": {
+            "tools": {
+                "listChanged": manifest.capabilities.tools.list_changed,
+            }
+        }
+    })
+}
+
+fn mcp_json_rpc_tool_definitions() -> Vec<serde_json::Value> {
+    mcp_http_tool_definitions()
+        .into_iter()
+        .map(|definition| {
+            serde_json::json!({
+                "name": definition.name,
+                "description": definition.description,
+                "inputSchema": definition.input_schema,
+            })
+        })
+        .collect()
+}
+
+fn mcp_json_rpc_tool_call_result(
+    response: sourcebot_mcp::McpToolCallResponse,
+) -> serde_json::Value {
+    match response {
+        sourcebot_mcp::McpToolCallResponse::Success {
+            structured_content, ..
+        } => serde_json::json!({
+            "content": [{
+                "type": "text",
+                "text": structured_content.to_string(),
+            }],
+            "structuredContent": structured_content,
+            "isError": false,
+        }),
+        sourcebot_mcp::McpToolCallResponse::Error { error, .. } => {
+            let code = error.code;
+            let message = error.message;
+            serde_json::json!({
+                "content": [{
+                    "type": "text",
+                    "text": message,
+                }],
+                "structuredContent": {
+                    "error": {
+                        "code": code,
+                        "message": message,
+                    }
+                },
+                "isError": true,
+            })
+        }
+    }
+}
+
+fn mcp_json_rpc_error(
+    id: serde_json::Value,
+    code: i64,
+    message: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message.into(),
+        }
+    })
 }
 
 async fn public_config(State(state): State<AppState>) -> Json<PublicAppConfig> {
@@ -7462,6 +7620,163 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_endpoint_requires_authentication() {
+        let app = test_app();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "initialize",
+                            "params": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_supports_initialize_tools_list_and_tools_call() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let initialize_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "initialize",
+                            "params": {
+                                "protocolVersion": "2025-06-18",
+                                "capabilities": {},
+                                "clientInfo": {"name": "sourcebot-api-test", "version": "0.0.0"}
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(initialize_response.status(), StatusCode::OK);
+        let initialize: serde_json::Value = read_json(initialize_response).await;
+        assert_eq!(initialize["jsonrpc"], "2.0");
+        assert_eq!(initialize["id"], 1);
+        assert_eq!(initialize["result"]["protocolVersion"], "2025-06-18");
+        assert_eq!(initialize["result"]["serverInfo"]["name"], "sourcebot-mcp");
+        assert_eq!(
+            initialize["result"]["capabilities"]["tools"]["listChanged"],
+            false
+        );
+
+        let tools_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "tools-1",
+                            "method": "tools/list"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(tools_response.status(), StatusCode::OK);
+        let tools: serde_json::Value = read_json(tools_response).await;
+        assert_eq!(tools["id"], "tools-1");
+        let read_file_tool = tools["result"]["tools"]
+            .as_array()
+            .expect("tools/list result should include a tools array")
+            .iter()
+            .find(|tool| tool["name"] == "read_file")
+            .expect("read_file tool should be advertised");
+        assert!(read_file_tool["inputSchema"]["required"]
+            .as_array()
+            .expect("required should be an array")
+            .iter()
+            .any(|value| value == "repo_id"));
+
+        let call_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "list_repos",
+                                "arguments": {}
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(call_response.status(), StatusCode::OK);
+        let call: serde_json::Value = read_json(call_response).await;
+        assert_eq!(call["id"], 2);
+        assert_eq!(call["result"]["isError"], false);
+        assert_eq!(call["result"]["structuredContent"]["tool"], "list_repos");
+        assert_eq!(
+            call["result"]["structuredContent"]["payload"]["repositories"][0]["id"],
+            "repo_sourcebot_rewrite"
+        );
+        assert_eq!(call["result"]["content"][0]["type"], "text");
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]
