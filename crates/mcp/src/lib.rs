@@ -85,6 +85,7 @@ pub struct McpToolCallRequest {
 pub enum McpToolCallErrorCode {
     UnknownTool,
     InvalidArguments,
+    PermissionDenied,
     ExecutionFailed,
     SerializationFailed,
 }
@@ -337,11 +338,8 @@ where
         .run(catalog, trees, blobs, globs, greps, context)
         .await
         .map_err(|err| {
-            McpToolCallResponse::error(
-                tool_name,
-                McpToolCallErrorCode::ExecutionFailed,
-                err.to_string(),
-            )
+            let message = err.to_string();
+            McpToolCallResponse::error(tool_name, classify_execution_error(&message), message)
         })?;
 
     let structured_content = serde_json::to_value(&result).map_err(|err| {
@@ -379,6 +377,16 @@ where
     })
 }
 
+fn classify_execution_error(message: &str) -> McpToolCallErrorCode {
+    if message.contains(" is not visible to the retrieval context")
+        || message.contains(" is outside retrieval scope")
+    {
+        McpToolCallErrorCode::PermissionDenied
+    } else {
+        McpToolCallErrorCode::ExecutionFailed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
@@ -401,6 +409,7 @@ mod tests {
 
     struct NullTreeStore;
     struct NullBlobStore;
+    struct TripwireBlobStore;
     struct NullGlobStore;
     struct NullGrepStore;
 
@@ -449,6 +458,17 @@ mod tests {
             _path: &str,
         ) -> anyhow::Result<Option<RepositoryBlob>> {
             Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl BlobStore for TripwireBlobStore {
+        async fn get_blob(
+            &self,
+            repo_id: &str,
+            path: &str,
+        ) -> anyhow::Result<Option<RepositoryBlob>> {
+            panic!("read_file widened into blob store for repo {repo_id} at path {path}");
         }
     }
 
@@ -679,6 +699,50 @@ mod tests {
                     }
                 })
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_tool_call_read_file_denies_out_of_scope_active_repo_before_blob_lookup() {
+        let response = execute_tool_call(
+            &StaticCatalogStore {
+                repositories: vec![],
+            },
+            &NullTreeStore,
+            &TripwireBlobStore,
+            &NullGlobStore,
+            &NullGrepStore,
+            &RetrievalToolContext {
+                active_repo_id: Some("repo_secret".into()),
+                repo_scope: vec!["repo_sourcebot_rewrite".into()],
+                visible_repo_ids: vec!["repo_sourcebot_rewrite".into(), "repo_secret".into()],
+            },
+            McpToolCallRequest {
+                name: "read_file".into(),
+                arguments: json!({ "path": "secrets.txt" }),
+            },
+        )
+        .await;
+
+        assert_eq!(response.tool_name(), "read_file");
+        assert_eq!(
+            response.error_code(),
+            Some(McpToolCallErrorCode::PermissionDenied)
+        );
+        assert_eq!(
+            response.error_message(),
+            Some("active repository repo_secret is outside retrieval scope")
+        );
+        assert_eq!(
+            serde_json::to_value(response).expect("MCP response should serialize"),
+            json!({
+                "status": "error",
+                "tool_name": "read_file",
+                "error": {
+                    "code": "permission_denied",
+                    "message": "active repository repo_secret is outside retrieval scope",
+                }
+            })
         );
     }
 
