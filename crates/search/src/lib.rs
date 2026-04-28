@@ -19,6 +19,8 @@ const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 const O_NONBLOCK: i32 = 0o4000;
 #[cfg(unix)]
 const O_CLOEXEC: i32 = 0o2000000;
+#[cfg(unix)]
+const O_NOFOLLOW: i32 = 0o400000;
 const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
@@ -220,10 +222,23 @@ impl LocalSearchStore {
     }
 
     fn open_index_artifact(artifact_path: &Path) -> Result<File> {
+        let artifact_symlink_metadata = fs::symlink_metadata(artifact_path).with_context(|| {
+            format!(
+                "failed to read local search index artifact metadata {}",
+                artifact_path.display()
+            )
+        })?;
+        if !artifact_symlink_metadata.is_file() {
+            anyhow::bail!(
+                "search index artifact is not a regular file: {}",
+                artifact_path.display()
+            );
+        }
+
         #[cfg(unix)]
         let artifact_file = OpenOptions::new()
             .read(true)
-            .custom_flags(O_NONBLOCK | O_CLOEXEC)
+            .custom_flags(O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW)
             .open(artifact_path)
             .with_context(|| {
                 format!(
@@ -1626,6 +1641,33 @@ mod tests {
         assert_eq!(status.indexed_file_count, 2);
         assert_eq!(status.indexed_line_count, 3);
         assert_eq!(status.skipped_file_count, 4);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_rejects_symlinked_persisted_index_artifacts() {
+        let (store, root) = create_test_store();
+        let real_artifact_path = root.join(".sourcebot").join("real-local-sync-index.json");
+        let symlink_artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &real_artifact_path)
+            .unwrap();
+        std::os::unix::fs::symlink(&real_artifact_path, &symlink_artifact_path).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &symlink_artifact_path)
+        {
+            Ok(_) => panic!("symlinked persisted index artifact must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact is not a regular file"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
