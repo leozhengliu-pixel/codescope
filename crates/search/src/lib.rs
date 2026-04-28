@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fs::{self, File, OpenOptions},
     io::Read,
     path::{Component, Path, PathBuf},
@@ -537,6 +537,20 @@ fn validate_persisted_index_artifact(
             artifact_path.display(),
             artifact.index_status.indexed_line_count,
             actual_indexed_line_count
+        );
+    }
+
+    let unique_indexed_paths: BTreeSet<&str> = artifact
+        .indexed_lines
+        .iter()
+        .map(|indexed_line| indexed_line.path.as_str())
+        .collect();
+    if artifact.index_status.indexed_file_count < unique_indexed_paths.len() {
+        anyhow::bail!(
+            "search index artifact status file count undercounts stored paths in {}: status reports {} indexed files, artifact contains indexed lines from {} unique paths",
+            artifact_path.display(),
+            artifact.index_status.indexed_file_count,
+            unique_indexed_paths.len()
         );
     }
 
@@ -1670,6 +1684,33 @@ mod tests {
             error
                 .to_string()
                 .contains("search index artifact status count mismatch"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_indexed_file_undercount() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["indexed_file_count"] = serde_json::Value::from(1);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index status file undercount must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact status file count undercounts stored paths"),
             "unexpected error: {error:#}"
         );
 
