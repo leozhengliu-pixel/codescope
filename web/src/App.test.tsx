@@ -1873,7 +1873,7 @@ describe('App', () => {
     expect(screen.getByText('Repository id: repo-42')).toBeInTheDocument();
     expect(screen.getByText('GitHub App')).toBeInTheDocument();
     expect(await screen.findByText('Index status')).toBeInTheDocument();
-    expect(screen.getByText('Index state')).toBeInTheDocument();
+    expect(await screen.findByText('Index state')).toBeInTheDocument();
     expect(screen.getByText('indexed_empty')).toBeInTheDocument();
     expect(screen.getByText('Indexed files')).toBeInTheDocument();
     expect(screen.getByText('0')).toBeInTheDocument();
