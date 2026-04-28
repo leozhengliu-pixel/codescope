@@ -5,46 +5,43 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: d28d43fd0fdbe1b3d387aad24c900bc8100f0685
+  head: 31fc75f1a44713dcabb60dd668526378e3800b72
 last_completed_task:
-  id: task102v
-  title: Search artifact state, NUL binary blobs, and MCP batch notification semantics
+  id: task102w
+  title: Accelerated search, code-navigation, and MCP client interoperability batch
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers, plus a review-forced MCP semantics fix. Task 102 now
-    fails closed when persisted local-sync search-index artifacts claim
-    `indexed_empty` while also reporting non-zero indexed file or line counts,
-    preventing inconsistent empty-state artifacts from becoming trusted runtime
-    status evidence. Task 103 now treats UTF-8 blob payloads containing NUL bytes
-    as binary for both local and revisioned blob reads, preserving size metadata
-    while suppressing source text/code-navigation rendering. Task 107 now supports
-    authenticated JSON-RPC batch requests on `/api/v1/mcp`, keeps mixed batch
-    responses ordered while omitting notifications, and returns empty 204 responses
-    for single/all-notification requests; independent review initially failed this
-    area until notification error paths and all-notification batches were fixed.
+    replacement blockers. Task 102 now treats present but malformed local-sync
+    search-index artifacts as fail-closed empty search results for the affected
+    repository while preserving unscoped results from other visible repositories
+    and retaining operator-visible index-status error evidence. Task 103 now
+    extends bounded reference scanning beyond Rust to TypeScript/JavaScript source
+    files, with revisioned store and API route regressions proving browse URLs are
+    returned for supported TypeScript hits. Task 107 now answers authenticated MCP
+    JSON-RPC `ping` requests with the standard empty result object for client
+    liveness checks while preserving notification omission semantics.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_state_mismatch -- --nocapture: passed with 1 unit test and 25 filtered out'
-    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 7 unit tests and 19 filtered out'
-    - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api nul_bytes_as_binary_blob_metadata -- --nocapture: passed with 2 bin tests, 0 lib tests, and 423 filtered out after integration'
-    - 'cargo test -p sourcebot-api browse::tests -- --nocapture: passed with 24 bin tests, 0 lib tests, and 400 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc_notifications_do_not_emit_success_or_error_responses -- --nocapture: RED before fix returned 200 instead of 204; passed after fix with 1 bin test and 424 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 5 bin tests, 0 lib tests, and 420 filtered out'
+    - 'cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed with 3 bin tests, 0 lib tests, and 426 filtered out'
+    - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 422 filtered out'
+    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 419 filtered out'
+    - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed with 9 bin tests, 0 lib tests, and 420 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 6 bin tests, 0 lib tests, and 423 filtered out'
     - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
-    - 'cargo fmt --check: passed after formatting the review-forced MCP fix'
-    - 'git diff --check: passed'
-    - 'added-lines security scan over 305aabcd9e8033b3627bcdf8c47bfd9f9a5a1e20..HEAD plus worktree fix diff: passed with no findings'
-    - 'independent integration review: initial REQUEST_CHANGES on MCP notification/all-notification response semantics, final APPROVED after d28d43fd0fdbe1b3d387aad24c900bc8100f0685'
+    - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
+    - 'cargo fmt --check: passed'
+    - 'git diff --check 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed'
+    - 'added-lines security scan over 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed with no findings'
+    - 'independent integration review: passed with no security concerns or logic errors; one non-blocking wording suggestion remains for future declaration-vs-reference extension precision'
   review:
     code: >-
-      Independent integration review approved the final integrated range after
-      initially failing closed on MCP JSON-RPC notification semantics. The reviewer
-      verified single notifications and all-notification batches now emit no JSON
-      response, notification error paths are omitted, mixed batch order and auth
-      scoping remain intact, search artifact state validation is fail-closed, NUL
-      blobs are metadata-only, and docs keep MCP/session/runtime claims bounded.
-  commit: d28d43fd0fdbe1b3d387aad24c900bc8100f0685
+      Independent integration review approved the accelerated batch after checking
+      malformed artifact fail-closed search behavior, hidden-repo/scope boundaries,
+      MCP ping and notification semantics, TypeScript reference scanning, browse
+      URL construction, and bounded docs claims. The only suggestion was
+      non-blocking: future wording can distinguish declaration extraction
+      extensions from additional reference-scan target extensions.
+  commit: 31fc75f1a44713dcabb60dd668526378e3800b72
   next_task: task102
 current_task:
   id: task102
@@ -57,28 +54,58 @@ current_task:
     Task 103/106/107/108 blockers when scopes are disjoint. Search now has bounded
     authenticated query-size validation, frontend-visible saved-context management
     for non-empty repository scopes, fail-closed backend context narrowing,
-    explicit boolean/literal/regex modes, deterministic ordering,
-    repository-detail index-status visibility, indexed-empty/skipped-only semantics,
-    persisted artifact path/repo-id validation, hardened local-sync artifact
-    loading that rejects oversized, non-regular, FIFO/special, malformed regular,
+    explicit boolean/literal/regex modes, deterministic ordering, repository-detail
+    index-status visibility, indexed-empty/skipped-only semantics, persisted
+    artifact path/repo-id validation, hardened local-sync artifact loading that
+    rejects oversized, non-regular, FIFO/special, malformed regular,
     indexed-line-count-inconsistent, and `indexed_empty` state/count-inconsistent
-    artifacts before trusting persisted status evidence. Adjacent recent closures
-    also added revisioned blob type safety, frontend binary blob metadata-only source
-    rendering, NUL-byte binary blob detection for local/revisioned reads,
-    commit-diff patch caps plus frontend truncation notice rendering, Generic Git
-    remote advertisement/default-branch metadata output plus direct-HEAD revision
-    branch matching, local Git sync execution output, authenticated JSON-RPC MCP
-    initialize/tools/list/tools/call bridging, batch request handling with
-    notification omission, MCP retrieval permission-denied evidence, local per-tick
-    worker status heartbeat metadata, and redacted worker-status terminal error
-    summaries. Prefer the next closure to move practical indexing/runtime behavior,
-    operator-visible index lifecycle/status, failure recovery, richer grammar,
-    relevance/pagination stability, branch/index availability, provider/runtime
-    parity, MCP session/client interoperability beyond the bounded JSON-RPC bridge,
-    or worker supervision beyond bounded local baselines, while preserving
-    fail-closed visibility boundaries, focused verification, bounded docs claims,
-    independent review, commit, state update, and push.
+    artifacts before trusting persisted status evidence, and fail-closed empty
+    search semantics for present malformed artifacts without aborting unscoped
+    results from other visible repositories. Adjacent recent closures also added
+    revisioned blob type safety, frontend binary blob metadata-only source
+    rendering, NUL-byte binary blob detection for local/revisioned reads, commit-diff
+    patch caps plus frontend truncation notice rendering, TypeScript/JavaScript
+    reference scanning, Generic Git remote advertisement/default-branch metadata
+    output plus direct-HEAD revision branch matching, local Git sync execution
+    output, authenticated JSON-RPC MCP initialize/tools/list/tools/call bridging,
+    batch request handling with notification omission, MCP ping liveness responses,
+    MCP retrieval permission-denied evidence, local per-tick worker status heartbeat
+    metadata, and redacted worker-status terminal error summaries. Prefer the next
+    closure to move practical indexing/runtime behavior, operator-visible index
+    lifecycle/status, failure recovery, richer grammar, relevance/pagination
+    stability, branch/index availability, provider/runtime parity, MCP
+    session/client interoperability beyond the bounded JSON-RPC bridge, or worker
+    supervision beyond bounded local baselines, while preserving fail-closed
+    visibility boundaries, focused verification, bounded docs claims, independent
+    review, commit, state update, and push.
 history:
+  - id: task102w
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch. Search now treats
+      present malformed local-sync search-index artifacts as fail-closed empty
+      results for the affected repository without aborting unscoped results from
+      other visible repositories; code navigation now scans TypeScript/JavaScript
+      files for references; and authenticated MCP JSON-RPC `ping` returns the
+      standard empty result object for client liveness checks.
+    commit: 31fc75f1a44713dcabb60dd668526378e3800b72
+    tests:
+      - 'cargo test -p sourcebot-api malformed_local_sync_search_index_artifact -- --nocapture: passed with 3 bin tests, 0 lib tests, and 426 filtered out'
+      - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 422 filtered out'
+      - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 419 filtered out'
+      - 'cargo test -p sourcebot-api definitions_ -- --nocapture: passed with 9 bin tests, 0 lib tests, and 420 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 6 bin tests, 0 lib tests, and 423 filtered out'
+      - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed'
+      - 'added-lines security scan over 71a84ebf4f54431b5257731bfd3cfcb50f55b436..HEAD: passed with no findings'
+      - 'independent integration review: passed with no security concerns or logic errors'
+    review: >-
+      Independent integration review passed after inspecting malformed artifact
+      fail-closed behavior, auth/scope boundaries, TypeScript reference scanning,
+      MCP ping/notification semantics, and bounded docs claims.
+    completed_at: '2026-04-28'
   - id: task102v
     status: done
     summary: >-
