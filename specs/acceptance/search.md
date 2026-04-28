@@ -16,7 +16,7 @@
 ## Expected behavior
 1. The top-level frontend shell exposes a dedicated `#/search` route so code search is reachable without returning to the repository home inventory.
 2. That route reuses the existing API-backed search flow with query input, optional repository filter, and result rendering grounded in `/api/v1/search`.
-3. A valid query returns ranked matches across all repositories the user can access; the current local/index-artifact baseline matches query text case-insensitively while preserving the caller's trimmed query text in the response.
+3. A valid query returns ranked matches across all repositories the user can access; the current local/index-artifact baseline matches query text case-insensitively and requires every space-separated query term to appear on a result line while preserving the caller's trimmed query text in the response.
 4. Each result includes repository, revision or branch context, file path, line-oriented snippet, and enough metadata to open the file view.
 5. Filters narrow the result set without leaking inaccessible repositories.
 6. Authenticated users can create, list, and delete saved search contexts through `/api/v1/auth/search-contexts`; `GET /api/v1/search?context_id=...` applies the saved context as an additional repository-scope filter.
@@ -30,7 +30,7 @@
 - Search contexts must only expand to repositories visible to the caller.
 - Saved search contexts are caller-owned. Unknown, deleted, other-user, or present-but-blank context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
 - Explicit `repo_id` filters are fail-closed: hidden, unknown, or present-but-blank repository ids return `404` instead of being treated as absent and broadening the search across all visible repositories.
-- This saved-context, pagination, and local search-matching baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages, explicit blank-`repo_id` fail-closed behavior, and case-insensitive text matching for the startup/local-sync search store; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, full relevance tuning, or full stable pagination parity across changing indexes/revisions.
+- This saved-context, pagination, and local search-matching baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages, explicit blank-`repo_id` fail-closed behavior, case-insensitive text matching, and all-term matching for space-separated queries in the startup/local-sync search store; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar, full relevance tuning, or full stable pagination parity across changing indexes/revisions.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.

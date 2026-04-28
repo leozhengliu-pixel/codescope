@@ -288,11 +288,14 @@ impl LocalSearchStore {
 
     fn search_repo(&self, repo_id: &str, query: &str) -> Vec<SearchResult> {
         let normalized_query = query.to_lowercase();
+        let query_terms: Vec<&str> = normalized_query.split_whitespace().collect();
         self.indexed_lines
             .get(repo_id)
             .into_iter()
             .flatten()
-            .filter(|indexed_line| indexed_line.line.to_lowercase().contains(&normalized_query))
+            .filter(|indexed_line| {
+                line_matches_query(&indexed_line.line, &normalized_query, &query_terms)
+            })
             .map(|indexed_line| SearchResult {
                 repo_id: repo_id.to_string(),
                 path: indexed_line.path.clone(),
@@ -420,6 +423,16 @@ impl SearchStore for LocalSearchStore {
     fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>> {
         Ok(self.index_statuses.get(repo_id).cloned())
     }
+}
+
+fn line_matches_query(line: &str, normalized_query: &str, query_terms: &[&str]) -> bool {
+    let normalized_line = line.to_lowercase();
+    if query_terms.len() <= 1 {
+        return normalized_line.contains(normalized_query);
+    }
+    query_terms
+        .iter()
+        .all(|term| normalized_line.contains(term))
 }
 
 fn should_skip_file(path: &Path) -> bool {
@@ -720,6 +733,26 @@ mod tests {
             .results
             .iter()
             .any(|result| result.path == "README.md" && result.line_number == 1));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_matches_all_space_separated_query_terms() {
+        let (store, root) = create_test_store();
+
+        let response = store.search("build documented", Some("repo_test")).unwrap();
+
+        assert_eq!(response.query, "build documented");
+        assert!(response.results.iter().any(|result| {
+            result.path == "README.md"
+                && result.line_number == 1
+                && result.line == "build_router is documented here"
+        }));
+        assert!(response
+            .results
+            .iter()
+            .all(|result| result.path != "src/main.rs"));
 
         fs::remove_dir_all(root).unwrap();
     }

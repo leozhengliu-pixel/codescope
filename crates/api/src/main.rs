@@ -27599,6 +27599,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn search_matches_all_space_separated_terms_without_exact_phrase() {
+        let search_root = unique_test_path("search-tokenized-query-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn tokenized_query_marker() {}\npub fn unrelated_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-tokenized-query-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-tokenized-query-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-tokenized-query-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=tokenized%20marker&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.query, "tokenized marker");
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.results[0].path, "src/lib.rs");
+        assert!(payload.results[0].line.contains("tokenized_query_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
     async fn search_rejects_blank_present_repo_id_without_broadening_results() {
         let search_root = unique_test_path("search-blank-repo-id-root");
         fs::create_dir_all(search_root.join("src")).unwrap();
