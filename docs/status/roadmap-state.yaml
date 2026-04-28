@@ -5,51 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: cdf904665983c053f49c5121daab005006b0a98f
+  head: d28d43fd0fdbe1b3d387aad24c900bc8100f0685
 last_completed_task:
-  id: task102u
-  title: Search artifact consistency, binary source UX, and redacted worker status errors
+  id: task102v
+  title: Search artifact state, NUL binary blobs, and MCP batch notification semantics
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now fails closed when a persisted local-sync
-    search-index artifact's `index_status.indexed_line_count` disagrees with the
-    stored indexed-line payload, preventing stale or corrupt artifact counts from
-    becoming trusted index-status evidence. Task 103 now renders backend binary blob
-    metadata in the repository source panel as an explicit metadata-only notice and
-    suppresses source text plus code-navigation controls for that binary blob. Task
-    108 now adds optional worker-status last work-item id/status plus a bounded,
-    redacted repository-sync terminal error summary; review-forced hardening changed
-    status snapshots to preserve only allowlisted stable failure summaries and redact
-    unknown/no-colon details before the authenticated worker-status API can surface
-    them. A follow-up frontend test-only commit also waits for asynchronous index
-    status details after the broader route-family selector exposed a race.
+    replacement blockers, plus a review-forced MCP semantics fix. Task 102 now
+    fails closed when persisted local-sync search-index artifacts claim
+    `indexed_empty` while also reporting non-zero indexed file or line counts,
+    preventing inconsistent empty-state artifacts from becoming trusted runtime
+    status evidence. Task 103 now treats UTF-8 blob payloads containing NUL bytes
+    as binary for both local and revisioned blob reads, preserving size metadata
+    while suppressing source text/code-navigation rendering. Task 107 now supports
+    authenticated JSON-RPC batch requests on `/api/v1/mcp`, keeps mixed batch
+    responses ordered while omitting notifications, and returns empty 204 responses
+    for single/all-notification requests; independent review initially failed this
+    area until notification error paths and all-notification batches were fixed.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture: passed with 1 unit test and 24 filtered out'
-    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 6 unit tests and 19 filtered out'
-    - 'cargo test -p sourcebot-search: passed with 25 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-worker --bin sourcebot-worker worker_status_error -- --nocapture: passed with 3 bin-unit tests'
-    - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_failed_repository_sync_error_detail -- --nocapture: passed with 1 integration test and 4 filtered out'
-    - 'cargo test -p sourcebot-worker --test worker_runtime_logging_smoke -- --nocapture: passed with 5 integration tests'
-    - 'cargo test -p sourcebot-worker: passed with 40 lib tests, 3 bin-unit tests, 20 integration tests, and 0 doctests'
-    - 'npm test -- --run src/App.test.tsx -t "shows binary blob metadata" (web): passed with 1 focused test and 183 skipped'
-    - 'npm test -- --run src/App.test.tsx -t "loads repository detail|keeps branch|clears repo-scoped|preserves the search back link|shows browse errors|loads recent commits|renders commit pagination|friendly fallback|finds definitions|ignores stale navigation|finds references|non-fatal capability|no-results state|shows binary blob metadata" (web): passed with 14 route-family tests and 170 skipped after async index-status wait fix'
-    - 'npm run build (web): passed'
-    - 'cargo fmt --check: passed'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_state_mismatch -- --nocapture: passed with 1 unit test and 25 filtered out'
+    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 7 unit tests and 19 filtered out'
+    - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api nul_bytes_as_binary_blob_metadata -- --nocapture: passed with 2 bin tests, 0 lib tests, and 423 filtered out after integration'
+    - 'cargo test -p sourcebot-api browse::tests -- --nocapture: passed with 24 bin tests, 0 lib tests, and 400 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_notifications_do_not_emit_success_or_error_responses -- --nocapture: RED before fix returned 200 instead of 204; passed after fix with 1 bin test and 424 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 5 bin tests, 0 lib tests, and 420 filtered out'
+    - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
+    - 'cargo fmt --check: passed after formatting the review-forced MCP fix'
     - 'git diff --check: passed'
-    - 'added-lines security scan over 5cadc11..HEAD: passed with no findings'
-    - 'independent integration review: passed after review-forced worker status error redaction hardening and final test-only re-review'
+    - 'added-lines security scan over 305aabcd9e8033b3627bcdf8c47bfd9f9a5a1e20..HEAD plus worktree fix diff: passed with no findings'
+    - 'independent integration review: initial REQUEST_CHANGES on MCP notification/all-notification response semantics, final APPROVED after d28d43fd0fdbe1b3d387aad24c900bc8100f0685'
   review:
     code: >-
-      Independent integration review initially failed closed on raw worker-status
-      error exposure, then on a sanitizer that preserved arbitrary pre-colon text.
-      The controller hardened the worker snapshot path to allowlist stable local,
-      Generic Git, and stub failure summaries while returning a generic redacted
-      summary for unknown or colonless errors. Final re-review passed with no
-      security concerns or logic errors; it also verified the search artifact
-      validation, binary blob metadata-only UI, and bounded docs claims. A final
-      quick re-review approved the test-only async wait fix.
-  commit: cdf904665983c053f49c5121daab005006b0a98f
+      Independent integration review approved the final integrated range after
+      initially failing closed on MCP JSON-RPC notification semantics. The reviewer
+      verified single notifications and all-notification batches now emit no JSON
+      response, notification error paths are omitted, mixed batch order and auth
+      scoping remain intact, search artifact state validation is fail-closed, NUL
+      blobs are metadata-only, and docs keep MCP/session/runtime claims bounded.
+  commit: d28d43fd0fdbe1b3d387aad24c900bc8100f0685
   next_task: task102
 current_task:
   id: task102
@@ -66,22 +61,55 @@ current_task:
     repository-detail index-status visibility, indexed-empty/skipped-only semantics,
     persisted artifact path/repo-id validation, hardened local-sync artifact
     loading that rejects oversized, non-regular, FIFO/special, malformed regular,
-    and indexed-line-count-inconsistent artifacts before trusting persisted status
-    evidence. Adjacent recent closures also added revisioned blob type safety,
-    frontend binary blob metadata-only source rendering, commit-diff patch caps plus
-    frontend truncation notice rendering, Generic Git remote advertisement/default-
-    branch metadata output plus direct-HEAD revision branch matching, local Git sync
-    execution output, authenticated JSON-RPC MCP initialize/tools/list/tools/call
-    bridging, MCP retrieval permission-denied evidence, local per-tick worker status
-    heartbeat metadata, and redacted worker-status terminal error summaries. Prefer
-    the next closure to move practical indexing/runtime behavior, operator-visible
-    index lifecycle/status, failure recovery, richer grammar, relevance/pagination
-    stability, branch/index availability, provider/runtime parity, MCP
-    session/client interoperability beyond the bounded JSON-RPC bridge, or worker
-    supervision beyond bounded local baselines, while preserving fail-closed
-    visibility boundaries, focused verification, bounded docs claims, independent
-    review, commit, state update, and push.
+    indexed-line-count-inconsistent, and `indexed_empty` state/count-inconsistent
+    artifacts before trusting persisted status evidence. Adjacent recent closures
+    also added revisioned blob type safety, frontend binary blob metadata-only source
+    rendering, NUL-byte binary blob detection for local/revisioned reads,
+    commit-diff patch caps plus frontend truncation notice rendering, Generic Git
+    remote advertisement/default-branch metadata output plus direct-HEAD revision
+    branch matching, local Git sync execution output, authenticated JSON-RPC MCP
+    initialize/tools/list/tools/call bridging, batch request handling with
+    notification omission, MCP retrieval permission-denied evidence, local per-tick
+    worker status heartbeat metadata, and redacted worker-status terminal error
+    summaries. Prefer the next closure to move practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer grammar,
+    relevance/pagination stability, branch/index availability, provider/runtime
+    parity, MCP session/client interoperability beyond the bounded JSON-RPC bridge,
+    or worker supervision beyond bounded local baselines, while preserving
+    fail-closed visibility boundaries, focused verification, bounded docs claims,
+    independent review, commit, state update, and push.
 history:
+  - id: task102v
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch plus a review-forced
+      MCP fix. Search/index-status now rejects persisted local-sync search-index
+      artifacts that claim `indexed_empty` while reporting non-zero counts;
+      browse/source now treats local and revisioned UTF-8 payloads containing NUL
+      bytes as binary metadata-only blobs; and `/api/v1/mcp` now supports
+      authenticated JSON-RPC batches with ordered mixed responses, notification
+      omission, and 204 empty responses for single/all-notification requests.
+    commit: d28d43fd0fdbe1b3d387aad24c900bc8100f0685
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_state_mismatch -- --nocapture: passed with 1 unit test and 25 filtered out'
+      - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 7 unit tests and 19 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 26 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api nul_bytes_as_binary_blob_metadata -- --nocapture: passed with 2 bin tests, 0 lib tests, and 423 filtered out after integration'
+      - 'cargo test -p sourcebot-api browse::tests -- --nocapture: passed with 24 bin tests, 0 lib tests, and 400 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_notifications_do_not_emit_success_or_error_responses -- --nocapture: RED before fix returned 200 instead of 204; passed after fix with 1 bin test and 424 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 5 bin tests, 0 lib tests, and 420 filtered out'
+      - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
+      - 'cargo fmt --check: passed after formatting the review-forced MCP fix'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over 305aabcd9e8033b3627bcdf8c47bfd9f9a5a1e20..HEAD plus worktree fix diff: passed with no findings'
+      - 'independent integration review: initial REQUEST_CHANGES on MCP notification/all-notification response semantics, final APPROVED after d28d43fd0fdbe1b3d387aad24c900bc8100f0685'
+    review: >-
+      Independent integration review initially failed closed on JSON-RPC
+      notification/all-notification response semantics. The controller added a RED
+      regression, changed single/all-notification requests to return 204 with empty
+      bodies, omitted notification error paths, reran the MCP/search/browse checks,
+      and final re-review approved with no blocking issues.
+    completed_at: '2026-04-28'
   - id: task102u
     status: done
     summary: >-
