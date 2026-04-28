@@ -1828,8 +1828,8 @@ describe('App', () => {
       if (url === '/api/v1/repos/repo-42/index-status') {
         return jsonResponse({
           repo_id: 'repo-42',
-          status: 'indexed',
-          indexed_file_count: 12,
+          status: 'indexed_empty',
+          indexed_file_count: 0,
           indexed_line_count: 345,
           skipped_file_count: 2,
           error: null,
@@ -1874,9 +1874,9 @@ describe('App', () => {
     expect(screen.getByText('GitHub App')).toBeInTheDocument();
     expect(await screen.findByText('Index status')).toBeInTheDocument();
     expect(screen.getByText('Index state')).toBeInTheDocument();
-    expect(screen.getByText('indexed')).toBeInTheDocument();
+    expect(screen.getByText('indexed_empty')).toBeInTheDocument();
     expect(screen.getByText('Indexed files')).toBeInTheDocument();
-    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('0')).toBeInTheDocument();
     expect(screen.getByText('Indexed lines')).toBeInTheDocument();
     expect(screen.getByText('345')).toBeInTheDocument();
     expect(screen.getByText('Skipped files')).toBeInTheDocument();

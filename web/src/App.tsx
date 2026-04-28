@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 
 type SyncState = 'pending' | 'ready' | 'error';
 
-type RepositoryIndexState = 'indexed' | 'error';
+type RepositoryIndexState = 'indexed' | 'indexed_empty' | 'error';
 
 type RepoSummary = {
   id: string;
@@ -671,6 +671,7 @@ function StatusBadge({ state }: { state: SyncState }) {
 function RepositoryIndexStatusBadge({ status }: { status: RepositoryIndexState }) {
   const colors: Record<RepositoryIndexState, string> = {
     indexed: '#1a7f37',
+    indexed_empty: '#6e7781',
     error: '#cf222e',
   };
 

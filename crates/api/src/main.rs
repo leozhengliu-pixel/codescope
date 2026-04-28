@@ -605,6 +605,7 @@ struct RepositorySyncJobListItemResponse {
     synced_revision: Option<String>,
     synced_branch: Option<String>,
     synced_content_file_count: Option<i64>,
+    retryable: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -3142,7 +3143,7 @@ async fn create_authenticated_repository_sync_job(
 
     Ok((
         StatusCode::CREATED,
-        Json(repository_sync_job_list_item_response(job)),
+        Json(repository_sync_job_list_item_response(job, false)),
     ))
 }
 
@@ -3239,7 +3240,7 @@ async fn retry_authenticated_repository_sync_job(
 
     Ok((
         StatusCode::CREATED,
-        Json(repository_sync_job_list_item_response(retry_job)),
+        Json(repository_sync_job_list_item_response(retry_job, false)),
     ))
 }
 
@@ -3272,8 +3273,18 @@ async fn list_authenticated_repository_sync_jobs(
     jobs.sort_by(|left, right| right.queued_at.cmp(&left.queued_at));
 
     Ok(Json(
-        jobs.into_iter()
-            .map(repository_sync_job_list_item_response)
+        jobs.iter()
+            .map(|job| {
+                repository_sync_job_list_item_response(
+                    job.clone(),
+                    repository_sync_job_is_retryable_for_user(
+                        job,
+                        &jobs,
+                        &visibility_state,
+                        &session.user_id,
+                    ),
+                )
+            })
             .collect(),
     ))
 }
@@ -4037,8 +4048,29 @@ fn search_context_list_item_response(
     }
 }
 
+fn repository_sync_job_is_retryable_for_user(
+    job: &RepositorySyncJob,
+    visible_jobs: &[RepositorySyncJob],
+    visibility_state: &OrganizationState,
+    user_id: &str,
+) -> bool {
+    job.status == sourcebot_models::RepositorySyncJobStatus::Failed
+        && user_is_organization_admin(visibility_state, user_id, &job.organization_id)
+        && !visible_jobs.iter().any(|candidate| {
+            candidate.organization_id == job.organization_id
+                && candidate.repository_id == job.repository_id
+                && candidate.connection_id == job.connection_id
+                && matches!(
+                    candidate.status,
+                    sourcebot_models::RepositorySyncJobStatus::Queued
+                        | sourcebot_models::RepositorySyncJobStatus::Running
+                )
+        })
+}
+
 fn repository_sync_job_list_item_response(
     job: RepositorySyncJob,
+    retryable: bool,
 ) -> RepositorySyncJobListItemResponse {
     RepositorySyncJobListItemResponse {
         id: job.id,
@@ -4053,6 +4085,7 @@ fn repository_sync_job_list_item_response(
         synced_revision: job.synced_revision,
         synced_branch: job.synced_branch,
         synced_content_file_count: job.synced_content_file_count,
+        retryable,
     }
 }
 
@@ -6749,6 +6782,7 @@ mod tests {
         synced_revision: Option<String>,
         synced_branch: Option<String>,
         synced_content_file_count: Option<i64>,
+        retryable: bool,
     }
 
     #[derive(Debug, Serialize)]
@@ -7122,7 +7156,7 @@ mod tests {
                 role: OrganizationRole::Viewer,
                 invited_by_user_id: "user_admin".into(),
                 created_at: "2026-04-21T00:05:00Z".into(),
-                expires_at: "2026-04-28T00:05:00Z".into(),
+                expires_at: "2099-04-28T00:05:00Z".into(),
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
@@ -7668,7 +7702,7 @@ mod tests {
                 role: OrganizationRole::Viewer,
                 invited_by_user_id: "other_admin".into(),
                 created_at: "2026-04-21T00:00:00Z".into(),
-                expires_at: "2026-04-28T00:00:00Z".into(),
+                expires_at: "2099-04-28T00:00:00Z".into(),
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
@@ -8216,7 +8250,7 @@ mod tests {
             role: OrganizationRole::Viewer,
             invited_by_user_id: LOCAL_BOOTSTRAP_ADMIN_USER_ID.into(),
             created_at: "2026-04-21T00:00:00Z".into(),
-            expires_at: "2026-04-28T00:00:00Z".into(),
+            expires_at: "2099-04-28T00:00:00Z".into(),
             accepted_by_user_id: None,
             accepted_at: None,
         });
@@ -9291,8 +9325,8 @@ mod tests {
         .unwrap();
         sqlx::query(
             "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
-            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
-            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2099-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
         )
         .execute(&pool)
         .await
@@ -10842,7 +10876,7 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL)",
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL)",
         )
         .execute(&pool)
         .await
@@ -11066,7 +11100,7 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2026-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2099-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
         )
         .execute(&pool)
         .await
@@ -11168,7 +11202,7 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2026-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'user_admin', '2026-04-21T00:05:00Z'::timestamptz, '2099-04-28T00:05:00Z'::timestamptz, NULL, NULL)",
         )
         .execute(&pool)
         .await
@@ -14027,7 +14061,7 @@ mod tests {
                 role: OrganizationRole::Viewer,
                 invited_by_user_id: "user_admin".into(),
                 created_at: "2026-04-21T00:05:00Z".into(),
-                expires_at: "2026-04-28T00:05:00Z".into(),
+                expires_at: "2099-04-28T00:05:00Z".into(),
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
@@ -14166,7 +14200,7 @@ mod tests {
                     role: OrganizationRole::Viewer,
                     invited_by_user_id: "user_admin".into(),
                     created_at: "2026-04-21T00:05:00Z".into(),
-                    expires_at: "2026-04-28T00:05:00Z".into(),
+                    expires_at: "2099-04-28T00:05:00Z".into(),
                     accepted_by_user_id: None,
                     accepted_at: None,
                 },
@@ -14177,7 +14211,7 @@ mod tests {
                     role: OrganizationRole::Viewer,
                     invited_by_user_id: "user_admin".into(),
                     created_at: "2026-04-21T00:06:00Z".into(),
-                    expires_at: "2026-04-28T00:06:00Z".into(),
+                    expires_at: "2099-04-28T00:06:00Z".into(),
                     accepted_by_user_id: Some("user_existing".into()),
                     accepted_at: Some("2026-04-21T00:07:00Z".into()),
                 },
@@ -14293,7 +14327,7 @@ mod tests {
                 role: OrganizationRole::Viewer,
                 invited_by_user_id: "user_admin".into(),
                 created_at: "2026-04-21T00:05:00Z".into(),
-                expires_at: "2026-04-28T00:05:00Z".into(),
+                expires_at: "2099-04-28T00:05:00Z".into(),
                 accepted_by_user_id: None,
                 accepted_at: None,
             }],
@@ -15949,7 +15983,7 @@ mod tests {
             memberships: vec![OrganizationMembership {
                 organization_id: "org_acme".into(),
                 user_id: user_id.into(),
-                role: OrganizationRole::Viewer,
+                role: OrganizationRole::Admin,
                 joined_at: "2026-04-21T00:00:00Z".into(),
             }],
             accounts: vec![LocalAccount {
@@ -15999,6 +16033,34 @@ mod tests {
                     synced_revision: Some("abc123def456".into()),
                     synced_branch: Some("main".into()),
                     synced_content_file_count: Some(7),
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible_failed".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    connection_id: "conn_failed".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Failed,
+                    queued_at: "2026-04-21T00:09:00Z".into(),
+                    started_at: Some("2026-04-21T00:09:05Z".into()),
+                    finished_at: Some("2026-04-21T00:09:10Z".into()),
+                    error: Some("git fetch exited 128".into()),
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
+                },
+                sourcebot_models::RepositorySyncJob {
+                    id: "sync_visible_running".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_visible".into(),
+                    connection_id: "conn_visible".into(),
+                    status: sourcebot_models::RepositorySyncJobStatus::Running,
+                    queued_at: "2026-04-21T00:09:30Z".into(),
+                    started_at: Some("2026-04-21T00:09:35Z".into()),
+                    finished_at: None,
+                    error: None,
+                    synced_revision: None,
+                    synced_branch: None,
+                    synced_content_file_count: None,
                 },
                 sourcebot_models::RepositorySyncJob {
                     id: "sync_hidden_org".into(),
@@ -16055,7 +16117,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let payload: Vec<RepositorySyncJobListItemResponseBody> = read_json(response).await;
-        assert_eq!(payload.len(), 2);
+        assert_eq!(payload.len(), 4);
         assert_eq!(payload[0].id, "sync_visible_newer");
         assert_eq!(payload[0].organization_id, "org_acme");
         assert_eq!(payload[0].repository_id, "repo_visible");
@@ -16074,12 +16136,25 @@ mod tests {
         assert_eq!(payload[0].synced_revision.as_deref(), Some("abc123def456"));
         assert_eq!(payload[0].synced_branch.as_deref(), Some("main"));
         assert_eq!(payload[0].synced_content_file_count, Some(7));
-        assert_eq!(payload[1].id, "sync_visible_older");
-        assert_eq!(payload[1].status, "queued");
-        assert_eq!(payload[1].queued_at, "2026-04-21T00:08:00Z");
-        assert!(payload[1].started_at.is_none());
+        assert!(!payload[0].retryable);
+        assert_eq!(payload[1].id, "sync_visible_running");
+        assert_eq!(payload[1].status, "running");
+        assert_eq!(payload[1].queued_at, "2026-04-21T00:09:30Z");
+        assert!(payload[1].started_at.is_some());
         assert!(payload[1].finished_at.is_none());
-        assert!(payload[1].error.is_none());
+        assert!(!payload[1].retryable);
+        assert_eq!(payload[2].id, "sync_visible_failed");
+        assert_eq!(payload[2].status, "failed");
+        assert_eq!(payload[2].queued_at, "2026-04-21T00:09:00Z");
+        assert_eq!(payload[2].error.as_deref(), Some("git fetch exited 128"));
+        assert!(payload[2].retryable);
+        assert_eq!(payload[3].id, "sync_visible_older");
+        assert_eq!(payload[3].status, "queued");
+        assert_eq!(payload[3].queued_at, "2026-04-21T00:08:00Z");
+        assert!(payload[3].started_at.is_none());
+        assert!(payload[3].finished_at.is_none());
+        assert!(payload[3].error.is_none());
+        assert!(!payload[3].retryable);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();

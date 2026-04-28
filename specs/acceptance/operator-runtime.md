@@ -9,6 +9,7 @@ This document covers:
 - `GET /readyz`
 - `GET /api/v1/config`
 - `GET /api/v1/auth/worker-status`
+- `GET /api/v1/auth/repository-sync-jobs` sync-history visibility
 - the shared `SOURCEBOT_DATA_DIR` runtime-path contract
 - explicit per-file path overrides for bootstrap, local-session, and organization state
 - local bring-up with `make api` and `make worker`
@@ -91,6 +92,12 @@ Given an authenticated local-session caller requests `GET /api/v1/auth/worker-st
 then the service returns `200` with `status: "ok"`, `configured: true`, and the bounded JSON snapshot. Missing, invalid JSON, non-file, or oversized snapshots return a structured `status: "error"` response instead of panicking or reading unbounded data.
 
 This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. It does not claim a production metrics API, durable worker metadata, a heartbeat, scheduler supervision, retry orchestration, or broad observability parity.
+
+### Authenticated repository-sync history
+Given an authenticated local-session caller requests `GET /api/v1/auth/repository-sync-jobs`,
+then each visible repository-sync job includes terminal metadata (`started_at`, `finished_at`, `error`, `synced_revision`, `synced_branch`, and `synced_content_file_count`) plus a derived `retryable` flag. The flag is `true` only for failed jobs visible to an organization admin when no queued or running job already exists for the same organization/repository/connection target, and `false` for non-admin callers, active jobs, and terminal jobs that the bounded manual retry API would currently reject.
+
+This is operator-visible retry eligibility metadata for the sync-history API only. It does not claim automatic retry/backoff scheduling beyond the bounded worker behavior documented in the worker-runtime acceptance spec.
 
 ## Deferred follow-up areas
 The following parity-facing operator concerns remain explicitly outside the shipped baseline documented here:

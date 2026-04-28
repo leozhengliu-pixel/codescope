@@ -46,6 +46,7 @@ impl Default for SearchMode {
 #[serde(rename_all = "snake_case")]
 pub enum RepositoryIndexState {
     Indexed,
+    IndexedEmpty,
     Error,
 }
 
@@ -291,7 +292,11 @@ impl LocalSearchStore {
                         repo_id.clone(),
                         RepositoryIndexStatus {
                             repo_id: repo_id.clone(),
-                            status: RepositoryIndexState::Indexed,
+                            status: if indexed_file_count == 0 {
+                                RepositoryIndexState::IndexedEmpty
+                            } else {
+                                RepositoryIndexState::Indexed
+                            },
                             indexed_file_count,
                             indexed_line_count,
                             skipped_file_count,
@@ -1360,6 +1365,40 @@ mod tests {
         assert_eq!(status.error, None);
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_distinguishes_indexed_empty_repositories() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-empty-status",
+            "",
+            "",
+            "target/generated.txt",
+        );
+        fs::remove_file(fixture.root.join("README.md")).unwrap();
+        fs::remove_dir_all(fixture.root.join("src")).unwrap();
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_empty".to_string(),
+            fixture.root.clone(),
+        )]));
+        let status = store
+            .repository_index_status("repo_empty")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(status.repo_id, "repo_empty");
+        assert_eq!(status.status, RepositoryIndexState::IndexedEmpty);
+        assert_eq!(status.indexed_file_count, 0);
+        assert_eq!(status.indexed_line_count, 0);
+        assert_eq!(status.error, None);
+        assert!(store
+            .search("anything", Some("repo_empty"))
+            .unwrap()
+            .results
+            .is_empty());
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]

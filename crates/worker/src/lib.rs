@@ -599,7 +599,11 @@ fn write_local_repository_sync_search_index(
             job.repository_id
         )
     })?;
-    if index_status.status != sourcebot_search::RepositoryIndexState::Indexed {
+    if !matches!(
+        index_status.status,
+        sourcebot_search::RepositoryIndexState::Indexed
+            | sourcebot_search::RepositoryIndexState::IndexedEmpty
+    ) {
         return Err(format!(
             "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local search index artifact could not be built for repository {}: {}",
             job.repository_id,
@@ -2721,7 +2725,91 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_repository_sync_claim_tick_snapshots_tracked_paths_with_surrounding_spaces() {
+    async fn run_repository_sync_claim_tick_persists_index_artifact_for_skipped_only_local_repositories(
+    ) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-local-git-skipped-only-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("binary.bin"), b"\0\0\0skipped\0").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "binary.bin"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "skipped-only fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_skipped_only",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:00:30Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let completed_job =
+            run_repository_sync_claim_tick(&store, StubRepositorySyncJobExecutionOutcome::Failed)
+                .await
+                .unwrap()
+                .expect(
+                    "queued skipped-only local repository sync job should be terminally recorded",
+                );
+
+        assert_eq!(completed_job.id, "sync_job_local_skipped_only");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert_eq!(completed_job.error, None);
+        assert_eq!(completed_job.synced_content_file_count, Some(1));
+
+        let search_index_path = repo_path
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_sync_job_local_skipped_only")
+            .join("sync_job_local_skipped_only")
+            .join("search-index.json");
+        assert!(
+            search_index_path.is_file(),
+            "successful skipped-only local sync should still persist an indexed_empty artifact"
+        );
+        let search_index = sourcebot_search::LocalSearchStore::from_index_artifact(
+            "repo_sync_job_local_skipped_only",
+            &search_index_path,
+        )
+        .unwrap();
+        let index_status = search_index
+            .repository_index_status("repo_sync_job_local_skipped_only")
+            .unwrap()
+            .expect("empty repository artifact should expose index status");
+        assert_eq!(
+            index_status.status,
+            sourcebot_search::RepositoryIndexState::IndexedEmpty
+        );
+        assert_eq!(index_status.indexed_file_count, 0);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_snapshots_tracked_head_content_for_local_connections() {
         let repo_path = std::env::temp_dir().join(format!(
             "sourcebot-worker-local-git-spaced-path-repo-{}",
             SystemTime::now()

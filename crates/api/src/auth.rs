@@ -651,6 +651,28 @@ impl PgOrganizationAuthMetadataStore {
         .execute(&mut *tx)
         .await?;
 
+        insert_audit_event_in_tx(
+            &mut tx,
+            &AuditEvent {
+                id: format!("audit_invite_{}_accepted", invite.id),
+                organization_id: invite.organization_id.clone(),
+                actor: AuditActor {
+                    user_id: Some(account.id.clone()),
+                    api_key_id: None,
+                },
+                action: "invite.accepted".into(),
+                target_type: "organization_invite".into(),
+                target_id: invite.id.clone(),
+                occurred_at: accepted_at.to_string(),
+                metadata: serde_json::json!({
+                    "accepted_user_id": account.id,
+                    "email": email.trim(),
+                    "role": organization_role_as_str(&invite.role),
+                }),
+            },
+        )
+        .await?;
+
         let membership = sqlx::query(
             "SELECT organization_id, user_id, role, to_char(joined_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS joined_at FROM organization_memberships WHERE organization_id = $1 AND user_id = $2",
         )
@@ -2819,8 +2841,8 @@ mod tests {
         .unwrap();
         sqlx::query(
             "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
-            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
-            ('invite_accepted', 'org_acme', 'accepted@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)",
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'viewer', 'local_user_admin', '2026-04-22T10:05:00Z'::timestamptz, '2099-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)",
         )
         .execute(&pool)
         .await
@@ -3013,8 +3035,8 @@ mod tests {
         .unwrap();
         sqlx::query(
             "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
-            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL),
-            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2026-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
+            ('invite_pending', 'org_acme', 'pending@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL),
+            ('invite_accepted', 'org_acme', 'accepted@example.com', 'admin', 'local_user_inviter', '2026-04-22T10:05:00Z'::timestamptz, '2099-04-29T10:05:00Z'::timestamptz, 'local_user_member', '2026-04-22T11:00:00Z'::timestamptz)"
         )
         .execute(&pool)
         .await
@@ -3137,7 +3159,7 @@ mod tests {
         .unwrap();
         sqlx::query(
             "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
-            ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2026-04-29T10:00:00Z'::timestamptz, NULL, NULL)"
+            ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL)"
         )
         .execute(&pool)
         .await
@@ -3223,6 +3245,69 @@ mod tests {
         assert_eq!(
             persisted_invite.get::<String, _>("accepted_at"),
             "2026-04-22T12:30:00Z"
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_org_auth_metadata_redeeming_invite_writes_audit_event() {
+        let pool = org_auth_metadata_test_pool().await;
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ('org_acme', 'acme', 'Acme')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO local_accounts (id, email, name, created_at) VALUES
+            ('local_user_inviter', 'inviter@example.com', 'Inviter User', '2026-04-22T08:55:00Z'::timestamptz)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO organization_invites (id, organization_id, email, role, invited_by_user_id, created_at, expires_at, accepted_by_user_id, accepted_at) VALUES
+            ('invite_pending', 'org_acme', 'invitee@example.com', 'viewer', 'local_user_inviter', '2026-04-22T10:00:00Z'::timestamptz, '2099-04-29T10:00:00Z'::timestamptz, NULL, NULL)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let store = PgOrganizationAuthMetadataStore { pool: pool.clone() };
+        store
+            .redeem_invite(
+                "invite_pending",
+                "invitee@example.com",
+                "Invited User",
+                "$argon2id$invite-hash",
+                "2026-04-22T12:30:00Z",
+                "local_user_generated",
+            )
+            .await
+            .unwrap()
+            .expect("invite accepted");
+
+        let events = store
+            .audit_events_for_organization_ids(&["org_acme".into()])
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].organization_id, "org_acme");
+        assert_eq!(
+            events[0].actor.user_id.as_deref(),
+            Some("local_user_generated")
+        );
+        assert_eq!(events[0].actor.api_key_id, None);
+        assert_eq!(events[0].action, "invite.accepted");
+        assert_eq!(events[0].target_type, "organization_invite");
+        assert_eq!(events[0].target_id, "invite_pending");
+        assert_eq!(events[0].occurred_at, "2026-04-22T12:30:00Z");
+        assert_eq!(
+            events[0].metadata,
+            serde_json::json!({
+                "accepted_user_id": "local_user_generated",
+                "email": "invitee@example.com",
+                "role": "viewer"
+            })
         );
     }
 
