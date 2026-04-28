@@ -6327,7 +6327,7 @@ async fn search_repository_contents(
 }
 
 fn apply_search_pagination(response: &mut SearchResponse, limit: usize, offset: usize) {
-    let total_count = response.pagination.total_count;
+    let total_count = response.results.len();
     response.results = response
         .results
         .iter()
