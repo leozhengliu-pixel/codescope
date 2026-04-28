@@ -6635,6 +6635,7 @@ mod tests {
         additions: usize,
         deletions: usize,
         patch: Option<String>,
+        patch_truncated: bool,
     }
 
     #[derive(Debug, Deserialize, Serialize)]

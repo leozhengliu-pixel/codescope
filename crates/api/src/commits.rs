@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    io::Read,
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::Arc,
@@ -16,6 +17,8 @@ const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 const EMPTY_HISTORY_REPO_IDS: &[&str] = &["repo_demo_docs"];
 const FIELD_SEPARATOR: char = '\u{1f}';
 const RECORD_SEPARATOR: char = '\u{1e}';
+const COMMIT_DIFF_PATCH_MAX_BYTES: usize = 64 * 1024;
+const COMMIT_DIFF_PATCH_TRUNCATED_MARKER: &str = "[Sourcebot diff truncated: patch exceeds 64 KiB]";
 
 pub trait CommitStore: Send + Sync {
     fn list_commits(
@@ -88,6 +91,7 @@ pub struct CommitDiffFile {
     pub additions: usize,
     pub deletions: usize,
     pub patch: Option<String>,
+    pub patch_truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -110,6 +114,12 @@ struct RawNumstat {
     old_path: Option<String>,
     additions: usize,
     deletions: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedPatch {
+    patch: Option<String>,
+    truncated: bool,
 }
 
 #[derive(Clone, Default)]
@@ -333,14 +343,15 @@ impl CommitStore for LocalCommitStore {
                     ));
                 }
 
-                let patch = load_patch_for_diff_entry(repo_root, &commit_id, &status)?;
+                let normalized_patch = load_patch_for_diff_entry(repo_root, &commit_id, &status)?;
                 Ok(CommitDiffFile {
                     path: status.path.clone(),
                     change_type: status.change_type,
                     old_path: status.old_path,
                     additions: numstat.additions,
                     deletions: numstat.deletions,
-                    patch,
+                    patch: normalized_patch.patch,
+                    patch_truncated: normalized_patch.truncated,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -492,7 +503,7 @@ fn load_patch_for_diff_entry(
     repo_root: &PathBuf,
     commit_id: &str,
     status: &RawDiffStatus,
-) -> Result<Option<String>> {
+) -> Result<NormalizedPatch> {
     let mut args = vec![
         "show".to_string(),
         "--format=".to_string(),
@@ -513,15 +524,43 @@ fn load_patch_for_diff_entry(
     Ok(normalize_patch_output(&patch))
 }
 
-fn normalize_patch_output(patch: &str) -> Option<String> {
+fn normalize_patch_output(patch: &str) -> NormalizedPatch {
     if patch.trim().is_empty()
         || patch.contains("Binary files ")
         || patch.contains("GIT binary patch")
     {
-        None
-    } else {
-        Some(format!("{patch}"))
+        return NormalizedPatch {
+            patch: None,
+            truncated: false,
+        };
     }
+
+    if patch.len() <= COMMIT_DIFF_PATCH_MAX_BYTES {
+        return NormalizedPatch {
+            patch: Some(patch.to_string()),
+            truncated: false,
+        };
+    }
+
+    let marker = format!("\n{COMMIT_DIFF_PATCH_TRUNCATED_MARKER}\n");
+    let prefix_limit = COMMIT_DIFF_PATCH_MAX_BYTES.saturating_sub(marker.len());
+    let prefix = truncate_str_to_byte_boundary(patch, prefix_limit);
+    NormalizedPatch {
+        patch: Some(format!("{prefix}{marker}")),
+        truncated: true,
+    }
+}
+
+fn truncate_str_to_byte_boundary(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+
+    let mut boundary = max_bytes;
+    while !value.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    &value[..boundary]
 }
 
 fn next_token<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<&'a str> {
@@ -592,6 +631,8 @@ fn git_not_found_output(output: &Output) -> bool {
 
 fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
     const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    const GIT_STDOUT_CAPTURE_MAX_BYTES: usize = 1024 * 1024;
+    const GIT_STDERR_CAPTURE_MAX_BYTES: usize = 64 * 1024;
 
     let mut child = Command::new("git")
         .args(args)
@@ -600,6 +641,19 @@ fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("failed to start git in {}", repo_root.display()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("failed to capture git stdout in {}", repo_root.display()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("failed to capture git stderr in {}", repo_root.display()))?;
+    let stdout_reader =
+        thread::spawn(move || read_stream_bounded(stdout, GIT_STDOUT_CAPTURE_MAX_BYTES));
+    let stderr_reader =
+        thread::spawn(move || read_stream_bounded(stderr, GIT_STDERR_CAPTURE_MAX_BYTES));
+
     let started_at = Instant::now();
     loop {
         if child
@@ -607,13 +661,26 @@ fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
             .with_context(|| format!("failed to poll git in {}", repo_root.display()))?
             .is_some()
         {
-            return child.wait_with_output().with_context(|| {
-                format!("failed to collect git output in {}", repo_root.display())
+            let status = child.wait().with_context(|| {
+                format!("failed to collect git status in {}", repo_root.display())
+            })?;
+            let stdout = stdout_reader
+                .join()
+                .map_err(|_| anyhow!("failed to join git stdout reader"))??;
+            let stderr = stderr_reader
+                .join()
+                .map_err(|_| anyhow!("failed to join git stderr reader"))??;
+            return Ok(Output {
+                status,
+                stdout,
+                stderr,
             });
         }
         if started_at.elapsed() >= GIT_COMMAND_TIMEOUT {
             let _ = child.kill();
-            let _ = child.wait_with_output();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
             return Err(anyhow!(
                 "git command timed out after {:?} in {}: git {}",
                 GIT_COMMAND_TIMEOUT,
@@ -622,6 +689,22 @@ fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
             ));
         }
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn read_stream_bounded(mut stream: impl Read, max_bytes: usize) -> Result<Vec<u8>> {
+    let mut captured = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = stream.read(&mut buffer)?;
+        if read == 0 {
+            return Ok(captured);
+        }
+
+        let remaining = max_bytes.saturating_sub(captured.len());
+        if remaining > 0 {
+            captured.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
     }
 }
 
@@ -843,12 +926,29 @@ mod tests {
 
     #[test]
     fn normalize_patch_output_marks_binary_patches_as_unavailable() {
-        assert_eq!(
-            normalize_patch_output(
-                "diff --git a/assets/logo.png b/assets/logo.png\nBinary files a/assets/logo.png and b/assets/logo.png differ\n",
-            ),
-            None
+        let normalized = normalize_patch_output(
+            "diff --git a/assets/logo.png b/assets/logo.png\nBinary files a/assets/logo.png and b/assets/logo.png differ\n",
         );
+
+        assert_eq!(normalized.patch, None);
+        assert!(!normalized.truncated);
+    }
+
+    #[test]
+    fn normalize_patch_output_caps_large_textual_patches_with_marker() {
+        let patch = format!(
+            "diff --git a/large.txt b/large.txt\n{}",
+            "+oversized line\n".repeat((COMMIT_DIFF_PATCH_MAX_BYTES / 16) + 128)
+        );
+
+        let normalized = normalize_patch_output(&patch);
+        let normalized_patch = normalized
+            .patch
+            .expect("text patch should remain available");
+
+        assert!(normalized.truncated);
+        assert!(normalized_patch.len() <= COMMIT_DIFF_PATCH_MAX_BYTES);
+        assert!(normalized_patch.contains(COMMIT_DIFF_PATCH_TRUNCATED_MARKER));
     }
 
     #[test]
@@ -890,6 +990,45 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("new file mode 120000"));
+        assert!(!file.patch_truncated);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_caps_large_text_patch_payloads() {
+        let repo_root = create_temp_git_repo("large-diff");
+        write_text_file(&repo_root.join("large.txt"), "base\n");
+        git_in(&repo_root, &["add", "large.txt"]);
+        git_in(&repo_root, &["commit", "-m", "init"]);
+
+        write_text_file(
+            &repo_root.join("large.txt"),
+            &format!("base\n{}\n", "x".repeat(COMMIT_DIFF_PATCH_MAX_BYTES + 1024)),
+        );
+        git_in(&repo_root, &["add", "large.txt"]);
+        git_in(&repo_root, &["commit", "-m", "large diff"]);
+
+        let commit_id = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let response = store
+            .get_commit_diff("repo_temp", &commit_id)
+            .unwrap()
+            .unwrap();
+        let file = response
+            .files
+            .iter()
+            .find(|file| file.path == "large.txt")
+            .expect("large diff should include changed file");
+        let patch = file.patch.as_deref().expect("text patch should be present");
+
+        assert!(file.patch_truncated);
+        assert!(patch.len() <= COMMIT_DIFF_PATCH_MAX_BYTES);
+        assert!(patch.contains(COMMIT_DIFF_PATCH_TRUNCATED_MARKER));
 
         fs::remove_dir_all(repo_root).unwrap();
     }
