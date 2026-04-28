@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use tracing::info;
 
 #[tokio::main]
@@ -117,6 +118,19 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+
+        if let Some(path) = status_path.as_ref() {
+            write_worker_status_snapshot(
+                path,
+                max_ticks,
+                tick,
+                last_tick,
+                &last_outcome,
+                last_work_item_id.as_deref(),
+                last_work_item_status.as_deref(),
+                false,
+            )?;
+        }
     }
 
     if let Some(path) = status_path.as_ref() {
@@ -177,6 +191,8 @@ fn write_worker_status_snapshot(
     let payload = serde_json::json!({
         "schema_version": 1,
         "completed": completed,
+        "updated_at": OffsetDateTime::now_utc().format(&Rfc3339)?,
+        "process_id": std::process::id(),
         "max_ticks": max_ticks,
         "ticks_completed": ticks_completed,
         "last_tick": last_tick,

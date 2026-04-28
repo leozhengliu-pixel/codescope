@@ -198,6 +198,17 @@ async fn worker_binary_writes_supervisor_status_snapshot_for_no_work_tick() {
     assert_eq!(status["last_outcome"], "no_work");
     assert_eq!(status["last_work_item_id"], serde_json::Value::Null);
     assert_eq!(status["last_work_item_status"], serde_json::Value::Null);
+    assert!(
+        status["process_id"]
+            .as_u64()
+            .is_some_and(|process_id| process_id > 0),
+        "supervisor status should expose the worker process id: {status}"
+    );
+    let updated_at = status["updated_at"]
+        .as_str()
+        .expect("supervisor status should expose an operator heartbeat timestamp");
+    time::OffsetDateTime::parse(updated_at, &time::format_description::well_known::Rfc3339)
+        .expect("operator heartbeat timestamp should be RFC3339");
 
     fs::remove_file(path).unwrap();
     fs::remove_file(status_path).unwrap();
