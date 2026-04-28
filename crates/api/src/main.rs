@@ -1381,6 +1381,14 @@ async fn process_mcp_json_rpc_request(
     visible_repo_ids: &[String],
     request: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, StatusCode> {
+    if !request.is_object() {
+        return Ok(Some(mcp_json_rpc_error(
+            serde_json::Value::Null,
+            -32600,
+            "invalid JSON-RPC request: request must be an object",
+        )));
+    }
+
     let id = request
         .get("id")
         .cloned()
@@ -7967,6 +7975,92 @@ mod tests {
                 .unwrap()
                 .contains("id must be a string, number, or null"));
         }
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_rejects_non_object_requests_with_protocol_error() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-non-object-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-non-object-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-non-object-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let single_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!("not-a-request-object").to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(single_response.status(), StatusCode::OK);
+        let single_body: serde_json::Value = read_json(single_response).await;
+        assert_eq!(single_body["jsonrpc"], "2.0");
+        assert_eq!(single_body["id"], serde_json::Value::Null);
+        assert_eq!(single_body["error"]["code"], -32600);
+        assert_eq!(
+            single_body["error"]["message"],
+            "invalid JSON-RPC request: request must be an object"
+        );
+
+        let batch_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!([
+                            "not-a-request-object",
+                            {
+                                "jsonrpc": "2.0",
+                                "id": "still-processed",
+                                "method": "ping"
+                            }
+                        ])
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(batch_response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(batch_response).await;
+        let responses = body.as_array().expect("batch response should be an array");
+        assert_eq!(responses.len(), 2);
+        assert_eq!(responses[0]["jsonrpc"], "2.0");
+        assert_eq!(responses[0]["id"], serde_json::Value::Null);
+        assert_eq!(responses[0]["error"]["code"], -32600);
+        assert_eq!(
+            responses[0]["error"]["message"],
+            "invalid JSON-RPC request: request must be an object"
+        );
+        assert_eq!(responses[1]["id"], "still-processed");
+        assert_eq!(responses[1]["result"], serde_json::json!({}));
 
         fs::remove_file(organization_state_path).unwrap();
     }
