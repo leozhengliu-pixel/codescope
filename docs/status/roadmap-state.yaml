@@ -5,46 +5,45 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 58c1eb1f3de284c639fef581db0f5f61072b2b95
+  head: d06ac6856d250ed7d5e66f8054108691e0e4dfe3
 last_completed_task:
-  id: task102aa
-  title: Accelerated search, commit, provider-runtime, and MCP hardening batch
+  id: task102ab
+  title: Accelerated code-navigation and MCP protocol hardening batch
   status: done
   summary: >-
-    Closed one accelerated integration batch spanning six real release-blocker
-    hardening commits. Search now fails closed for oversized regex-mode queries
-    and persisted local-sync search-index artifacts that claim indexed status with
-    zero indexed files. Commit navigation now resolves caller-supplied revisions
-    through `rev-parse --verify --end-of-options` before Git history reads and
-    rejects unsafe diff metadata paths before patch loading or response surfacing.
-    Generic Git worker failures now bound persisted/operator-visible ls-remote
-    stderr/stdout details with explicit truncation, and MCP JSON-RPC now rejects
-    invalid object/array id values with protocol error -32600 and `id: null`.
+    Closed an accelerated integration batch with two shipped release-blocker
+    hardening closures and one rejected search/indexing worker. Code navigation
+    now caps reference responses at 1,000 entries after stable ordering and
+    deduplication, preserving revision-bearing browse URLs while bounding
+    user-visible payload growth. MCP JSON-RPC now rejects non-object single
+    requests and non-object batch items with protocol-shaped `-32600` invalid
+    request errors and `id: null`, while valid sibling batch requests continue
+    through the existing authenticated handler. The search/index worker's local
+    result cap was intentionally not accepted: independent review found it
+    computed pagination metadata before repository-visibility filtering and
+    capped before authorized pagination, so the integrator reverted that commit
+    and recorded the scope/pagination blocker for a future search-runtime slice.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture: passed with 1 unit test and 28 filtered out'
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_indexed_status_with_no_indexed_files -- --nocapture: passed with 1 unit test and 28 filtered out'
-    - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture: passed with 9 unit tests and 20 filtered out'
-    - 'cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-api commits::tests::diff_metadata_parsers_reject_unsafe_paths -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 15 bin tests, 0 lib tests, and 424 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_failure_detail_is_bounded -- --nocapture: passed with 1 lib test, 0 matched non-lib targets, and 40 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 11 lib tests, 0 matched non-lib targets, and 30 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_invalid_id_type_with_protocol_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 10 bin tests, 0 lib tests, and 429 filtered out'
+    - 'cargo test -p sourcebot-api reference_responses_are_capped_after_stable_ordering_and_deduplication -- --nocapture: passed with 1 bin test, 0 lib tests, and 440 filtered out'
+    - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 431 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_non_object_requests_with_protocol_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 440 filtered out'
+    - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 11 bin tests, 0 lib tests, and 430 filtered out'
+    - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests, 0 lib tests, and 437 filtered out'
     - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-search -- --nocapture: passed with 29 unit tests and 0 doctests after reverting the blocked search cap'
     - 'cargo fmt --check: passed'
-    - 'git diff --check origin/master..HEAD: passed'
-    - 'added-lines security scan over origin/master..HEAD: passed with no findings'
-    - 'independent integration review over origin/master..HEAD: passed with no blocking issues, security concerns, or logic errors'
+    - 'git diff --check 4b1667e1c436c10f1029eca6f45c3056c58d0563..HEAD: passed'
+    - 'added-lines security scan over 4b1667e1c436c10f1029eca6f45c3056c58d0563..HEAD: passed with no findings'
+    - 'independent integration review: initially failed the search cap for auth/pagination leakage; passed after the integrator reverted that closure and kept only code-navigation/MCP net changes'
   review:
     code: >-
-      Independent integration review inspected the six-commit unpushed batch for
-      search regex bounds, persisted artifact status validation, commit revision
-      and path parsing, generic Git error-detail bounds, MCP JSON-RPC id
-      validation, auth/scope preservation, Git/path safety, and bounded docs
-      claims. Review passed with no blocking security or logic issues; only
-      non-blocking defense-in-depth notes remain.
-  commit: 58c1eb1f3de284c639fef581db0f5f61072b2b95
+      Independent re-review passed after the controller removed the blocked search
+      cap from the net diff. The approved batch was limited to code-navigation
+      reference truncation after ordering/deduplication and MCP JSON-RPC
+      non-object invalid-request handling. Review found no blocking security
+      concerns or logic errors and left only a non-blocking suggestion to expose
+      explicit reference-truncation metadata in a future client contract.
+  commit: d06ac6856d250ed7d5e66f8054108691e0e4dfe3
   next_task: task102
 current_task:
   id: task102
@@ -54,37 +53,30 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. Search now has bounded
-    authenticated query-size validation, frontend-visible saved-context management
-    for non-empty repository scopes, fail-closed backend context narrowing,
-    explicit boolean/literal/regex modes, deterministic ordering, repository-detail
-    index-status visibility, indexed-empty/skipped-only semantics, persisted
-    artifact path/repo-id validation, hardened local-sync artifact loading that
-    rejects oversized, non-regular, FIFO/special, malformed regular,
-    indexed-line-count-inconsistent, indexed-file-under-count, indexed-without-files,
-    `indexed_empty` state/count-inconsistent, and error-status-with-indexed-content
-    artifacts before trusting persisted status or content evidence, fail-closed
-    regex bounds for overlong patterns/compiled programs, fail-closed empty search
-    semantics for present malformed artifacts without aborting unscoped results
-    from other visible repositories, and fail-closed pagination validation for
-    zero/oversized limits and excessive offsets. Adjacent recent closures also
-    added revisioned blob type safety, frontend binary blob metadata-only source
-    rendering, NUL-byte binary blob detection for local/revisioned reads, explicit
-    browse/code-navigation revision commit-object validation, bounded commit-list
-    page sizes before Git history scans, commit revision option parsing through
-    `rev-parse --verify --end-of-options`, commit-diff path validation, commit-diff
-    patch caps plus frontend truncation notice rendering, copied-file commit diff
-    semantics, TypeScript/JavaScript reference scanning, Generic Git remote
-    advertisement/default-branch metadata output plus direct-HEAD revision branch
-    matching and bounded failure-detail persistence, local Git sync execution
-    output, authenticated JSON-RPC MCP initialize/tools/list/tools/call bridging,
-    batch request handling with notification omission, MCP ping liveness responses,
-    MCP protocol-shaped parse-error responses for malformed JSON bodies, MCP
-    fail-closed non-JSON media-type rejection, MCP JSON-RPC Accept content
-    negotiation with q=0 and specificity handling, MCP invalid-id protocol-error
-    handling, MCP retrieval permission-denied evidence, local per-tick worker
-    status heartbeat metadata, and redacted worker-status terminal error summaries.
-    Prefer the next closure to move practical indexing/runtime behavior,
+    Task 103/106/107/108 blockers when scopes are disjoint. The latest integrated
+    batch advanced adjacent Task 103/107 hardening by capping code-navigation
+    reference responses after deterministic ordering/deduplication and making MCP
+    JSON-RPC non-object requests fail closed with protocol-shaped invalid-request
+    errors. It deliberately did not accept the attempted search-result materialization
+    cap: review showed the cap and pagination metadata were computed before
+    repository-visibility filtering and before authorized pagination, which could
+    leak hidden match counts and hide visible matches. The next Task 102 search
+    slice should move filtering/pagination/capping into one authorized result domain
+    or otherwise expose truthful capped/truncated metadata without widening scope.
+    Existing search evidence still includes bounded authenticated query-size
+    validation, frontend-visible saved-context management for non-empty repository
+    scopes, fail-closed backend context narrowing, explicit boolean/literal/regex
+    modes, deterministic ordering, repository-detail index-status visibility,
+    indexed-empty/skipped-only semantics, persisted artifact path/repo-id validation,
+    hardened local-sync artifact loading that rejects oversized, non-regular,
+    FIFO/special, malformed regular, indexed-line-count-inconsistent, indexed-file
+    under-count, indexed-without-files, `indexed_empty` state/count-inconsistent,
+    and error-status-with-indexed-content artifacts before trusting persisted
+    status or content evidence, fail-closed regex bounds for overlong patterns/
+    compiled programs, fail-closed empty search semantics for present malformed
+    artifacts without aborting unscoped results from other visible repositories,
+    and fail-closed pagination validation for zero/oversized limits and excessive
+    offsets. Prefer the next closure to move practical indexing/runtime behavior,
     operator-visible index lifecycle/status, failure recovery, richer grammar,
     relevance/pagination stability, branch/index availability, provider/runtime
     parity, MCP session/client interoperability beyond the bounded JSON-RPC bridge,
@@ -92,6 +84,35 @@ current_task:
     fail-closed visibility boundaries, focused verification, bounded docs claims,
     independent review, commit, state update, and push.
 history:
+  - id: task102ab
+    status: done
+    summary: >-
+      Closed an accelerated integration batch with two accepted hardening closures
+      and one rejected search-runtime attempt. Code-navigation references are now
+      capped at 1,000 responses after stable ordering and deduplication, MCP
+      JSON-RPC non-object requests now return protocol-shaped `-32600` invalid
+      request errors with `id: null`, and the attempted search-result cap was
+      reverted after review found pre-visibility pagination/count leakage.
+    commit: d06ac6856d250ed7d5e66f8054108691e0e4dfe3
+    tests:
+      - 'cargo test -p sourcebot-api reference_responses_are_capped_after_stable_ordering_and_deduplication -- --nocapture: passed with 1 bin test, 0 lib tests, and 440 filtered out'
+      - 'cargo test -p sourcebot-api references_ -- --nocapture: passed with 10 bin tests, 0 lib tests, and 431 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc_rejects_non_object_requests_with_protocol_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 440 filtered out'
+      - 'cargo test -p sourcebot-api mcp_json_rpc -- --nocapture: passed with 11 bin tests, 0 lib tests, and 430 filtered out'
+      - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests, 0 lib tests, and 437 filtered out'
+      - 'cargo test -p sourcebot-mcp -- --nocapture: passed with 9 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-search -- --nocapture: passed with 29 unit tests and 0 doctests after reverting the blocked search cap'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 4b1667e1c436c10f1029eca6f45c3056c58d0563..HEAD: passed'
+      - 'added-lines security scan over 4b1667e1c436c10f1029eca6f45c3056c58d0563..HEAD: passed with no findings'
+      - 'independent integration review: failed the search cap before revert, then passed the net code-navigation/MCP diff after revert'
+    review: >-
+      Independent re-review passed with no blocking issues after the integrator
+      reverted the search cap that leaked pre-visibility match counts and capped
+      before authorized pagination. The approved net diff preserves auth/scope
+      boundaries and only adds bounded code-navigation reference truncation plus
+      MCP JSON-RPC non-object invalid-request handling.
+    completed_at: '2026-04-28'
   - id: task102aa
     status: done
     summary: >-
@@ -3307,6 +3328,19 @@ notes:
     - If blocked, write blocked reason and suggested workaround, then switch to the next unblocked parity slice in the following unit.
     - Use docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md as the governing practical-replacement blocker roadmap until it is explicitly superseded.
   blockers:
+    - id: task102ab-search-result-cap-scope-pagination
+      title: Search result materialization cap must share authorization and pagination domain
+      status: open
+      evidence: >-
+        The 2026-04-28 parallel search worker proposed a hard local-search result cap,
+        but independent integration review found the cap computed `total_count` before
+        API repository-visibility filtering and materialized only the first capped
+        results before authorized pagination. That shape could leak hidden match counts
+        through pagination metadata and hide visible matches sorted after hidden repos.
+        The integrator reverted the commit instead of shipping a fail-open search
+        runtime change. A future Task 102 closure should move repository visibility,
+        pagination, and capping into one authorized result domain or expose explicitly
+        bounded/truncated metadata that cannot imply inaccessible pages or hidden matches.
     - id: follow-on-roadmap-bootstrap
       title: Prior per-task blockers archived by the follow-on roadmap bootstrap
       status: resolved
