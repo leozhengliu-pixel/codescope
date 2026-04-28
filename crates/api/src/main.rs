@@ -6287,13 +6287,13 @@ async fn search_repository_contents(
         }
     }
 
-    let mut response = state
-        .search
-        .search_with_mode(trimmed_query, requested_repo_id, search_mode)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    response
-        .results
-        .retain(|result| visible_repo_ids.contains(&result.repo_id));
+    let mut response = search_visible_authorized_repositories(
+        &state,
+        trimmed_query,
+        requested_repo_id,
+        search_mode,
+        &visible_repo_ids,
+    )?;
 
     if response.results.is_empty() {
         if let Some(repo_id) = requested_repo_id {
@@ -6326,7 +6326,52 @@ async fn search_repository_contents(
     Ok(Json(response))
 }
 
-fn apply_search_pagination(response: &mut SearchResponse, limit: usize, offset: usize) {
+fn search_visible_authorized_repositories(
+    state: &AppState,
+    query: &str,
+    requested_repo_id: Option<&str>,
+    mode: SearchMode,
+    visible_repo_ids: &HashSet<String>,
+) -> Result<sourcebot_search::SearchResponse, StatusCode> {
+    if let Some(repo_id) = requested_repo_id {
+        let mut response = state
+            .search
+            .search_with_mode(query, Some(repo_id), mode)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        response
+            .results
+            .retain(|result| visible_repo_ids.contains(&result.repo_id));
+        return Ok(response);
+    }
+
+    let mut repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
+    repo_ids.sort();
+
+    let mut results = Vec::new();
+    for repo_id in repo_ids {
+        let mut response = state
+            .search
+            .search_with_mode(query, Some(&repo_id), mode)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        response.results.retain(|result| {
+            result.repo_id == repo_id && visible_repo_ids.contains(&result.repo_id)
+        });
+        results.append(&mut response.results);
+    }
+
+    Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+        query.to_string(),
+        mode,
+        None,
+        results,
+    ))
+}
+
+fn apply_search_pagination(
+    response: &mut sourcebot_search::SearchResponse,
+    limit: usize,
+    offset: usize,
+) {
     let total_count = response.results.len();
     response.results = response
         .results
@@ -29247,6 +29292,109 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
+    }
+
+    struct PreVisibilityCappedSearchStore;
+
+    impl SearchStore for PreVisibilityCappedSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            let results = match repo_id {
+                None => vec![
+                    sourcebot_search::SearchResult {
+                        repo_id: "repo_not_visible".to_string(),
+                        path: "hidden.rs".to_string(),
+                        line_number: 1,
+                        line: "authorized_cap_marker hidden one".to_string(),
+                    },
+                    sourcebot_search::SearchResult {
+                        repo_id: "repo_not_visible".to_string(),
+                        path: "hidden.rs".to_string(),
+                        line_number: 2,
+                        line: "authorized_cap_marker hidden two".to_string(),
+                    },
+                ],
+                Some("repo_sourcebot_rewrite") => (1..=3)
+                    .map(|line_number| sourcebot_search::SearchResult {
+                        repo_id: "repo_sourcebot_rewrite".to_string(),
+                        path: "visible.rs".to_string(),
+                        line_number,
+                        line: format!("authorized_cap_marker visible {line_number}"),
+                    })
+                    .collect(),
+                Some("repo_not_visible") => panic!("hidden repo must not be searched"),
+                Some(_) => Vec::new(),
+            };
+
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                mode,
+                repo_id.map(ToOwned::to_owned),
+                results,
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn search_paginates_after_authorized_repo_domain_not_pre_visibility_cap() {
+        let organization_state_path = unique_test_path("search-authorized-cap-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-authorized-cap-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-authorized-cap-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(PreVisibilityCappedSearchStore),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=authorized_cap_marker&limit=2")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.pagination.limit, 2);
+        assert_eq!(payload.pagination.offset, 0);
+        assert_eq!(payload.pagination.total_count, 3);
+        assert!(payload.pagination.has_more);
+        assert_eq!(payload.results.len(), 2);
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
+        assert_eq!(payload.results[0].line_number, 1);
+        assert_eq!(payload.results[1].line_number, 2);
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]
