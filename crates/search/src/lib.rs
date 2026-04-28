@@ -216,15 +216,14 @@ impl LocalSearchStore {
                 artifact_path.display()
             )
         })?;
-        let mut artifact: PersistedIndexArtifact = serde_json::from_slice(&artifact_bytes)
+        let artifact: PersistedIndexArtifact = serde_json::from_slice(&artifact_bytes)
             .with_context(|| {
                 format!(
                     "failed to parse local search index artifact {}",
                     artifact_path.display()
                 )
             })?;
-        validate_persisted_index_artifact_paths(&artifact, artifact_path)?;
-        artifact.index_status.repo_id = repo_id.to_string();
+        validate_persisted_index_artifact(&artifact, repo_id, artifact_path)?;
 
         Ok(Self {
             repo_roots: HashMap::from([(repo_id.to_string(), PathBuf::new())]),
@@ -449,10 +448,20 @@ impl LocalSearchStore {
     }
 }
 
-fn validate_persisted_index_artifact_paths(
+fn validate_persisted_index_artifact(
     artifact: &PersistedIndexArtifact,
+    expected_repo_id: &str,
     artifact_path: &Path,
 ) -> Result<()> {
+    if artifact.index_status.repo_id != expected_repo_id {
+        anyhow::bail!(
+            "search index artifact repo_id mismatch in {}: expected '{}', found '{}'",
+            artifact_path.display(),
+            expected_repo_id,
+            artifact.index_status.repo_id
+        );
+    }
+
     for indexed_line in &artifact.indexed_lines {
         if !is_safe_persisted_index_path(&indexed_line.path) {
             anyhow::bail!(
@@ -1502,6 +1511,34 @@ mod tests {
                 "unexpected error for {unsafe_path:?}: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_repo_id_mismatch() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["repo_id"] =
+            serde_json::Value::String("repo_other".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index repo_id mismatch must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact repo_id mismatch"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
