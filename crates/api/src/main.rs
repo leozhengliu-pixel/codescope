@@ -1287,7 +1287,16 @@ async fn handle_mcp_json_rpc(
                 )));
             };
             let mut tool_request: sourcebot_mcp::McpToolCallRequest =
-                serde_json::from_value(params.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
+                match serde_json::from_value(params.clone()) {
+                    Ok(request) => request,
+                    Err(_) => {
+                        return Ok(Json(mcp_json_rpc_error(
+                            id,
+                            -32602,
+                            "invalid params for tools/call: params must match MCP tool-call schema",
+                        )));
+                    }
+                };
             let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
             visible_repo_ids.sort();
             let tool_response = execute_mcp_tool_call_for_visible_repos(
@@ -7647,6 +7656,61 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_tools_call_schema_errors_return_json_rpc_error() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-invalid-params-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-invalid-params-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-invalid-params-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "bad-call",
+                            "method": "tools/call",
+                            "params": {"arguments": {}}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(response).await;
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["id"], "bad-call");
+        assert_eq!(body["error"]["code"], -32602);
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("params must match MCP tool-call schema"));
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]

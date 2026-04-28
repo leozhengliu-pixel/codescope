@@ -1,15 +1,22 @@
 use anyhow::{Context, Result};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     collections::HashMap,
-    fs,
+    fs::{self, File, OpenOptions},
+    io::Read,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+#[cfg(unix)]
+const O_NONBLOCK: i32 = 0o4000;
+#[cfg(unix)]
+const O_CLOEXEC: i32 = 0o2000000;
 const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
@@ -210,13 +217,47 @@ impl LocalSearchStore {
         )]))
     }
 
+    fn open_index_artifact(artifact_path: &Path) -> Result<File> {
+        #[cfg(unix)]
+        let artifact_file = OpenOptions::new()
+            .read(true)
+            .custom_flags(O_NONBLOCK | O_CLOEXEC)
+            .open(artifact_path)
+            .with_context(|| {
+                format!(
+                    "failed to open local search index artifact {}",
+                    artifact_path.display()
+                )
+            })?;
+
+        #[cfg(not(unix))]
+        let artifact_file = OpenOptions::new()
+            .read(true)
+            .open(artifact_path)
+            .with_context(|| {
+                format!(
+                    "failed to open local search index artifact {}",
+                    artifact_path.display()
+                )
+            })?;
+
+        Ok(artifact_file)
+    }
+
     pub fn from_index_artifact(repo_id: &str, artifact_path: &Path) -> Result<Self> {
-        let artifact_metadata = fs::metadata(artifact_path).with_context(|| {
+        let artifact_file = Self::open_index_artifact(artifact_path)?;
+        let artifact_metadata = artifact_file.metadata().with_context(|| {
             format!(
                 "failed to read local search index artifact metadata {}",
                 artifact_path.display()
             )
         })?;
+        if !artifact_metadata.is_file() {
+            anyhow::bail!(
+                "search index artifact is not a regular file: {}",
+                artifact_path.display()
+            );
+        }
         if artifact_metadata.len() > MAX_INDEX_ARTIFACT_SIZE_BYTES {
             anyhow::bail!(
                 "search index artifact is too large: {} is {} bytes, maximum is {} bytes",
@@ -226,12 +267,23 @@ impl LocalSearchStore {
             );
         }
 
-        let artifact_bytes = fs::read(artifact_path).with_context(|| {
-            format!(
-                "failed to read local search index artifact {}",
-                artifact_path.display()
-            )
-        })?;
+        let mut artifact_bytes = Vec::with_capacity(artifact_metadata.len() as usize);
+        artifact_file
+            .take(MAX_INDEX_ARTIFACT_SIZE_BYTES + 1)
+            .read_to_end(&mut artifact_bytes)
+            .with_context(|| {
+                format!(
+                    "failed to read local search index artifact {}",
+                    artifact_path.display()
+                )
+            })?;
+        if artifact_bytes.len() as u64 > MAX_INDEX_ARTIFACT_SIZE_BYTES {
+            anyhow::bail!(
+                "search index artifact is too large: {} exceeded maximum of {} bytes while reading",
+                artifact_path.display(),
+                MAX_INDEX_ARTIFACT_SIZE_BYTES
+            );
+        }
         let artifact: PersistedIndexArtifact = serde_json::from_slice(&artifact_bytes)
             .with_context(|| {
                 format!(
@@ -1584,6 +1636,79 @@ mod tests {
                 .to_string()
                 .contains("search index artifact is too large"),
             "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_non_regular_persisted_index_artifacts_before_reading() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-non-regular-artifact",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let artifact_path = fixture
+            .root
+            .join(".sourcebot")
+            .join("local-sync-index.json");
+        fs::create_dir_all(&artifact_path).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("non-regular persisted index artifact must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact is not a regular file"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn local_search_store_rejects_fifo_index_artifacts_without_blocking() {
+        use std::{sync::mpsc, time::Duration};
+
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-fifo-artifact",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let artifact_path = fixture
+            .root
+            .join(".sourcebot")
+            .join("local-sync-index.json");
+        fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        let status = std::process::Command::new("mkfifo")
+            .arg(&artifact_path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let artifact_path_for_thread = artifact_path.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let error =
+                match LocalSearchStore::from_index_artifact("repo_test", &artifact_path_for_thread)
+                {
+                    Ok(_) => panic!("FIFO persisted index artifact must fail closed"),
+                    Err(error) => error,
+                };
+            tx.send(error.to_string()).unwrap();
+        });
+
+        let error = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("FIFO artifact rejection must not block opening the artifact");
+        assert!(
+            error.contains("search index artifact is not a regular file"),
+            "unexpected error: {error}"
         );
 
         fs::remove_dir_all(fixture.root).unwrap();
