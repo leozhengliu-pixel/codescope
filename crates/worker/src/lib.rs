@@ -232,6 +232,38 @@ fn run_generic_git_repository_sync_execution(
         |error| format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"),
     )?;
 
+    let head_output = match run_git_ls_remote_head_symref(git_command, base_url, timeout) {
+        Ok(Some(output)) => output,
+        Ok(None) => {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD timed out after {}ms",
+                timeout.as_millis()
+            ))
+        }
+        Err(error) => {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"
+            ))
+        }
+    };
+
+    if head_output.stdout.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+        || head_output.stderr.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+    {
+        return Err(format!(
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD output exceeded {GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES} bytes"
+        ));
+    }
+    if !head_output.status.success() {
+        return Err(generic_git_failure_detail(
+            "git ls-remote --symref HEAD",
+            &head_output,
+        ));
+    }
+    if let Some(default_branch) = parse_git_ls_remote_head_symref(&head_output.stdout) {
+        return Ok(default_branch);
+    }
+
     let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
         Ok(Some(output)) => output,
         Ok(None) => {
@@ -281,6 +313,38 @@ fn parse_git_ls_remote_heads(stdout: &[u8]) -> Option<GenericGitRepositorySyncEx
             None
         }
     })
+}
+
+fn parse_git_ls_remote_head_symref(stdout: &[u8]) -> Option<GenericGitRepositorySyncExecution> {
+    let mut branch = None;
+    let mut revision = None;
+
+    for line in String::from_utf8_lossy(stdout).lines() {
+        if let Some(symref) = line.strip_prefix("ref: ") {
+            let (reference, target) = symref.split_once('\t')?;
+            if target == "HEAD" {
+                let branch_name = reference.strip_prefix("refs/heads/")?;
+                if is_valid_git_branch_name(branch_name) {
+                    branch = Some(branch_name.to_owned());
+                }
+            }
+            continue;
+        }
+
+        let Some((object_id, reference)) = line.split_once('\t') else {
+            continue;
+        };
+        if reference == "HEAD" && is_valid_git_object_id(object_id) {
+            revision = Some(object_id.to_owned());
+        }
+    }
+
+    match (branch, revision) {
+        (Some(branch), Some(revision)) => {
+            Some(GenericGitRepositorySyncExecution { revision, branch })
+        }
+        _ => None,
+    }
 }
 
 fn is_valid_git_object_id(revision: &str) -> bool {
@@ -976,6 +1040,23 @@ fn run_git_ls_remote_heads(
 ) -> std::io::Result<Option<Output>> {
     let child = Command::new(git_command)
         .args(["ls-remote", "--heads", "--", base_url])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    wait_for_child_output_with_timeout_and_output_limit(
+        child,
+        timeout,
+        GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES,
+    )
+}
+
+fn run_git_ls_remote_head_symref(
+    git_command: &OsStr,
+    base_url: &str,
+    timeout: Duration,
+) -> std::io::Result<Option<Output>> {
+    let child = Command::new(git_command)
+        .args(["ls-remote", "--symref", "--", base_url, "HEAD"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -2316,6 +2397,42 @@ mod tests {
     }
 
     #[test]
+    fn generic_git_sync_prefers_remote_head_symref_default_branch() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-default-branch-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/feature\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let execution = run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        )
+        .expect("Generic Git sync should resolve the remote HEAD default branch before falling back to the first advertised head");
+
+        assert_eq!(execution.branch, "main");
+        assert_eq!(
+            execution.revision,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
     fn generic_git_ls_remote_stdout_over_cap_fails_closed() {
         let fake_git_dir = std::env::temp_dir().join(format!(
             "sourcebot-worker-large-generic-git-output-{}",
@@ -2350,7 +2467,7 @@ mod tests {
         assert_eq!(
             error,
             format!(
-                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads output exceeded {} bytes",
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD output exceeded {} bytes",
                 crate::GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
             )
         );
