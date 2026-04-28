@@ -15,7 +15,7 @@
 
 ## Expected behavior
 1. The top-level frontend shell exposes a dedicated `#/search` route so code search is reachable without returning to the repository home inventory.
-2. That route reuses the existing API-backed search flow with query input, optional repository filter, and result rendering grounded in `/api/v1/search`.
+2. That route reuses the existing API-backed search flow with query input, optional repository filter, explicit boolean/literal/regex mode selection, and result rendering grounded in `/api/v1/search`.
 3. A valid query returns ranked matches across all repositories the user can access; the current local/index-artifact baseline accepts explicit `mode=boolean|literal|regex`, matches boolean query text case-insensitively, requires every unquoted space-separated query term within a term group to appear on a result line, treats an unquoted `OR` token as a bounded boolean separator between line-term groups, keeps quoted phrases together as literal line substrings, applies bounded unquoted `lang:`/`path:` filters to result file paths, and returns deterministic repo/path/line ordering for identical indexed content while preserving the caller's trimmed query text and selected mode in the response.
 4. Each result includes repository, revision or branch context, file path, line-oriented snippet, and enough metadata to open the file view.
 5. Filters narrow the result set without leaking inaccessible repositories.
@@ -30,7 +30,7 @@
 - Search contexts must only expand to repositories visible to the caller.
 - Saved search contexts are caller-owned. Unknown, deleted, other-user, or present-but-blank context ids fail closed instead of broadening search, and an explicit `repo_id` outside the saved context scope fails closed.
 - Explicit `repo_id` filters are fail-closed: hidden, unknown, or present-but-blank repository ids return `404` instead of being treated as absent and broadening the search across all visible repositories.
-- This saved-context, pagination, and local search-matching baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages, explicit blank-`repo_id` fail-closed behavior, explicit `mode=boolean|literal|regex` matching, case-insensitive boolean text matching, all-term matching for unquoted space-separated query terms within boolean groups, quoted-phrase components, a bounded unquoted `OR` separator between line-term groups, minimal unquoted `lang:`/`path:` result-path filters, and deterministic repo/path/line ordering for identical indexed content in the startup/local-sync search store; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar beyond this bounded literal/regex/phrase/filter/OR/order support, full relevance tuning, or full stable pagination parity across changing indexes/revisions.
+- This saved-context, pagination, and local search-matching baseline now includes API metadata plus bounded `#/search` previous/next controls for result pages, frontend boolean/literal/regex mode selection with deep-link preservation, explicit blank-`repo_id` fail-closed behavior, explicit `mode=boolean|literal|regex` matching, case-insensitive boolean text matching, all-term matching for unquoted space-separated query terms within boolean groups, quoted-phrase components, a bounded unquoted `OR` separator between line-term groups, minimal unquoted `lang:`/`path:` result-path filters, and deterministic repo/path/line ordering for identical indexed content in the startup/local-sync search store; saved contexts remain backend/API-only and file-backed in the organization aggregate, and this does not yet claim frontend context management UI, SQL-backed context durability, richer grammar beyond this bounded literal/regex/phrase/filter/OR/order support, full relevance tuning, or full stable pagination parity across changing indexes/revisions.
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
@@ -39,7 +39,7 @@
 - Branches missing an index should surface partial availability rather than silent omission.
 
 ## Black-box examples
-- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, bounded result-page summary, previous/next controls backed by `/api/v1/search?limit=20&offset=...`, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
+- Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, boolean/literal/regex mode selector, bounded result-page summary, previous/next controls backed by `/api/v1/search?limit=20&offset=...`, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
 - Query `router` across all accessible repos returns matches from multiple repos.
 - Query `lang:rust path:crates/api healthz` returns matches only under `crates/api` in Rust files.
 - Query with invalid regex `([a-z` returns a validation error with no server crash.
