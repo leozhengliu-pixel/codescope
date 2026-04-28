@@ -229,9 +229,9 @@ fn run_generic_git_repository_sync_execution(
     base_url: &str,
     timeout: Duration,
 ) -> Result<GenericGitRepositorySyncExecution, String> {
-    validate_non_blank_repository_sync_config_value("Generic Git base_url", base_url).map_err(
-        |error| format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"),
-    )?;
+    validate_generic_git_base_url(base_url).map_err(|error| {
+        format!("{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")
+    })?;
 
     let head_output = match run_git_ls_remote_head_symref(git_command, base_url, timeout) {
         Ok(Some(output)) => output,
@@ -1287,6 +1287,25 @@ fn validate_non_blank_repository_sync_config_value(
 ) -> Result<(), String> {
     if value.trim().is_empty() {
         Err(format!("{field_name} is empty"))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
+    validate_non_blank_repository_sync_config_value("Generic Git base_url", base_url)?;
+
+    let trimmed = base_url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let Some(authority) = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+    else {
+        return Ok(());
+    };
+    let authority = authority.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.contains('@') {
+        Err("Generic Git base_url must not include embedded credentials".to_owned())
     } else {
         Ok(())
     }
@@ -2431,6 +2450,26 @@ mod tests {
             error,
             "generic Git repository sync execution failed: Generic Git base_url is empty"
         );
+    }
+
+    #[test]
+    fn generic_git_url_with_embedded_credentials_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("definitely-not-a-real-git-binary"),
+            "https://token@example.com/org/repo.git",
+            Duration::from_millis(100),
+        ) {
+            Ok(_) => {
+                panic!("credential-bearing Generic Git base_url must fail before git is spawned")
+            }
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
+        );
+        assert!(!error.contains("token@example.com"));
     }
 
     #[test]
