@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
                 last_outcome = "repository_sync_job".to_string();
                 last_work_item_id = Some(job.id.clone());
                 last_work_item_status = Some(format!("{:?}", job.status));
-                last_work_item_error = job.error.clone();
+                last_work_item_error = job.error.as_deref().map(sanitize_worker_status_error);
                 info!(
                     tick,
                     repository_sync_job_id = %job.id,
@@ -224,11 +224,77 @@ fn write_worker_status_snapshot(
     Ok(())
 }
 
+fn sanitize_worker_status_error(error: &str) -> String {
+    let trimmed = error.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    const STUB_FAILURE: &str = "repository sync stub execution configured to fail";
+    const KNOWN_PREFIXES: [&str; 3] = [
+        "local repository sync preflight failed",
+        "local repository sync execution failed",
+        "generic Git repository sync execution failed",
+    ];
+
+    if trimmed == STUB_FAILURE {
+        return STUB_FAILURE.to_string();
+    }
+
+    for prefix in KNOWN_PREFIXES {
+        if trimmed == prefix || trimmed.starts_with(&format!("{prefix}:")) {
+            return format!("{prefix}: details redacted");
+        }
+    }
+
+    "repository sync failed: details redacted".to_string()
+}
+
 fn worker_idle_sleep_from_env() -> anyhow::Result<Duration> {
     Ok(Duration::from_millis(parse_u64_env(
         "SOURCEBOT_WORKER_IDLE_SLEEP_MS",
         1000,
     )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_worker_status_error;
+
+    #[test]
+    fn worker_status_error_redacts_known_prefix_details() {
+        let sanitized = sanitize_worker_status_error(
+            "local repository sync preflight failed: git -C /secret/repo rev-parse failed: token=abc123",
+        );
+
+        assert_eq!(
+            sanitized,
+            "local repository sync preflight failed: details redacted"
+        );
+        assert!(!sanitized.contains("/secret/repo"));
+        assert!(!sanitized.contains("token=abc123"));
+    }
+
+    #[test]
+    fn worker_status_error_redacts_unknown_prefixes_and_colonless_details() {
+        let url_prefix = sanitize_worker_status_error(
+            "https://token@example.com/repo.git: generic Git repository sync execution failed",
+        );
+        assert_eq!(url_prefix, "repository sync failed: details redacted");
+        assert!(!url_prefix.contains("token@example.com"));
+
+        let colonless = sanitize_worker_status_error("token abc123 leaked without stable prefix");
+        assert_eq!(colonless, "repository sync failed: details redacted");
+        assert!(!colonless.contains("abc123"));
+    }
+
+    #[test]
+    fn worker_status_error_preserves_stub_failure_summary() {
+        assert_eq!(
+            sanitize_worker_status_error("repository sync stub execution configured to fail"),
+            "repository sync stub execution configured to fail"
+        );
+    }
 }
 
 fn parse_positive_u64_env(name: &str, default: u64) -> anyhow::Result<u64> {
