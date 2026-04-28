@@ -5,51 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 336709046720e25cee7829d128a378a3e784933d
+  head: c8c611c5fa4aaea94757efa1b8279fa5a075d9b5
 last_completed_task:
-  id: task102q
-  title: Saved search-context management, local Git output caps, and MCP retrieval scope evidence
+  id: task102r
+  title: Search query runtime bounds, revisioned blob type safety, and worker status heartbeat evidence
   status: done
   summary: >-
     Closed one accelerated three-worker integration batch across practical
-    replacement blockers. Task 102 now exposes a bounded saved-search-context
-    management baseline on `#/search`: authenticated users can list, select, create,
-    and delete caller-owned contexts with non-empty repository scopes, while
-    empty/all-repository saved-context scopes stay fail-closed instead of widening
-    search. Task 106/108 now caps local Git sync execution command stdout/stderr for
-    revision, current-branch, tracked-content, and snapshot materialization probes,
-    failing oversized output before manifest/snapshot/search-index artifact success
-    with the stable `local repository sync execution failed` prefix. Task 107 now
-    adds MCP `read_file` permission-scope evidence and returns structured
-    `permission_denied` errors before blob-store lookup for out-of-scope active
-    repositories. Acceptance/audit wording remains bounded and still does not claim
-    SQL-backed saved-context durability, production search/indexing parity, real
-    provider fetch/import/reindex, broad retry/backoff/supervision, full MCP
-    protocol/session interoperability, or final practical replacement parity.
+    replacement blockers. Task 102 now rejects authenticated `/api/v1/search`
+    requests whose decoded raw query or trimmed query exceeds 1024 bytes, trims
+    the accepted query before primary and local-sync fallback execution, and keeps
+    empty-query validation fail-closed after authentication so oversized whitespace
+    cannot drive unbounded matching work. Task 103 now verifies revisioned Git
+    objects are blobs before serving source/blob content, so directories requested
+    as revisioned blobs fail closed instead of exposing `git show` tree listings as
+    file text. Task 108 now refreshes the optional `SOURCEBOT_WORKER_STATUS_PATH`
+    status snapshot after each bounded worker tick with RFC3339 `updated_at` and
+    `process_id` heartbeat metadata before any no-work idle sleep, while keeping the
+    claim local/operator-only rather than supervised daemon observability.
   tests:
-    - 'npm test -- --run src/App.test.tsx -t "creates and deletes caller-owned search contexts" (web): RED first on empty fail-closed context visibility, then passed with 1 focused test and 182 skipped on master'
-    - 'npm test -- --run src/App.test.tsx -t "search" (web): passed with 11 search-route tests and 172 skipped on master'
-    - 'npm run build (web): passed on master'
-    - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test; non-lib targets matched 0 tests'
-    - 'cargo test -p sourcebot-worker: passed with 38 lib tests, 18 integration tests, and 0 doctests'
-    - 'cargo test -p sourcebot-mcp execute_tool_call_read_file_denies_out_of_scope_active_repo_before_blob_lookup -- --nocapture: passed with 1 lib test'
-    - 'cargo test -p sourcebot-mcp: passed with 9 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api mcp_http -- --nocapture: passed with 4 bin tests; lib target matched 0 tests'
+    - 'cargo test -p sourcebot-api search_rejects_queries_over_bounded_runtime_limit -- --nocapture: passed with 1 bin test and 0 lib tests after adding raw/trimmed oversized-query coverage'
+    - 'cargo test -p sourcebot-api local_browse_store_does_not_return_revision_tree_as_blob -- --nocapture: passed with 1 bin test and 0 lib tests'
+    - 'cargo test -p sourcebot-api browse::: passed with 22 bin tests and 0 lib tests'
+    - 'cargo test -p sourcebot-api search_: passed with 29 bin tests and 0 lib tests'
+    - 'cargo test -p sourcebot-search: passed with 21 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-worker: passed with 38 lib tests, 19 integration tests including worker_binary_refreshes_status_snapshot_before_idle_sleep, and 0 doctests'
     - 'cargo fmt --check: passed'
     - 'git diff --check: passed'
-    - 'added-lines security scan: passed with no findings across the integrated batch and review fix'
-    - 'independent integration review: initially requested changes for empty saved-context UI semantics, then passed after fail-closed UI/docs fix'
+    - 'added-lines security scan: passed with no findings across the integrated batch and review fixes'
+    - 'independent integration review: initially requested changes for raw oversized search input and worker heartbeat timing, then passed after controller fixes and focused regressions'
   review:
     code: >-
-      Independent integration review passed after one blocking saved-context UI
-      truthfulness issue was fixed. The first reviewer found that empty `repo_scope`
-      contexts were labeled as all-visible and could be created from the all-repository
-      filter even though backend search fails them closed. The fix filters empty-scope
-      contexts from the UI, disables creation until a specific repository is selected,
-      adds a focused regression, and updates specs to say empty/all-repository scopes
-      remain fail-closed. Re-review approved the integrated batch and also verified
-      local Git sync output caps and MCP `permission_denied` scope evidence.
-  commit: 336709046720e25cee7829d128a378a3e784933d
+      Independent integration review initially found two blockers: the search guard
+      bounded only the trimmed query while downstream execution still used the raw
+      query, and the worker no-work heartbeat was written after idle sleep. The
+      controller fixed both by rejecting decoded raw queries over 1024 bytes,
+      passing the trimmed query to primary and local-sync search execution, moving
+      worker snapshot writes before idle sleep, and adding focused regressions for
+      whitespace-padded oversized queries and pre-idle tick heartbeats. Re-review
+      passed with no remaining security concerns or logic errors.
+  commit: c8c611c5fa4aaea94757efa1b8279fa5a075d9b5
   next_task: task102
 current_task:
   id: task102
@@ -59,22 +54,62 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. Search now has a
-    frontend-visible saved-context management baseline for non-empty repository
-    scopes on top of fail-closed backend context narrowing, explicit
-    boolean/literal/regex modes, deterministic ordering, repository-detail
-    index-status visibility, indexed-empty/skipped-only semantics, persisted artifact
-    path/repo-id validation, and local-sync artifact-backed fallback surfaces.
-    Adjacent recent closures also capped large commit-diff patch payloads, Generic
-    Git remote advertisement output, local Git sync execution output, and added MCP
-    retrieval tool permission-denied evidence. Prefer the next closure to move
-    practical indexing/runtime behavior, operator-visible index lifecycle/status,
-    failure recovery, richer grammar, relevance/pagination stability,
-    branch/index availability, provider/runtime parity, MCP session/client
-    interoperability, or worker supervision beyond bounded local baselines, while
-    preserving fail-closed visibility boundaries, focused verification, bounded docs
-    claims, independent review, commit, state update, and push.
+    Task 103/106/107/108 blockers when scopes are disjoint. Search now has bounded
+    authenticated query-size validation, frontend-visible saved-context management
+    for non-empty repository scopes, fail-closed backend context narrowing,
+    explicit boolean/literal/regex modes, deterministic ordering,
+    repository-detail index-status visibility, indexed-empty/skipped-only semantics,
+    persisted artifact path/repo-id validation, and local-sync artifact-backed
+    fallback surfaces. Adjacent recent closures also added revisioned blob type
+    safety, capped large commit-diff patch payloads, Generic Git remote
+    advertisement output, local Git sync execution output, MCP retrieval
+    permission-denied evidence, and local per-tick worker status heartbeat
+    metadata. Prefer the next closure to move practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer grammar,
+    relevance/pagination stability, branch/index availability, provider/runtime
+    parity, MCP session/client interoperability, or worker supervision beyond
+    bounded local baselines, while preserving fail-closed visibility boundaries,
+    focused verification, bounded docs claims, independent review, commit, state
+    update, and push.
 history:
+  - id: task102r
+    status: done
+    summary: >-
+      Closed one accelerated three-worker integration batch across practical
+      replacement blockers. Task 102 now rejects authenticated `/api/v1/search`
+      requests whose decoded raw query or trimmed query exceeds 1024 bytes, trims
+      the accepted query before primary and local-sync fallback execution, and keeps
+      empty-query validation fail-closed after authentication so oversized whitespace
+      cannot drive unbounded matching work. Task 103 now verifies revisioned Git
+      objects are blobs before serving source/blob content, so directories requested
+      as revisioned blobs fail closed instead of exposing `git show` tree listings as
+      file text. Task 108 now refreshes the optional `SOURCEBOT_WORKER_STATUS_PATH`
+      status snapshot after each bounded worker tick with RFC3339 `updated_at` and
+      `process_id` heartbeat metadata before any no-work idle sleep, while keeping the
+      claim local/operator-only rather than supervised daemon observability.
+    tests:
+      - 'cargo test -p sourcebot-api search_rejects_queries_over_bounded_runtime_limit -- --nocapture: passed with 1 bin test and 0 lib tests after adding raw/trimmed oversized-query coverage'
+      - 'cargo test -p sourcebot-api local_browse_store_does_not_return_revision_tree_as_blob -- --nocapture: passed with 1 bin test and 0 lib tests'
+      - 'cargo test -p sourcebot-api browse::: passed with 22 bin tests and 0 lib tests'
+      - 'cargo test -p sourcebot-api search_: passed with 29 bin tests and 0 lib tests'
+      - 'cargo test -p sourcebot-search: passed with 21 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-worker: passed with 38 lib tests, 19 integration tests including worker_binary_refreshes_status_snapshot_before_idle_sleep, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan: passed with no findings across the integrated batch and review fixes'
+      - 'independent integration review: initially requested changes for raw oversized search input and worker heartbeat timing, then passed after controller fixes and focused regressions'
+    review:
+      code: >-
+        Independent integration review initially found two blockers: the search guard
+        bounded only the trimmed query while downstream execution still used the raw
+        query, and the worker no-work heartbeat was written after idle sleep. The
+        controller fixed both by rejecting decoded raw queries over 1024 bytes,
+        passing the trimmed query to primary and local-sync search execution, moving
+        worker snapshot writes before idle sleep, and adding focused regressions for
+        whitespace-padded oversized queries and pre-idle tick heartbeats. Re-review
+        passed with no remaining security concerns or logic errors.
+    commit: c8c611c5fa4aaea94757efa1b8279fa5a075d9b5
+    completed_at: '2026-04-28'
   - id: task102q
     status: done
     summary: >-
