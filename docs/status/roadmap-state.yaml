@@ -5,45 +5,72 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 64d7e77016c1d30a90998e5effe49a46ac036350
+  head: e6f8ff05953171b9ef92f6b86b4d533a236e6852
 last_completed_task:
-  id: task98
-  title: Worker scheduling, retries, and supervision parity
+  id: task99a
+  title: Authenticated worker status snapshot visibility
   status: done
   summary: >-
-    Closed one bounded Task 98 worker/runtime operator-visibility slice by adding
-    optional `SOURCEBOT_WORKER_STATUS_PATH` support to the real `sourcebot-worker`
-    binary. When configured, the worker now preflights the status path before
-    claiming work and writes a supervisor-readable JSON last-run snapshot after
-    successful bounded completion with schema version, completion flag, configured
-    tick count, completed tick count, last tick, last outcome, and nullable last
-    work-item id/status fields. The release claim remains deliberately bounded:
-    this is a local last-run status artifact for operators, not production
-    daemon supervision, durable worker metadata, broad retry/backoff, real
-    provider fetch/import/reindex execution, or full runtime parity.
+    Closed one bounded Task 99 operator/runtime observability slice by exposing
+    the optional supervisor-readable worker last-run JSON snapshot through
+    authenticated `GET /api/v1/auth/worker-status`. The API keeps the snapshot
+    path out of public config, requires a local session, reports `not_configured`
+    when `SOURCEBOT_WORKER_STATUS_PATH` is absent or blank, returns bounded JSON
+    snapshots when readable, and fails closed with structured read/parse/size
+    errors for missing, non-file, invalid, or oversized snapshot paths. The
+    release claim remains deliberately bounded: this is local authenticated
+    operator visibility for the existing status artifact, not production metrics,
+    durable worker metadata, heartbeat/supervision, retry orchestration,
+    migration automation, or full operator-runtime parity.
   tests:
-    - cargo test -p sourcebot-worker worker_binary_writes_supervisor_status_snapshot_for_no_work_tick -- --nocapture: red first, then passed (1 matched in worker_runtime_logging_smoke; other worker targets 0 tests)
-    - cargo test -p sourcebot-worker: passed (32 lib tests, 5 explicit completed-smoke tests, 3 invalid-config smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 3 worker-runtime logging smoke tests, 0 doctests)
-    - cargo fmt --check, git diff --check, and added-lines security scan: passed
+    - cargo test -p sourcebot-config worker_status -- --nocapture: passed (1 matched)
+    - cargo test -p sourcebot-api worker_status -- --nocapture: passed (4 bin tests matched; lib target 0 tests)
+    - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed (1 bin test matched; lib target 0 tests)
+    - cargo test -p sourcebot-api --lib: passed after repo-local PostgreSQL preflight as hermes (66 lib tests)
+    - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking path/status write safety, fail-closed preflight, bounded docs-claim, security, or logic issues remained
-  commit: 64d7e77016c1d30a90998e5effe49a46ac036350
-  next_task: task99
+    code: passed independent read-only review; no blocking auth-boundary, path/status snapshot safety, unbounded read/parse, public-config leakage, security, logic, or bounded-doc-claim issues remained
+  commit: e6f8ff05953171b9ef92f6b86b4d533a236e6852
+  next_task: task99b
 current_task:
-  id: task99
+  id: task99b
   parent_task: phase-d-runtime-interoperability-and-release-closure
-  title: Operator runtime, observability, and recovery parity
+  title: Operator recovery and deployment-safety parity
   status: pending
   summary: >-
-    Task 98 now has a bounded local supervisor-readable worker last-run status
-    snapshot in addition to the existing one-tick/default, explicit bounded
-    multi-tick, stale-lease recovery/replay, and provider metadata probes. The
-    next highest-value release blocker is Task 99: close remaining
-    operator/runtime gaps around readiness, durable deployment/upgrade safety,
-    richer observability, backup/recovery, and production-grade local-to-real
-    deployment guidance without over-claiming practical replacement parity.
+    Task 99a now gives authenticated operators bounded local visibility into
+    the worker's optional last-run status snapshot. The next meaningful Task 99
+    closure should continue operator/runtime parity with a real implementation
+    or contract surface around recovery/deployment safety, backup/restore
+    evidence, richer readiness/observability, or upgrade guidance while keeping
+    remaining gaps explicit: no production supervision, durable worker metadata,
+    heartbeat/metrics backend, broad retry orchestration, complete migration
+    automation, or practical replacement parity yet.
 
 history:
+  - id: task99a
+    status: done
+    summary: >-
+      Closed one bounded Task 99 operator/runtime observability slice by
+      exposing the optional supervisor-readable worker last-run JSON snapshot
+      through authenticated `GET /api/v1/auth/worker-status`. The endpoint
+      requires a local session, keeps `SOURCEBOT_WORKER_STATUS_PATH` out of
+      public config, reports `not_configured` when unset, returns bounded JSON
+      snapshots when readable, and reports structured errors for missing,
+      non-file, invalid, or oversized snapshots. The claim remains bounded to
+      local authenticated status visibility, not production metrics, durable
+      worker metadata, heartbeat/supervision, retry orchestration, migration
+      automation, or full operator-runtime parity.
+    tests:
+      - cargo test -p sourcebot-config worker_status -- --nocapture: passed
+      - cargo test -p sourcebot-api worker_status -- --nocapture: passed
+      - cargo test -p sourcebot-api config_endpoint_hides_database_url_value -- --nocapture: passed
+      - cargo test -p sourcebot-api --lib: passed after repo-local PostgreSQL preflight as hermes
+      - cargo fmt --check, git diff --check, docs marker checks, and added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking auth-boundary, path/status snapshot safety, unbounded read/parse, public-config leakage, security, logic, or bounded-doc-claim issues remained
+    commit: e6f8ff05953171b9ef92f6b86b4d533a236e6852
+    next_task: task99b
   - id: task98
     status: done
     summary: >-
@@ -2337,13 +2364,9 @@ notes:
       evidence: >-
         The previous roadmap-specific blocker notes belonged to superseded pre-audit task
         splits. The governing roadmap is now
-        `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; Task 86 closed that
-        bootstrap/operator workflow, Task 87a closed the durable PostgreSQL local-session
-        slice, Task 87b1 closed the durable PostgreSQL bootstrap-admin slice, Task 87b2
-        closed the durable PostgreSQL local-account/membership/invite slice, Task 87c1
-        closed durable API-key/OAuth-client metadata, Task 87c2 closed bounded catalog
-        reads, Task 87c3 closed PostgreSQL-backed repository-permission filtering for
-        authenticated sync-job history, Task 87c4 closed PostgreSQL-backed repository-sync-job
-        lifecycle storage, and the next live work item is Task 88 rather than any archived
-        pre-follow-on blocker thread.
+        `docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md`; the follow-on
+        sequence has advanced beyond the archived pre-follow-on blocker thread through
+        durable metadata, auth/admin, provider/runtime, MCP, worker-runtime, and Task 99a
+        operator-status closures. The next live work item is the `current_task` recorded
+        above, not any archived Task 87b2 or pre-follow-on blocker thread.
 
