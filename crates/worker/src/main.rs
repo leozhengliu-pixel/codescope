@@ -64,9 +64,20 @@ async fn main() -> anyhow::Result<()> {
     let mut last_outcome = "not_started".to_string();
     let mut last_work_item_id: Option<String> = None;
     let mut last_work_item_status: Option<String> = None;
+    let mut last_work_item_error: Option<String> = None;
 
     if let Some(path) = status_path.as_ref() {
-        write_worker_status_snapshot(path, max_ticks, 0, 0, &last_outcome, None, None, false)?;
+        write_worker_status_snapshot(
+            path,
+            max_ticks,
+            0,
+            0,
+            &last_outcome,
+            None,
+            None,
+            None,
+            false,
+        )?;
     }
 
     for tick in 1..=max_ticks {
@@ -84,6 +95,7 @@ async fn main() -> anyhow::Result<()> {
                 last_outcome = "review_agent_run".to_string();
                 last_work_item_id = Some(run.id.clone());
                 last_work_item_status = Some(format!("{:?}", run.status));
+                last_work_item_error = None;
                 info!(
                     tick,
                     review_agent_run_id = %run.id,
@@ -95,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
                 last_outcome = "repository_sync_job".to_string();
                 last_work_item_id = Some(job.id.clone());
                 last_work_item_status = Some(format!("{:?}", job.status));
+                last_work_item_error = job.error.clone();
                 info!(
                     tick,
                     repository_sync_job_id = %job.id,
@@ -110,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
                 last_outcome = "no_work".to_string();
                 last_work_item_id = None;
                 last_work_item_status = None;
+                last_work_item_error = None;
                 info!(
                     tick,
                     "no queued review-agent run or repository sync job available"
@@ -126,6 +140,7 @@ async fn main() -> anyhow::Result<()> {
                 &last_outcome,
                 last_work_item_id.as_deref(),
                 last_work_item_status.as_deref(),
+                last_work_item_error.as_deref(),
                 false,
             )?;
         }
@@ -144,6 +159,7 @@ async fn main() -> anyhow::Result<()> {
             &last_outcome,
             last_work_item_id.as_deref(),
             last_work_item_status.as_deref(),
+            last_work_item_error.as_deref(),
             true,
         )?;
     }
@@ -182,6 +198,7 @@ fn write_worker_status_snapshot(
     last_outcome: &str,
     last_work_item_id: Option<&str>,
     last_work_item_status: Option<&str>,
+    last_work_item_error: Option<&str>,
     completed: bool,
 ) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
@@ -201,6 +218,7 @@ fn write_worker_status_snapshot(
         "last_outcome": last_outcome,
         "last_work_item_id": last_work_item_id,
         "last_work_item_status": last_work_item_status,
+        "last_work_item_error": last_work_item_error,
     });
     fs::write(path, serde_json::to_vec_pretty(&payload)?)?;
     Ok(())

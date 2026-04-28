@@ -312,3 +312,53 @@ async fn worker_binary_logs_failed_repository_sync_terminal_status() {
 
     fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn worker_binary_status_snapshot_includes_failed_repository_sync_error_detail() {
+    let path = unique_test_path("worker-runtime-status-repository-sync-failed-state");
+    let status_path = unique_test_path("worker-runtime-status-repository-sync-failed-snapshot");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            repository_sync_jobs: vec![repository_sync_job(
+                "sync_job_oldest",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let output = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .env("SOURCEBOT_WORKER_STATUS_PATH", &status_path)
+        .env(
+            "SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME",
+            "failed",
+        )
+        .output()
+        .expect("worker binary should run");
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly after writing failed repository-sync status: stderr={}",
+        normalized_log_output(&output.stderr)
+    );
+
+    let status: serde_json::Value = serde_json::from_slice(
+        &fs::read(&status_path).expect("worker should write supervisor status snapshot"),
+    )
+    .expect("supervisor status should be JSON");
+    assert_eq!(status["last_outcome"], "repository_sync_job");
+    assert_eq!(status["last_work_item_id"], "sync_job_oldest");
+    assert_eq!(status["last_work_item_status"], "Failed");
+    assert_eq!(
+        status["last_work_item_error"],
+        "repository sync stub execution configured to fail"
+    );
+
+    fs::remove_file(path).unwrap();
+    fs::remove_file(status_path).unwrap();
+}
