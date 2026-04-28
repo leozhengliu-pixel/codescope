@@ -260,6 +260,7 @@ fn run_generic_git_repository_sync_execution(
             &head_output,
         ));
     }
+    let head_revision = parse_git_ls_remote_head_revision(&head_output.stdout);
     if let Some(default_branch) = parse_git_ls_remote_head_symref(&head_output.stdout) {
         return Ok(default_branch);
     }
@@ -290,25 +291,47 @@ fn run_generic_git_repository_sync_execution(
         return Err(generic_git_failure_detail("git ls-remote --heads", &output));
     }
 
-    parse_git_ls_remote_heads(&output.stdout).ok_or_else(|| {
+    parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref()).ok_or_else(|| {
         format!(
             "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
         )
     })
 }
 
-fn parse_git_ls_remote_heads(stdout: &[u8]) -> Option<GenericGitRepositorySyncExecution> {
-    String::from_utf8_lossy(stdout).lines().find_map(|line| {
-        let (revision, reference) = line.split_once('\t')?;
+fn parse_git_ls_remote_heads(
+    stdout: &[u8],
+    preferred_revision: Option<&str>,
+) -> Option<GenericGitRepositorySyncExecution> {
+    let mut first_valid_head = None;
+    for line in String::from_utf8_lossy(stdout).lines() {
+        let Some((revision, reference)) = line.split_once('\t') else {
+            continue;
+        };
         if reference.contains('\t') {
-            return None;
+            continue;
         }
-        let branch = reference.strip_prefix("refs/heads/")?;
+        let Some(branch) = reference.strip_prefix("refs/heads/") else {
+            continue;
+        };
         if is_valid_git_object_id(revision) && is_valid_git_branch_name(branch) {
-            Some(GenericGitRepositorySyncExecution {
+            let execution = GenericGitRepositorySyncExecution {
                 revision: revision.to_owned(),
                 branch: branch.to_owned(),
-            })
+            };
+            if preferred_revision == Some(revision) {
+                return Some(execution);
+            }
+            first_valid_head.get_or_insert(execution);
+        }
+    }
+    first_valid_head
+}
+
+fn parse_git_ls_remote_head_revision(stdout: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(stdout).lines().find_map(|line| {
+        let (object_id, reference) = line.split_once('\t')?;
+        if reference == "HEAD" && is_valid_git_object_id(object_id) {
+            Some(object_id.to_owned())
         } else {
             None
         }
@@ -2422,6 +2445,42 @@ mod tests {
             Duration::from_secs(5),
         )
         .expect("Generic Git sync should resolve the remote HEAD default branch before falling back to the first advertised head");
+
+        assert_eq!(execution.branch, "main");
+        assert_eq!(
+            execution.revision,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_sync_resolves_head_revision_when_remote_omits_symref() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-head-revision-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/feature\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let execution = run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        )
+        .expect("Generic Git sync should map a direct HEAD revision back to the matching branch before falling back to the first advertised head");
 
         assert_eq!(execution.branch, "main");
         assert_eq!(
