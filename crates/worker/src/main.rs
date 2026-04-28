@@ -78,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
         last_tick = tick;
 
+        let no_work = outcome.is_none();
         match outcome {
             Some(WorkerTickOutcome::ReviewAgentRun(run)) => {
                 last_outcome = "review_agent_run".to_string();
@@ -113,9 +114,6 @@ async fn main() -> anyhow::Result<()> {
                     tick,
                     "no queued review-agent run or repository sync job available"
                 );
-                if tick < max_ticks && !idle_sleep.is_zero() {
-                    tokio::time::sleep(idle_sleep).await;
-                }
             }
         }
 
@@ -130,6 +128,10 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_status.as_deref(),
                 false,
             )?;
+        }
+
+        if no_work && tick < max_ticks && !idle_sleep.is_zero() {
+            tokio::time::sleep(idle_sleep).await;
         }
     }
 

@@ -8,7 +8,8 @@ use std::{
     fs,
     path::Path,
     process::Command,
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 fn unique_test_path(name: &str) -> std::path::PathBuf {
@@ -212,6 +213,54 @@ async fn worker_binary_writes_supervisor_status_snapshot_for_no_work_tick() {
 
     fs::remove_file(path).unwrap();
     fs::remove_file(status_path).unwrap();
+}
+
+#[tokio::test]
+async fn worker_binary_refreshes_status_snapshot_before_idle_sleep() {
+    let path = unique_test_path("worker-runtime-status-before-idle-organizations");
+    let status_path = unique_test_path("worker-runtime-status-before-idle-snapshot");
+    let store = FileOrganizationStore::new(&path);
+    store
+        .store_organization_state(OrganizationState {
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let worker_bin = std::env::var("CARGO_BIN_EXE_sourcebot-worker")
+        .expect("cargo should expose the built sourcebot-worker binary path");
+    let mut child = Command::new(worker_bin)
+        .env("SOURCEBOT_ORGANIZATION_STATE_PATH", &path)
+        .env("SOURCEBOT_WORKER_STATUS_PATH", &status_path)
+        .env("SOURCEBOT_WORKER_MAX_TICKS", "2")
+        .env("SOURCEBOT_WORKER_IDLE_SLEEP_MS", "1000")
+        .spawn()
+        .expect("worker binary should start");
+
+    let mut observed_tick_heartbeat = None;
+    for _ in 0..20 {
+        if let Ok(bytes) = fs::read(&status_path) {
+            if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                if status["ticks_completed"] == 1 && status["completed"] == false {
+                    observed_tick_heartbeat = Some(status);
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+
+    child.kill().ok();
+    let _ = child.wait();
+
+    let status = observed_tick_heartbeat
+        .expect("worker should refresh tick-1 heartbeat before the configured idle sleep elapses");
+    assert_eq!(status["last_outcome"], "no_work");
+    assert!(status["updated_at"].is_string());
+    assert!(status["process_id"].as_u64().is_some_and(|pid| pid > 0));
+
+    fs::remove_file(path).unwrap();
+    let _ = fs::remove_file(status_path);
 }
 
 #[tokio::test]

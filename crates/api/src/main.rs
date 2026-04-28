@@ -5867,7 +5867,7 @@ async fn search_repository_contents(
     if trimmed_query.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if trimmed_query.len() > MAX_SEARCH_QUERY_BYTES {
+    if query.q.len() > MAX_SEARCH_QUERY_BYTES || trimmed_query.len() > MAX_SEARCH_QUERY_BYTES {
         return Err(StatusCode::BAD_REQUEST);
     }
     let search_limit = query
@@ -5920,7 +5920,7 @@ async fn search_repository_contents(
 
     let mut response = state
         .search
-        .search_with_mode(&query.q, requested_repo_id, search_mode)
+        .search_with_mode(trimmed_query, requested_repo_id, search_mode)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     response
         .results
@@ -5930,7 +5930,7 @@ async fn search_repository_contents(
         if let Some(repo_id) = requested_repo_id {
             if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
-                &query.q,
+                trimmed_query,
                 search_mode,
                 &user_id,
                 repo_id,
@@ -5942,7 +5942,7 @@ async fn search_repository_contents(
         } else if let Some(snapshot_response) =
             search_latest_local_sync_snapshots_for_visible_repos(
                 &state,
-                &query.q,
+                trimmed_query,
                 search_mode,
                 &user_id,
                 &visible_repo_ids,
@@ -27642,10 +27642,28 @@ mod tests {
         let oversized_query = "a".repeat(MAX_SEARCH_QUERY_BYTES + 1);
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri(format!(
                         "/api/v1/search?q={oversized_query}&repo_id=repo_sourcebot_rewrite"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let padded_oversized_query =
+            format!("{}query_limit_marker", "%20".repeat(MAX_SEARCH_QUERY_BYTES));
+        let padded_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/search?q={padded_oversized_query}&repo_id=repo_sourcebot_rewrite"
                     ))
                     .header(header::AUTHORIZATION, authorization)
                     .body(Body::empty())
@@ -27654,7 +27672,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(padded_response.status(), StatusCode::BAD_REQUEST);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
