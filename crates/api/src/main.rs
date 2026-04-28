@@ -5767,11 +5767,14 @@ fn build_blob_browse_url(
     revision: Option<&str>,
     line_number: usize,
 ) -> String {
+    let encoded_repo_id = encode_query_value(repo_id);
     let encoded_path = encode_query_value(path);
     let revision_suffix = revision
         .map(|revision| format!("&revision={}", encode_query_value(revision)))
         .unwrap_or_default();
-    format!("/api/v1/repos/{repo_id}/blob?path={encoded_path}{revision_suffix}#L{line_number}")
+    format!(
+        "/api/v1/repos/{encoded_repo_id}/blob?path={encoded_path}{revision_suffix}#L{line_number}"
+    )
 }
 
 fn build_reference_responses(
@@ -31490,15 +31493,15 @@ mod tests {
     }
 
     #[test]
-    fn definition_browse_url_encodes_path_and_revision_query_values() {
+    fn definition_browse_url_encodes_repo_path_and_revision_values() {
         assert_eq!(
             build_definition_browse_url(
-                "repo_sourcebot_rewrite",
+                "repo sourcebot/rewrite?#",
                 "dir/hello world?#.rs",
                 Some("feature/test branch"),
                 42,
             ),
-            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
+            "/api/v1/repos/repo%20sourcebot%2Frewrite%3F%23/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
         );
     }
     #[tokio::test]
@@ -31858,15 +31861,15 @@ mod tests {
     }
 
     #[test]
-    fn reference_browse_url_encodes_path_and_revision_query_values() {
+    fn reference_browse_url_encodes_repo_path_and_revision_values() {
         assert_eq!(
             build_reference_browse_url(
-                "repo_sourcebot_rewrite",
+                "repo sourcebot/rewrite?#",
                 "dir/hello world?#.rs",
                 Some("feature/test branch"),
                 42,
             ),
-            "/api/v1/repos/repo_sourcebot_rewrite/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
+            "/api/v1/repos/repo%20sourcebot%2Frewrite%3F%23/blob?path=dir%2Fhello%20world%3F%23.rs&revision=feature%2Ftest%20branch#L42"
         );
     }
 }
