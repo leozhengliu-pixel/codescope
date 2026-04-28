@@ -616,7 +616,12 @@ fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<
 
 fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<String>> {
     let verify_arg = format!("{commit_id}^{{commit}}");
-    let args = ["rev-parse", "--verify", verify_arg.as_str()];
+    let args = [
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        verify_arg.as_str(),
+    ];
     let output = bounded_git_output(repo_root, &args)?;
 
     if !output.status.success() {
@@ -625,7 +630,12 @@ fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<
         }
         return Err(git_command_error(
             repo_root,
-            &["rev-parse", "--verify", "<commit>^{commit}"],
+            &[
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                "<commit>^{commit}",
+            ],
             &output,
         ));
     }
@@ -939,6 +949,19 @@ mod tests {
             .is_none());
         assert!(store
             .get_commit("repo_sourcebot_rewrite", "HEAD~1..HEAD")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit("repo_sourcebot_rewrite", "--path-format=absolute")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .list_commits(
+                "repo_sourcebot_rewrite",
+                20,
+                0,
+                Some("--path-format=absolute"),
+            )
             .unwrap()
             .is_none());
         assert!(store
