@@ -5,35 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6e332559583b18fc5f8f1c14d28812554c898e23
+  head: ff6c480eb36e6aa3d712e65e58ee0069e90e29d6
 last_completed_task:
-  id: task102j
-  title: Explicit literal and regex search modes
+  id: task103a
+  title: TypeScript and JavaScript symbol extraction baseline
   status: done
   summary: >-
-    Closed a larger manual Task 102 search/indexing grammar slice by adding
-    explicit `mode=boolean|literal|regex` support to `/api/v1/search` and the
-    startup/local-sync search store. Boolean remains the default bounded parser,
-    literal mode treats the trimmed query as an exact case-insensitive line
-    substring, regex mode performs bounded case-insensitive line-level regex
-    matching, and invalid regex syntax fails closed to zero matches instead of
-    broadening results or crashing. The selected mode is returned in the search
-    response, local-sync artifact fallback uses the same mode, README,
-    acceptance, parity-gap, and final-audit wording now ground the shipped
-    baseline, while real indexed regex execution, cross-branch index
-    availability, relevance ranking, streaming search, and production index
-    lifecycle semantics remain open.
+    Closed one manual Task 103 browse/code-navigation slice by extending the
+    bounded symbol extractor beyond Rust to top-level TypeScript and JavaScript
+    declarations. The definitions API can now return supported results for
+    `.ts`, `.tsx`, `.js`, and `.jsx` files covering functions, classes,
+    interfaces, type aliases, enums, constants, and arrow-function constants,
+    while unsupported language handling remains graceful. README,
+    code-navigation acceptance, parity-gap, and final-audit wording now ground
+    the shipped baseline while keeping tree-sitter precision, nested/member
+    symbols, cross-file reference indexing, branch-aware symbol indexes,
+    syntax highlighting, and production code-navigation parity open.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture': passed with 1 unit test and 16 filtered out
-    - 'cargo test -p sourcebot-api search_supports_explicit_literal_and_regex_modes -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
-    - 'cargo test -p sourcebot-search': passed with 17 unit tests and 0 doctests
-    - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 28 bin-target tests
+    - 'cargo test -p sourcebot-search extract_symbols_returns_top_level_typescript_and_javascript_definitions -- --nocapture': red first for single-line declaration range bleed, then passed with 1 unit test and 17 filtered out
+    - 'cargo test -p sourcebot-api definitions_returns_supported_typescript_definitions -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
+    - 'cargo test -p sourcebot-search': passed with 18 unit tests and 0 doctests
+    - 'cargo test -p sourcebot-api definitions_ -- --nocapture': passed with 0 lib-target tests and 9 bin-target tests
+    - 'cargo test -p sourcebot-api references_ -- --nocapture': passed with 0 lib-target tests and 8 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: manual Codex review passed for mode propagation, local-sync fallback consistency, invalid-regex fail-closed behavior, existing boolean default compatibility, docs bounded-claim accuracy, and added dependency scope
-  commit: 6e332559583b18fc5f8f1c14d28812554c898e23
+    code: manual Codex review passed for language dispatch, top-level-only symbol boundaries, no-regression Rust extraction, definitions API compatibility, bounded-doc-claim accuracy, and unsupported-language behavior
+  commit: ff6c480eb36e6aa3d712e65e58ee0069e90e29d6
   next_task: task102
 current_task:
   id: task102
@@ -57,6 +56,32 @@ current_task:
     independent review, commit, state update, and push.
 
 history:
+  - id: task103a
+    status: done
+    summary: >-
+      Closed one manual Task 103 browse/code-navigation slice by extending the
+      bounded symbol extractor beyond Rust to top-level TypeScript and
+      JavaScript declarations. The definitions API can now return supported
+      results for `.ts`, `.tsx`, `.js`, and `.jsx` files covering functions,
+      classes, interfaces, type aliases, enums, constants, and arrow-function
+      constants, while unsupported language handling remains graceful. README,
+      code-navigation acceptance, parity-gap, and final-audit wording now ground
+      the shipped baseline while keeping tree-sitter precision, nested/member
+      symbols, cross-file reference indexing, branch-aware symbol indexes,
+      syntax highlighting, and production code-navigation parity open.
+    tests:
+      - 'cargo test -p sourcebot-search extract_symbols_returns_top_level_typescript_and_javascript_definitions -- --nocapture': red first for single-line declaration range bleed, then passed with 1 unit test and 17 filtered out
+      - 'cargo test -p sourcebot-api definitions_returns_supported_typescript_definitions -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
+      - 'cargo test -p sourcebot-search': passed with 18 unit tests and 0 doctests
+      - 'cargo test -p sourcebot-api definitions_ -- --nocapture': passed with 0 lib-target tests and 9 bin-target tests
+      - 'cargo test -p sourcebot-api references_ -- --nocapture': passed with 0 lib-target tests and 8 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: manual Codex review passed for language dispatch, top-level-only symbol boundaries, no-regression Rust extraction, definitions API compatibility, bounded-doc-claim accuracy, and unsupported-language behavior
+    commit: ff6c480eb36e6aa3d712e65e58ee0069e90e29d6
+    next_task: task102
   - id: task102j
     status: done
     summary: >-
