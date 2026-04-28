@@ -5,31 +5,33 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: c6bca3addd3bdf1e58caa1dac82f85742f38b9ed
+  head: 76f30dc272c2b1317c46fefb280adc408e6440d2
 last_completed_task:
-  id: task102d
-  title: Case-insensitive local search matching
+  id: task102e
+  title: Space-separated all-term local search matching
   status: done
   summary: >-
     Closed one bounded Task 102 search/indexing semantics slice by making the
-    startup/local-sync `LocalSearchStore` match indexed line text
-    case-insensitively while preserving the caller's trimmed query text in the
-    API response. This improves practical search usability for the current
-    bounded local/index-artifact search baseline and updates acceptance,
-    parity-gap, and final-audit wording without claiming real indexing, richer
-    grammar, full relevance ranking, streaming search, stable-pagination parity,
-    or practical replacement readiness.
+    startup/local-sync `LocalSearchStore` treat space-separated query words as
+    case-insensitive all-term line matches while preserving single-term substring
+    matching, the API's trimmed query response, and existing repository
+    visibility/fail-closed boundaries. This improves practical search usability
+    for the current bounded local/index-artifact baseline and updates README,
+    acceptance, parity-gap, and final-audit wording without claiming real
+    indexing, full filter grammar, cross-branch semantics, relevance ranking,
+    streaming search, stable-pagination parity, or practical replacement
+    readiness.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_matches_queries_case_insensitively -- --nocapture': red first with 1 failing unit test, then passed with 1 unit test
-    - 'cargo test -p sourcebot-api search_trims_query_before_searching_and_reporting_response -- --nocapture': passed with 0 lib-target tests and 1 bin-target test
-    - 'cargo test -p sourcebot-search': passed with 11 unit tests and 0 doctests
-    - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 26 bin-target tests
+    - 'cargo test -p sourcebot-search local_search_store_matches_all_space_separated_query_terms -- --nocapture': red first with 1 failing unit test, then passed with 1 unit test
+    - 'cargo test -p sourcebot-api search_matches_all_space_separated_terms_without_exact_phrase -- --nocapture': red first with 0 lib-target tests and 1 failing bin-target test, then passed with 0 lib-target tests and 1 bin-target test
+    - 'cargo test -p sourcebot-search': passed with 12 unit tests and 0 doctests
+    - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review; no blocking search-semantics, API-trim, authorization/fallback-scope, docs-overclaim, performance-regression, or security issues remained
-  commit: c6bca3addd3bdf1e58caa1dac82f85742f38b9ed
+    code: passed independent read-only review; no blocking query-semantics, auth/visibility-boundary, empty-query, bounded-doc-claim, performance-regression, or security issues remained
+  commit: 76f30dc272c2b1317c46fefb280adc408e6440d2
   next_task: task102
 current_task:
   id: task102
@@ -39,15 +41,41 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful search/indexing runtime closure.
     Prefer a slice that moves beyond bounded pagination metadata, frontend paging
-    controls, explicit blank `repo_id` fail-closed hardening, and
-    case-insensitive local/index-artifact matching into practical indexing/runtime
-    behavior, operator-visible index lifecycle/status, failure recovery, richer
-    filter grammar, branch/index availability, streaming behavior, or deeper
+    controls, explicit blank `repo_id` fail-closed hardening,
+    case-insensitive local/index-artifact matching, and space-separated all-term
+    local/index-artifact matching into practical indexing/runtime behavior,
+    operator-visible index lifecycle/status, failure recovery, richer filter
+    grammar, branch/index availability, streaming behavior, or deeper
     pagination/relevance stability, while preserving fail-closed visibility
     boundaries, focused verification, bounded docs claims, independent review,
     commit, state update, and push.
 
 history:
+  - id: task102e
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing semantics slice by making the
+      startup/local-sync `LocalSearchStore` treat space-separated query words as
+      case-insensitive all-term line matches while preserving single-term
+      substring matching, the API's trimmed query response, and existing
+      repository visibility/fail-closed boundaries. This improves practical
+      search usability for the current bounded local/index-artifact baseline and
+      updates README, acceptance, parity-gap, and final-audit wording without
+      claiming real indexing, full filter grammar, cross-branch semantics,
+      relevance ranking, streaming search, stable-pagination parity, or practical
+      replacement readiness.
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_matches_all_space_separated_query_terms -- --nocapture': red first with 1 failing unit test, then passed with 1 unit test
+      - 'cargo test -p sourcebot-api search_matches_all_space_separated_terms_without_exact_phrase -- --nocapture': red first with 0 lib-target tests and 1 failing bin-target test, then passed with 0 lib-target tests and 1 bin-target test
+      - 'cargo test -p sourcebot-search': passed with 12 unit tests and 0 doctests
+      - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review; no blocking query-semantics, auth/visibility-boundary, empty-query, bounded-doc-claim, performance-regression, or security issues remained
+    commit: 76f30dc272c2b1317c46fefb280adc408e6440d2
+    next_task: task102
   - id: task102d
     status: done
     summary: >-
