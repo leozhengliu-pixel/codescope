@@ -602,6 +602,13 @@ impl GrepStore for BrowseGrepStoreAdapter {
 
 fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
     let object = format!("{revision}:{path}");
+    let Some(object_type) = run_git_object_type(repo_root, &object)? else {
+        return Ok(None);
+    };
+    if object_type != "blob" {
+        return Ok(None);
+    }
+
     let output = Command::new("git")
         .args(["show", &object])
         .current_dir(repo_root)
@@ -619,6 +626,29 @@ fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<
     Err(git_command_error(
         repo_root,
         &["show", "<revision>:<path>"],
+        &output,
+    ))
+}
+
+fn run_git_object_type(repo_root: &PathBuf, object: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["cat-file", "-t", object])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git cat-file in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        return Ok(Some(stdout.trim().to_string()));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["cat-file", "-t", "<revision>:<path>"],
         &output,
     ))
 }
@@ -718,6 +748,7 @@ fn run_git_list_files_at_revision(
 fn git_object_not_found_output(output: &Output) -> bool {
     let stderr = String::from_utf8_lossy(&output.stderr);
     stderr.contains("exists on disk, but not in")
+        || stderr.contains("does not exist in")
         || stderr.contains("pathspec")
         || stderr.contains("unknown revision")
         || stderr.contains("bad object")
@@ -1093,6 +1124,27 @@ mod tests {
         assert_eq!(blob.content, "");
         assert_eq!(blob.size_bytes, 4);
         assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_does_not_return_revision_tree_as_blob() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-tree-as-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let blob = store
+            .get_blob_at_revision("repo_test", "src", Some("HEAD"))
+            .unwrap();
+
+        assert_eq!(blob, None);
 
         fs::remove_dir_all(root).unwrap();
     }
