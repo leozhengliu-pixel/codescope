@@ -5,33 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 2369ced9f78f9b845410d2268d05b7f5b54fdb60
+  head: eb39168cc9681fd6977c0df3372dfea7b10d90a8
 last_completed_task:
-  id: task102f
-  title: Quoted phrase local search matching
+  id: task102g
+  title: Bounded lang/path local search filters
   status: done
   summary: >-
-    Closed one bounded Task 102 search/indexing semantics slice by making the
-    startup/local-sync `LocalSearchStore` parse balanced quoted query segments as
-    case-insensitive literal phrase components while preserving the existing
-    all-term semantics for unquoted space-separated query words. Empty quoted or
-    otherwise termless local searches now return no local matches instead of
-    broadening to every indexed line. README, search acceptance, parity-gap, and
-    final-audit wording now ground this bounded phrase support while keeping real
-    indexing, richer grammar beyond this phrase baseline, cross-branch
-    semantics, relevance ranking, streaming search, stable-pagination parity, and
-    practical replacement readiness open.
+    Closed one bounded Task 102 search/indexing filter-grammar slice by making
+    the startup/local-sync `LocalSearchStore` apply minimal unquoted `lang:` and
+    `path:` filters to indexed result paths while preserving case-insensitive
+    all-term line matching and quoted-phrase literals. Malformed empty filters
+    such as `lang:` now fail closed to no matches instead of broadening to a
+    plain line-term search, and quoted text such as `"path:src"` remains a
+    literal phrase rather than becoming a filter. README, search acceptance,
+    parity-gap, and final-audit wording now ground this bounded filter support
+    while keeping real indexing, regex/boolean/full filter grammar, cross-branch
+    semantics, relevance ranking, streaming search, stable-pagination parity,
+    and practical replacement readiness open.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_matches_quoted_phrases_and_unquoted_terms -- --nocapture': red first with 1 failing unit test for phrase+term matching, then red again for reviewer-found empty quoted phrase broadening, then passed with 1 unit test
-    - 'cargo test -p sourcebot-search local_search_store_matches_all_space_separated_query_terms -- --nocapture': passed with 1 unit test
-    - 'cargo test -p sourcebot-search': passed with 13 unit tests and 0 doctests
+    - 'cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture': red first for missing lang/path filters, red again for reviewer-found empty-filter broadening, then passed with 1 unit test
+    - 'cargo test -p sourcebot-search local_search_store_matches_quoted_phrases_and_unquoted_terms -- --nocapture': passed with 1 unit test
+    - 'cargo test -p sourcebot-search': passed with 14 unit tests and 0 doctests
     - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
     - cargo fmt --check: passed
     - git diff --check: passed
     - added-lines security scan: passed
   review:
-    code: passed independent read-only review after tightening empty quoted/no-term searches; no blocking quoted-phrase semantics, API compatibility, bounded-doc-claim, performance-regression, or security issues remained
-  commit: 2369ced9f78f9b845410d2268d05b7f5b54fdb60
+    code: passed independent read-only review after fixing quoted filter literals and empty-filter fail-open behavior; no blocking query-parsing, fail-closed malformed-filter, quoted-literal, docs-overclaim, performance, or security issues remained
+  commit: eb39168cc9681fd6977c0df3372dfea7b10d90a8
   next_task: task102
 current_task:
   id: task102
@@ -43,14 +44,43 @@ current_task:
     Prefer a slice that moves beyond bounded pagination metadata, frontend paging
     controls, explicit blank `repo_id` fail-closed hardening,
     case-insensitive local/index-artifact matching, space-separated all-term
-    local/index-artifact matching, and bounded quoted-phrase local/index-artifact
-    matching into practical indexing/runtime behavior, operator-visible index
-    lifecycle/status, failure recovery, richer filter grammar, branch/index
-    availability, streaming behavior, or deeper pagination/relevance stability,
-    while preserving fail-closed visibility boundaries, focused verification,
-    bounded docs claims, independent review, commit, state update, and push.
+    local/index-artifact matching, bounded quoted-phrase local/index-artifact
+    matching, and bounded unquoted `lang:`/`path:` local/index-artifact filters
+    into practical indexing/runtime behavior, operator-visible index
+    lifecycle/status, failure recovery, richer regex/boolean/filter grammar,
+    branch/index availability, streaming behavior, or deeper
+    pagination/relevance stability, while preserving fail-closed visibility
+    boundaries, focused verification, bounded docs claims, independent review,
+    commit, state update, and push.
 
 history:
+  - id: task102g
+    status: done
+    summary: >-
+      Closed one bounded Task 102 search/indexing filter-grammar slice by making
+      the startup/local-sync `LocalSearchStore` apply minimal unquoted `lang:`
+      and `path:` filters to indexed result paths while preserving
+      case-insensitive all-term line matching and quoted-phrase literals.
+      Malformed empty filters such as `lang:` now fail closed to no matches
+      instead of broadening to a plain line-term search, and quoted text such as
+      `"path:src"` remains a literal phrase rather than becoming a filter.
+      README, search acceptance, parity-gap, and final-audit wording now ground
+      this bounded filter support while keeping real indexing,
+      regex/boolean/full filter grammar, cross-branch semantics, relevance
+      ranking, streaming search, stable-pagination parity, and practical
+      replacement readiness open.
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture': red first for missing lang/path filters, red again for reviewer-found empty-filter broadening, then passed with 1 unit test
+      - 'cargo test -p sourcebot-search local_search_store_matches_quoted_phrases_and_unquoted_terms -- --nocapture': passed with 1 unit test
+      - 'cargo test -p sourcebot-search': passed with 14 unit tests and 0 doctests
+      - 'cargo test -p sourcebot-api search_ -- --nocapture': passed with 0 lib-target tests and 27 bin-target tests
+      - cargo fmt --check: passed
+      - git diff --check: passed
+      - added-lines security scan: passed
+    review:
+      code: passed independent read-only review after fixing quoted filter literals and empty-filter fail-open behavior; no blocking query-parsing, fail-closed malformed-filter, quoted-literal, docs-overclaim, performance, or security issues remained
+    commit: eb39168cc9681fd6977c0df3372dfea7b10d90a8
+    next_task: task102
   - id: task102f
     status: done
     summary: >-
