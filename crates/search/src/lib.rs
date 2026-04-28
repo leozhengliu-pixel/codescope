@@ -9,6 +9,7 @@ use std::{
 };
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
+const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
@@ -210,6 +211,21 @@ impl LocalSearchStore {
     }
 
     pub fn from_index_artifact(repo_id: &str, artifact_path: &Path) -> Result<Self> {
+        let artifact_metadata = fs::metadata(artifact_path).with_context(|| {
+            format!(
+                "failed to read local search index artifact metadata {}",
+                artifact_path.display()
+            )
+        })?;
+        if artifact_metadata.len() > MAX_INDEX_ARTIFACT_SIZE_BYTES {
+            anyhow::bail!(
+                "search index artifact is too large: {} is {} bytes, maximum is {} bytes",
+                artifact_path.display(),
+                artifact_metadata.len(),
+                MAX_INDEX_ARTIFACT_SIZE_BYTES
+            );
+        }
+
         let artifact_bytes = fs::read(artifact_path).with_context(|| {
             format!(
                 "failed to read local search index artifact {}",
@@ -1541,6 +1557,36 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_oversized_persisted_index_artifacts_before_parsing() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-oversized-artifact",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let artifact_path = fixture
+            .root
+            .join(".sourcebot")
+            .join("local-sync-index.json");
+        fs::create_dir_all(artifact_path.parent().unwrap()).unwrap();
+        let oversized_bytes = vec![b' '; MAX_INDEX_ARTIFACT_SIZE_BYTES as usize + 1];
+        fs::write(&artifact_path, oversized_bytes).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("oversized persisted index artifact must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact is too large"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
