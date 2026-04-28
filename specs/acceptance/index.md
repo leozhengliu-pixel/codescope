@@ -22,7 +22,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 
 | Surface family | Acceptance spec | Status | Notes |
 | --- | --- | --- | --- |
-| Search | `specs/acceptance/search.md` | Present | Covers query/filter/result behavior, but parity matrix expansion still needs evidence placeholders. |
+| Search | `specs/acceptance/search.md` | Present | Covers query/filter/result behavior, while the parity matrix now carries audited evidence pointers and later slices should update those pointers as search/index blockers close. |
 | Browse and source view | `specs/acceptance/browse.md` | Present | Covers tree/blob behavior plus the current repo-route revision control baseline; later parity tasks still need richer branch/revision UX and broader UI parity coverage. |
 | Code navigation | `specs/acceptance/code-nav.md` | Present | Covers definitions/references behavior; later parity tasks will extend multi-language and UI parity details. |
 | Ask and chat | `specs/acceptance/ask.md` | Present | Covers the shipped `#/ask` + `#/chat` baseline for repo-scoped asks, authenticated thread list/detail/reopen, backend thread title/visibility metadata updates, inline citations, hash-restored active-thread continuity, and the dedicated `#/agents` review-agent visibility baseline; later parity tasks still need delete controls, frontend rename/visibility controls, and richer agents-management/retry/orchestration coverage. |
@@ -91,7 +91,7 @@ This index is the clean-room acceptance entrypoint for the full-parity roadmap. 
 ## Immediate follow-up gaps exposed by this index
 1. The acceptance corpus now has dedicated operator-runtime and worker-runtime specs; later slices should extend those documents instead of restating worker/operator behavior only in this index.
 2. Frontend parity surfaces are still mostly implicit inside `web/src/App.tsx`; `specs/acceptance/journeys.md` now maps them into explicit user/admin/operator journeys and names the next missing spec documents.
-3. `specs/FEATURE_PARITY.md` now has the evidence column needed for later parity auditing, but most rows are still only placeholders; later slices should keep replacing `_TBD_` rows with grounded evidence instead of treating the matrix as complete.
+3. `specs/FEATURE_PARITY.md` now has audited `Partial`/`Missing` statuses and evidence pointers instead of `_TBD_` placeholders; later slices should update the referenced evidence and final-audit rows as real blockers close instead of treating the matrix as complete.
 4. Review-agent, OAuth, analytics, and audit flows still need finer-grained dedicated acceptance specs before broader implementation proceeds; `specs/acceptance/operator-runtime.md` now covers the local runtime baseline, `specs/acceptance/operator-maintenance.md` covers the current local operator maintenance baseline, `specs/acceptance/worker-runtime.md` covers the current one-tick default plus explicit bounded multi-tick worker baseline, and `specs/acceptance/settings-navigation.md` covers the route-shell baseline, but richer admin workflows still need later split-out specs as the surface deepens.
 
 ## Related follow-up document

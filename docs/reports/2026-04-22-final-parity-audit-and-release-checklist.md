@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This document closes roadmap Task 85 by mapping every current `specs/FEATURE_PARITY.md`
-row to shipped rewrite evidence and to the blockers that still prevent an honest
-"full parity" release claim.
+This document now closes the Task 100 release-candidate re-audit by mapping every
+current `specs/FEATURE_PARITY.md` row to shipped rewrite evidence, the
+release-candidate smoke result, and the blockers that still prevent an honest
+"practical Sourcebot replacement" release claim. It supersedes the original Task
+85 audit wording without upgrading any row beyond the repo-local evidence.
 
 ## Scope and evidence policy
 
@@ -19,14 +21,18 @@ row to shipped rewrite evidence and to the blockers that still prevent an honest
 
 ## Release verdict
 
-**Release verdict: NOT READY for a truthful full-parity Sourcebot replacement claim.**
+**Release verdict: NOT READY for a truthful practical Sourcebot replacement claim.**
 
-The rewrite now has broad bounded baselines across search, browse, ask/chat,
-auth/settings, review automation visibility, local runtime bring-up, and local
-operator maintenance. But the live repo still has explicit blockers in durable
-metadata/migrations, real provider integrations, end-to-end OIDC/SSO,
-search/indexing depth, richer thread and admin lifecycles, worker scheduling/
-retries, and production-grade operator/runtime parity.
+The Task 100 release-candidate smoke contract passed (`bash
+scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite`),
+which proves one bounded repo-local path across local bootstrap/login,
+authenticated connections, search, ask, review-webhook intake, repository-sync
+queue visibility, and a default one-tick worker completion. That smoke is useful
+operator evidence, but it is not a release certificate: the live repo still has
+explicit blockers in durable metadata breadth, real provider integrations,
+end-to-end OIDC/SSO, production search/indexing depth, richer thread and admin
+lifecycles, worker scheduling/retries/supervision, MCP protocol/client
+interoperability, and production-grade operator/runtime parity.
 
 ## Audit summary by domain
 
@@ -80,12 +86,14 @@ retries, and production-grade operator/runtime parity.
 | Analytics | Partial | Code: `/api/v1/auth/analytics` in `crates/api/src/main.rs`; UI: `#/settings/observability`; docs/tests: `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, auth/admin + ops gap-report rows. | Read-only visibility exists, but analytics depth and operator workflows remain incomplete. |
 | OAuth client / token flows | Partial | Code: `/api/v1/auth/oauth-clients` inventory/create in `crates/api/src/main.rs`; UI: `#/settings/oauth-clients` in `web/src/App.tsx`; docs/tests: `specs/acceptance/auth.md`, `specs/acceptance/settings-navigation.md`, auth/admin gap-report rows. | Client inventory/create baseline exists, but authorization, token, revocation, and broader manage UX remain missing. |
 | Review agent / webhook automation | Partial | Code: authenticated review-webhook, delivery-attempt, and review-agent-run APIs plus public webhook intake in `crates/api/src/main.rs`; UI: `#/settings/review-automation` and `#/agents` in `web/src/App.tsx`; tests/docs: `scripts/check_end_to_end_smoke_matrix.sh`, `specs/acceptance/ask.md`, `specs/acceptance/auth.md`, operator-runtime + gap-report rows. | Visibility and bounded smoke coverage exist, but durable orchestration, retries, scheduling, and richer operator controls remain open. |
-| Enterprise entitlement controls | Missing | Present evidence is limited to roadmap and parity-matrix placeholders; the canonical gap report does not claim a shipped entitlement-control surface. | No truthful entitlement implementation or acceptance baseline exists yet. |
+| Enterprise entitlement controls | Missing | Present evidence is limited to roadmap and parity-matrix missing-status entries; the canonical gap report does not claim a shipped entitlement-control surface. | No truthful entitlement implementation or acceptance baseline exists yet. |
 
 ## Full-parity release checklist
 
 - [x] `specs/FEATURE_PARITY.md` now has audited row statuses and evidence pointers instead of `Needs audit` / `_TBD_` placeholders.
 - [x] This audit maps every current matrix row to code/tests/docs evidence plus remaining blockers.
+- [x] Task 100 release-candidate smoke contract passed locally: `bash scripts/check_end_to_end_smoke_matrix_contract.sh /opt/data/projects/sourcebot-rewrite`.
+- [x] Remaining blockers were carried forward into `docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md` instead of pretending Task 86-100 completion is release parity.
 - [ ] Durable metadata and migration parity are complete across catalog, auth, org, ask-thread, and review-agent state.
 - [ ] Search/indexing parity is complete beyond the current bounded API-and-UI baseline.
 - [ ] Browse/source/commit/code-nav parity is complete beyond the current bounded shell.
@@ -99,10 +107,10 @@ retries, and production-grade operator/runtime parity.
 
 ## Conclusion
 
-Task 85 can be closed as an honest audit-and-checklist closure because the repo now
-has a final parity audit document and a fully grounded feature matrix. The audit's
-truthful answer is that release parity is **not** complete yet, and the unchecked
-items above are the blocking work that remains. Those blockers now continue under
-`docs/plans/2026-04-22-sourcebot-follow-on-parity-roadmap.md` so future runs can
-resume from a truthful follow-on roadmap instead of reopening the finished 85-task
-audit roadmap.
+Task 100 closes as an honest release-candidate smoke and parity re-audit closure.
+The smoke contract is green and the feature matrix is grounded, but the truthful
+answer remains that practical Sourcebot replacement parity is **not** complete.
+The unchecked checklist items above are still blocking work, now carried forward
+under `docs/plans/2026-04-28-sourcebot-practical-replacement-blockers-roadmap.md`
+so future runs can resume from a blocker-focused roadmap instead of reopening the
+completed Task 86-100 sprint or claiming false 100% parity.
