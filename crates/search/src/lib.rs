@@ -849,7 +849,7 @@ impl QueryMatcher {
             SearchMode::Boolean => Self::Boolean(parse_query(&query.to_lowercase())),
             SearchMode::Literal => Self::Literal(query.to_lowercase()),
             SearchMode::Regex => {
-                if query.len() > MAX_REGEX_QUERY_BYTES {
+                if query.is_empty() || query.len() > MAX_REGEX_QUERY_BYTES {
                     return Self::Regex(None);
                 }
 
@@ -1553,6 +1553,14 @@ mod tests {
         assert!(
             invalid_regex_response.results.is_empty(),
             "invalid regex mode queries should fail closed to no matches"
+        );
+
+        let empty_regex_response = store
+            .search_with_mode("   ", Some("repo_test"), SearchMode::Regex)
+            .unwrap();
+        assert!(
+            empty_regex_response.results.is_empty(),
+            "empty regex mode queries should fail closed instead of matching every indexed line"
         );
 
         let oversized_matching_regex = format!("build_router|{}", "a".repeat(2_048));
