@@ -18,7 +18,7 @@
 3. Navigation requests are revision-aware and stable for a given indexed revision.
 4. Unsupported languages fail gracefully with a capability message instead of a server error.
 5. Symbol results link back to browseable source locations using the effective source revision; generated links percent-encode repository identifiers plus path/revision values before embedding them in URLs.
-6. When no explicit revision is requested and the primary browse/code-navigation store has no blob for an otherwise visible repository, definitions and references may fall back to the latest successful authorized local sync snapshot, using that terminal sync revision in response metadata and generated browse links.
+6. When no explicit revision is requested and the primary browse/code-navigation store has no blob for an otherwise visible repository, definitions and references may fall back to the latest successful authorized local sync snapshot, using that terminal sync revision in response metadata and generated browse links. Snapshot blob reads fail closed for symlinks that resolve outside the repository root, so fallback definitions cannot expose out-of-tree files.
 
 ## Permission behavior
 - Definitions and references only return locations inside repositories the caller can access.

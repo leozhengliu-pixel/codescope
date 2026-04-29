@@ -30721,6 +30721,17 @@ mod tests {
             "pub fn local_sync_code_nav_marker() {}\nfn caller() { local_sync_code_nav_marker(); }\n",
         )
         .unwrap();
+        #[cfg(unix)]
+        let outside_symlink_target = {
+            let target = unique_test_path("code-nav-local-snapshot-outside-secret");
+            fs::write(&target, "pub fn outside_snapshot_secret() {}\n").unwrap();
+            std::os::unix::fs::symlink(
+                &target,
+                snapshot_root.join("src").join("outside-secret.rs"),
+            )
+            .unwrap();
+            target
+        };
         let hidden_repo_root = unique_test_path("code-nav-hidden-local-snapshot-repo-root");
         let hidden_snapshot_root = hidden_repo_root
             .join(".sourcebot")
@@ -30900,6 +30911,22 @@ mod tests {
                 && reference.browse_url.contains("revision=abc123#L2")
         }));
 
+        #[cfg(unix)]
+        {
+            let symlink_definition_response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v1/repos/repo_local_import/definitions?path=src/outside-secret.rs&symbol=outside_snapshot_secret")
+                        .header(header::AUTHORIZATION, authorization.clone())
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(symlink_definition_response.status(), StatusCode::NOT_FOUND);
+        }
+
         let scoped_api_key_authorization = format!("Bearer key_code_nav_scoped:{scoped_key_value}");
         let scoped_key_definitions_response = app
             .clone()
@@ -30946,6 +30973,8 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+        #[cfg(unix)]
+        fs::remove_file(outside_symlink_target).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
         fs::remove_dir_all(hidden_repo_root).unwrap();
     }

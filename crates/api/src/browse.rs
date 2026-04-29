@@ -473,7 +473,13 @@ impl BrowseStore for LocalBrowseStore {
                 (blob_content.content, size_bytes, blob_content.is_binary)
             }
             None => {
-                if !full_path.exists() || !full_path.is_file() {
+                let Some(repo_root) = self.repo_roots.get(repo_id) else {
+                    return Ok(None);
+                };
+                if !full_path.exists()
+                    || !full_path.is_file()
+                    || !Self::path_is_within_repo_root(repo_root, &full_path)
+                {
                     return Ok(None);
                 }
 
@@ -1195,6 +1201,22 @@ mod tests {
         assert_eq!(blob.size_bytes, 12);
         assert!(!blob.is_binary);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_rejects_blob_symlinked_outside_repo_root() {
+        let (store, root) = create_test_store();
+        let outside_path = repo_tree_fixture::CanonicalRepoTreeRoot { root: root.clone() }
+            .add_browse_symlink_variants();
+
+        assert!(store
+            .get_blob("repo_test", "src/outside-secret.rs")
+            .unwrap()
+            .is_none());
+
+        fs::remove_file(outside_path).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
