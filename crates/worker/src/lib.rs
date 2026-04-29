@@ -1422,6 +1422,10 @@ fn validate_non_blank_repository_sync_config_value(
 fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     validate_non_blank_repository_sync_config_value("Generic Git base_url", base_url)?;
 
+    if base_url.chars().any(char::is_control) {
+        return Err("Generic Git base_url must not include control characters".to_owned());
+    }
+
     let trimmed = base_url.trim();
     if trimmed.starts_with('-') {
         return Err("Generic Git base_url must not start with '-'".to_owned());
@@ -2685,6 +2689,24 @@ mod tests {
             error,
             "generic Git repository sync execution failed: Generic Git base_url is empty"
         );
+    }
+
+    #[test]
+    fn generic_git_base_url_with_control_character_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            "https://example.invalid/org/repo.git\n--upload-pack=/bin/sh",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("Generic Git base_url containing control characters should fail before git is spawned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include control characters"
+        );
+        assert!(!error.contains("--upload-pack"));
     }
 
     #[test]
