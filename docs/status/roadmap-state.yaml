@@ -5,38 +5,32 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a9c79921b673e04a1b50b22cf62f389b96a631c0
+  head: 3c7e58cda1787aaf83e15fb79e4409b0212028bd
 last_completed_task:
-  id: task102-103-106r
-  title: Search ordering, literal commit diffs, and local Git output caps
+  id: task102s
+  title: Search artifact status path redaction
   status: done
   summary: >-
-    Closed the dirty carry-over from the previous accelerated batch instead of
-    starting new workers on top of uncommitted evidence. The batch integrated real
-    implementation hardening across three disjoint practical-replacement blockers:
-    unscoped/search-context search now sorts merged primary-index and authorized
-    local-sync artifact results by repo/path/line before pagination; commit diff
-    patch loading now uses literal Git pathspec semantics so metacharacter-bearing
-    filenames cannot include sibling patches; and local Git repository-sync probes
-    now enforce the combined stdout/stderr output cap across preflight, revision,
-    content-discovery, branch/detached-label, and tracked-file snapshot commands.
-    Coupled acceptance and final-audit wording was synchronized while preserving
-    explicit fail-closed blockers for real indexing, real provider fetch/import,
-    production worker supervision/retry, OIDC/SSO, MCP interoperability, and
-    operator deployment/runbook parity.
+    Closed a Task 102 search/indexing runtime hardening slice: malformed
+    local-sync search-index artifact status errors now redact the artifact path
+    and every non-root ancestor path before surfacing the operator-visible error.
+    This prevents parent-directory or symlink-parent failures from leaking
+    absolute local filesystem paths while preserving a bounded <redacted> failure
+    marker for troubleshooting. Two requested parallel worker scopes for
+    browse/code-navigation and provider/worker did not produce commits because
+    the delegation backend returned HTTP 503/account exhaustion; those worktrees
+    were inspected and had no coherent dirty changes to integrate.
   tests:
-    - 'cargo test -p sourcebot-worker combined_output_over_cap -- --nocapture: passed with 2 lib tests and zero-test non-lib/smoke targets'
-    - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test and zero-test non-lib/smoke targets'
-    - 'cargo test -p sourcebot-api local_commit_store_loads_literal_pathspec_patches -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
-    - 'cargo test -p sourcebot-api search_orders_merged_primary_and_local_sync_artifact_results_by_repo_path_line -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
-    - 'cargo test -p sourcebot-worker: passed with 65 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
-    - 'cargo test -p sourcebot-api repo_commit -- --nocapture: passed with 14 main-bin tests and one zero-test lib target'
-    - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed with 16 main-bin tests and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-api malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error failed with 1 failing test before implementation'
+    - 'cargo test -p sourcebot-api tests::malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error -- --exact: passed with 1 main-bin test and one zero-test lib target'
+    - 'cargo test -p sourcebot-api search_index_artifact: passed with 8 main-bin tests and one zero-test lib target'
+    - 'cargo test -p sourcebot-search artifact: passed with 26 unit tests'
+    - 'cargo test -p sourcebot-api search_: passed with 37 main-bin tests and one zero-test lib target'
     - 'cargo fmt --check: passed'
     - 'git diff --check: passed'
-    - 'added-lines security scan over git diff HEAD~3 plus docs: passed with 242 added lines and no findings'
-    - 'independent final integration review: approved with no blockers'
-  commit: a9c79921b673e04a1b50b22cf62f389b96a631c0
+    - 'added-lines security scan over HEAD~1..HEAD: passed with 48 added lines and no findings'
+    - 'independent integration review: approved with no blockers'
+  commit: 3c7e58cda1787aaf83e15fb79e4409b0212028bd
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -46,9 +40,8 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This carry-over close-out landed implementation-backed
-    hardening for deterministic merged search pagination, literal commit-diff
-    pathspec handling, and combined-output-capped local Git sync probes. Remaining
+    worktree is clean. This run landed implementation-backed redaction hardening
+    for malformed local-sync search-index artifact status errors. Remaining
     practical replacement work still includes production-shaped indexing
     lifecycle/status and failure recovery, relevance and pagination behavior at
     scale, branch/index availability, broader provider fetch/import/reindex,
@@ -56,6 +49,48 @@ current_task:
     flows, MCP client interoperability, operator runbook/deploy evidence, and
     other release blockers in this roadmap.
 history:
+  - id: task102s
+    status: done
+    summary: >-
+      Integrated one real search/indexing hardening closure from the accelerated
+      worker batch: malformed local-sync search-index artifact status errors now
+      redact the artifact path plus all non-root ancestor paths before returning
+      operator-visible index status. This closes a concrete fail-closed/runtime
+      information-disclosure gap without broadening release claims. The
+      browse/code-navigation and provider/worker delegates failed before producing
+      commits because the backend returned HTTP 503/account exhaustion; their
+      worktrees were inspected as clean/no-commit and removed rather than being
+      treated as product blockers.
+    commit: 3c7e58cda1787aaf83e15fb79e4409b0212028bd
+    component_commits:
+      - 3c7e58cda1787aaf83e15fb79e4409b0212028bd
+    tests:
+      - 'worker RED: cargo test -p sourcebot-api malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error failed with 1 failing test before implementation'
+      - 'cargo test -p sourcebot-api tests::malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error -- --exact: passed with 1 main-bin test and one zero-test lib target'
+      - 'cargo test -p sourcebot-api search_index_artifact: passed with 8 main-bin tests and one zero-test lib target'
+      - 'cargo test -p sourcebot-search artifact: passed with 26 unit tests'
+      - 'cargo test -p sourcebot-api search_: passed with 37 main-bin tests and one zero-test lib target'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over HEAD~1..HEAD: passed with 48 added lines and no findings'
+      - 'independent integration review: approved with no blockers'
+    review: >-
+      Independent integration review approved commit 3c7e58cda1787aaf83e15fb79e4409b0212028bd with no blocking
+      security, logic, test, auth/scope, or release-claim issues. The reviewer
+      confirmed the change is limited to malformed artifact error formatting and
+      focused coverage, leaves auth/scope logic unchanged, sorts redaction targets
+      longest-first, and avoids hardcoded secrets.
+    workers:
+      - 'search/index worker: produced commit 350d8a11993f32051a50087bb99617c029335b89, cherry-picked to main as 3c7e58cda1787aaf83e15fb79e4409b0212028bd'
+      - 'browse/code-navigation worker: failed before commit with HTTP 503/account exhaustion; worktree inspected clean and removed'
+      - 'provider/worker worker: failed before commit with HTTP 503/account exhaustion; worktree inspected clean and removed'
+    notes: >-
+      This was real implementation-backed search runtime closure rather than a
+      docs-only or state-only slice: the run added a focused regression that first
+      exposed parent-path leakage, patched the runtime redaction boundary, reran
+      focused and broader search artifact selectors in the main worktree, obtained
+      independent review, and kept remaining production search/indexing blockers
+      explicit.
   - id: task102-103-106r
     status: done
     summary: >-
