@@ -524,6 +524,9 @@ impl BrowseStore for LocalBrowseStore {
         let Some(revision) = resolve_single_commit(repo_root, revision)? else {
             return Ok(None);
         };
+        if symbol.trim().is_empty() {
+            return Ok(Some(Vec::new()));
+        }
 
         let Some(paths) = run_git_list_files_at_revision(repo_root, &revision)? else {
             return Ok(None);
@@ -1520,6 +1523,31 @@ mod tests {
             .unwrap();
 
         assert_eq!(tree, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_returns_no_revision_references_for_blank_symbol() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-blank-reference-symbol",
+            "hello world\n",
+            "pub fn main() { /* visible_symbol */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            references.is_empty(),
+            "blank symbols must not match every scannable source line"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
