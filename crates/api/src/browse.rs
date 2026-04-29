@@ -266,6 +266,10 @@ impl LocalBrowseStore {
                 .to_string_lossy()
                 .replace('\\', "/");
 
+            if !Self::path_is_within_repo_root(root, &path) {
+                continue;
+            }
+
             if matcher.is_match(&relative_path) {
                 matches.push(relative_path);
             }
@@ -1324,6 +1328,19 @@ mod tests {
 
         let glob = store.glob_paths("repo_test", "src/*.rs").unwrap().unwrap();
         assert!(glob.paths.contains(&"src/readme-link.rs".to_string()));
+        let outside_symlink_path = fs::read_dir(root.join("src"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| fs::read_link(path).is_ok_and(|target| !target.starts_with(&root)))
+            .unwrap()
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        assert!(
+            !glob.paths.contains(&outside_symlink_path),
+            "glob results must not expose symlinked files outside the repo root"
+        );
 
         fs::remove_file(outside_path).unwrap();
         fs::remove_dir_all(root).unwrap();
