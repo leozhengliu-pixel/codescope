@@ -321,11 +321,16 @@ impl LocalSearchStore {
     }
 
     pub fn write_index_artifact(&self, repo_id: &str, artifact_path: &Path) -> Result<()> {
-        let indexed_lines = self
+        let mut indexed_lines = self
             .indexed_lines
             .get(repo_id)
             .cloned()
             .with_context(|| format!("missing search index for repository {repo_id}"))?;
+        indexed_lines.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then(left.line_number.cmp(&right.line_number))
+        });
         let index_status = self
             .index_statuses
             .get(repo_id)
@@ -1877,6 +1882,36 @@ mod tests {
         assert_eq!(status.indexed_file_count, 2);
         assert_eq!(status.indexed_line_count, 3);
         assert_eq!(status.skipped_file_count, 4);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_writes_persisted_index_artifact_in_validated_order() {
+        let root = repo_tree_fixture::unique_temp_dir("search-artifact-sorted-writer");
+        fs::create_dir_all(root.join("a")).unwrap();
+        fs::write(root.join("a").join("file.rs"), "nested marker\n").unwrap();
+        fs::write(root.join("a.rs"), "sibling marker\n").unwrap();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_store =
+            LocalSearchStore::from_index_artifact("repo_test", &artifact_path).unwrap();
+
+        let results = artifact_store
+            .search("marker", Some("repo_test"))
+            .unwrap()
+            .results;
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a.rs", "a/file.rs"]
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
