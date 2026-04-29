@@ -5,38 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 28fdca68f6ee61041e13304222f0419f3b24302c
+  head: edb791b5902ea9e50188d9a9ba7eb8d4009e7325
 last_completed_task:
-  id: task102_103_106_binary_commit_symref_hardening
-  title: Search artifact binary validation, commit selector validation, and Generic Git incomplete HEAD-symref hardening
+  id: task102_103_106_artifact_commit_worker_scope_hardening
+  title: Persisted search artifact path budgets, local-sync commit revision scope, and local Git failure-detail bounds
   status: done
   summary: >-
     Integrated three disjoint implementation-backed release-blocker hardening
     closures plus a controller docs-sync tail. Persisted local-sync search-index
-    artifacts now fail closed when stored result line content contains NUL/binary
-    payloads instead of trusting corrupted artifact data. Local commit list,
-    detail, and diff reads now reject empty or control-character-bearing revision
-    and commit selectors before Git invocation. Generic Git repository-sync
-    metadata probes now treat incomplete HEAD symrefs without paired revisions as
-    malformed and fail closed before falling back to --heads. Coupled acceptance,
-    gap, and final-audit wording records the bounded claims while practical
-    replacement parity remains unclaimed.
+    artifacts now reject oversized stored result paths before trusting artifact
+    data. Local-sync commit-list fallback now rejects explicit revision selectors
+    outside the successful sync snapshot instead of exposing newer unsynced local
+    history. Local repository-sync worker failures now bound oversized Git
+    stderr/stdout detail before surfacing operator-visible errors. Coupled
+    acceptance, gap, and final-audit wording records the bounded claims while
+    practical replacement parity remains unclaimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_binary_line_content failed before implementation because a persisted artifact with NUL line content was accepted'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_binary_line_content -- --nocapture passed with 1 test and 56 filtered out'
-    - 'main broader: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture passed with 24 tests and 33 filtered out'
-    - 'worker RED: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit failed before implementation with nul byte found in provided data'
-    - 'main focused: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture passed with 1 main-bin test, 470 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with 17 main-bin tests, 454 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api commit -- --nocapture passed with 33 main-bin tests, 438 filtered out, and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_without_revision_fails_closed_before_heads_fallback initially proved incomplete HEAD symrefs could fall back to --heads'
-    - 'main focused: cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_without_revision_fails_closed_before_heads_fallback -- --nocapture passed with 1 lib test, 78 filtered out, and zero-test nonmatching targets'
-    - 'main broader: cargo test -p sourcebot-worker generic_git_ -- --nocapture passed with 36 lib tests, 43 filtered out, and zero-test nonmatching targets'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths failed before implementation because an oversized persisted path was accepted'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths -- --nocapture passed with 1 test and 57 filtered out'
+    - 'main broader: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture passed with 25 tests and 33 filtered out'
+    - 'worker RED: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope failed before implementation because an explicit newer revision could be listed outside the synced snapshot'
+    - 'main focused: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope -- --nocapture passed with 1 main-bin test, 471 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with 18 main-bin tests, 454 filtered out, and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr failed before implementation because oversized local Git failure detail was not truncated'
+    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr -- --nocapture passed with 1 lib test, 79 filtered out, and zero-test nonmatching targets'
+    - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 9 lib tests, 71 filtered out, and zero-test nonmatching targets'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check HEAD~3..HEAD, git diff --check, and docs-state git diff --check passed'
+    - 'main: git diff --check passed'
     - 'main: added-lines security scan over integrated commits and docs diff found no findings'
-    - 'independent integration review approved code and docs with no blocking security, resource-bound, logic, validation, fallback, NUL-handling, or bounded-claim issues'
-  commit: 28fdca68f6ee61041e13304222f0419f3b24302c
+    - 'independent integration review approved code and docs with no blocking security, scope, fail-closed, validation, truncation, or bounded-claim issues'
+  commit: edb791b5902ea9e50188d9a9ba7eb8d4009e7325
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -47,18 +45,67 @@ current_task:
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
     worktree is clean. This run closed three real fail-closed hardening gaps:
-    persisted local-sync search-index artifacts now reject NUL/binary line
-    content, local commit selectors reject empty/control-character values before
-    Git invocation, and Generic Git metadata probes reject incomplete HEAD
-    symrefs before --heads fallback. Practical replacement remains incomplete.
-    Remaining blockers still include production-shaped indexing lifecycle/status
-    and failure recovery, relevance and pagination behavior at scale beyond the
-    bounded helper, branch and index availability, broader provider
-    fetch/import/reindex, worker scheduling and supervision with broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
-    interoperability, operator runbook/deploy evidence, and the other release
-    blockers in this roadmap.
+    persisted local-sync search-index artifacts now reject oversized stored
+    result paths, local-sync commit-list fallback rejects explicit revisions
+    outside the successful snapshot before exposing newer unsynced local history,
+    and local repository-sync worker failures bound oversized Git stderr/stdout
+    detail before surfacing operator-visible errors. Practical replacement
+    remains incomplete. Remaining blockers still include production-shaped
+    indexing lifecycle/status and failure recovery, relevance and pagination
+    behavior at scale beyond the bounded helper, branch and index availability,
+    broader provider fetch/import/reindex, worker scheduling and supervision with
+    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
+    client/session interoperability, operator runbook/deploy evidence, and the
+    other release blockers in this roadmap.
 history:
+  - id: task102_103_106_artifact_commit_worker_scope_hardening
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures plus a
+      controller-owned docs-sync commit. Persisted local-sync search-index
+      artifacts reject oversized stored paths, local-sync commit-list fallback
+      rejects explicit revisions outside the successful sync snapshot, and local
+      Git worker failure details are bounded and marked truncated when oversized.
+      This was chosen over paperwork because it closes real fail-closed runtime
+      hardening gaps in search/index, browse/commit, and provider/worker
+      surfaces; final parity remains fail-closed on broader production indexing,
+      provider, worker, auth, MCP, and operator blockers.
+    commit: edb791b5902ea9e50188d9a9ba7eb8d4009e7325
+    component_commits:
+      - d901fd19144526c3f2d70347283b928d98d72adc
+      - 26e8c8aeb097237de6c1d986d87bcd520b6c4403
+      - 7fbac25930b7692f2ccd1d1ab78f32501ef4d814
+      - edb791b5902ea9e50188d9a9ba7eb8d4009e7325
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths failed before implementation because an oversized persisted path was accepted'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths -- --nocapture passed with 1 test and 57 filtered out'
+      - 'main broader: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture passed with 25 tests and 33 filtered out'
+      - 'worker RED: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope failed before implementation because an explicit newer revision could be listed outside the synced snapshot'
+      - 'main focused: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope -- --nocapture passed with 1 main-bin test, 471 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with 18 main-bin tests, 454 filtered out, and one zero-test lib target'
+      - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr failed before implementation because oversized local Git failure detail was not truncated'
+      - 'main focused: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr -- --nocapture passed with 1 lib test, 79 filtered out, and zero-test nonmatching targets'
+      - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 9 lib tests, 71 filtered out, and zero-test nonmatching targets'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check passed'
+      - 'main: added-lines security scan over integrated commits and docs diff found no findings'
+      - 'independent integration review approved code and docs with no blocking security, scope, fail-closed, validation, truncation, or bounded-claim issues'
+    review: >-
+      Independent integration review inspected the main-worktree diff covering
+      the three integrated implementation commits plus the controller docs-sync
+      diff. It approved the persisted search-index oversized-path rejection,
+      local-sync commit-list snapshot revision-scope guard, local Git failure
+      detail bounding/truncation, and coupled acceptance, gap, and final-audit
+      wording with no blocking security, scope, fail-closed, validation,
+      truncation, or parity-overclaim issues.
+    workers: >-
+      Search worker commit e417d93429f1693b00c13d57700650e48a439f99 was
+      cherry-picked as main commit d901fd19144526c3f2d70347283b928d98d72adc. Browse/Commit worker commit
+      256741e7d9e17deb73a6818a1d4200e0806552fc was cherry-picked as main commit
+      26e8c8aeb097237de6c1d986d87bcd520b6c4403. Worker/Provider commit
+      07e3cf7acfe7a519e62ecc4b51c555b547eb3c6c was cherry-picked as main commit
+      7fbac25930b7692f2ccd1d1ab78f32501ef4d814. The controller docs-sync commit edb791b5902ea9e50188d9a9ba7eb8d4009e7325 updated
+      coupled acceptance, gap, and final-audit wording.
   - id: task102_103_106_binary_commit_symref_hardening
     status: done
     summary: >-
