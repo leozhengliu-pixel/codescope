@@ -221,6 +221,7 @@ fn complete_generic_git_repository_sync_job_with_git_command_if_applicable(
     }
 }
 
+#[derive(Clone)]
 struct GenericGitRepositorySyncExecution {
     revision: String,
     branch: String,
@@ -308,6 +309,7 @@ fn parse_git_ls_remote_heads(
     preferred_revision: Option<&str>,
 ) -> Result<Option<GenericGitRepositorySyncExecution>, String> {
     let mut first_valid_head = None;
+    let mut preferred_head = None;
     for line in String::from_utf8_lossy(stdout).lines() {
         if line.is_empty() {
             continue;
@@ -338,11 +340,11 @@ fn parse_git_ls_remote_heads(
             branch: branch.to_owned(),
         };
         if preferred_revision == Some(revision) {
-            return Ok(Some(execution));
+            preferred_head.get_or_insert(execution.clone());
         }
         first_valid_head.get_or_insert(execution);
     }
-    Ok(first_valid_head)
+    Ok(preferred_head.or(first_valid_head))
 }
 
 fn parse_git_ls_remote_head_revision(stdout: &[u8]) -> Option<String> {
@@ -2717,6 +2719,43 @@ mod tests {
             Duration::from_secs(5),
         ) {
             Ok(_) => panic!("malformed Generic Git ls-remote --heads output must fail closed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised malformed ref line"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_heads_validates_later_lines_after_preferred_match() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-late-malformed-heads-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  printf 'malformed refs/heads/bad\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(_) => panic!("later malformed Generic Git --heads line must fail closed"),
             Err(error) => error,
         };
 
