@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::{
     collections::{BTreeSet, HashMap},
     fs::{self, File, OpenOptions},
-    io::Read,
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -351,15 +351,55 @@ impl LocalSearchStore {
                 )
             })?;
         }
+        validate_index_artifact_parent_components(artifact_path)?;
+
         let tmp_path = artifact_path.with_extension("json.tmp");
+        if tmp_path.exists() {
+            let tmp_metadata = fs::symlink_metadata(&tmp_path).with_context(|| {
+                format!(
+                    "failed to read local search index temp artifact metadata {}",
+                    tmp_path.display()
+                )
+            })?;
+            if tmp_metadata.file_type().is_symlink() || !tmp_metadata.is_file() {
+                anyhow::bail!(
+                    "search index temp artifact already exists and is not a regular file: {}",
+                    tmp_path.display()
+                );
+            }
+            fs::remove_file(&tmp_path).with_context(|| {
+                format!(
+                    "failed to remove stale local search index temp artifact {}",
+                    tmp_path.display()
+                )
+            })?;
+        }
+
         let artifact_json =
             serde_json::to_vec(&artifact).context("failed to serialize search index artifact")?;
-        fs::write(&tmp_path, artifact_json).with_context(|| {
+        let mut tmp_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+            .with_context(|| {
+                format!(
+                    "failed to create local search index temp artifact {}",
+                    tmp_path.display()
+                )
+            })?;
+        tmp_file.write_all(&artifact_json).with_context(|| {
             format!(
                 "failed to write local search index artifact {}",
                 tmp_path.display()
             )
         })?;
+        tmp_file.sync_all().with_context(|| {
+            format!(
+                "failed to sync local search index temp artifact {}",
+                tmp_path.display()
+            )
+        })?;
+        drop(tmp_file);
         fs::rename(&tmp_path, artifact_path).with_context(|| {
             format!(
                 "failed to finalize local search index artifact {}",
@@ -1971,6 +2011,37 @@ mod tests {
                 .contains("search index artifact parent contains a symlink"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_write_rejects_symlinked_temp_artifacts_without_clobbering_target() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+        let tmp_path = artifact_path.with_extension("json.tmp");
+        let external_target = root.join("external-target.json");
+        fs::create_dir_all(tmp_path.parent().unwrap()).unwrap();
+        fs::write(&external_target, "must not be overwritten").unwrap();
+        std::os::unix::fs::symlink(&external_target, &tmp_path).unwrap();
+
+        let error = match store.write_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index writer must fail closed on symlinked temp artifact"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains("search index temp artifact already exists"),
+            "unexpected error: {error:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&external_target).unwrap(),
+            "must not be overwritten"
+        );
+        assert!(!artifact_path.exists());
 
         fs::remove_dir_all(root).unwrap();
     }
