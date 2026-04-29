@@ -5,31 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 46057b6ae8984e3ff2227ddceee5f6171c7b92e9
+  head: 3f765c20a5716ed4b50275710c07c4527444fd40
 last_completed_task:
-  id: task103q
-  title: Local-sync commit fallback revision anchoring
+  id: task103r_106t
+  title: Blank revision fail-closed and lease-recovery replay hardening
   status: done
   summary: >-
-    Closed a Task 103 browse/commit hardening slice from the accelerated worker
-    batch: when the primary commit store has no rows for a visible repository,
-    no-revision local-sync commit list/detail/diff fallback is now anchored to
-    the successful repository-sync job's recorded `synced_revision`. Later
-    unsynced commits in the same local working tree no longer appear through the
-    fallback, while explicit revision requests, primary-store precedence,
-    broader branch/ref discovery, provider fetch/import/reindex, and full
-    browse/commit parity remain open.
+    Integrated two approved accelerated-worker closures. Task 103 browse/code-nav
+    routes now reject present blank `revision` query values with `400 Bad
+    Request` instead of treating them as omitted and triggering default HEAD or
+    local-sync snapshot fallback. Task 106/108 worker runtime now extends the
+    bounded one-time automatic lease-recovery replay to old malformed-running
+    lease-recovery failures while preserving the original failed row, the one-hour
+    backoff, and queued/running/prior-automatic replacement suppression. These
+    are narrow fail-closed runtime hardening closures; they do not claim full
+    browse/code-navigation parity, broad provider fetch/import/reindex, general
+    retry/backoff, worker supervision, or practical replacement parity.
   tests:
-    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits_uses_latest_successful_local_sync_repo_for_visible_requested_repo -- --nocapture failed before implementation because /commits?limit=1 returned a later unsynced local HEAD commit instead of the recorded sync revision commit'
-    - 'cargo test -p sourcebot-api repo_commits_uses_latest_successful_local_sync_repo_for_visible_requested_repo -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
-    - 'cargo test -p sourcebot-api repo_commits -- --nocapture: passed with 8 main-bin tests and one zero-test lib target'
-    - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed with 16 main-bin tests and one zero-test lib target'
-    - 'cargo test -p sourcebot-api commits:: -- --nocapture: passed with 17 tests'
-    - 'cargo fmt --check: passed'
-    - 'git diff --check HEAD~1..HEAD and final git diff --check: passed'
-    - 'added-lines security scan over HEAD~1..HEAD: passed with 130 added lines and no findings'
-    - 'independent final review: approved commit 46057b6ae8984e3ff2227ddceee5f6171c7b92e9 with no security, logic, auth/scope, bounded-Git, revision-truthfulness, or docs-claim blockers; reviewer reran the focused commit fallback regression'
-  commit: 46057b6ae8984e3ff2227ddceee5f6171c7b92e9
+    - 'browse worker RED: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture failed before implementation because revision=%20%20 returned 200 instead of 400'
+    - 'provider worker RED: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture failed before implementation because the old malformed-lease failure was not automatically retried and claimed'
+    - 'main: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture passed with 1 main-bin test and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api repo_blob -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api repo_tree -- --nocapture passed with 9 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api definitions -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api references -- --nocapture passed with 15 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api commit -- --nocapture passed with 32 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-worker lease_failure -- --nocapture passed with 4 lib tests plus zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture passed with 1 lib test plus zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker passed: lib 68, main 3, integration smoke tests 20, doc-tests 0'
+    - 'main: cargo fmt --check passed'
+    - 'main: git diff --check HEAD~2..HEAD passed'
+    - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
+    - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, bounded-worker, or docs-claim blockers; reviewer reran focused revision and lease_failure checks'
+  commit: 3f765c20a5716ed4b50275710c07c4527444fd40
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -39,20 +47,73 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run landed implementation-backed Task 103 local-sync
-    commit fallback revision anchoring because it was the approved real closure
-    from the worker batch. The search/index worker produced a commit but
-    independent review rejected it for redefining malformed artifact fail-closed
-    behavior as HTTP 200 empty success contrary to the artifact-backed search
-    contract, so it was not merged; the provider/worker delegate failed before
-    creating a worktree/commit because the backend returned HTTP 503/account
-    exhaustion. Remaining practical replacement work still includes
+    worktree is clean. This run landed two implementation-backed hardening
+    closures from the worker batch: present blank browse/code-nav/commit
+    `revision` queries now fail closed instead of triggering default or
+    local-sync fallback semantics, and old malformed-running repository-sync
+    lease-recovery failures now get the same bounded one-time automatic replay as
+    stale lease-recovery failures. The search/index worker failed before producing
+    a mergeable commit because the backend returned HTTP 503/account exhaustion
+    after leaving only an incomplete test-only diff in its worktree; it was not
+    integrated. Remaining practical replacement work still includes
     production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale, branch/index availability, broader
-    provider fetch/import/reindex, worker supervision and broad retry/backoff,
-    OIDC/SSO and richer admin/org flows, MCP client interoperability, operator
-    runbook/deploy evidence, and other release blockers in this roadmap.
+    and pagination behavior at scale, branch/index availability, broader provider
+    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO and
+    richer admin/org flows, MCP client interoperability, operator runbook/deploy
+    evidence, and other release blockers in this roadmap.
 history:
+  - id: task103r_106t
+    status: done
+    summary: >-
+      Integrated two approved accelerated-worker closures. The browse/code-nav
+      closure added a shared explicit-revision parser across tree/blob,
+      definitions/references, and commit-list routes so present blank `revision`
+      values now return `400 Bad Request` instead of silently broadening to
+      omitted-revision HEAD or local-sync fallback behavior. The provider/worker
+      closure extends bounded one-time lease-recovery replay to old
+      malformed-running lease failures while preserving the failed terminal row,
+      the one-hour backoff, and duplicate/prior automatic replacement
+      suppression. The search/index worker did not produce a mergeable closure;
+      it failed with HTTP 503/account exhaustion after an incomplete test-only
+      diff and was not integrated.
+    commit: 3f765c20a5716ed4b50275710c07c4527444fd40
+    component_commits:
+      - c6c2f805718615e704731beda3b72c67233e0080
+      - 3f765c20a5716ed4b50275710c07c4527444fd40
+    tests:
+      - 'browse worker RED: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture failed before implementation because revision=%20%20 returned 200 instead of 400'
+      - 'provider worker RED: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture failed before implementation because the old malformed-lease failure was not automatically retried and claimed'
+      - 'main: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture passed with 1 main-bin test and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api repo_blob -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api repo_tree -- --nocapture passed with 9 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api definitions -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api references -- --nocapture passed with 15 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api commit -- --nocapture passed with 32 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-worker lease_failure -- --nocapture passed with 4 lib tests plus zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture passed with 1 lib test plus zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker passed: lib 68, main 3, integration smoke tests 20, doc-tests 0'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check HEAD~2..HEAD passed'
+      - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
+      - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, bounded-worker, or docs-claim blockers; reviewer reran focused revision and lease_failure checks'
+    review: >-
+      Independent integration review approved the two-commit main-worktree range
+      with no blocking security, logic, auth/scope, bounded-worker, or
+      documentation-claim issues. The reviewer confirmed present blank revisions
+      fail closed without breaking omitted/valid revision behavior, and that the
+      malformed lease-recovery replay remains bounded by the existing prefix,
+      backoff, preservation, and duplicate/prior-automatic replacement guards.
+    workers:
+      - 'browse/code-navigation worker: produced commit 1d0de410ae2657560517163ff8941bb3827865cc, cherry-picked in main as c6c2f805718615e704731beda3b72c67233e0080'
+      - 'provider/worker worker: produced commit 7105cab659655393d3b5a132e782904c9423cafb, cherry-picked in main as 3f765c20a5716ed4b50275710c07c4527444fd40'
+      - 'search/index worker: failed with HTTP 503/account exhaustion after leaving only an incomplete uncommitted test-only diff in crates/api/src/main.rs; not merged and worktree removed'
+    notes: >-
+      This was real fail-closed runtime hardening rather than docs-only or
+      state-only progress: both accepted closures started from RED regressions,
+      changed shipped route/worker behavior, reran focused and broader selectors
+      in the main worktree, synchronized coupled acceptance/audit wording, passed
+      mechanical and security checks, and received independent integration review
+      while preserving the remaining practical-replacement blockers explicitly.
   - id: task103q
     status: done
     summary: >-
