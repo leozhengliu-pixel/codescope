@@ -5,34 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 183f3f2c16fa9560b934fba963d20a6edf8e3c57
+  head: 0653b4a16fa672c7dee81e0ef52d9083ee966c61
 last_completed_task:
-  id: task102-103-106o
-  title: Search path integrity, revision tree decoding, and Generic Git URL whitespace hardening
+  id: task102-103-106p
+  title: Search artifact continuity, Python/Go references, and local preflight output-cap hardening
   status: done
   summary: >-
-    Integrated three accelerated implementation-worker closures that each close a
-    real release-blocker hardening gap without claiming practical replacement
-    parity. Search/index runtime now rejects persisted local-sync search-index
-    artifacts containing explicit dot path components such as `src/./main.rs`,
-    preventing non-canonical artifact paths from weakening duplicate/path
-    validation. Browse revision tree handling now tolerates non-UTF-8 Git path
-    bytes using bounded lossy display instead of failing the whole tree read.
-    Generic Git repository-sync now rejects base URLs with leading or trailing
-    whitespace before spawning Git, preserving fail-closed remote metadata
-    semantics for ambiguous operator input.
+    Integrated three accelerated implementation-worker closures plus coupled docs
+    synchronization. Search/index runtime now rejects persisted local-sync
+    search-index artifacts with non-contiguous stored line numbers for one path,
+    preventing truncated/corrupted artifacts from silently producing incomplete
+    search results. Code-navigation references now include bounded Python and Go
+    text-reference scanning through the existing revision-backed path. Local Git
+    repository-sync preflight now fails closed when combined stdout/stderr exceeds
+    the configured cap, before later Git probes or terminal success can proceed.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_dot_component_paths -- --nocapture: passed with 1 test and 44 filtered out after worker-recorded RED failure accepted dot-component artifact paths'
-    - 'cargo test -p sourcebot-search artifact: passed with 24 tests and 21 filtered out'
-    - 'cargo test -p sourcebot-api local_browse_store_tolerates_non_utf8_paths_in_revision_tree_entries -- --nocapture: passed with 1 main-bin test, 457 filtered out, and one zero-test lib target after worker-recorded RED failure returned `git output was not utf-8`'
-    - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed with 34 main-bin tests, 424 filtered out, and one zero-test lib target'
-    - 'cargo test -p sourcebot-worker generic_git_base_url_with_surrounding_whitespace_fails_closed_before_spawning_git: passed with 1 lib test, 61 filtered out, and zero-test non-lib targets after worker-recorded RED failure spawned Git and returned an OS error'
-    - 'cargo test -p sourcebot-worker generic_git: passed with 25 lib tests, 37 filtered out, and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_non_contiguous_line_numbers -- --nocapture: passed with 1 test and 45 filtered out after worker-recorded RED failure accepted the corrupted artifact'
+    - 'cargo test -p sourcebot-search persisted_index_artifact: passed with 19 tests and 27 filtered out'
+    - 'cargo test -p sourcebot-api python_and_go_revision_files -- --nocapture: passed with 1 main-bin test, 458 filtered out, and one zero-test lib target after worker-recorded RED failure missed Python/Go references'
+    - 'cargo test -p sourcebot-api references: passed with 15 main-bin tests, 444 filtered out, and one zero-test lib target'
+    - 'cargo test -p sourcebot-api browse::tests: passed with 35 main-bin tests, 424 filtered out, and one zero-test lib target'
+    - 'cargo test -p sourcebot-worker local_repository_sync_preflight_combined_output_over_cap_fails_closed -- --nocapture: passed with 1 lib test, 62 filtered out, and zero-test non-lib/smoke targets after worker-recorded RED failure progressed past preflight'
+    - 'cargo test -p sourcebot-worker local_repository_sync_preflight -- --nocapture: passed with 3 lib tests and 60 filtered out'
+    - 'cargo test -p sourcebot-worker repository_sync -- --nocapture: passed with 28 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+    - 'cargo test -p sourcebot-worker -- --nocapture: passed with 63 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check HEAD~3..HEAD: passed'
-    - 'added-lines security scan over faf096cb086e82f35c77ae221acc122d4b7065a5..HEAD: passed with 97 added lines and no findings'
-    - 'independent integration review over faf096cb086e82f35c77ae221acc122d4b7065a5..HEAD: approved with no blocking path/security/command-injection/doc-claim issues'
-  commit: 183f3f2c16fa9560b934fba963d20a6edf8e3c57
+    - 'git diff --check HEAD~3..HEAD and final git diff --check: passed'
+    - 'docs marker checks for search/code-nav/final-audit wording: passed'
+    - 'added-lines security scan over 1b4c295bb9fd35f83d01f8f56ed78f598f5c6afd..HEAD: passed with 153 added code lines and no findings'
+    - 'independent integration review over 1b4c295bb9fd35f83d01f8f56ed78f598f5c6afd..working-tree after docs sync: approved with no blockers'
+  commit: 0653b4a16fa672c7dee81e0ef52d9083ee966c61
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,17 +44,67 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    three real hardening closures: local-sync search-index artifact loading now
-    rejects non-canonical dot-component paths, revision tree browsing no longer
-    fails wholesale on non-UTF-8 Git path bytes, and Generic Git sync rejects
-    surrounding-whitespace base URLs before spawning Git. Remaining practical
-    replacement work still includes production-shaped indexing lifecycle/status
-    and failure recovery, relevance and pagination behavior at scale, branch/index
-    availability, broader provider fetch/import/reindex, worker supervision and
-    broad retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
-    interoperability, operator runbook/deploy evidence, and other release blockers
-    in this roadmap.
+    real implementation-backed hardening: persisted search-index artifacts now
+    reject non-contiguous line keys, revision-backed references scan Python and Go
+    files as a bounded text-reference baseline, and local Git preflight enforces a
+    combined stdout/stderr output cap. Remaining practical replacement work still
+    includes production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale, branch/index availability, broader
+    provider fetch/import/reindex, worker supervision and broad retry/backoff,
+    OIDC/SSO and richer admin/org flows, MCP client interoperability, operator
+    runbook/deploy evidence, and other release blockers in this roadmap.
 history:
+  - id: task102-103-106p
+    status: done
+    summary: >-
+      Integrated three accelerated implementation-worker closures plus coupled
+      evidence wording. Search-index artifact loading rejects non-contiguous
+      per-path line numbers, code-navigation references include bounded Python and
+      Go text-reference scanning, and local Git repository-sync preflight fails
+      closed on combined stdout/stderr output over the configured cap. The batch
+      improves artifact integrity, multi-language reference coverage, and
+      operator-visible local preflight safety while preserving explicit blockers
+      for production indexing, broader provider sync, supervised workers,
+      OIDC/SSO, MCP client interoperability, and operator deploy/runbook parity.
+    commit: 0653b4a16fa672c7dee81e0ef52d9083ee966c61
+    component_commits:
+      - 306b870aa2ae6d51a3119c7c9865ec5ac0040bcd
+      - b3fb32403f6e2efe48c89813484a7d74a246b33f
+      - 369eda9743e817d51977208f8c8f5227b5878c13
+      - 0653b4a16fa672c7dee81e0ef52d9083ee966c61
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_non_contiguous_line_numbers -- --nocapture: passed with 1 test and 45 filtered out'
+      - 'cargo test -p sourcebot-search persisted_index_artifact: passed with 19 tests and 27 filtered out'
+      - 'cargo test -p sourcebot-api python_and_go_revision_files -- --nocapture: passed with 1 main-bin test, 458 filtered out, and one zero-test lib target'
+      - 'cargo test -p sourcebot-api references: passed with 15 main-bin tests, 444 filtered out, and one zero-test lib target'
+      - 'cargo test -p sourcebot-api browse::tests: passed with 35 main-bin tests, 424 filtered out, and one zero-test lib target'
+      - 'cargo test -p sourcebot-worker local_repository_sync_preflight_combined_output_over_cap_fails_closed -- --nocapture: passed with 1 lib test and 62 filtered out'
+      - 'cargo test -p sourcebot-worker local_repository_sync_preflight -- --nocapture: passed with 3 lib tests and 60 filtered out'
+      - 'cargo test -p sourcebot-worker repository_sync -- --nocapture: passed with 28 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+      - 'cargo test -p sourcebot-worker -- --nocapture: passed with 63 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'docs marker checks: passed'
+      - 'added-lines security scan over 1b4c295bb9fd35f83d01f8f56ed78f598f5c6afd..HEAD: passed with no findings'
+      - 'independent integration review: approved with no blockers'
+    review: >-
+      Independent integration review approved the final main-worktree diff and
+      found no blocking security, logic, or release-claim issues. The reviewer
+      checked search artifact validation compatibility, Python/Go reference scan
+      scope and path safety, local Git combined preflight output-cap behavior, and
+      bounded docs wording.
+    workers:
+      - 'search/index worker: integrated worker commit 1534b8eabd72a2deab7a4660bfcc0a68ed1fb863 as main commit 306b870aa2ae6d51a3119c7c9865ec5ac0040bcd'
+      - 'browse/code-navigation worker: integrated worker commit 8d8e627a15b86678e645b2e2ce00a222c3f71a38 as main commit b3fb32403f6e2efe48c89813484a7d74a246b33f'
+      - 'provider/worker worker: integrated worker commit 152e529a3ed4ce2a4e59d03af7d8f35d7854fbf8 as main commit 369eda9743e817d51977208f8c8f5227b5878c13'
+      - 'integrator docs sync: committed acceptance/final-audit wording as 0653b4a16fa672c7dee81e0ef52d9083ee966c61'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: all
+      three workers shipped code with RED/GREEN evidence in isolated worktrees,
+      the integrator cherry-picked each closure, reran focused and broader
+      selectors in the main worktree, synchronized coupled acceptance and audit
+      wording, ran security and mechanical checks, and obtained independent review
+      before updating roadmap state.
   - id: task102-103-106o
     status: done
     summary: >-
