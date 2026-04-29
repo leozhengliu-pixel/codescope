@@ -419,16 +419,20 @@ fn parse_git_ls_remote_head_symref(
         }
 
         let Some((object_id, reference)) = line.split_once('\t') else {
-            continue;
+            return Err(generic_git_malformed_head_metadata_failure());
         };
-        if reference == "HEAD" && is_valid_git_object_id(object_id) {
-            if revision.is_some() {
-                return Err(format!(
-                    "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised ambiguous HEAD revision"
-                ));
-            }
-            revision = Some(object_id.to_owned());
+        if reference != "HEAD" {
+            return Err(generic_git_malformed_head_metadata_failure());
         }
+        if !is_valid_git_object_id(object_id) {
+            return Err(generic_git_malformed_head_revision_failure());
+        }
+        if revision.is_some() {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised ambiguous HEAD revision"
+            ));
+        }
+        revision = Some(object_id.to_owned());
     }
 
     match (branch, revision) {
@@ -448,6 +452,12 @@ fn generic_git_malformed_head_revision_failure() -> String {
 fn generic_git_malformed_head_symref_failure() -> String {
     format!(
         "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised malformed HEAD symref"
+    )
+}
+
+fn generic_git_malformed_head_metadata_failure() -> String {
+    format!(
+        "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised malformed HEAD metadata"
     )
 }
 
@@ -3301,6 +3311,46 @@ mod tests {
     }
 
     #[test]
+    fn generic_git_ls_remote_head_symref_unexpected_ref_line_fails_closed_before_heads_fallback() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-head-symref-unexpected-ref-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  printf 'cccccccccccccccccccccccccccccccccccccccc\\trefs/heads/side\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "unexpected non-HEAD ref lines in Generic Git --symref output must not fall back to --heads, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --symref HEAD advertised malformed HEAD metadata"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
     fn generic_git_sync_resolves_head_revision_when_remote_omits_symref() {
         let fake_git_dir = std::env::temp_dir().join(format!(
             "sourcebot-worker-generic-git-head-revision-{}",
@@ -4285,7 +4335,7 @@ mod tests {
         let fake_git_path = repo_path.join("fake-git");
         fs::write(
             &fake_git_path,
-            "#!/bin/sh\nprintf '%s\\t%s\\n' 'not-a-revision' 'refs/heads/main'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/.hidden'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/release.lock'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad\\177ref'\nprintf '%s\\t%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad' 'ref'\n",
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'HEAD'\n  exit 0\nfi\nprintf '%s\\t%s\\n' 'not-a-revision' 'refs/heads/main'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/.hidden'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/release.lock'\nprintf '%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad\\177ref'\nprintf '%s\\t%s\\t%s\\n' '0123456789abcdef0123456789abcdef01234567' 'refs/heads/bad' 'ref'\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
