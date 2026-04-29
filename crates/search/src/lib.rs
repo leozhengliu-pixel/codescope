@@ -547,7 +547,11 @@ impl LocalSearchStore {
                 continue;
             }
 
-            if should_skip_file(&path) {
+            let relative_path = path
+                .strip_prefix(root)
+                .with_context(|| format!("failed to strip prefix for {}", path.display()))?;
+
+            if should_skip_file(relative_path) {
                 *skipped_file_count += 1;
                 continue;
             }
@@ -569,11 +573,7 @@ impl LocalSearchStore {
                 continue;
             }
 
-            let relative_path = path
-                .strip_prefix(root)
-                .with_context(|| format!("failed to strip prefix for {}", path.display()))?
-                .to_string_lossy()
-                .replace('\\', "/");
+            let relative_path = relative_path.to_string_lossy().replace('\\', "/");
 
             *indexed_file_count += 1;
             for (index, line) in contents.lines().enumerate() {
