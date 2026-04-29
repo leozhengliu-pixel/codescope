@@ -19,6 +19,7 @@ const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
 const MAX_LITERAL_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
+const MAX_PATH_FILTER_BYTES: usize = 256;
 const MAX_INDEXED_PATH_BYTES: usize = 4096;
 #[cfg(unix)]
 const O_NONBLOCK: i32 = 0o4000;
@@ -1093,10 +1094,11 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
 
         if !term.quoted {
             if let Some(path_filter) = term.value.strip_prefix("path:") {
-                if path_filter.trim().is_empty() {
+                let path_filter = path_filter.trim();
+                if path_filter.is_empty() || path_filter.len() > MAX_PATH_FILTER_BYTES {
                     parsed.invalid_filter = true;
                 } else {
-                    parsed.path_filters.push(path_filter.trim().to_string());
+                    parsed.path_filters.push(path_filter.to_string());
                 }
                 continue;
             }
@@ -1965,6 +1967,23 @@ mod tests {
             .unwrap();
         assert_eq!(recursive_response.results.len(), 1);
         assert_eq!(recursive_response.results[0].path, "src/nested/lib.rs");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_fails_closed_for_oversized_path_glob_filters() {
+        let (store, root) = create_test_store();
+        let oversized_matching_glob = format!("path:{}src/main.rs build_router", "*".repeat(512));
+
+        let response = store
+            .search(&oversized_matching_glob, Some("repo_test"))
+            .unwrap();
+
+        assert!(
+            response.results.is_empty(),
+            "oversized wildcard path filters should fail closed before allocating per-line glob matcher state"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
