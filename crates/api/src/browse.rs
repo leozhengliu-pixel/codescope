@@ -9,9 +9,12 @@ use sourcebot_core::{
 use std::{
     collections::HashMap,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
     sync::Arc,
+    thread,
+    time::{Duration, Instant},
 };
 
 pub type DynBrowseStore = Arc<dyn BrowseStore>;
@@ -662,11 +665,10 @@ fn path_contains_skipped_directory(path: &str) -> bool {
 
 fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<String>> {
     let verify_arg = format!("{revision}^{{commit}}");
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", "--end-of-options", &verify_arg])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git rev-parse in {}", repo_root.display()))?;
+    let output = bounded_git_output(
+        repo_root,
+        &["rev-parse", "--verify", "--end-of-options", &verify_arg],
+    )?;
 
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
@@ -719,11 +721,7 @@ fn run_git_show_blob(
         return Ok(None);
     }
 
-    let output = Command::new("git")
-        .args(["show", &object])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git show in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, &["show", &object])?;
 
     if output.status.success() {
         return Ok(Some(output.stdout));
@@ -741,11 +739,7 @@ fn run_git_show_blob(
 }
 
 fn run_git_object_mode(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
-    let output = Command::new("git")
-        .args(["ls-tree", "-z", revision, "--", path])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, &["ls-tree", "-z", revision, "--", path])?;
 
     if output.status.success() {
         if output.stdout.is_empty() {
@@ -778,11 +772,7 @@ fn run_git_object_mode(repo_root: &PathBuf, revision: &str, path: &str) -> Resul
 }
 
 fn run_git_object_type(repo_root: &PathBuf, object: &str) -> Result<Option<String>> {
-    let output = Command::new("git")
-        .args(["cat-file", "-t", object])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git cat-file in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, &["cat-file", "-t", object])?;
 
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
@@ -814,11 +804,7 @@ fn run_git_list_tree_entries_at_revision(
             normalized_path.to_string_lossy().replace('\\', "/")
         )
     };
-    let output = Command::new("git")
-        .args(["ls-tree", "-z", &treeish])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, &["ls-tree", "-z", &treeish])?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -864,11 +850,7 @@ fn run_git_list_files_at_revision(
     repo_root: &PathBuf,
     revision: &str,
 ) -> Result<Option<Vec<String>>> {
-    let output = Command::new("git")
-        .args(["ls-tree", "-rz", "--name-only", revision])
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+    let output = bounded_git_output(repo_root, &["ls-tree", "-rz", "--name-only", revision])?;
 
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
@@ -889,6 +871,97 @@ fn run_git_list_files_at_revision(
         &["ls-tree", "-rz", "--name-only", "<revision>"],
         &output,
     ))
+}
+
+fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
+    const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+    const GIT_STDOUT_CAPTURE_MAX_BYTES: usize = 8 * 1024 * 1024;
+    const GIT_STDERR_CAPTURE_MAX_BYTES: usize = 64 * 1024;
+
+    let mut child = Command::new("git")
+        .args(args)
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .current_dir(repo_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to start git in {}", repo_root.display()))?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        anyhow::anyhow!("failed to capture git stdout in {}", repo_root.display())
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        anyhow::anyhow!("failed to capture git stderr in {}", repo_root.display())
+    })?;
+    let stdout_reader =
+        thread::spawn(move || read_stream_bounded(stdout, GIT_STDOUT_CAPTURE_MAX_BYTES));
+    let stderr_reader =
+        thread::spawn(move || read_stream_bounded(stderr, GIT_STDERR_CAPTURE_MAX_BYTES));
+
+    let started_at = Instant::now();
+    loop {
+        if child
+            .try_wait()
+            .with_context(|| format!("failed to poll git in {}", repo_root.display()))?
+            .is_some()
+        {
+            let status = child.wait().with_context(|| {
+                format!("failed to collect git status in {}", repo_root.display())
+            })?;
+            let stdout = stdout_reader
+                .join()
+                .map_err(|_| anyhow::anyhow!("failed to join git stdout reader"))??;
+            let stderr = stderr_reader
+                .join()
+                .map_err(|_| anyhow::anyhow!("failed to join git stderr reader"))??;
+            return Ok(Output {
+                status,
+                stdout,
+                stderr,
+            });
+        }
+        if started_at.elapsed() >= GIT_COMMAND_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err(anyhow::anyhow!(
+                "git command timed out after {:?} in {}: git {}",
+                GIT_COMMAND_TIMEOUT,
+                repo_root.display(),
+                args.join(" ")
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn read_stream_bounded(mut stream: impl Read, max_bytes: usize) -> Result<Vec<u8>> {
+    let mut captured = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    let mut exceeded_limit = false;
+    loop {
+        let read = stream.read(&mut buffer)?;
+        if read == 0 {
+            if exceeded_limit {
+                return Err(anyhow::anyhow!(
+                    "git output exceeded {max_bytes} byte capture limit"
+                ));
+            }
+            return Ok(captured);
+        }
+
+        let remaining = max_bytes.saturating_sub(captured.len());
+        if read > remaining {
+            if remaining > 0 {
+                captured.extend_from_slice(&buffer[..remaining]);
+            }
+            exceeded_limit = true;
+            continue;
+        }
+        if !exceeded_limit {
+            captured.extend_from_slice(&buffer[..read]);
+        }
+    }
 }
 
 fn git_object_not_found_output(output: &Output) -> bool {
@@ -1479,6 +1552,31 @@ mod tests {
         assert_eq!(blob.content, "");
         assert_eq!(blob.size_bytes, 16);
         assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_bounds_revision_blob_git_output() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-huge-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::write(root.join("huge.txt"), "x".repeat(8 * 1024 * 1024 + 1)).unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let error = store
+            .get_blob_at_revision("repo_test", "huge.txt", Some("HEAD"))
+            .expect_err("revision blob git output must be capture-bounded");
+
+        assert!(
+            error.to_string().contains("git output exceeded"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
