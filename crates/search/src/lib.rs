@@ -785,6 +785,28 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        match previous_line_key {
+            Some((previous_path, previous_line_number)) if previous_path == indexed_line.path => {
+                if indexed_line.line_number != previous_line_number + 1 {
+                    anyhow::bail!(
+                        "non-contiguous search index artifact line key '{}:{}' in {}: expected next line number {}",
+                        indexed_line.path,
+                        indexed_line.line_number,
+                        artifact_path.display(),
+                        previous_line_number + 1
+                    );
+                }
+            }
+            _ if indexed_line.line_number != 1 => {
+                anyhow::bail!(
+                    "non-contiguous search index artifact line key '{}:{}' in {}: first stored line for each path must be line 1",
+                    indexed_line.path,
+                    indexed_line.line_number,
+                    artifact_path.display()
+                );
+            }
+            _ => {}
+        }
         previous_line_key = Some(line_key);
     }
     Ok(())
@@ -2229,6 +2251,35 @@ mod tests {
             error
                 .to_string()
                 .contains("search index artifact line number exceeds indexed line count"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_non_contiguous_line_numbers() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][2]["line_number"] = serde_json::Value::from(3);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => {
+                panic!("persisted index artifacts with missing file line entries must fail closed")
+            }
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("non-contiguous search index artifact line key"),
             "unexpected error: {error:#}"
         );
 
