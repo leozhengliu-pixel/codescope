@@ -522,10 +522,7 @@ fn complete_local_repository_sync_job_with_git_command_and_output_limit_if_appli
     );
 
     match preflight {
-        Ok(Some(output))
-            if output.stdout.len() > output_limit_bytes
-                || output.stderr.len() > output_limit_bytes =>
-        {
+        Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
             Some(fail_local_repository_sync_job(
                 job,
                 finished_at,
@@ -1189,6 +1186,12 @@ fn git_failure_detail(command: &str, output: &Output) -> String {
         format!("{command} exited with status {}", output.status)
     };
     format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
+}
+
+fn local_git_output_exceeded_limit(output: &Output, output_limit_bytes: usize) -> bool {
+    output.stdout.len() > output_limit_bytes
+        || output.stderr.len() > output_limit_bytes
+        || output.stdout.len().saturating_add(output.stderr.len()) > output_limit_bytes
 }
 
 fn local_git_output_limit_failure_detail(command: &str, output_limit_bytes: usize) -> String {
@@ -3506,6 +3509,56 @@ mod tests {
         assert_eq!(
             failed_job.error.as_deref(),
             Some("local repository sync preflight failed: git preflight output exceeded 64 bytes")
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_preflight_combined_output_over_cap_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-combined-preflight-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse --is-inside-work-tree\" ]; then\n  printf 'true\\n'\n  printf 'warn\\n' >&2\n  exit 0\nfi\nprintf 'unexpected git invocation after oversized preflight: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_combined_oversized_preflight",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &state,
+                &state.repository_sync_jobs[0],
+                "2026-04-26T10:02:00Z",
+                fake_git_path.as_os_str(),
+                Duration::from_secs(2),
+                8,
+            )
+            .expect("combined oversized local repository preflight output should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_combined_oversized_preflight");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: git preflight output exceeded 8 bytes")
         );
 
         fs::remove_dir_all(repo_path).unwrap();
