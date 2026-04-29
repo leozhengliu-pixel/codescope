@@ -6353,8 +6353,8 @@ async fn search_repository_contents(
         &visible_repo_ids,
     )?;
 
-    if response.results.is_empty() {
-        if let Some(repo_id) = requested_repo_id {
+    if let Some(repo_id) = requested_repo_id {
+        if response.results.is_empty() && !search_store_has_primary_index_status(&state, repo_id)? {
             if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
@@ -6366,17 +6366,38 @@ async fn search_repository_contents(
             {
                 response = snapshot_response;
             }
-        } else if let Some(snapshot_response) =
-            search_latest_local_sync_snapshots_for_visible_repos(
+        }
+    } else {
+        let repos_with_primary_results = response
+            .results
+            .iter()
+            .map(|result| result.repo_id.as_str())
+            .collect::<HashSet<_>>();
+        let mut repo_ids_missing_primary_index = visible_repo_ids
+            .iter()
+            .filter(|repo_id| !repos_with_primary_results.contains(repo_id.as_str()))
+            .filter_map(
+                |repo_id| match search_store_has_primary_index_status(&state, repo_id) {
+                    Ok(true) => None,
+                    Ok(false) => Some(Ok(repo_id.clone())),
+                    Err(error) => Some(Err(error)),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+        repo_ids_missing_primary_index.sort();
+
+        for repo_id in repo_ids_missing_primary_index {
+            if let Some(mut snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
                 search_mode,
                 &user_id,
-                &visible_repo_ids,
+                &repo_id,
             )
             .await?
-        {
-            response = snapshot_response;
+            {
+                response.results.append(&mut snapshot_response.results);
+            }
         }
     }
 
@@ -6425,6 +6446,17 @@ fn search_visible_authorized_repositories(
     ))
 }
 
+fn search_store_has_primary_index_status(
+    state: &AppState,
+    repo_id: &str,
+) -> Result<bool, StatusCode> {
+    state
+        .search
+        .repository_index_status(repo_id)
+        .map(|status| status.is_some())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
 fn apply_search_pagination(
     response: &mut sourcebot_search::SearchResponse,
     limit: usize,
@@ -6444,38 +6476,6 @@ fn apply_search_pagination(
         total_count,
         has_more: offset.saturating_add(limit) < total_count,
     };
-}
-
-async fn search_latest_local_sync_snapshots_for_visible_repos(
-    state: &AppState,
-    query: &str,
-    mode: SearchMode,
-    user_id: &str,
-    visible_repo_ids: &HashSet<String>,
-) -> Result<Option<SearchResponse>, StatusCode> {
-    let mut repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
-    repo_ids.sort();
-
-    let mut results = Vec::new();
-    for repo_id in repo_ids {
-        if let Some(mut snapshot_response) =
-            search_latest_local_sync_snapshot_for_repo(state, query, mode, user_id, &repo_id)
-                .await?
-        {
-            results.append(&mut snapshot_response.results);
-        }
-    }
-
-    if results.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(SearchResponse::unpaginated_with_mode(
-            query.trim().to_string(),
-            mode,
-            None,
-            results,
-        )))
-    }
 }
 
 async fn search_latest_local_sync_snapshot_for_repo(
@@ -30282,6 +30282,126 @@ mod tests {
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(bad_repo_root).unwrap();
         fs::remove_dir_all(good_repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_merges_snapshot_for_visible_repo_missing_from_primary_index() {
+        let primary_root = unique_test_path("search-mixed-primary-repo-root");
+        let snapshot_repo_root = unique_test_path("search-mixed-snapshot-repo-root");
+        let snapshot_job_root = snapshot_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_snapshot")
+            .join("job_snapshot_latest");
+        let snapshot_root = snapshot_job_root.join("snapshot");
+        fs::create_dir_all(primary_root.join("src")).unwrap();
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            primary_root.join("src").join("lib.rs"),
+            "pub fn mixed_visible_marker_primary() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn mixed_visible_marker_snapshot() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_snapshot".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact(
+            "repo_snapshot",
+            &snapshot_job_root.join("search-index.json"),
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-mixed-snapshot-orgs");
+        let local_session_state_path = unique_test_path("search-mixed-snapshot-sessions");
+        let user_id = "user_mixed_snapshot_search";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_primary", "repo_snapshot"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_snapshot".into(),
+            name: "Snapshot local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: snapshot_repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_snapshot_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_snapshot".into(),
+                connection_id: "conn_snapshot".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:03:00Z".into(),
+                started_at: Some("2026-04-21T00:03:01Z".into()),
+                finished_at: Some("2026-04-21T00:03:02Z".into()),
+                error: None,
+                synced_revision: Some("snapshot-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_primary".to_string(),
+                primary_root.clone(),
+            )]))),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=mixed_visible_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, None);
+        assert_eq!(payload.results.len(), 2);
+        assert_eq!(payload.pagination.total_count, 2);
+        assert!(payload
+            .results
+            .iter()
+            .any(|result| result.repo_id == "repo_primary"
+                && result.line.contains("mixed_visible_marker_primary")));
+        assert!(payload
+            .results
+            .iter()
+            .any(|result| result.repo_id == "repo_snapshot"
+                && result.line.contains("mixed_visible_marker_snapshot")));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(primary_root).unwrap();
+        fs::remove_dir_all(snapshot_repo_root).unwrap();
     }
 
     #[tokio::test]
