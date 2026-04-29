@@ -1430,6 +1430,9 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     }
 
     let trimmed = base_url.trim();
+    if base_url != trimmed {
+        return Err("Generic Git base_url must not include surrounding whitespace".to_owned());
+    }
     if trimmed.starts_with('-') {
         return Err("Generic Git base_url must not start with '-'".to_owned());
     }
@@ -2691,6 +2694,25 @@ mod tests {
         assert_eq!(
             error,
             "generic Git repository sync execution failed: Generic Git base_url is empty"
+        );
+    }
+
+    #[test]
+    fn generic_git_base_url_with_surrounding_whitespace_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            " https://example.invalid/org/repo.git ",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!(
+                "Generic Git base_url with surrounding whitespace should fail before git is spawned"
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include surrounding whitespace"
         );
     }
 
