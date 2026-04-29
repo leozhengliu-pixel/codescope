@@ -172,6 +172,7 @@ pub struct LocalSearchStore {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct IndexedLine {
     path: String,
     line_number: usize,
@@ -179,6 +180,7 @@ struct IndexedLine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PersistedIndexArtifact {
     indexed_lines: Vec<IndexedLine>,
     index_status: RepositoryIndexStatus,
@@ -2093,6 +2095,52 @@ mod tests {
                 .contains("unsorted search index artifact line key"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_unknown_schema_fields() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+
+        let cases: [(&str, fn(&mut serde_json::Value)); 2] = [
+            ("top-level", |artifact_json| {
+                artifact_json["unexpected_schema_field"] = serde_json::Value::Bool(true);
+            }),
+            ("indexed-line", |artifact_json| {
+                artifact_json["indexed_lines"][0]["unexpected_schema_field"] =
+                    serde_json::Value::Bool(true);
+            }),
+        ];
+        for (label, mutate) in cases {
+            let mut unknown_field_artifact_json = artifact_json.clone();
+            mutate(&mut unknown_field_artifact_json);
+            fs::write(
+                &artifact_path,
+                serde_json::to_vec(&unknown_field_artifact_json).unwrap(),
+            )
+            .unwrap();
+
+            let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+                Ok(_) => {
+                    panic!("persisted index artifact with unknown {label} field must fail closed")
+                }
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("failed to parse local search index artifact"),
+                "unexpected error for {label} unknown field: {error:#}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
