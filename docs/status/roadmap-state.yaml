@@ -5,51 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2
+  head: 7b3416941571f1703740480a3fb24e9198d5a342
 last_completed_task:
-  id: task102aj-103c-106d
-  title: Search artifact ordering, snapshot symlink blob escape, and Generic Git head validation
+  id: task102ak-105b-106e
+  title: Search artifact schema hardening, member-removal confirmation, and local Git preflight output cap
   status: done
   summary: >-
-    Integrated an accelerated three-worker batch plus review-forced hardening.
-    Persisted local-sync search index artifacts now reject unsorted path/line-key
-    entries and the writer sorts indexed lines before persistence so generated
-    artifacts satisfy the same validated order. Local snapshot/blob reads now fail
-    closed when a no-revision snapshot path resolves through a symlink outside
-    the repository root, preventing browse/code-navigation fallback from exposing
-    out-of-tree content. Generic Git repository-sync metadata probing now fails
-    closed when any git ls-remote --heads advertisement is malformed, including
-    malformed lines that appear after the preferred HEAD revision match.
+    Integrated an accelerated three-worker batch plus one reviewer-forced search
+    hardening fix. Persisted local-sync search index artifacts now fail closed on
+    unknown schema fields at the artifact, indexed-line, and nested index-status
+    levels. The repository-sync worker now routes local Git working-tree
+    preflight through the bounded output collector so oversized stdout/stderr
+    fails closed with an operator-visible preflight error before terminal success.
+    The settings members panel now requires explicit browser confirmation before
+    issuing an authenticated member-removal DELETE, preventing accidental admin
+    removals while preserving the existing fail-closed inventory/mutation flow.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_line_keys -- --nocapture: passed with 1 test and 39 filtered out after worker-recorded RED failure where unsorted persisted artifact lines were accepted'
-    - 'cargo test -p sourcebot-search local_search_store_writes_persisted_index_artifact_in_validated_order -- --nocapture: RED failed before integrator fix with generated a/file.rs before a.rs rejected as unsorted, then GREEN passed with 1 test and 39 filtered out'
-    - 'cargo test -p sourcebot-search: passed with 40 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api local_browse_store_rejects_blob_symlinked_outside_repo_root -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out after worker-recorded RED failure exposing the symlink target'
-    - 'cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
-    - 'cargo test -p sourcebot-api definitions -- --nocapture: passed with 11 bin tests, 0 lib tests, and 437 filtered out'
-    - 'cargo test -p sourcebot-api references -- --nocapture: passed with 13 bin tests, 0 lib tests, and 435 filtered out'
-    - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 441 filtered out'
-    - 'cargo test -p sourcebot-api repo_blob -- --nocapture: passed with 10 bin tests, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-api repository_tree -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_malformed_ref_line_fails_closed -- --nocapture: passed with 1 lib test and zero-test non-lib targets after worker-recorded RED failure accepting malformed --heads output'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_validates_later_lines_after_preferred_match -- --nocapture: RED failed before integrator fix by accepting a later malformed --heads line after preferred match, then GREEN passed with 1 lib test and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker generic_git_sync_prefers_remote_head_symref_default_branch -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker generic_git_sync_resolves_head_revision_when_remote_omits_symref -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker: passed with 49 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-search tests::local_search_store_rejects_persisted_index_artifact_unknown_schema_fields -- --exact --nocapture: RED failed on the integrator-added nested index-status case before RepositoryIndexStatus denied unknown fields, then GREEN passed with 1 test and 40 filtered out'
+    - 'cargo test -p sourcebot-search: passed with 41 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-worker local_repository_sync_preflight_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test and zero-test non-lib targets after worker-recorded RED failure where oversized preflight output was accepted into an unbounded detail path'
+    - 'cargo test -p sourcebot-worker: passed with 50 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
+    - 'npm test -- -t "removes a member from the settings members panel only after explicit confirmation" (web): passed with 1 test and 183 skipped after worker-recorded RED failure where no confirmation was required'
+    - 'npm test -- -t "members" (web): passed with 7 tests and 177 skipped'
+    - 'npm run build (web): passed'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed'
-    - 'added-lines security scan over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed with 246 added lines scanned and 0 findings'
-    - 'independent integration review over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed after reviewer-found search writer ordering and Generic Git early-return blockers were fixed'
+    - 'git diff --check add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: passed'
+    - 'added-lines security scan over add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: passed with 0 findings'
+    - 'independent integration review over add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: initially failed on missing nested index-status schema rejection; passed after the integrator added a RED/GREEN regression and deny_unknown_fields on RepositoryIndexStatus'
   review:
     code: >-
-      Independent integration review initially failed on two real blockers: the
-      new search artifact ordering validator could reject artifacts generated by
-      the writer, and Generic Git --heads parsing could return on a preferred
-      revision before validating later malformed lines. The integrator added
-      regressions and fixes for both. Final review passed with no security
-      concerns, logic errors, or docs-claim issues; the only suggestion was
-      future race hardening for symlink swaps in mutable snapshots.
-  commit: acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2
+      Independent integration review initially failed closed because the search
+      artifact schema hardening did not reject unknown fields nested inside
+      index_status. The integrator added the missing RED/GREEN regression and
+      applied deny_unknown_fields to RepositoryIndexStatus. Re-review passed with
+      no blocking security, logic, or release-claim issues; worker bounded-output
+      semantics and member-removal confirmation were approved.
+  commit: 7b3416941571f1703740480a3fb24e9198d5a342
   next_task: task102
 current_task:
   id: task102
@@ -59,17 +50,49 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. This batch landed
-    three real hardening closures and two review-forced correctness fixes: local
-    search artifacts reject unsorted path/line-key entries while the writer emits
-    the validated order, snapshot blob/code-navigation fallback rejects symlink
-    escapes outside the repository root, and Generic Git --heads metadata probing
-    validates every advertised head line before reporting success. Remaining
-    practical-replacement work still includes production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale, branch/index availability, broader provider fetch/import/reindex,
-    worker supervision/retry/backoff, and other release blockers in this roadmap.
+    Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
+    real hardening across three release-blocker surfaces: local search artifacts
+    now reject unknown persisted schema fields including nested index-status
+    payloads, local repository-sync preflight output is bounded and fails closed
+    before terminal success, and member-removal UI now requires explicit
+    confirmation before the authenticated delete. Remaining practical-replacement
+    work still includes production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale, branch/index
+    availability, broader provider fetch/import/reindex, worker
+    supervision/retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    interoperability, and other release blockers in this roadmap.
 history:
+  - id: task102ak-105b-106e
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures plus one reviewer-forced schema fix. Search artifacts
+      now reject unknown persisted schema fields at the artifact, line, and
+      nested index-status levels; local Git preflight output is bounded before
+      worker terminal success; and settings member removal requires explicit
+      confirmation before issuing DELETE.
+    commit: 7b3416941571f1703740480a3fb24e9198d5a342
+    tests:
+      - 'cargo test -p sourcebot-search tests::local_search_store_rejects_persisted_index_artifact_unknown_schema_fields -- --exact --nocapture: RED failed on the integrator-added nested index-status case before RepositoryIndexStatus denied unknown fields, then GREEN passed with 1 test and 40 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 41 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-worker local_repository_sync_preflight_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test and zero-test non-lib targets after worker-recorded RED failure where oversized preflight output was accepted into an unbounded detail path'
+      - 'cargo test -p sourcebot-worker: passed with 50 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
+      - 'npm test -- -t "removes a member from the settings members panel only after explicit confirmation" (web): passed with 1 test and 183 skipped after worker-recorded RED failure where no confirmation was required'
+      - 'npm test -- -t "members" (web): passed with 7 tests and 177 skipped'
+      - 'npm run build (web): passed'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: passed'
+      - 'added-lines security scan over add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: passed with 0 findings'
+      - 'independent integration review over add62c0822597c17e2075c36fea3d392da267eb8..7b3416941571f1703740480a3fb24e9198d5a342: initially failed on missing nested index-status schema rejection; passed after the integrator added a RED/GREEN regression and deny_unknown_fields on RepositoryIndexStatus'
+    review: >-
+      Independent integration review initially failed on the incomplete nested
+      index-status schema boundary. After the integrator fix, re-review passed
+      with no blocking issues across search artifact parsing, worker bounded
+      preflight output, and settings member-removal confirmation.
+    workers:
+      - 'search/index worker: integrated worker commit 28e09d94626d0ae623090e47bd9c8275a1cf5464 as main commit 1c5098041afdb9227d1772c2211cabdf79cca7a3, then fixed reviewer-found nested index-status schema blocker in 7b3416941571f1703740480a3fb24e9198d5a342'
+      - 'provider/worker worker: integrated worker commit 55588584ab7dc7ee14a437aa399a6d49797bba4d as main commit 1060b2cba8975cb08e8501da33a7e4b367a62156'
+      - 'auth/admin UI worker: integrated worker commit bd1dc47f28313cb76412242c744c303c8499ca9f as main commit 34f819bbecdac37ff4df1cbcd46b6d440247ecac'
   - id: task102aj-103c-106d
     status: done
     summary: >-
