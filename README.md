@@ -81,7 +81,7 @@ This repository must not copy upstream Sourcebot code, prompts, tests, schema in
    - `SOURCEBOT_STUB_REVIEW_AGENT_RUN_EXECUTION_OUTCOME=completed|failed`
    - `SOURCEBOT_STUB_REPOSITORY_SYNC_JOB_EXECUTION_OUTCOME=succeeded|failed`
    - `SOURCEBOT_WORKER_MAX_TICKS=<positive integer>` (defaults to `1`)
-   - `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` (defaults to `1000`)
+   - `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer <= 3600000>` (defaults to `1000`; fails closed above one hour so a typo cannot silently park a bounded worker loop for days)
    - `SOURCEBOT_WORKER_STATUS_PATH=<path>` (optional; preflights and writes a supervisor-readable JSON snapshot before execution, refreshes it after each bounded tick with `updated_at` and `process_id` heartbeat metadata, and writes it again after successful bounded completion with the last tick/outcome and nullable last work-item id/status)
 9. Run the bounded local end-to-end smoke matrix when you want one repo-local operator check that bootstraps auth and then exercises authenticated connections, search, ask, public review-webhook intake, and default one-tick worker completion together:
    ```bash

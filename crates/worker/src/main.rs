@@ -170,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 const WORKER_MAX_TICKS_CAP: u64 = 1_000_000;
+const WORKER_IDLE_SLEEP_MS_CAP: u64 = 60 * 60 * 1000;
 
 fn worker_max_ticks_from_env() -> anyhow::Result<u64> {
     let value = parse_positive_u64_env("SOURCEBOT_WORKER_MAX_TICKS", 1)?;
@@ -266,15 +267,20 @@ fn sanitize_worker_status_error(error: &str) -> String {
 }
 
 fn worker_idle_sleep_from_env() -> anyhow::Result<Duration> {
-    Ok(Duration::from_millis(parse_u64_env(
-        "SOURCEBOT_WORKER_IDLE_SLEEP_MS",
-        1000,
-    )?))
+    let value = parse_u64_env("SOURCEBOT_WORKER_IDLE_SLEEP_MS", 1000)?;
+    if value > WORKER_IDLE_SLEEP_MS_CAP {
+        anyhow::bail!(
+            "SOURCEBOT_WORKER_IDLE_SLEEP_MS must be less than or equal to {WORKER_IDLE_SLEEP_MS_CAP}"
+        );
+    }
+    Ok(Duration::from_millis(value))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{sanitize_worker_status_error, worker_max_ticks_from_env};
+    use super::{
+        sanitize_worker_status_error, worker_idle_sleep_from_env, worker_max_ticks_from_env,
+    };
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -290,6 +296,20 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "SOURCEBOT_WORKER_MAX_TICKS must be less than or equal to 1000000"
+        );
+    }
+
+    #[test]
+    fn worker_idle_sleep_fails_closed_when_configured_above_operator_cap() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SOURCEBOT_WORKER_IDLE_SLEEP_MS", "3600001");
+        let error = worker_idle_sleep_from_env()
+            .expect_err("oversized idle sleep configuration must fail closed");
+        std::env::remove_var("SOURCEBOT_WORKER_IDLE_SLEEP_MS");
+
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_IDLE_SLEEP_MS must be less than or equal to 3600000"
         );
     }
 
