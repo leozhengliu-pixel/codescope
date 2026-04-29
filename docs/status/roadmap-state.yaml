@@ -5,39 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3f765c20a5716ed4b50275710c07c4527444fd40
+  head: 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
 last_completed_task:
-  id: task103r_106t
-  title: Blank revision fail-closed and lease-recovery replay hardening
+  id: task102s_106u
+  title: Search fallback primary precedence and Generic Git HEAD metadata hardening
   status: done
   summary: >-
-    Integrated two approved accelerated-worker closures. Task 103 browse/code-nav
-    routes now reject present blank `revision` query values with `400 Bad
-    Request` instead of treating them as omitted and triggering default HEAD or
-    local-sync snapshot fallback. Task 106/108 worker runtime now extends the
-    bounded one-time automatic lease-recovery replay to old malformed-running
-    lease-recovery failures while preserving the original failed row, the one-hour
-    backoff, and queued/running/prior-automatic replacement suppression. These
-    are narrow fail-closed runtime hardening closures; they do not claim full
-    browse/code-navigation parity, broad provider fetch/import/reindex, general
-    retry/backoff, worker supervision, or practical replacement parity.
+    Integrated two approved accelerated-worker closures. Task 102 search now keeps
+    primary startup search results authoritative for unscoped/search-context
+    searches: local-sync search-index artifacts are consulted only when the
+    primary response is otherwise empty instead of being merged into non-empty
+    primary results. Task 106 Generic Git sync now fails closed when the
+    timeout-bounded HEAD metadata probe advertises unexpected non-`HEAD` records,
+    rather than falling back to a different branch. Coupled README, acceptance,
+    gap-report, and final-audit wording were updated to keep both claims bounded;
+    the MCP worker failed before producing a mergeable closure due to HTTP 503
+    account exhaustion.
   tests:
-    - 'browse worker RED: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture failed before implementation because revision=%20%20 returned 200 instead of 400'
-    - 'provider worker RED: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture failed before implementation because the old malformed-lease failure was not automatically retried and claimed'
-    - 'main: cargo test -p sourcebot-api repo_blob_rejects_blank_explicit_revision -- --nocapture passed with 1 main-bin test and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api repo_blob -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api repo_tree -- --nocapture passed with 9 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api definitions -- --nocapture passed with 11 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api references -- --nocapture passed with 15 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api commit -- --nocapture passed with 32 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-worker lease_failure -- --nocapture passed with 4 lib tests plus zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick_requeues_old_malformed_lease_failure_once_before_claiming -- --nocapture passed with 1 lib test plus zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker passed: lib 68, main 3, integration smoke tests 20, doc-tests 0'
+    - 'search worker RED: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches failed before implementation with 0 passed, 1 failed, 463 filtered out because local-sync artifacts were merged into non-empty primary results'
+    - 'provider worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_unexpected_ref_line -- --nocapture failed before implementation with 0 passed, 1 failed because unexpected non-HEAD symref output fell through to --heads fallback'
+    - 'main: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches -- --nocapture passed with one main-bin test and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api search_ -- --nocapture passed with 38 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api local_sync -- --nocapture passed with 17 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 28 lib tests plus zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture passed with 20 lib tests plus zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker passed: lib 69, main 3, integration smoke tests 20, doc-tests 0'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check HEAD~2..HEAD passed'
+    - 'main: git diff --check HEAD~2..HEAD and final git diff --check passed before docs commit; doc/state diff checks passed after docs/state edits'
     - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
-    - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, bounded-worker, or docs-claim blockers; reviewer reran focused revision and lease_failure checks'
-  commit: 3f765c20a5716ed4b50275710c07c4527444fd40
+    - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, fallback precedence, Generic Git parser, or docs-claim blockers; reviewer reran focused search and generic_git tests'
+  commit: 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -48,20 +45,69 @@ current_task:
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
     worktree is clean. This run landed two implementation-backed hardening
-    closures from the worker batch: present blank browse/code-nav/commit
-    `revision` queries now fail closed instead of triggering default or
-    local-sync fallback semantics, and old malformed-running repository-sync
-    lease-recovery failures now get the same bounded one-time automatic replay as
-    stale lease-recovery failures. The search/index worker failed before producing
-    a mergeable commit because the backend returned HTTP 503/account exhaustion
-    after leaving only an incomplete test-only diff in its worktree; it was not
-    integrated. Remaining practical replacement work still includes
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale, branch/index availability, broader provider
-    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO and
-    richer admin/org flows, MCP client interoperability, operator runbook/deploy
-    evidence, and other release blockers in this roadmap.
+    closures from the worker batch: unscoped/search-context search now preserves
+    primary startup search-store precedence and consults local-sync artifacts only
+    for otherwise empty primary responses, and Generic Git remote metadata parsing
+    now rejects unexpected non-`HEAD` HEAD-probe records instead of falling back to
+    a different branch. The MCP worker failed before a mergeable closure due to
+    HTTP 503 account exhaustion. Remaining practical replacement work still
+    includes production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale, branch/index availability,
+    broader provider fetch/import/reindex, worker supervision and broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    interoperability, operator runbook/deploy evidence, and other release
+    blockers in this roadmap.
 history:
+  - id: task102s_106u
+    status: done
+    summary: >-
+      Integrated two approved accelerated-worker closures. The Task 102 search
+      closure changed authenticated unscoped/search-context local-sync
+      search-index artifact fallback so primary startup search results remain
+      authoritative: artifacts are used only when primary search returns an empty
+      response, not merged into non-empty primary results. The Task 106 provider
+      closure hardened Generic Git remote HEAD metadata parsing so unexpected
+      non-`HEAD` records in the `git ls-remote --symref -- <base_url> HEAD`
+      probe fail closed before `--heads` fallback. Coupled README, acceptance,
+      parity-gap, and final-audit wording now names both bounded contracts while
+      preserving practical-replacement blockers.
+    commit: 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
+    component_commits:
+      - 684496a613c43e2fad5afb6509778522d0cae1a1
+      - 383a853de39b4cf64e2fa8edd8483869992868b6
+      - 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
+    tests:
+      - 'search worker RED: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches failed before implementation with 0 passed, 1 failed, 463 filtered out because local-sync artifacts were merged into non-empty primary results'
+      - 'provider worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_unexpected_ref_line -- --nocapture failed before implementation with 0 passed, 1 failed because unexpected non-HEAD symref output fell through to --heads fallback'
+      - 'main: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches -- --nocapture passed with one main-bin test and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api search_ -- --nocapture passed with 38 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api local_sync -- --nocapture passed with 17 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 28 lib tests plus zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture passed with 20 lib tests plus zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker passed: lib 69, main 3, integration smoke tests 20, doc-tests 0'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check HEAD~2..HEAD and final git diff --check passed before docs commit; doc/state diff checks passed after docs/state edits'
+      - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
+      - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, fallback precedence, Generic Git parser, or docs-claim blockers; reviewer reran focused search and generic_git tests'
+    review: >-
+      Independent integration review approved the two-code-commit range with no
+      blocking security, logic, auth/scope, fallback-precedence, Generic Git
+      parser, or bounded-claim issues. The reviewer confirmed explicit `repo_id`
+      behavior remained unchanged, unscoped/context fallback still respects the
+      visible-repo/search-context boundary and malformed artifact fail-closed
+      behavior, and Generic Git execution still uses `Command` arguments with `--`
+      rather than shell interpolation.
+    workers:
+      - 'search/index worker: produced commit e0cc828a02a67af8fa2d9a2610c4ee0f574f3731, cherry-picked in main as 684496a613c43e2fad5afb6509778522d0cae1a1'
+      - 'provider/worker worker: produced commit ae544876dc0c228014f70ff74ada39b52fdecb40, cherry-picked in main as 383a853de39b4cf64e2fa8edd8483869992868b6'
+      - 'MCP/Ops worker: failed with HTTP 503 account exhaustion before producing a commit; no mergeable product change'
+    notes: >-
+      This was real implementation-backed closure rather than docs-only or
+      state-only progress: both integrated workers started from RED regressions,
+      changed shipped API/worker behavior, reran focused and broader selectors in
+      the main worktree, synchronized coupled acceptance/audit wording, passed
+      mechanical and security checks, and received independent integration review
+      while preserving the remaining practical-replacement blockers explicitly.
   - id: task103r_106t
     status: done
     summary: >-
