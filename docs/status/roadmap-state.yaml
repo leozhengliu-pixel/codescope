@@ -5,34 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 23059d0aad7a864ed23a215ae01f106ab602d417
+  head: 75054e4e17531b775da37964422aa98f83ba8297
 last_completed_task:
-  id: task102as-103k-106l
-  title: Primary-index error search fallback, newline-safe revision trees, and option-like Generic Git remote hardening
+  id: task103l-106m
+  title: Frontend code-navigation target cleanup and Generic Git control-character base URL hardening
   status: done
   summary: >-
-    Integrated three accelerated worker closures plus coupled parity-report sync.
-    Requested-repo search now treats a primary startup index in `error` status as
-    unavailable for fallback purposes, so a visible repository can still use its
-    latest authorized local-sync `search-index.json` artifact instead of returning
-    an empty success from a failed primary index. Revision-backed tree browsing now
-    consumes NUL-delimited `git ls-tree` output so embedded-newline Git paths are
-    preserved rather than split into fake entries. Generic Git repository-sync now
-    rejects option-like remote `base_url` values before spawning Git.
+    Integrated two accelerated implementation-worker closures plus coupled
+    acceptance/parity wording. The repository detail code-navigation UI now clears
+    stale symbol input/results after a user opens a definition/reference target,
+    so the source panel no longer leaves prior navigation output attached to the
+    previous file. Generic Git repository-sync now rejects control-character-bearing
+    `base_url` values before spawning Git, preserving the stable
+    `generic Git repository sync execution failed` operator prefix without
+    reflecting attacker-controlled payload text. A third search/index worker did
+    not produce a closure because the provider returned HTTP 503/no available
+    accounts before code changes; no search/index changes were adopted.
   tests:
-    - 'cargo test -p sourcebot-api requested_search_falls_back_to_local_sync_artifact_when_primary_index_status_is_error -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 456 filtered out after worker-recorded RED failure returned 0 results instead of the authorized artifact hit'
-    - 'cargo test -p sourcebot-api search_ -- --nocapture: passed in main worktree with 35 bin tests, 0 lib tests, and 422 filtered out'
-    - 'cargo test -p sourcebot-search: passed in main worktree with 43 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api local_browse_store_preserves_newline_paths_in_revision_tree_entries -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 456 filtered out after worker-recorded RED failure split the newline path'
-    - 'cargo test -p sourcebot-api browse::tests::local_browse_store -- --nocapture: passed in main worktree with 24 bin tests, 0 lib tests, and 433 filtered out'
-    - 'cargo test -p sourcebot-worker --lib tests::generic_git_remote_option_like_base_url_fails_closed_before_spawning_git -- --exact: passed in main worktree with 1 lib test and 58 filtered out after worker-recorded RED failure spawned fake git'
-    - 'cargo test -p sourcebot-worker --lib generic_git: passed in main worktree with 22 lib tests and 37 filtered out'
+    - 'npm test -- --run src/App.test.tsx -t "clears stale code navigation": passed in main worktree with 1 passed and 184 skipped after worker-recorded RED failure left stale Definition results visible'
+    - 'npm test -- --run src/App.test.tsx -t "browse|commit|repo detail": passed in main worktree with 6 passed and 179 skipped'
+    - 'npm test -- --run src/App.test.tsx -t "navigation|definitions|references": passed in main worktree with 9 passed and 176 skipped'
+    - 'npm run build: passed in web workspace'
+    - 'cargo test -p sourcebot-worker generic_git_base_url_with_control_character_fails_closed_before_spawning_git -- --nocapture: passed in main worktree with 1 lib test, 59 filtered out, and zero-test non-lib targets after worker-recorded RED failure attempted Git spawn'
+    - 'cargo test -p sourcebot-worker generic_git: passed in main worktree with 23 lib tests and 37 filtered out'
     - 'cargo test -p sourcebot-worker repository_sync: passed in main worktree with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 1a3db001f8d040134d9ec0e478b858db0ef46c9a: passed'
-    - 'added-lines security scan over 1a3db001f8d040134d9ec0e478b858db0ef46c9a..worktree: passed with 207 added lines and no findings'
-    - 'independent integration review over 1a3db001f8d040134d9ec0e478b858db0ef46c9a..worktree: approved with no blocking security, logic, auth/scope, fail-closed, or docs-claim issues'
-  commit: 23059d0aad7a864ed23a215ae01f106ab602d417
+    - 'git diff --check HEAD~2..HEAD: passed for the two code commits'
+    - 'docs marker checks for browse/generic-local-git/parity-gap/final-audit wording: passed'
+    - 'git diff --check: passed after docs synchronization'
+    - 'added-lines security scan over f2da83e478dd771edb71ecec7ccec1013932d9d5..HEAD before docs/state: passed with 139 added lines and no findings'
+    - 'independent integration review over f2da83e478dd771edb71ecec7ccec1013932d9d5..HEAD before docs/state: approved with no blocking security or logic issues'
+  commit: 75054e4e17531b775da37964422aa98f83ba8297
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,17 +45,61 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    three real runtime hardening closures: requested-repo search can use an
-    authorized local-sync artifact when the primary startup index is in `error`
-    status, revision tree browsing preserves embedded-newline Git paths through
-    NUL-delimited parsing, and Generic Git remotes reject option-like base URLs
-    before spawning Git. Remaining practical replacement work still includes
+    two real hardening closures: repository-detail code navigation now clears stale
+    symbol state after opening a definition/reference target, and Generic Git
+    repository-sync rejects control-character-bearing base URLs before spawning
+    Git. The attempted search/index worker failed before code changes because the
+    provider returned HTTP 503/no available accounts, so no search/index closure
+    was integrated this run. Remaining practical replacement work still includes
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale, branch/index availability, broader provider
     fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO and
     richer admin/org flows, MCP client interoperability, operator runbook/deploy
     evidence, and other release blockers in this roadmap.
 history:
+  - id: task103l-106m
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with two accepted real
+      implementation closures. The frontend code-navigation panel now clears stale
+      symbol query/results after opening a definition/reference target, and Generic
+      Git repository-sync rejects control-character-bearing base URLs before Git
+      execution while preserving bounded fail-closed operator errors. A third
+      search/index worker returned no code because provider capacity failed with
+      HTTP 503 before implementation.
+    commit: 75054e4e17531b775da37964422aa98f83ba8297
+    tests:
+      - 'npm test -- --run src/App.test.tsx -t "clears stale code navigation": passed with 1 passed and 184 skipped'
+      - 'npm test -- --run src/App.test.tsx -t "browse|commit|repo detail": passed with 6 passed and 179 skipped'
+      - 'npm test -- --run src/App.test.tsx -t "navigation|definitions|references": passed with 9 passed and 176 skipped'
+      - 'npm run build: passed'
+      - 'cargo test -p sourcebot-worker generic_git_base_url_with_control_character_fails_closed_before_spawning_git -- --nocapture: passed with 1 lib test, 59 filtered out, and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git: passed with 23 lib tests and 37 filtered out'
+      - 'cargo test -p sourcebot-worker repository_sync: passed with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check HEAD~2..HEAD: passed'
+      - 'docs marker checks: passed'
+      - 'git diff --check: passed after docs synchronization'
+      - 'added-lines security scan: passed with 139 added lines and no findings'
+      - 'independent integration review: approved with no blocking issues'
+    review: >-
+      Independent integration review approved the code diff and found no security
+      or logic blockers. The reviewer checked that code-navigation target opens
+      clear stale symbol state without breaking reference navigation, and that
+      Generic Git control-character validation happens before spawning Git while
+      keeping stable fail-closed errors and avoiding malicious payload reflection.
+    workers:
+      - 'browse/code-navigation worker: integrated worker commit 2386c744a754f8903359b4d813f8f72a361acc2b as main commit db8dfcc41d3dcffb79e5c809a8e6542f80673cdb'
+      - 'provider/worker worker: integrated worker commit 1b80f73da57f11d5d6b4ff98bc8b14da64bb7787 as main commit ffc5671f3c0226ea3af54d1457830b399a57181f'
+      - 'search/index worker: not integrated; worker returned no commit after provider HTTP 503/no available accounts before implementation'
+      - 'integrator docs sync: committed acceptance/parity/final-audit wording as 75054e4e17531b775da37964422aa98f83ba8297'
+    notes: >-
+      This was real implementation-backed closure, not a micro-slice or state-only
+      update: two workers shipped code with RED/GREEN evidence in isolated
+      worktrees, the integrator cherry-picked both closures into main, reran focused
+      and broader selectors, synchronized coupled acceptance and audit wording,
+      ran security/mechanical checks, and obtained independent review before
+      updating roadmap state.
   - id: task102as-103k-106l
     status: done
     summary: >-
