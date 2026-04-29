@@ -748,7 +748,13 @@ fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<
 }
 
 fn is_safe_revision_selector(revision: &str) -> bool {
-    !revision.is_empty() && !revision.chars().any(char::is_control)
+    !revision.is_empty()
+        && !revision.starts_with('-')
+        && !revision.contains("..")
+        && !revision.contains("@{")
+        && !revision
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
 }
 
 fn commit_is_ancestor(repo_root: &PathBuf, commit_id: &str, ancestor_of: &str) -> Result<bool> {
@@ -1105,6 +1111,14 @@ mod tests {
             .is_none());
         assert!(store
             .get_commit("repo_sourcebot_rewrite", "HEAD~1..HEAD")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit("repo_sourcebot_rewrite", "HEAD~1")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit("repo_sourcebot_rewrite", "HEAD^1")
             .unwrap()
             .is_none());
         assert!(store
