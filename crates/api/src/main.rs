@@ -6354,7 +6354,7 @@ async fn search_repository_contents(
     )?;
 
     if let Some(repo_id) = requested_repo_id {
-        if response.results.is_empty() && !search_store_has_primary_index_status(&state, repo_id)? {
+        if response.results.is_empty() && !search_store_has_usable_primary_index(&state, repo_id)? {
             if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
@@ -6377,7 +6377,7 @@ async fn search_repository_contents(
             .iter()
             .filter(|repo_id| !repos_with_primary_results.contains(repo_id.as_str()))
             .filter_map(
-                |repo_id| match search_store_has_primary_index_status(&state, repo_id) {
+                |repo_id| match search_store_has_usable_primary_index(&state, repo_id) {
                     Ok(true) => None,
                     Ok(false) => Some(Ok(repo_id.clone())),
                     Err(error) => Some(Err(error)),
@@ -6446,14 +6446,14 @@ fn search_visible_authorized_repositories(
     ))
 }
 
-fn search_store_has_primary_index_status(
+fn search_store_has_usable_primary_index(
     state: &AppState,
     repo_id: &str,
 ) -> Result<bool, StatusCode> {
     state
         .search
         .repository_index_status(repo_id)
-        .map(|status| status.is_some())
+        .map(|status| status.is_some_and(|status| status.status != RepositoryIndexState::Error))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -29840,6 +29840,134 @@ mod tests {
         assert!(payload.results[0]
             .line
             .contains("local_sync_search_artifact_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    struct FailedPrimaryIndexSearchStore;
+
+    impl SearchStore for FailedPrimaryIndexSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                mode,
+                repo_id.map(ToOwned::to_owned),
+                Vec::new(),
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(Some(RepositoryIndexStatus {
+                repo_id: repo_id.to_string(),
+                status: RepositoryIndexState::Error,
+                indexed_file_count: 0,
+                indexed_line_count: 0,
+                skipped_file_count: 0,
+                error: Some("primary startup index failed".to_string()),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn requested_search_falls_back_to_local_sync_artifact_when_primary_index_status_is_error()
+    {
+        let repo_root = unique_test_path("search-primary-error-fallback-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn primary_error_artifact_fallback_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-primary-error-fallback-orgs");
+        let local_session_state_path = unique_test_path("search-primary-error-fallback-sessions");
+        let user_id = "user_primary_error_fallback_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(FailedPrimaryIndexSearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=primary_error_artifact_fallback_marker&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert!(payload.results[0]
+            .line
+            .contains("primary_error_artifact_fallback_marker"));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
