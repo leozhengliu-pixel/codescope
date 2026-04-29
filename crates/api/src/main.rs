@@ -5447,7 +5447,7 @@ async fn get_repository_tree(
     if let Some(tree) = state
         .browse
         .get_tree_at_revision(&repo_id, &query.path, revision)
-        .map_err(|_| StatusCode::NOT_FOUND)?
+        .map_err(map_browse_error_to_status)?
     {
         return Ok(Json(tree));
     }
@@ -5459,7 +5459,7 @@ async fn get_repository_tree(
         {
             if let Some(tree) = snapshot_browse
                 .get_tree_at_revision(&repo_id, &query.path, None)
-                .map_err(|_| StatusCode::NOT_FOUND)?
+                .map_err(map_browse_error_to_status)?
             {
                 return Ok(Json(tree));
             }
@@ -28259,7 +28259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repo_tree_rejects_parent_directory_traversal_with_not_found() {
+    async fn repo_tree_rejects_parent_directory_traversal_with_bad_request() {
         let organization_state_path = unique_test_path("repo-tree-traversal-orgs");
         write_organization_state_fixture(
             &organization_state_path,
@@ -28289,7 +28289,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
