@@ -14,6 +14,7 @@ use std::{
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
+const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 #[cfg(unix)]
@@ -980,7 +981,13 @@ enum QueryMatcher {
 impl QueryMatcher {
     fn from_query(query: &str, mode: SearchMode) -> Self {
         match mode {
-            SearchMode::Boolean => Self::Boolean(parse_query(&query.to_lowercase())),
+            SearchMode::Boolean if query.len() <= MAX_BOOLEAN_QUERY_BYTES => {
+                Self::Boolean(parse_query(&query.to_lowercase()))
+            }
+            SearchMode::Boolean => Self::Boolean(ParsedQuery {
+                invalid_filter: true,
+                ..ParsedQuery::default()
+            }),
             SearchMode::Literal => Self::Literal(query.to_lowercase()),
             SearchMode::Regex => {
                 if query.is_empty() || query.len() > MAX_REGEX_QUERY_BYTES {
@@ -1714,6 +1721,17 @@ mod tests {
         assert!(
             malformed_response.results.is_empty(),
             "empty boolean OR groups should fail closed instead of being ignored"
+        );
+
+        let oversized_or_query = std::iter::repeat_n("build_router", 600)
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let oversized_or_response = store
+            .search(&oversized_or_query, Some("repo_test"))
+            .expect("oversized boolean query should return an empty search response");
+        assert!(
+            oversized_or_response.results.is_empty(),
+            "oversized boolean queries should fail closed before allocating unbounded OR groups"
         );
 
         let quoted_or_response = store
