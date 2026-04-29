@@ -556,9 +556,7 @@ fn complete_local_repository_sync_job_with_git_command_and_output_limit_if_appli
         return None;
     };
 
-    if let Err(error) =
-        validate_non_blank_repository_sync_config_value("local repository repo_path", repo_path)
-    {
+    if let Err(error) = validate_local_repository_sync_repo_path(repo_path) {
         return Some(fail_local_repository_sync_job(job, finished_at, error));
     }
 
@@ -1511,6 +1509,22 @@ fn validate_non_blank_repository_sync_config_value(
     } else {
         Ok(())
     }
+}
+
+fn validate_local_repository_sync_repo_path(repo_path: &str) -> Result<(), String> {
+    validate_non_blank_repository_sync_config_value("local repository repo_path", repo_path)?;
+
+    if repo_path.chars().any(char::is_control) {
+        return Err("local repository repo_path must not include control characters".to_owned());
+    }
+
+    if repo_path != repo_path.trim() {
+        return Err(
+            "local repository repo_path must not include surrounding whitespace".to_owned(),
+        );
+    }
+
+    Ok(())
 }
 
 fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
@@ -2877,6 +2891,36 @@ mod tests {
         assert_eq!(
             failed_job.error.as_deref(),
             Some("local repository sync preflight failed: local repository repo_path is empty")
+        );
+    }
+
+    #[test]
+    fn local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git(
+    ) {
+        let state = OrganizationState {
+            connections: vec![local_connection(" /tmp/sourcebot-local-repo ")],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_padded_path",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            Duration::from_millis(50),
+        )
+        .expect("padded local repo_path should terminally fail the job before git is spawned");
+
+        assert_eq!(failed_job.id, "sync_job_local_padded_path");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: local repository repo_path must not include surrounding whitespace")
         );
     }
 
