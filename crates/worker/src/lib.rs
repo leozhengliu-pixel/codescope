@@ -267,11 +267,10 @@ fn run_generic_git_repository_sync_execution(
         ));
     }
     let head_revision = parse_git_ls_remote_head_revision(&head_output.stdout)?;
-    match parse_git_ls_remote_head_symref(&head_output.stdout) {
-        Ok(Some(default_branch)) => return Ok(default_branch),
-        Ok(None) => {}
+    let head_symref_execution = match parse_git_ls_remote_head_symref(&head_output.stdout) {
+        Ok(execution) => execution,
         Err(error) => return Err(error),
-    }
+    };
 
     let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
         Ok(Some(output)) => output,
@@ -297,13 +296,13 @@ fn run_generic_git_repository_sync_execution(
         return Err(generic_git_failure_detail("git ls-remote --heads", &output));
     }
 
-    parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref()).and_then(|execution| {
-        execution.ok_or_else(|| {
-            format!(
-                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
-            )
-        })
-    })
+    let advertised_head = parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref())?.ok_or_else(|| {
+        format!(
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
+        )
+    })?;
+
+    Ok(head_symref_execution.unwrap_or(advertised_head))
 }
 
 fn parse_git_ls_remote_heads(
@@ -2832,6 +2831,54 @@ mod tests {
         assert_eq!(
             execution.revision,
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_sync_requires_advertised_heads_even_when_remote_head_symref_exists() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-heads-required-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        let heads_marker_path = fake_git_dir.join("heads-invoked");
+        fs::write(
+            &fake_git_path,
+            format!(
+                "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  : > '{}'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+                heads_marker_path.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "Generic Git sync must require an advertised --heads branch even when HEAD symref exists, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised no valid branch refs"
+        );
+        assert!(
+            heads_marker_path.exists(),
+            "Generic Git sync must invoke the --heads probe before claiming success from HEAD symref metadata"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
