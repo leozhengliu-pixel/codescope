@@ -1470,6 +1470,9 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
         return Err("Generic Git base_url must not start with '-'".to_owned());
     }
     let Some((_, rest)) = trimmed.split_once("://") else {
+        if generic_git_scp_like_url_contains_userinfo(trimmed) {
+            return Err("Generic Git base_url must not include embedded credentials".to_owned());
+        }
         return Ok(());
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
@@ -1478,6 +1481,16 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn generic_git_scp_like_url_contains_userinfo(value: &str) -> bool {
+    let first_path_separator = value.find('/').unwrap_or(value.len());
+    let prefix = &value[..first_path_separator];
+    let Some(colon_index) = prefix.find(':') else {
+        return false;
+    };
+    prefix[..colon_index].contains('@')
+        || percent_decode_ascii(&prefix[..colon_index]).contains('@')
 }
 
 fn percent_decode_ascii(value: &str) -> String {
@@ -4349,6 +4362,50 @@ mod tests {
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+    }
+
+    #[test]
+    fn generic_git_remote_scp_like_credential_base_url_fails_closed_before_spawning_git() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-scp-like-credential-generic-git-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let marker_path = repo_path.join("spawned-marker");
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker_path.display()),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "git@example.invalid:acme/repo.git",
+            Duration::from_secs(2),
+        ) {
+            Ok(_) => {
+                panic!("scp-like Generic Git base_url with a userinfo component must fail closed")
+            }
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
+        );
+        assert!(
+            !marker_path.exists(),
+            "scp-like credential base_url validation should fail before spawning git"
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
     }
 
     #[test]
