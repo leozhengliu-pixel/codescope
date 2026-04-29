@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::{
     collections::{BTreeSet, HashMap},
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -386,6 +386,7 @@ impl LocalSearchStore {
             index_status,
         };
         if let Some(parent) = artifact_path.parent() {
+            validate_existing_index_artifact_parent_components(artifact_path)?;
             fs::create_dir_all(parent).with_context(|| {
                 format!(
                     "failed to create local search index artifact directory {}",
@@ -666,6 +667,36 @@ fn repository_root_metadata_path(root: &Path) -> PathBuf {
 #[cfg(not(unix))]
 fn repository_root_metadata_path(root: &Path) -> PathBuf {
     root.to_path_buf()
+}
+
+fn validate_existing_index_artifact_parent_components(artifact_path: &Path) -> Result<()> {
+    for parent in artifact_path.ancestors().skip(1) {
+        if parent.as_os_str().is_empty() {
+            continue;
+        }
+
+        match fs::symlink_metadata(parent) {
+            Ok(parent_metadata) => {
+                if parent_metadata.file_type().is_symlink() {
+                    anyhow::bail!(
+                        "search index artifact parent contains a symlink: {}",
+                        parent.display()
+                    );
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to read local search index artifact parent metadata {}",
+                        parent.display()
+                    )
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_index_artifact_parent_components(artifact_path: &Path) -> Result<()> {
@@ -2308,6 +2339,40 @@ mod tests {
                 .contains("search index artifact parent contains a symlink"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_search_store_write_rejects_symlinked_parent_before_creating_directories() {
+        let (store, root) = create_test_store();
+        let outside_parent = root.join("outside-parent");
+        let symlinked_parent = root.join(".sourcebot");
+        let artifact_path = symlinked_parent
+            .join("nested-created-by-writer")
+            .join("local-sync-index.json");
+        fs::create_dir_all(&outside_parent).unwrap();
+        std::os::unix::fs::symlink(&outside_parent, &symlinked_parent).unwrap();
+
+        let error = match store.write_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => {
+                panic!("persisted index writer must fail closed on symlinked artifact parents")
+            }
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact parent contains a symlink"),
+            "unexpected error: {error:#}"
+        );
+        assert!(
+            !outside_parent.join("nested-created-by-writer").exists(),
+            "writer must not create directories through a symlinked artifact parent before failing"
+        );
+        assert!(!artifact_path.exists());
 
         fs::remove_dir_all(root).unwrap();
     }
