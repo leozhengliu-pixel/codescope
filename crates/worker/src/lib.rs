@@ -858,6 +858,9 @@ fn safe_tracked_content_relative_path(content_path: &str) -> Result<PathBuf, Str
     if path
         .components()
         .all(|component| matches!(component, std::path::Component::Normal(_)))
+        && !content_path
+            .bytes()
+            .any(|byte| byte <= 0x1f || byte == 0x7f)
     {
         Ok(path.to_path_buf())
     } else {
@@ -1488,8 +1491,9 @@ mod tests {
         local_repository_sync_manifest_path, persist_stub_review_agent_run_execution_outcome,
         run_generic_git_repository_sync_execution, run_repository_sync_claim_tick,
         run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
-        wait_for_child_output_with_timeout_and_output_limit, StubRepositorySyncJobExecutionOutcome,
-        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
+        safe_tracked_content_relative_path, wait_for_child_output_with_timeout_and_output_limit,
+        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
+        WorkerTickOutcome,
     };
     use crate::{
         GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX,
@@ -1753,6 +1757,17 @@ mod tests {
         assert_eq!(safe_manifest_path_component("."), "_");
         assert_eq!(safe_manifest_path_component(".."), "__");
         assert_eq!(safe_manifest_path_component("org_acme-1"), "org_acme-1");
+    }
+
+    #[test]
+    fn local_sync_tracked_content_paths_with_control_characters_fail_closed() {
+        let error = safe_tracked_content_relative_path("safe\nname.txt")
+            .expect_err("tracked paths with newlines must not be snapshotted or persisted");
+
+        assert_eq!(
+            error,
+            "local repository sync execution failed: tracked content path cannot be snapshotted safely: \"safe\\nname.txt\""
+        );
     }
 
     #[test]
