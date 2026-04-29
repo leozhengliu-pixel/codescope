@@ -634,7 +634,7 @@ fn run_local_repository_sync_execution(
         Err(error) => return Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
     };
 
-    match run_git_command_with_output_limit(
+    let branch = match run_git_command_with_output_limit(
         git_command,
         repo_path,
         &["symbolic-ref", "--short", "HEAD"],
@@ -642,41 +642,90 @@ fn run_local_repository_sync_execution(
         output_limit_bytes,
     ) {
         Ok(Some(output))
+            if output.stdout.len() > output_limit_bytes
+                || output.stderr.len() > output_limit_bytes =>
+        {
+            return Err(local_git_output_limit_failure_detail(
+                "git symbolic-ref --short HEAD",
+                output_limit_bytes,
+            ));
+        }
+        Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        }
+        Ok(Some(output)) => {
+            resolve_detached_head_branch_label(git_command, repo_path, timeout, output_limit_bytes)
+                .map_err(|_| git_failure_detail("git symbolic-ref --short HEAD", &output))?
+        }
+        Ok(None) => {
+            return Err(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git symbolic-ref --short HEAD timed out after {}ms",
+                timeout.as_millis()
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}"
+            ))
+        }
+    };
+
+    write_local_repository_sync_snapshot(
+        git_command,
+        repo_path,
+        job,
+        &content_paths,
+        timeout,
+        output_limit_bytes,
+    )?;
+    write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
+    write_local_repository_sync_search_index(repo_path, job)?;
+    tracing::info!(
+        repo_path = %repo_path,
+        head = %head,
+        current_branch = %branch,
+        content_file_count = content_paths.len(),
+        "completed bounded local repository sync Git content snapshot"
+    );
+    Ok(LocalRepositorySyncExecution {
+        revision: head,
+        branch,
+        content_file_count: content_paths.len() as i64,
+    })
+}
+
+fn resolve_detached_head_branch_label(
+    git_command: &OsStr,
+    repo_path: &str,
+    timeout: Duration,
+    output_limit_bytes: usize,
+) -> Result<String, String> {
+    match run_git_command_with_output_limit(
+        git_command,
+        repo_path,
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+        timeout,
+        output_limit_bytes,
+    ) {
+        Ok(Some(output))
             if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
         {
             Err(local_git_output_limit_failure_detail(
-                "git symbolic-ref --short HEAD",
+                "git rev-parse --abbrev-ref HEAD",
                 output_limit_bytes,
             ))
         }
-        Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
-            let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            write_local_repository_sync_snapshot(
-                git_command,
-                repo_path,
-                job,
-                &content_paths,
-                timeout,
-                output_limit_bytes,
-            )?;
-            write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
-            write_local_repository_sync_search_index(repo_path, job)?;
-            tracing::info!(
-                repo_path = %repo_path,
-                head = %head,
-                current_branch = %branch,
-                content_file_count = content_paths.len(),
-                "completed bounded local repository sync Git content snapshot"
-            );
-            Ok(LocalRepositorySyncExecution {
-                revision: head,
-                branch,
-                content_file_count: content_paths.len() as i64,
-            })
+        Ok(Some(output)) if output.status.success() => {
+            let label = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if label == "HEAD" {
+                Ok(label)
+            } else {
+                Err(git_failure_detail("git rev-parse --abbrev-ref HEAD", &output))
+            }
         }
-        Ok(Some(output)) => Err(git_failure_detail("git symbolic-ref --short HEAD", &output)),
+        Ok(Some(output)) => Err(git_failure_detail("git rev-parse --abbrev-ref HEAD", &output)),
         Ok(None) => Err(format!(
-            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git symbolic-ref --short HEAD timed out after {}ms",
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git rev-parse --abbrev-ref HEAD timed out after {}ms",
             timeout.as_millis()
         )),
         Err(error) => Err(format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {error}")),
@@ -3298,6 +3347,102 @@ mod tests {
                 .exists(),
             "oversized output must fail before snapshot persistence"
         );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_succeeds_for_detached_local_git_head() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-detached-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("README.md"), "detached local sync fixture\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "detached fixture"])
+            .output()
+            .expect("git commit should run");
+        let expected_head = String::from_utf8(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .expect("git rev-parse HEAD should run")
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_owned();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["checkout", "--detach", "HEAD"])
+            .output()
+            .expect("git checkout --detach should run");
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_detached",
+                RepositorySyncJobStatus::Queued,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        });
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued detached local repository sync job should be terminally recorded");
+
+        assert_eq!(completed_job.id, "sync_job_local_detached");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
+        assert_eq!(
+            completed_job.synced_revision.as_deref(),
+            Some(expected_head.as_str())
+        );
+        assert_eq!(completed_job.synced_branch.as_deref(), Some("HEAD"));
+        assert_eq!(completed_job.synced_content_file_count, Some(1));
+
+        let manifest_path =
+            local_repository_sync_manifest_path(&repo_path.display().to_string(), &completed_job);
+        let manifest = fs::read_to_string(&manifest_path).expect("manifest should be written");
+        assert!(manifest.contains("branch=HEAD\n"));
+        assert!(
+            manifest_path
+                .parent()
+                .unwrap()
+                .join("snapshot")
+                .join("README.md")
+                .exists(),
+            "detached local sync should still persist tracked HEAD snapshot artifacts"
+        );
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], completed_job);
 
         fs::remove_dir_all(repo_path).unwrap();
     }
