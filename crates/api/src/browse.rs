@@ -472,7 +472,8 @@ impl BrowseStore for LocalBrowseStore {
                     return Ok(None);
                 };
 
-                let Some(bytes) = run_git_show_blob(repo_root, &revision, path)? else {
+                let normalized_path = normalize_relative_path(path)?;
+                let Some(bytes) = run_git_show_blob(repo_root, &revision, &normalized_path)? else {
                     return Ok(None);
                 };
                 let size_bytes = bytes.len() as u64;
@@ -533,7 +534,8 @@ impl BrowseStore for LocalBrowseStore {
             .into_iter()
             .filter(|path| supports_text_reference_scan(path))
         {
-            let Some(bytes) = run_git_show_blob(repo_root, &revision, &path)? else {
+            let normalized_path = normalize_relative_path(&path)?;
+            let Some(bytes) = run_git_show_blob(repo_root, &revision, &normalized_path)? else {
                 continue;
             };
             let blob_content = decode_blob_content(bytes);
@@ -676,7 +678,23 @@ fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<S
     ))
 }
 
-fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<Vec<u8>>> {
+fn run_git_show_blob(
+    repo_root: &PathBuf,
+    revision: &str,
+    normalized_path: &Path,
+) -> Result<Option<Vec<u8>>> {
+    if normalized_path.as_os_str().is_empty() {
+        return Ok(None);
+    }
+
+    let path = normalized_path.to_string_lossy().replace('\\', "/");
+    let Some(mode) = run_git_object_mode(repo_root, revision, &path)? else {
+        return Ok(None);
+    };
+    if mode == "120000" {
+        return Ok(None);
+    }
+
     let object = format!("{revision}:{path}");
     let Some(object_type) = run_git_object_type(repo_root, &object)? else {
         return Ok(None);
@@ -702,6 +720,43 @@ fn run_git_show_blob(repo_root: &PathBuf, revision: &str, path: &str) -> Result<
     Err(git_command_error(
         repo_root,
         &["show", "<revision>:<path>"],
+        &output,
+    ))
+}
+
+fn run_git_object_mode(repo_root: &PathBuf, revision: &str, path: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["ls-tree", "-z", revision, "--", path])
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
+
+    if output.status.success() {
+        if output.stdout.is_empty() {
+            return Ok(None);
+        }
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let first_entry = stdout
+            .split('\0')
+            .find(|entry| !entry.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("unexpected empty git ls-tree output"))?;
+        let Some((metadata, _path)) = first_entry.split_once('\t') else {
+            anyhow::bail!("unexpected git ls-tree output: {first_entry}");
+        };
+        let mode = metadata
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("unexpected git ls-tree metadata: {metadata}"))?;
+        return Ok(Some(mode.to_string()));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["ls-tree", "-z", "<revision>", "--", "<path>"],
         &output,
     ))
 }
@@ -1345,6 +1400,29 @@ mod tests {
         let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         let blob = store
             .get_blob_at_revision("repo_test", "src", Some("HEAD"))
+            .unwrap();
+
+        assert_eq!(blob, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_does_not_return_revision_symlink_as_blob() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-symlink-as-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        std::os::unix::fs::symlink("README.md", root.join("readme-link.md")).unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let blob = store
+            .get_blob_at_revision("repo_test", "readme-link.md", Some("HEAD"))
             .unwrap();
 
         assert_eq!(blob, None);
