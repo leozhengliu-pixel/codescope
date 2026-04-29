@@ -1360,7 +1360,14 @@ fn run_git_command_with_output_limit(
 fn configure_non_interactive_git_command(command: &mut Command) {
     command
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "never");
+        .env("GCM_INTERACTIVE", "never")
+        .env("GIT_ASKPASS", "/bin/false")
+        .env("SSH_ASKPASS", "/bin/false")
+        .env("SSH_ASKPASS_REQUIRE", "never")
+        .env(
+            "GIT_SSH_COMMAND",
+            "ssh -oBatchMode=yes -oNumberOfPasswordPrompts=0",
+        );
 }
 
 fn wait_for_child_output_with_timeout_and_output_limit(
@@ -3116,6 +3123,42 @@ mod tests {
             Duration::from_secs(5),
         )
         .expect("Generic Git sync should force non-interactive auth env before spawning git");
+
+        assert_eq!(execution.branch, "main");
+        assert_eq!(
+            execution.revision,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_sync_forces_ssh_prompt_suppression_environment() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-ssh-prompt-env-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"${GIT_ASKPASS:-}\" != \"/bin/false\" ]; then\n  printf 'GIT_ASKPASS was not forced to /bin/false: %s\\n' \"${GIT_ASKPASS:-<unset>}\" >&2\n  exit 45\nfi\nif [ \"${SSH_ASKPASS:-}\" != \"/bin/false\" ]; then\n  printf 'SSH_ASKPASS was not forced to /bin/false: %s\\n' \"${SSH_ASKPASS:-<unset>}\" >&2\n  exit 46\nfi\ncase \"${GIT_SSH_COMMAND:-}\" in\n  *\"BatchMode=yes\"*\"NumberOfPasswordPrompts=0\"*) ;;\n  *) printf 'GIT_SSH_COMMAND did not disable ssh prompts: %s\\n' \"${GIT_SSH_COMMAND:-<unset>}\" >&2; exit 47 ;;\nesac\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let execution = run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "ssh://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        )
+        .expect("Generic Git sync should force non-interactive SSH auth env before spawning git");
 
         assert_eq!(execution.branch, "main");
         assert_eq!(
