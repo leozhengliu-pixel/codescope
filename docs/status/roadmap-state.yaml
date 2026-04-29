@@ -5,36 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: edb791b5902ea9e50188d9a9ba7eb8d4009e7325
+  head: 94db53095f900344c95498f7f9272838331f4f33
 last_completed_task:
-  id: task102_103_106_artifact_commit_worker_scope_hardening
-  title: Persisted search artifact path budgets, local-sync commit revision scope, and local Git failure-detail bounds
+  id: task102_local_sync_snapshot_symlink_failclosed
+  title: Fail closed on symlinked legacy local-sync snapshot search/index-status fallbacks
   status: done
   summary: >-
-    Integrated three disjoint implementation-backed release-blocker hardening
-    closures plus a controller docs-sync tail. Persisted local-sync search-index
-    artifacts now reject oversized stored result paths before trusting artifact
-    data. Local-sync commit-list fallback now rejects explicit revision selectors
-    outside the successful sync snapshot instead of exposing newer unsynced local
-    history. Local repository-sync worker failures now bound oversized Git
-    stderr/stdout detail before surfacing operator-visible errors. Coupled
-    acceptance, gap, and final-audit wording records the bounded claims while
-    practical replacement parity remains unclaimed.
+    Hardened Task 102 local-sync fallback semantics so pre-artifact legacy
+    snapshot search and index-status paths validate the snapshot root with
+    symlink_metadata and only traverse real non-symlink directories. A latest
+    successful local sync whose snapshot path is a symlink is now treated as no
+    fallback, preventing requested-repo search and index-status from reading a
+    link target outside the repo-local artifact tree while preserving existing
+    search-index.json artifact behavior and bounded practical-replacement
+    caveats.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths failed before implementation because an oversized persisted path was accepted'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_oversized_paths -- --nocapture passed with 1 test and 57 filtered out'
-    - 'main broader: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture passed with 25 tests and 33 filtered out'
-    - 'worker RED: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope failed before implementation because an explicit newer revision could be listed outside the synced snapshot'
-    - 'main focused: cargo test -p sourcebot-api local_commit_store_rejects_revision_lists_outside_snapshot_scope -- --nocapture passed with 1 main-bin test, 471 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with 18 main-bin tests, 454 filtered out, and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr failed before implementation because oversized local Git failure detail was not truncated'
-    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_git_failure_detail_bounds_remote_stderr -- --nocapture passed with 1 lib test, 79 filtered out, and zero-test nonmatching targets'
-    - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 9 lib tests, 71 filtered out, and zero-test nonmatching targets'
-    - 'main: cargo fmt --check passed'
-    - 'main: git diff --check passed'
-    - 'main: added-lines security scan over integrated commits and docs diff found no findings'
-    - 'independent integration review approved code and docs with no blocking security, scope, fail-closed, validation, truncation, or bounded-claim issues'
-  commit: edb791b5902ea9e50188d9a9ba7eb8d4009e7325
+    - 'worker/controller focused: cargo test -p sourcebot-api local_sync_snapshot_symlink -- --nocapture passed with 2 main-bin tests, 472 filtered out, and one zero-test lib target'
+    - 'controller broader: cargo test -p sourcebot-api local_sync -- --nocapture passed with 20 main-bin tests, 454 filtered out, and one zero-test lib target'
+    - 'controller: cargo fmt --check passed'
+    - 'controller: git diff --check passed'
+    - 'controller: added-lines security scan over 97cb6d0..HEAD found no findings'
+    - 'independent pre-commit review approved symlink fail-closed behavior, auth scope preservation, artifact behavior preservation, route-level coverage, and bounded docs claims with no blocking issues'
+  commit: 94db53095f900344c95498f7f9272838331f4f33
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -44,20 +36,37 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed three real fail-closed hardening gaps:
-    persisted local-sync search-index artifacts now reject oversized stored
-    result paths, local-sync commit-list fallback rejects explicit revisions
-    outside the successful snapshot before exposing newer unsynced local history,
-    and local repository-sync worker failures bound oversized Git stderr/stdout
-    detail before surfacing operator-visible errors. Practical replacement
-    remains incomplete. Remaining blockers still include production-shaped
-    indexing lifecycle/status and failure recovery, relevance and pagination
-    behavior at scale beyond the bounded helper, branch and index availability,
-    broader provider fetch/import/reindex, worker scheduling and supervision with
-    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
-    client/session interoperability, operator runbook/deploy evidence, and the
-    other release blockers in this roadmap.
+    worktree is clean. This run closed one real fail-closed hardening gap in the
+    bounded local-sync search/index-status fallback: pre-artifact legacy snapshot
+    fallback now refuses symlinked snapshot roots instead of traversing a link
+    target outside the repo-local artifact tree. Practical replacement remains
+    incomplete. Remaining blockers still include production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale beyond the bounded helper, branch and index availability, broader
+    provider fetch/import/reindex, worker scheduling and supervision with broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability, operator runbook/deploy evidence, and the other release
+    blockers in this roadmap.
 history:
+  - id: task102_local_sync_snapshot_symlink_failclosed
+    status: done
+    summary: >-
+      Hardened the bounded local-sync search/index-status fallback so
+      pre-artifact legacy snapshot directories are accepted only when
+      symlink_metadata proves they are real non-symlink directories. Requested
+      search and index-status route regressions now prove a successful local sync
+      with a symlinked snapshot root does not leak or count external link-target
+      content, while artifact-backed search-index.json behavior remains
+      unchanged and the docs keep the claim bounded below practical indexing
+      parity.
+    tests:
+      - 'worker/controller focused: cargo test -p sourcebot-api local_sync_snapshot_symlink -- --nocapture passed with 2 main-bin tests, 472 filtered out, and one zero-test lib target'
+      - 'controller broader: cargo test -p sourcebot-api local_sync -- --nocapture passed with 20 main-bin tests, 454 filtered out, and one zero-test lib target'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check passed'
+      - 'controller: added-lines security scan over 97cb6d0..HEAD found no findings'
+      - 'independent pre-commit review approved symlink fail-closed behavior, auth scope preservation, artifact behavior preservation, route-level coverage, and bounded docs claims with no blocking issues'
+    commit: 94db53095f900344c95498f7f9272838331f4f33
   - id: task102_103_106_artifact_commit_worker_scope_hardening
     status: done
     summary: >-
