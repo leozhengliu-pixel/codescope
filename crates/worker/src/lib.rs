@@ -255,9 +255,7 @@ fn run_generic_git_repository_sync_execution(
         }
     };
 
-    if head_output.stdout.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
-        || head_output.stderr.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
-    {
+    if generic_git_ls_remote_output_exceeded_limit(&head_output) {
         return Err(format!(
             "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD output exceeded {GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES} bytes"
         ));
@@ -290,9 +288,7 @@ fn run_generic_git_repository_sync_execution(
         }
     };
 
-    if output.stdout.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
-        || output.stderr.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
-    {
+    if generic_git_ls_remote_output_exceeded_limit(&output) {
         return Err(format!(
             "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads output exceeded {GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES} bytes"
         ));
@@ -433,6 +429,13 @@ fn generic_git_malformed_head_symref_failure() -> String {
     format!(
         "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised malformed HEAD symref"
     )
+}
+
+fn generic_git_ls_remote_output_exceeded_limit(output: &Output) -> bool {
+    output.stdout.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+        || output.stderr.len() > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
+        || output.stdout.len().saturating_add(output.stderr.len())
+            > GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES
 }
 
 fn is_valid_git_object_id(revision: &str) -> bool {
@@ -2960,6 +2963,46 @@ mod tests {
         assert_eq!(
             error,
             "generic Git repository sync execution failed: git ls-remote --heads advertised malformed ref line"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_fails_closed() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-combined-output-limit-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  i=0\n  while [ $i -lt 10000 ]; do\n    printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/main\\n'\n    i=$((i + 1))\n  done\n  dd if=/dev/zero bs=1000 count=600 2>/dev/null | tr '\\000' 'e' >&2\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "combined Generic Git ls-remote --heads stdout/stderr over the cap must fail closed, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads output exceeded 1048576 bytes"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
