@@ -262,7 +262,10 @@ fn object_schema<const P: usize, const R: usize>(
     properties: [(&str, Value); P],
     required: [&str; R],
 ) -> Value {
-    let mut schema = Map::from_iter([("type".into(), Value::String("object".into()))]);
+    let mut schema = Map::from_iter([
+        ("type".into(), Value::String("object".into())),
+        ("additionalProperties".into(), Value::Bool(false)),
+    ]);
     schema.insert(
         "properties".into(),
         Value::Object(Map::from_iter(
@@ -549,6 +552,7 @@ mod tests {
             json!({
                 "type": "object",
                 "properties": {},
+                "additionalProperties": false,
             })
         );
         assert_eq!(
@@ -558,6 +562,7 @@ mod tests {
                 "properties": {
                     "path": { "type": "string" }
                 },
+                "additionalProperties": false,
             })
         );
         assert_eq!(
@@ -568,6 +573,7 @@ mod tests {
                     "path": { "type": "string" }
                 },
                 "required": ["path"],
+                "additionalProperties": false,
             })
         );
         assert_eq!(
@@ -578,6 +584,7 @@ mod tests {
                     "pattern": { "type": "string" }
                 },
                 "required": ["pattern"],
+                "additionalProperties": false,
             })
         );
         assert_eq!(
@@ -588,6 +595,7 @@ mod tests {
                     "query": { "type": "string" }
                 },
                 "required": ["query"],
+                "additionalProperties": false,
             })
         );
     }
