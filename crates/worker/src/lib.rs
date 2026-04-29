@@ -655,7 +655,13 @@ fn run_local_repository_sync_execution(
             ));
         }
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+            let revision = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !is_valid_git_object_id(&revision) {
+                return Err(format!(
+                    "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git rev-parse HEAD returned malformed revision"
+                ));
+            }
+            revision
         }
         Ok(Some(output)) => return Err(git_failure_detail("git rev-parse HEAD", &output)),
         Ok(None) => {
@@ -3788,6 +3794,59 @@ mod tests {
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_malformed_head_revision_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-malformed-head-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse --is-inside-work-tree\" ]; then\n  printf 'true\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse HEAD\" ]; then\n  printf 'not-a-git-object-id\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation after malformed HEAD: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_malformed_head",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &state,
+                &state.repository_sync_jobs[0],
+                "2026-04-26T10:02:00Z",
+                fake_git_path.as_os_str(),
+                Duration::from_secs(2),
+                4096,
+            )
+            .expect("malformed local HEAD revision should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_malformed_head");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync execution failed: git rev-parse HEAD returned malformed revision")
+        );
+        assert_eq!(failed_job.synced_revision, None);
+        assert_eq!(failed_job.synced_branch, None);
+        assert_eq!(failed_job.synced_content_file_count, None);
 
         fs::remove_dir_all(repo_path).unwrap();
     }
