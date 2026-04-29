@@ -914,6 +914,10 @@ fn git_command_error(repo_root: &PathBuf, args: &[&str], output: &Output) -> any
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf> {
+    if relative_path.contains('\0') {
+        anyhow::bail!("invalid relative path: {relative_path:?}");
+    }
+
     let path = Path::new(relative_path);
     let mut normalized = PathBuf::new();
 
@@ -1496,6 +1500,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(blob, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-nul-path-blob",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let error = store
+            .get_blob_at_revision("repo_test", "README.md\0secret", Some("HEAD"))
+            .expect_err("NUL bytes must be rejected before invoking git");
+
+        assert!(error.to_string().contains("invalid relative path"));
 
         fs::remove_dir_all(root).unwrap();
     }
