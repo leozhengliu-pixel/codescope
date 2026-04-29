@@ -3116,12 +3116,13 @@ describe('App', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('removes a member from the settings members panel', async () => {
+  it('removes a member from the settings members panel only after explicit confirmation', async () => {
     window.location.hash = '#/settings/members';
     window.localStorage.setItem(
       'sourcebot-local-session',
       JSON.stringify({ sessionId: 'session-1', sessionSecret: 'secret-1' })
     );
+    const confirmMock = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
 
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
@@ -3176,6 +3177,14 @@ describe('App', () => {
 
     const organizationCard = await screen.findByLabelText('Organization members Acme, Inc.');
     expect(within(organizationCard).getByText('member@acme.test')).toBeInTheDocument();
+
+    fireEvent.click(within(organizationCard).getByRole('button', { name: 'Remove member@acme.test' }));
+    expect(confirmMock).toHaveBeenCalledWith(
+      'Remove member@acme.test from Acme, Inc.? This updates organization access immediately.'
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(within(organizationCard).getByText('member@acme.test')).toBeInTheDocument();
+
     fireEvent.click(within(organizationCard).getByRole('button', { name: 'Remove member@acme.test' }));
 
     await waitFor(() => {

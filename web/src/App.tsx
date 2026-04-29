@@ -4978,7 +4978,10 @@ function SettingsMembersPage() {
     }
   };
 
-  const handleRemoveMember = async (organizationId: string, member: MembersRosterEntry) => {
+  const handleRemoveMember = async (
+    organization: MembersOrganizationInventory['organization'],
+    member: MembersRosterEntry
+  ) => {
     if (
       inviteSubmittingOrgId !== null ||
       inviteCancellingId !== null ||
@@ -4988,6 +4991,14 @@ function SettingsMembersPage() {
       return;
     }
 
+    const confirmed = window.confirm(
+      `Remove ${member.account.email} from ${organization.name}? This updates organization access immediately.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const organizationId = organization.id;
     const submissionId = `${organizationId}:${member.user_id}`;
     setMemberRemovingId(submissionId);
     setInviteErrors((currentErrors) => ({ ...currentErrors, [organizationId]: null }));
@@ -5187,7 +5198,7 @@ function SettingsMembersPage() {
                               memberRoleSubmittingId !== null ||
                               memberRemovingId !== null
                             }
-                            onClick={() => handleRemoveMember(organizationInventory.organization.id, member)}
+                            onClick={() => handleRemoveMember(organizationInventory.organization, member)}
                           >
                             {memberRemovingId === `${organizationInventory.organization.id}:${member.user_id}`
                               ? `Removing ${member.account.email}…`
