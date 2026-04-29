@@ -791,7 +791,13 @@ fn validate_persisted_index_artifact(
 }
 
 fn is_safe_persisted_index_path(path: &str) -> bool {
-    if path.is_empty() || path.contains('\\') {
+    if path.is_empty()
+        || path.contains('\\')
+        || path == "."
+        || path.starts_with("./")
+        || path.ends_with("/.")
+        || path.contains("/./")
+    {
         return false;
     }
 
@@ -799,8 +805,10 @@ fn is_safe_persisted_index_path(path: &str) -> bool {
     for component in Path::new(path).components() {
         match component {
             Component::Normal(_) => saw_component = true,
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
+            Component::CurDir
+            | Component::ParentDir
+            | Component::RootDir
+            | Component::Prefix(_) => return false,
         }
     }
     saw_component
@@ -2138,6 +2146,34 @@ mod tests {
                 "unexpected error for {unsafe_path:?}: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_dot_component_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["path"] =
+            serde_json::Value::String("src/./main.rs".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index dot-component paths must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("unsafe search index artifact path"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
