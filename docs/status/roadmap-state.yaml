@@ -5,34 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0aa8265537178f889bb913c13c0f2368c3645861
+  head: 015e6fb6136930acb2cd042bf3f849bfaffee101
 last_completed_task:
-  id: task102aq-103i-106j
-  title: Search artifact isolation, commit output fail-closed, and Generic Git HEAD ambiguity hardening
+  id: task102ar-103j-106k
+  title: Mixed search artifact fallback, generated-dir reference skips, and Generic Git HEAD revision hardening
   status: done
   summary: >-
-    Integrated three accelerated worker closures plus an integrator fix and coupled
-    acceptance/final-audit wording. Search indexing now skips repository-root
-    `.sourcebot` runtime metadata without accidentally skipping authorized
-    local-sync snapshots that live under an external `.sourcebot` artifact root.
-    Commit-history Git stdout/stderr capture now fails closed instead of parsing
-    silently truncated commit/diff metadata. Generic Git remote HEAD metadata now
-    fails closed when `ls-remote --symref HEAD` advertises multiple valid HEAD
-    revisions before any `--heads` fallback can choose an arbitrary branch.
+    Integrated three accelerated worker closures. Unscoped/search-context search
+    now preserves primary-index hits while merging caller-authorized local-sync
+    artifact results for visible repositories missing from the primary startup
+    index, without falling back for primary-indexed repositories with zero
+    matches. Revision-backed code-navigation reference scans now skip generated
+    and dependency directories (`.git`, `target`, `node_modules`, and `dist`)
+    before loading Git blobs. Generic Git remote metadata now fails closed when a
+    direct `HEAD` advertisement has a malformed revision before any `--heads`
+    fallback can record misleading branch/revision metadata.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_skips_sourcebot_runtime_artifacts -- --nocapture: passed in the main worktree with 1 test and 42 filtered out after worker-recorded RED failure exposed .sourcebot runtime metadata in search results'
-    - 'cargo test -p sourcebot-search: passed in the main worktree with 43 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api commits::tests::read_stream_bounded_rejects_oversized_git_output -- --exact --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 452 filtered out after worker-recorded RED failure showed silent truncation'
-    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed in the main worktree with 16 bin tests, 0 lib tests, and 437 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_duplicate_head_revisions_fail_closed_before_heads_fallback -- --nocapture: passed in the main worktree with 1 lib test, 0 main tests, and zero-test smoke targets'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path -- --nocapture: passed after the integrator fixed the .sourcebot skip to be repository-root-relative, with 1 lib test and 57 filtered out'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 58 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-api search_merges_snapshot_for_visible_repo_missing_from_primary_index -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 454 filtered out after worker-recorded RED failure showed missing mixed primary/local-sync results'
+    - 'cargo test -p sourcebot-api search_: passed in main worktree with 34 bin tests, 0 lib tests, and 421 filtered out'
+    - 'cargo test -p sourcebot-api local_browse_store_skips_ignored_directories_for_revision_references -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 454 filtered out after worker-recorded RED failure returned target/ references'
+    - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed in main worktree with 32 bin tests, 0 lib tests, and 423 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_malformed_head_revision_fails_closed_before_heads_fallback -- --nocapture: passed in main worktree with 1 lib test, 58 filtered out, and zero-test non-lib targets after worker-recorded RED failure fell back to --heads'
+    - 'cargo test -p sourcebot-worker generic_git: passed in main worktree with 22 lib tests, 37 filtered out, and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker: passed in main worktree with 59 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD plus worktree state diff: passed'
-    - 'doc truth checks for search/browse/generic-local-git acceptance and final-audit wording: passed'
-    - 'added-lines security scan over 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD: passed with 114 added lines and no findings'
-    - 'independent integration review over 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD plus worktree state diff: approved with no blocking security, logic, auth/scope, or docs-claim issues'
-  commit: 0aa8265537178f889bb913c13c0f2368c3645861
+    - 'git diff --check 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: passed'
+    - 'added-lines security scan over 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: passed with 286 added lines and no findings'
+    - 'independent integration review over 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: approved with no blocking security, logic, auth/scope, fail-closed, docs-claim, or integration issues'
+  commit: 015e6fb6136930acb2cd042bf3f849bfaffee101
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,18 +42,59 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    three real fail-closed hardening closures: repository-root `.sourcebot` runtime
-    metadata is excluded from source indexing without breaking local-sync snapshot
-    indexing under external artifact roots, commit-history Git capture no longer
-    parses silently truncated subprocess output, and Generic Git remote HEAD
-    metadata no longer accepts ambiguous duplicate HEAD revision advertisements.
-    Remaining practical replacement work still includes production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale, branch/index availability, broader provider fetch/import/reindex,
-    worker supervision and broad retry/backoff, OIDC/SSO and richer admin/org
-    flows, MCP client interoperability, operator runbook/deployment evidence, and
-    other release blockers in this roadmap.
+    three real runtime hardening closures: unscoped/search-context search can now
+    merge authorized local-sync artifact hits for visible repositories that are
+    missing from the primary startup index without dropping primary-index hits or
+    falling back for indexed zero-match repositories; revision-backed reference
+    scans skip generated/dependency directories before reading Git blobs; and
+    Generic Git remote HEAD parsing rejects malformed direct HEAD revisions before
+    fallback. Remaining practical replacement work still includes production-shaped
+    indexing lifecycle/status and failure recovery, relevance and pagination
+    behavior at scale, branch/index availability, broader provider fetch/import/
+    reindex, worker supervision and broad retry/backoff, OIDC/SSO and richer
+    admin/org flows, MCP client interoperability, operator runbook/deployment
+    evidence, and other release blockers in this roadmap.
 history:
+  - id: task102ar-103j-106k
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures. Search now preserves primary-index hits while adding
+      caller-authorized local-sync artifact results for visible repositories
+      missing from the primary startup index, revision reference scans skip
+      generated/dependency directories before loading Git blobs, and Generic Git
+      HEAD parsing fails closed on malformed direct HEAD revision advertisements
+      before `--heads` fallback.
+    commit: 015e6fb6136930acb2cd042bf3f849bfaffee101
+    tests:
+      - 'cargo test -p sourcebot-api search_merges_snapshot_for_visible_repo_missing_from_primary_index -- --nocapture: passed with 1 bin test, 0 lib tests, and 454 filtered out'
+      - 'cargo test -p sourcebot-api search_: passed with 34 bin tests, 0 lib tests, and 421 filtered out'
+      - 'cargo test -p sourcebot-api local_browse_store_skips_ignored_directories_for_revision_references -- --nocapture: passed with 1 bin test, 0 lib tests, and 454 filtered out'
+      - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed with 32 bin tests, 0 lib tests, and 423 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_malformed_head_revision_fails_closed_before_heads_fallback -- --nocapture: passed with 1 lib test, 58 filtered out, and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git: passed with 22 lib tests, 37 filtered out, and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker: passed with 59 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: passed'
+      - 'added-lines security scan: passed with 286 added lines and no findings'
+      - 'independent integration review: approved with no blocking issues'
+    review: >-
+      Independent integration review approved the actual repository diff and found
+      no blocking issues. The reviewer specifically checked the search fallback
+      authorization and primary-index precedence boundary, generated-directory
+      reference-scan skip behavior, Generic Git malformed HEAD revision
+      fail-closed parsing, and bounded docs claims.
+    workers:
+      - 'search/index worker: integrated worker commit 65f797ff8e3f81a6a1d71caeb432551ea37835e7 as main commit ab023b69b07ed3d63c2fda5fcb0a82367811f4bc'
+      - 'browse/code-navigation worker: integrated worker commit b66a13bd73f61bb9441358df08e59de0970f64d8 as main commit e261b4ef90d2219c706962be9d20af00075b0e5e'
+      - 'provider/worker worker: integrated worker commit 2999103e11be3470b2bec674bdb3f5050615b0a9 as main commit 015e6fb6136930acb2cd042bf3f849bfaffee101'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: all
+      three workers shipped code with RED/GREEN evidence in isolated worktrees,
+      the integrator cherry-picked each closure, reran focused and broader
+      selectors in the main worktree, synchronized coupled acceptance/final-audit
+      wording, ran security and mechanical checks, and obtained independent review
+      before updating state.
   - id: task102aq-103i-106j
     status: done
     summary: >-
