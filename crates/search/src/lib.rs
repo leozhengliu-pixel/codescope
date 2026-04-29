@@ -13,6 +13,7 @@ use std::{
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 #[cfg(unix)]
@@ -225,6 +226,7 @@ struct IndexedLine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PersistedIndexArtifact {
+    schema_version: u32,
     indexed_lines: Vec<IndexedLine>,
     index_status: RepositoryIndexStatus,
 }
@@ -382,6 +384,7 @@ impl LocalSearchStore {
             .cloned()
             .with_context(|| format!("missing index status for repository {repo_id}"))?;
         let artifact = PersistedIndexArtifact {
+            schema_version: INDEX_ARTIFACT_SCHEMA_VERSION,
             indexed_lines,
             index_status,
         };
@@ -727,6 +730,15 @@ fn validate_persisted_index_artifact(
     expected_repo_id: &str,
     artifact_path: &Path,
 ) -> Result<()> {
+    if artifact.schema_version != INDEX_ARTIFACT_SCHEMA_VERSION {
+        anyhow::bail!(
+            "unsupported search index artifact schema version in {}: expected {}, found {}",
+            artifact_path.display(),
+            INDEX_ARTIFACT_SCHEMA_VERSION,
+            artifact.schema_version
+        );
+    }
+
     if artifact.index_status.repo_id != expected_repo_id {
         anyhow::bail!(
             "search index artifact repo_id mismatch in {}: expected '{}', found '{}'",
@@ -2772,6 +2784,67 @@ mod tests {
                 "unexpected error for {label} unknown field: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifacts_without_schema_version() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json
+            .as_object_mut()
+            .unwrap()
+            .remove("schema_version");
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index artifacts without a schema version must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("failed to parse local search index artifact"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifacts_with_unsupported_schema_version() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["schema_version"] = serde_json::Value::from(999);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => {
+                panic!(
+                    "persisted index artifacts with unsupported schema versions must fail closed"
+                )
+            }
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported search index artifact schema version"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
