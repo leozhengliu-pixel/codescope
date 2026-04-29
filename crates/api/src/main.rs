@@ -6401,8 +6401,18 @@ async fn search_repository_contents(
         }
     }
 
+    sort_search_results_by_repo_path_line(&mut response.results);
     apply_search_pagination(&mut response, search_limit, search_offset);
     Ok(Json(response))
+}
+
+fn sort_search_results_by_repo_path_line(results: &mut [sourcebot_search::SearchResult]) {
+    results.sort_by(|left, right| {
+        left.repo_id
+            .cmp(&right.repo_id)
+            .then(left.path.cmp(&right.path))
+            .then(left.line_number.cmp(&right.line_number))
+    });
 }
 
 fn search_visible_authorized_repositories(
@@ -30525,6 +30535,123 @@ mod tests {
             .iter()
             .any(|result| result.repo_id == "repo_snapshot"
                 && result.line.contains("mixed_visible_marker_snapshot")));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(primary_root).unwrap();
+        fs::remove_dir_all(snapshot_repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_orders_merged_primary_and_local_sync_artifact_results_by_repo_path_line() {
+        let primary_root = unique_test_path("search-ordered-primary-repo-root");
+        let snapshot_repo_root = unique_test_path("search-ordered-snapshot-repo-root");
+        let snapshot_job_root = snapshot_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_a_snapshot")
+            .join("job_ordered_snapshot_latest");
+        let snapshot_root = snapshot_job_root.join("snapshot");
+        fs::create_dir_all(primary_root.join("src")).unwrap();
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            primary_root.join("src").join("lib.rs"),
+            "pub fn ordered_merge_marker_primary() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn ordered_merge_marker_snapshot() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_a_snapshot".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact(
+            "repo_a_snapshot",
+            &snapshot_job_root.join("search-index.json"),
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-ordered-snapshot-orgs");
+        let local_session_state_path = unique_test_path("search-ordered-snapshot-sessions");
+        let user_id = "user_ordered_snapshot_search";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_z_primary", "repo_a_snapshot"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_ordered_snapshot".into(),
+            name: "Ordered snapshot local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: snapshot_repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_ordered_snapshot_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_a_snapshot".into(),
+                connection_id: "conn_ordered_snapshot".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:04:00Z".into(),
+                started_at: Some("2026-04-21T00:04:01Z".into()),
+                finished_at: Some("2026-04-21T00:04:02Z".into()),
+                error: None,
+                synced_revision: Some("ordered-snapshot-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_z_primary".to_string(),
+                primary_root.clone(),
+            )]))),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=ordered_merge_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        let repo_order = payload
+            .results
+            .iter()
+            .map(|result| result.repo_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            repo_order,
+            vec!["repo_a_snapshot", "repo_z_primary"],
+            "merged primary-index and local-sync artifact results must preserve deterministic repo/path/line ordering before pagination"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
