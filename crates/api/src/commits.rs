@@ -685,6 +685,10 @@ fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<
 }
 
 fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<String>> {
+    if !is_safe_revision_selector(commit_id) {
+        return Ok(None);
+    }
+
     let verify_arg = format!("{commit_id}^{{commit}}");
     let args = [
         "rev-parse",
@@ -718,6 +722,10 @@ fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<
         return Ok(None);
     }
     Ok(Some(resolved))
+}
+
+fn is_safe_revision_selector(revision: &str) -> bool {
+    !revision.is_empty() && !revision.chars().any(char::is_control)
 }
 
 fn commit_is_ancestor(repo_root: &PathBuf, commit_id: &str, ancestor_of: &str) -> Result<bool> {
@@ -1051,11 +1059,40 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(store
+            .get_commit("repo_sourcebot_rewrite", "")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit("repo_sourcebot_rewrite", "HEAD\0--path-format=absolute")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit_diff("repo_sourcebot_rewrite", "")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_commit_diff("repo_sourcebot_rewrite", "HEAD\0--path-format=absolute")
+            .unwrap()
+            .is_none());
+        assert!(store
             .list_commits(
                 "repo_sourcebot_rewrite",
                 20,
                 0,
                 Some("--path-format=absolute"),
+            )
+            .unwrap()
+            .is_none());
+        assert!(store
+            .list_commits("repo_sourcebot_rewrite", 20, 0, Some(""))
+            .unwrap()
+            .is_none());
+        assert!(store
+            .list_commits(
+                "repo_sourcebot_rewrite",
+                20,
+                0,
+                Some("HEAD\0--path-format=absolute"),
             )
             .unwrap()
             .is_none());
