@@ -808,7 +808,7 @@ fn run_git_list_tree_entries_at_revision(
         )
     };
     let output = Command::new("git")
-        .args(["ls-tree", &treeish])
+        .args(["ls-tree", "-z", &treeish])
         .current_dir(repo_root)
         .output()
         .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
@@ -816,9 +816,9 @@ fn run_git_list_tree_entries_at_revision(
     if output.status.success() {
         let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
         let mut entries = stdout
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| parse_git_tree_entry(&normalized_path, line))
+            .split('\0')
+            .filter(|record| !record.is_empty())
+            .map(|record| parse_git_tree_entry(&normalized_path, record))
             .collect::<Result<Vec<_>>>()?;
         entries.sort_by(|left, right| left.path.cmp(&right.path));
         return Ok(Some(entries));
@@ -1155,6 +1155,35 @@ mod tests {
             .entries
             .iter()
             .all(|entry| entry.path.starts_with("src/")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_preserves_newline_paths_in_revision_tree_entries() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-newline-tree",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        let newline_path = root.join("src").join("generated\nview.rs");
+        fs::write(&newline_path, "pub fn generated_view() {}\n").unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let tree = store
+            .get_tree_at_revision("repo_test", "src", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert!(tree.entries.iter().any(|entry| {
+            entry.name == "generated\nview.rs"
+                && entry.path == "src/generated\nview.rs"
+                && entry.kind == EntryKind::File
+        }));
 
         fs::remove_dir_all(root).unwrap();
     }
