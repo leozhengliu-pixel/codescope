@@ -5,34 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f72acb46c6404efd33347f8089b1cb0092693d49
+  head: 0970fef8d969ca481a2f6f0655ab09725db792db
 last_completed_task:
-  id: task103_106_local_sync_snapshot_head_failclosed
-  title: Local-sync snapshot-root and local-Git HEAD revision fail-closed hardening
+  id: task102_107_search_mcp_schema_parent_hardening
+  title: Search artifact parent and MCP schema contract hardening
   status: done
   summary: >-
-    Integrated two implementation-backed release-blocker hardening closures across
-    adjacent Task 103 Browse/Code-nav and Task 106/108 Provider/Sync/Worker. The
-    browse/tree/blob local-sync fallback now rejects a selected snapshot root that
-    is itself a symlink before constructing a local browse store, preventing a
-    compromised persisted sync record from turning the fallback into an out-of-tree
-    browse surface. The local-Git repository-sync execution path now validates that
-    `git rev-parse HEAD` returned a 40- or 64-character hex object id before using
-    it as terminal sync metadata or proceeding to content/artifact success. Coupled
-    acceptance and final-audit wording records the bounded fail-closed evidence;
-    practical replacement parity is still not claimed.
+    Integrated two implementation-backed release-blocker hardening closures plus a
+    controller docs-sync tail. The search-index artifact writer now rejects
+    symlinked artifact parent components before creating nested directories through
+    them, preventing a compromised local-sync artifact path from creating runtime
+    directories outside the intended tree before fail-closed handling. MCP
+    retrieval tool-list schemas now advertise closed JSON objects with
+    `additionalProperties: false`, aligning the published client contract with the
+    existing runtime unknown-field rejection. Coupled acceptance, gap-report, and
+    final-audit wording records the bounded evidence; practical replacement parity
+    is still not claimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture failed before implementation because the symlinked snapshot root returned 200 OK instead of 404 NOT_FOUND'
-    - 'main focused: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture passed with 1 main-bin test and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture failed before implementation because malformed rev-parse HEAD output let execution continue to git ls-tree'
-    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
-    - 'main broader: cargo test -p sourcebot-api local_sync -- --nocapture passed with 18 main-bin tests and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --test-threads=1 --nocapture passed with 7 lib tests and zero-test non-lib/smoke targets'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture failed before implementation because the writer created nested-created-by-writer through a symlinked artifact parent before failing'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture passed with 1 test and 51 filtered out'
+    - 'main broader: cargo test -p sourcebot-search local_search_store_ -- --nocapture passed with 46 tests and 6 filtered out'
+    - 'worker RED: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas failed before implementation because retrieval schemas lacked additionalProperties false'
+    - 'main focused: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas -- --nocapture passed with 1 test and 8 filtered out'
+    - 'main broader: cargo test -p sourcebot-mcp passed with 9 unit tests and 0 doc tests'
+    - 'main broader: cargo test -p sourcebot-api mcp passed with 18 main-bin tests, 450 filtered out, and one zero-test lib target'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check origin/master..HEAD passed'
-    - 'main: added-lines security scan over git diff origin/master..HEAD scanned 162 added lines with no findings'
-    - 'independent integration review approved the code and docs diff with no blocking security, logic, or bounded-claim issues'
-  commit: f72acb46c6404efd33347f8089b1cb0092693d49
+    - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+    - 'main: added-lines security scan over git diff origin/master..HEAD scanned 77 added lines with no findings'
+    - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
+  commit: 0970fef8d969ca481a2f6f0655ab09725db792db
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,20 +43,71 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed two real fail-closed hardening gaps in
-    adjacent local-sync surfaces: symlinked snapshot roots no longer reach browse
-    fallback tree/blob reads, and malformed local-Git HEAD metadata no longer
-    reaches terminal sync success/artifact persistence. A parallel Search/Index
-    worker was attempted but ended with a provider/account 503 after leaving only
-    an incomplete uncommitted semantic experiment; it was not merged and was
-    removed. Practical replacement remains incomplete. Remaining blockers still
-    include production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale beyond the bounded helper, branch
-    and index availability, broader provider fetch/import/reindex, worker
-    scheduling/supervision and broad retry/backoff, OIDC/SSO and richer admin/org
-    flows, deeper MCP client/session interoperability, operator runbook/deploy
-    evidence, and the other release blockers in this roadmap.
+    worktree is clean. This run closed two real fail-closed contract gaps: the
+    search-index artifact writer no longer creates nested directories through a
+    symlinked artifact parent before rejecting the path, and MCP retrieval
+    tool-list schemas now publish closed JSON objects that match runtime
+    unknown-field rejection. A Provider/Sync/Worker worker was attempted but ended
+    with a provider/account HTTP 503 before producing a worktree or commit, so it
+    was not merged. Practical replacement remains incomplete. Remaining blockers
+    still include production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale beyond the bounded
+    helper, branch and index availability, broader provider fetch/import/reindex,
+    worker scheduling/supervision and broad retry/backoff, OIDC/SSO and richer
+    admin/org flows, deeper MCP client/session interoperability, operator
+    runbook/deploy evidence, and the other release blockers in this roadmap.
 history:
+  - id: task102_107_search_mcp_schema_parent_hardening
+    status: done
+    summary: >-
+      Integrated two disjoint implementation-worker closures plus a controller-owned
+      docs-sync commit. Search artifact persistence now rejects symlinked parent
+      directories before nested directory creation, and MCP retrieval tool schemas
+      advertise closed JSON objects with `additionalProperties: false` so clients
+      see the same unknown-field boundary enforced at runtime. This was chosen over
+      paperwork because it closes real path-safety and protocol-contract gaps in
+      already-shipped search/index and MCP surfaces; final parity remains
+      fail-closed on broader production indexing, provider, worker, auth, MCP, and
+      operator blockers.
+    commit: 0970fef8d969ca481a2f6f0655ab09725db792db
+    component_commits:
+      - 14103b43ede0b6ba1fd1faa554b2ceaa708372d0
+      - e3bb921685cbbcc99206cb0b5780e9efb2ad9aef
+      - 0970fef8d969ca481a2f6f0655ab09725db792db
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture failed before implementation because the writer created nested-created-by-writer through a symlinked artifact parent before failing'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture passed with 1 test and 51 filtered out'
+      - 'main broader: cargo test -p sourcebot-search local_search_store_ -- --nocapture passed with 46 tests and 6 filtered out'
+      - 'worker RED: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas failed before implementation because retrieval schemas lacked additionalProperties false'
+      - 'main focused: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas -- --nocapture passed with 1 test and 8 filtered out'
+      - 'main broader: cargo test -p sourcebot-mcp passed with 9 unit tests and 0 doc tests'
+      - 'main broader: cargo test -p sourcebot-api mcp passed with 18 main-bin tests, 450 filtered out, and one zero-test lib target'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+      - 'main: added-lines security scan over git diff origin/master..HEAD scanned 77 added lines with no findings'
+      - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
+    review: >-
+      Independent integration review checked the main-worktree diff plus docs-sync
+      edits and approved: the search artifact writer rejects existing symlinked
+      artifact parent components before directory creation, the MCP schema change
+      matches runtime unknown-field rejection, and acceptance/gap/final-audit
+      wording stays bounded to those two hardening claims. The reviewer noted a
+      non-blocking future hardening opportunity to reduce remaining filesystem
+      TOCTOU windows with directory-descriptor/openat-style operations.
+    workers:
+      - 'Search/Index worker: produced 92cb7cac2959d8b2831626bd140c0c5d40e14e30, cherry-picked in main as 14103b43ede0b6ba1fd1faa554b2ceaa708372d0'
+      - 'MCP/Ops worker: produced cffa7fd52691d966456c1552292ab7c949e14585, cherry-picked in main as e3bb921685cbbcc99206cb0b5780e9efb2ad9aef'
+      - 'Provider/Sync/Worker worker: failed before producing a worktree/commit with provider/account HTTP 503: No available accounts; not merged'
+      - 'Controller docs-sync tail: 0970fef8d969ca481a2f6f0655ab09725db792db'
+    notes: >-
+      The main repo began clean and synchronized with origin/master at
+      1ecfdb097292f9550a0fec8adcf12e4b562760e2, `/opt/data` was 54% used, and
+      sourcebot-worktrees was 4.0K, so the controller launched three disjoint
+      worker scopes under the disk budget. Two workers delivered committed
+      implementation closures and were integrated serially. The Provider/Sync/Worker
+      worker failed due to backend/provider account exhaustion before creating a
+      mergeable closure, so the controller integrated only the verified disjoint
+      Search/Index and MCP/Ops closures.
   - id: task103_106_local_sync_snapshot_head_failclosed
     status: done
     summary: >-
