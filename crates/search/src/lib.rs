@@ -21,7 +21,7 @@ const O_NONBLOCK: i32 = 0o4000;
 const O_CLOEXEC: i32 = 0o2000000;
 #[cfg(unix)]
 const O_NOFOLLOW: i32 = 0o400000;
-const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
+const SKIPPED_DIR_NAMES: &[&str] = &[".git", ".sourcebot", "target", "node_modules", "dist"];
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 
@@ -1722,6 +1722,39 @@ mod tests {
             .all(|result| result.path != "large.txt"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_skips_sourcebot_runtime_artifacts() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-skip-sourcebot-artifacts",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        let artifact_dir = fixture.root.join(".sourcebot");
+        fs::create_dir_all(&artifact_dir).unwrap();
+        fs::write(
+            artifact_dir.join("local-sync-index.json"),
+            "build_router should never leak from runtime metadata\n",
+        )
+        .unwrap();
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_test".to_string(),
+            fixture.root.clone(),
+        )]));
+        let response = store.search("runtime metadata", Some("repo_test")).unwrap();
+        assert!(
+            response.results.is_empty(),
+            "search must not expose local_sync runtime artifacts as repository content"
+        );
+        let status = store.repository_index_status("repo_test").unwrap().unwrap();
+        assert_eq!(status.indexed_file_count, 2);
+        assert_eq!(status.indexed_line_count, 2);
+        assert_eq!(status.skipped_file_count, 2);
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
