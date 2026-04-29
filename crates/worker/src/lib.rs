@@ -1290,7 +1290,9 @@ fn run_git_ls_remote_heads(
     base_url: &str,
     timeout: Duration,
 ) -> std::io::Result<Option<Output>> {
-    let child = Command::new(git_command)
+    let mut command = Command::new(git_command);
+    configure_non_interactive_git_command(&mut command);
+    let child = command
         .args(["ls-remote", "--heads", "--", base_url])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1307,7 +1309,9 @@ fn run_git_ls_remote_head_symref(
     base_url: &str,
     timeout: Duration,
 ) -> std::io::Result<Option<Output>> {
-    let child = Command::new(git_command)
+    let mut command = Command::new(git_command);
+    configure_non_interactive_git_command(&mut command);
+    let child = command
         .args(["ls-remote", "--symref", "--", base_url, "HEAD"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1341,7 +1345,9 @@ fn run_git_command_with_output_limit(
     timeout: Duration,
     output_limit_bytes: usize,
 ) -> std::io::Result<Option<Output>> {
-    let child = Command::new(git_command)
+    let mut command = Command::new(git_command);
+    configure_non_interactive_git_command(&mut command);
+    let child = command
         .arg("-C")
         .arg(repo_path)
         .args(args)
@@ -1349,6 +1355,12 @@ fn run_git_command_with_output_limit(
         .stderr(Stdio::piped())
         .spawn()?;
     wait_for_child_output_with_timeout_and_output_limit(child, timeout, output_limit_bytes)
+}
+
+fn configure_non_interactive_git_command(command: &mut Command) {
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never");
 }
 
 fn wait_for_child_output_with_timeout_and_output_limit(
@@ -3076,6 +3088,42 @@ mod tests {
         );
         assert!(!error.contains(secret_url));
         assert!(!error.contains("deploy-token"));
+    }
+
+    #[test]
+    fn generic_git_sync_forces_non_interactive_git_auth_environment() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-non-interactive-env-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"${GIT_TERMINAL_PROMPT:-}\" != \"0\" ]; then\n  printf 'GIT_TERMINAL_PROMPT was not forced off: %s\\n' \"${GIT_TERMINAL_PROMPT:-<unset>}\" >&2\n  exit 43\nfi\nif [ \"${GCM_INTERACTIVE:-}\" != \"never\" ]; then\n  printf 'GCM_INTERACTIVE was not forced off: %s\\n' \"${GCM_INTERACTIVE:-<unset>}\" >&2\n  exit 44\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let execution = run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        )
+        .expect("Generic Git sync should force non-interactive auth env before spawning git");
+
+        assert_eq!(execution.branch, "main");
+        assert_eq!(
+            execution.revision,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
     }
 
     #[test]
