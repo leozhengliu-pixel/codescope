@@ -31,6 +31,7 @@ const LOCAL_REPOSITORY_SYNC_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(10
 const LOCAL_REPOSITORY_SYNC_GIT_OUTPUT_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_GIT_LS_REMOTE_OUTPUT_LIMIT_BYTES: usize = 1024 * 1024;
 const GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES: usize = 4096;
+const LOCAL_REPOSITORY_SYNC_FAILURE_DETAIL_LIMIT_BYTES: usize = 4096;
 const REPOSITORY_SYNC_RUNNING_JOB_LEASE_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 const REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX: &str =
     "repository sync job exceeded worker lease and was marked failed before the next claim";
@@ -1234,7 +1235,12 @@ fn git_failure_detail(command: &str, output: &Output) -> String {
     } else {
         format!("{command} exited with status {}", output.status)
     };
+    let detail = bounded_local_repository_sync_failure_detail(&detail);
     format!("{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: {detail}")
+}
+
+fn bounded_local_repository_sync_failure_detail(detail: &str) -> String {
+    bounded_failure_detail(detail, LOCAL_REPOSITORY_SYNC_FAILURE_DETAIL_LIMIT_BYTES)
 }
 
 fn local_git_output_exceeded_limit(output: &Output, output_limit_bytes: usize) -> bool {
@@ -1264,11 +1270,15 @@ fn generic_git_failure_detail(command: &str, output: &Output) -> String {
 }
 
 fn bounded_generic_git_failure_detail(detail: &str) -> String {
-    if detail.len() <= GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES {
+    bounded_failure_detail(detail, GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES)
+}
+
+fn bounded_failure_detail(detail: &str, limit_bytes: usize) -> String {
+    if detail.len() <= limit_bytes {
         return detail.to_owned();
     }
 
-    let mut end = GENERIC_GIT_FAILURE_DETAIL_LIMIT_BYTES;
+    let mut end = limit_bytes;
     while !detail.is_char_boundary(end) {
         end -= 1;
     }
@@ -1650,12 +1660,12 @@ mod tests {
         complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable,
         complete_local_repository_sync_job_with_git_command_if_applicable,
         execute_claimed_repository_sync_job_stub_at, execute_claimed_review_agent_run_stub,
-        local_repository_sync_manifest_path, persist_stub_review_agent_run_execution_outcome,
-        run_generic_git_repository_sync_execution, run_repository_sync_claim_tick,
-        run_review_agent_tick, run_worker_tick, safe_manifest_path_component,
-        safe_tracked_content_relative_path, wait_for_child_output_with_timeout_and_output_limit,
-        StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
-        WorkerTickOutcome,
+        git_failure_detail, local_repository_sync_manifest_path,
+        persist_stub_review_agent_run_execution_outcome, run_generic_git_repository_sync_execution,
+        run_repository_sync_claim_tick, run_review_agent_tick, run_worker_tick,
+        safe_manifest_path_component, safe_tracked_content_relative_path,
+        wait_for_child_output_with_timeout_and_output_limit, StubRepositorySyncJobExecutionOutcome,
+        StubReviewAgentRunExecutionOutcome, WorkerTickOutcome,
     };
     use crate::{
         GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX,
@@ -1912,6 +1922,31 @@ mod tests {
                 base_url: base_url.into(),
             }),
         }
+    }
+
+    #[test]
+    fn local_repository_sync_git_failure_detail_bounds_remote_stderr() {
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg("python3 -c 'import sys; sys.stderr.write(\"x\" * 9000)'; exit 1")
+            .output()
+            .expect("synthetic failing command should run");
+
+        let detail = git_failure_detail("git rev-parse HEAD", &output);
+
+        assert!(
+            detail.starts_with("local repository sync execution failed: "),
+            "local git failures should retain operator-visible prefix: {detail}"
+        );
+        assert!(
+            detail.ends_with("...[truncated]"),
+            "oversized local git failure detail should be explicitly truncated: {detail}"
+        );
+        assert!(
+            detail.len() <= 4200,
+            "local git failure detail should be bounded, got {} bytes",
+            detail.len()
+        );
     }
 
     #[test]
