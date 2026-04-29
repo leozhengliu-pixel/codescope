@@ -472,6 +472,11 @@ impl LocalSearchStore {
             &mut indexed_line_count,
             &mut skipped_file_count,
         )?;
+        lines.sort_by(|left, right| {
+            left.path
+                .cmp(&right.path)
+                .then(left.line_number.cmp(&right.line_number))
+        });
         Ok((
             lines,
             indexed_file_count,
@@ -1636,6 +1641,9 @@ mod tests {
             "common_marker in docs\n",
         )
         .unwrap();
+        fs::create_dir_all(root_a.join("a")).unwrap();
+        fs::write(root_a.join("a").join("file.rs"), "common_marker nested\n").unwrap();
+        fs::write(root_a.join("a.rs"), "common_marker sibling\n").unwrap();
 
         let root_b = repo_tree_fixture::CanonicalRepoTreeRoot::create(
             "search-order-b",
@@ -1667,13 +1675,15 @@ mod tests {
             actual_order,
             vec![
                 ("repo_a", "README.md", 1),
+                ("repo_a", "a.rs", 1),
+                ("repo_a", "a/file.rs", 1),
                 ("repo_a", "docs/guide.md", 1),
                 ("repo_a", "src/main.rs", 1),
                 ("repo_a", "src/main.rs", 2),
                 ("repo_z", "README.md", 1),
                 ("repo_z", "src/main.rs", 1),
             ],
-            "local search results should be stable by repo id, path, then line number"
+            "local search results should be stable by repo id, path, then line number even when file and directory names share a prefix"
         );
 
         fs::remove_dir_all(root_a).unwrap();
