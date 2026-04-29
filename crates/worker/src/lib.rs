@@ -466,9 +466,24 @@ fn complete_local_repository_sync_job_with_git_command_and_output_limit_if_appli
         return Some(fail_local_repository_sync_job(job, finished_at, error));
     }
 
-    let preflight = run_git_working_tree_preflight(git_command, repo_path, preflight_timeout);
+    let preflight = run_git_working_tree_preflight(
+        git_command,
+        repo_path,
+        preflight_timeout,
+        output_limit_bytes,
+    );
 
     match preflight {
+        Ok(Some(output))
+            if output.stdout.len() > output_limit_bytes
+                || output.stderr.len() > output_limit_bytes =>
+        {
+            Some(fail_local_repository_sync_job(
+                job,
+                finished_at,
+                format!("git preflight output exceeded {output_limit_bytes} bytes"),
+            ))
+        }
         Ok(Some(output))
             if output.status.success() && git_preflight_stdout_is_true(&output.stdout) =>
         {
@@ -1146,29 +1161,15 @@ fn run_git_working_tree_preflight(
     git_command: &OsStr,
     repo_path: &str,
     timeout: Duration,
+    output_limit_bytes: usize,
 ) -> std::io::Result<Option<Output>> {
-    run_git_command(
+    run_git_command_with_output_limit(
         git_command,
         repo_path,
         &["rev-parse", "--is-inside-work-tree"],
         timeout,
+        output_limit_bytes,
     )
-}
-
-fn run_git_command(
-    git_command: &OsStr,
-    repo_path: &str,
-    args: &[&str],
-    timeout: Duration,
-) -> std::io::Result<Option<Output>> {
-    let child = Command::new(git_command)
-        .arg("-C")
-        .arg(repo_path)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    wait_for_child_output_with_timeout(child, timeout)
 }
 
 fn run_git_command_with_output_limit(
@@ -1186,36 +1187,6 @@ fn run_git_command_with_output_limit(
         .stderr(Stdio::piped())
         .spawn()?;
     wait_for_child_output_with_timeout_and_output_limit(child, timeout, output_limit_bytes)
-}
-
-fn wait_for_child_output_with_timeout(
-    mut child: std::process::Child,
-    timeout: Duration,
-) -> std::io::Result<Option<Output>> {
-    let stdout_reader = child.stdout.take().map(spawn_pipe_reader);
-    let stderr_reader = child.stderr.take().map(spawn_pipe_reader);
-    let started_at = Instant::now();
-
-    loop {
-        if let Some(status) = child.try_wait()? {
-            let stdout = join_pipe_reader(stdout_reader)?;
-            let stderr = join_pipe_reader(stderr_reader)?;
-            return Ok(Some(Output {
-                status,
-                stdout,
-                stderr,
-            }));
-        }
-        if started_at.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = join_pipe_reader(stdout_reader);
-            let _ = join_pipe_reader(stderr_reader);
-            return Ok(None);
-        }
-        let remaining = timeout.saturating_sub(started_at.elapsed());
-        thread::sleep(remaining.min(Duration::from_millis(10)));
-    }
 }
 
 fn wait_for_child_output_with_timeout_and_output_limit(
@@ -1253,17 +1224,6 @@ fn wait_for_child_output_with_timeout_and_output_limit(
         let remaining = timeout.saturating_sub(started_at.elapsed());
         thread::sleep(remaining.min(Duration::from_millis(10)));
     }
-}
-
-fn spawn_pipe_reader<R>(mut reader: R) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let mut output = Vec::new();
-        reader.read_to_end(&mut output)?;
-        Ok(output)
-    })
 }
 
 fn spawn_bounded_pipe_reader<R>(
@@ -3020,6 +2980,56 @@ mod tests {
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], failed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_preflight_stdout_over_cap_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-oversized-preflight-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\npython3 - <<'PY'\nimport sys\nsys.stdout.write('t' * 65)\nPY\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_oversized_preflight",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &state,
+                &state.repository_sync_jobs[0],
+                "2026-04-26T10:02:00Z",
+                fake_git_path.as_os_str(),
+                Duration::from_secs(2),
+                64,
+            )
+            .expect("oversized local repository preflight output should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_oversized_preflight");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: git preflight output exceeded 64 bytes")
+        );
 
         fs::remove_dir_all(repo_path).unwrap();
     }
