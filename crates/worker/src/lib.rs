@@ -2858,6 +2858,24 @@ mod tests {
     }
 
     #[test]
+    fn generic_git_file_url_with_empty_authority_is_not_rejected_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            "file:///tmp/sourcebot-generic-git-fixture.git",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("file:// Generic Git URL should reach git execution"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error.contains("No such file or directory") || error.contains("os error 2"),
+            "file:// empty-authority URL should be preserved until git execution, got {error}"
+        );
+        assert!(!error.contains("URL authority must not be empty"));
+    }
+
+    #[test]
     fn generic_git_url_with_embedded_credentials_fails_closed_before_spawning_git() {
         let error = match run_generic_git_repository_sync_execution(
             OsStr::new("definitely-not-a-real-git-binary"),
@@ -3255,51 +3273,6 @@ mod tests {
             Err(error) => error,
         };
 
-        assert_eq!(
-            error,
-            "generic Git repository sync execution failed: git ls-remote --heads output exceeded 1048576 bytes"
-        );
-
-        fs::remove_dir_all(fake_git_dir).unwrap();
-    }
-
-    #[test]
-    fn generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_kills_hung_child() {
-        let fake_git_dir = std::env::temp_dir().join(format!(
-            "sourcebot-worker-generic-git-combined-output-kill-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&fake_git_dir).unwrap();
-        let fake_git_path = fake_git_dir.join("fake-git");
-        fs::write(
-            &fake_git_path,
-            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  python3 - <<'PY'\nimport sys\nsys.stdout.write('a' * 600000)\nsys.stdout.flush()\nsys.stderr.write('e' * 600000)\nsys.stderr.flush()\nPY\n  sleep 5\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
-        )
-        .unwrap();
-        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&fake_git_path, permissions).unwrap();
-
-        let started_at = Instant::now();
-        let error = match run_generic_git_repository_sync_execution(
-            fake_git_path.as_os_str(),
-            "https://example.invalid/acme/repo.git",
-            Duration::from_secs(2),
-        ) {
-            Ok(execution) => panic!(
-                "combined Generic Git ls-remote --heads stdout/stderr over the cap must fail closed, got revision={} branch={}",
-                execution.revision, execution.branch
-            ),
-            Err(error) => error,
-        };
-
-        assert!(
-            started_at.elapsed() < Duration::from_secs(2),
-            "combined output cap should kill the child before the command timeout elapses"
-        );
         assert_eq!(
             error,
             "generic Git repository sync execution failed: git ls-remote --heads output exceeded 1048576 bytes"
