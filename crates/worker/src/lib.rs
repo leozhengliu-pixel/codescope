@@ -1469,14 +1469,10 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     if trimmed.starts_with('-') {
         return Err("Generic Git base_url must not start with '-'".to_owned());
     }
-    let lower = trimmed.to_ascii_lowercase();
-    let Some(authority) = lower
-        .strip_prefix("https://")
-        .or_else(|| lower.strip_prefix("http://"))
-    else {
+    let Some((_, rest)) = trimmed.split_once("://") else {
         return Ok(());
     };
-    let authority = authority.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if authority.contains('@') || percent_decode_ascii(authority).contains('@') {
         Err("Generic Git base_url must not include embedded credentials".to_owned())
     } else {
@@ -2880,6 +2876,28 @@ mod tests {
         assert!(!error.contains(secret_url));
         assert!(!error.contains("user%3Apass"));
         assert!(!error.contains("user:pass"));
+    }
+
+    #[test]
+    fn generic_git_ssh_url_with_embedded_userinfo_fails_closed_before_spawning_git() {
+        let secret_url = "ssh://deploy-token@example.org/repo.git";
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("definitely-not-a-real-git-binary"),
+            secret_url,
+            Duration::from_millis(100),
+        ) {
+            Ok(_) => panic!(
+                "non-HTTP credential-bearing Generic Git base_url must fail before git is spawned"
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not include embedded credentials"
+        );
+        assert!(!error.contains(secret_url));
+        assert!(!error.contains("deploy-token"));
     }
 
     #[test]
