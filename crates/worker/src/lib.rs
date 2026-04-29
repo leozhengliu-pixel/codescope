@@ -10,6 +10,10 @@ use std::{
     io::{self, Read},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -1263,18 +1267,36 @@ fn wait_for_child_output_with_timeout_and_output_limit(
     timeout: Duration,
     output_limit_bytes: usize,
 ) -> std::io::Result<Option<Output>> {
-    let stdout_reader = child
-        .stdout
-        .take()
-        .map(|reader| spawn_bounded_pipe_reader(reader, output_limit_bytes));
-    let stderr_reader = child
-        .stderr
-        .take()
-        .map(|reader| spawn_bounded_pipe_reader(reader, output_limit_bytes));
+    let output_limit_exceeded = Arc::new(AtomicBool::new(false));
+    let stdout_reader = child.stdout.take().map(|reader| {
+        spawn_bounded_pipe_reader(
+            reader,
+            output_limit_bytes,
+            Arc::clone(&output_limit_exceeded),
+        )
+    });
+    let stderr_reader = child.stderr.take().map(|reader| {
+        spawn_bounded_pipe_reader(
+            reader,
+            output_limit_bytes,
+            Arc::clone(&output_limit_exceeded),
+        )
+    });
     let started_at = Instant::now();
 
     loop {
         if let Some(status) = child.try_wait()? {
+            let stdout = join_pipe_reader(stdout_reader)?;
+            let stderr = join_pipe_reader(stderr_reader)?;
+            return Ok(Some(Output {
+                status,
+                stdout,
+                stderr,
+            }));
+        }
+        if output_limit_exceeded.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let status = child.wait()?;
             let stdout = join_pipe_reader(stdout_reader)?;
             let stderr = join_pipe_reader(stderr_reader)?;
             return Ok(Some(Output {
@@ -1298,6 +1320,7 @@ fn wait_for_child_output_with_timeout_and_output_limit(
 fn spawn_bounded_pipe_reader<R>(
     mut reader: R,
     limit: usize,
+    output_limit_exceeded: Arc<AtomicBool>,
 ) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
@@ -1314,6 +1337,11 @@ where
             let remaining_retained = retained_limit.saturating_sub(output.len());
             if remaining_retained > 0 {
                 output.extend_from_slice(&buffer[..bytes_read.min(remaining_retained)]);
+                if output.len() > limit {
+                    output_limit_exceeded.store(true, Ordering::Relaxed);
+                }
+            } else {
+                output_limit_exceeded.store(true, Ordering::Relaxed);
             }
         }
         Ok(output)
@@ -1514,7 +1542,7 @@ mod tests {
         os::unix::fs::PermissionsExt,
         process::{Command, Stdio},
         sync::Mutex,
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
     use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -3098,6 +3126,60 @@ mod tests {
         fs::remove_dir_all(fake_git_dir).unwrap();
     }
 
+    #[test]
+    fn bounded_child_output_kills_process_as_soon_as_stdout_exceeds_limit() {
+        let child = Command::new("python3")
+            .arg("-c")
+            .arg("import sys, time; sys.stdout.write('x' * 65); sys.stdout.flush(); time.sleep(5)")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("oversized output fixture should spawn");
+
+        let started_at = Instant::now();
+        let output =
+            wait_for_child_output_with_timeout_and_output_limit(child, Duration::from_secs(5), 64)
+                .expect("bounded output reader should complete")
+                .expect("output-limit termination should return captured output, not a timeout");
+
+        assert!(
+            started_at.elapsed() < Duration::from_secs(2),
+            "output-limit termination should not wait for the child sleep or full timeout"
+        );
+        assert_eq!(output.stdout.len(), 65);
+        assert!(
+            !output.status.success(),
+            "child should be killed once retained output exceeds the configured limit"
+        );
+    }
+
+    #[test]
+    fn bounded_child_output_kills_process_as_soon_as_stderr_exceeds_limit() {
+        let child = Command::new("python3")
+            .arg("-c")
+            .arg("import sys, time; sys.stderr.write('e' * 65); sys.stderr.flush(); time.sleep(5)")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("oversized stderr fixture should spawn");
+
+        let started_at = Instant::now();
+        let output =
+            wait_for_child_output_with_timeout_and_output_limit(child, Duration::from_secs(5), 64)
+                .expect("bounded output reader should complete")
+                .expect("output-limit termination should return captured output, not a timeout");
+
+        assert!(
+            started_at.elapsed() < Duration::from_secs(2),
+            "stderr output-limit termination should not wait for the child sleep or full timeout"
+        );
+        assert_eq!(output.stderr.len(), 65);
+        assert!(
+            !output.status.success(),
+            "child should be killed once retained stderr exceeds the configured limit"
+        );
+    }
+
     #[tokio::test]
     async fn run_repository_sync_claim_tick_fails_closed_for_missing_local_repository_path() {
         let missing_repo_path = unique_test_path("missing-local-repository-root");
@@ -3764,11 +3846,11 @@ mod tests {
     }
 
     #[test]
-    fn oversized_child_output_is_drained_after_the_retained_cap() {
+    fn oversized_child_output_is_terminated_after_the_retained_cap() {
         let child = Command::new("python3")
             .args([
                 "-c",
-                "import os, sys\ntry:\n    chunk = b'x' * 65536\n    for _ in range(4096):\n        os.write(sys.stdout.fileno(), chunk)\nexcept BrokenPipeError:\n    sys.exit(7)\n",
+                "import os, sys, time\nchunk = b'x' * 65536\nfor _ in range(4096):\n    os.write(sys.stdout.fileno(), chunk)\ntime.sleep(5)\n",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -3781,9 +3863,9 @@ mod tests {
             1024,
         )
         .expect("oversized child output should be collected without io failure")
-        .expect("finite oversized output should not block until timeout");
+        .expect("oversized output should trigger output-limit termination, not timeout");
 
-        assert!(output.status.success());
+        assert!(!output.status.success());
         assert_eq!(output.stdout.len(), 1025);
         assert!(output.stderr.is_empty());
     }
