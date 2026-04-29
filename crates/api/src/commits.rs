@@ -695,6 +695,7 @@ fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
 
     let mut child = Command::new("git")
         .args(args)
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .current_dir(repo_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1202,6 +1203,49 @@ mod tests {
         assert!(patch.contains("copy from original.txt"));
         assert!(patch.contains("copy to copied.txt"));
         assert!(!file.patch_truncated);
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_loads_literal_pathspec_patches() {
+        let repo_root = create_temp_git_repo("literal-pathspec-diff");
+        write_text_file(&repo_root.join("literal*.txt"), "base star\n");
+        write_text_file(&repo_root.join("literalA.txt"), "base a\n");
+        git_in(&repo_root, &["add", "literal*.txt", "literalA.txt"]);
+        git_in(&repo_root, &["commit", "-m", "init"]);
+
+        write_text_file(&repo_root.join("literal*.txt"), "base star\nchanged star\n");
+        write_text_file(&repo_root.join("literalA.txt"), "base a\nchanged a\n");
+        git_in(&repo_root, &["add", "literal*.txt", "literalA.txt"]);
+        git_in(&repo_root, &["commit", "-m", "change wildcard names"]);
+
+        let commit_id = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let response = store
+            .get_commit_diff("repo_temp", &commit_id)
+            .unwrap()
+            .unwrap();
+        let wildcard_file = response
+            .files
+            .iter()
+            .find(|file| file.path == "literal*.txt")
+            .expect("diff should include wildcard-named file");
+        let patch = wildcard_file
+            .patch
+            .as_deref()
+            .expect("wildcard-named file should have an isolated text patch");
+
+        assert!(patch.contains("diff --git a/literal*.txt b/literal*.txt"));
+        assert!(patch.contains("+changed star"));
+        assert!(
+            !patch.contains("literalA.txt") && !patch.contains("+changed a"),
+            "literal path patch must not include pathspec-glob matches: {patch}"
+        );
 
         fs::remove_dir_all(repo_root).unwrap();
     }
