@@ -5,34 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ef2b01b0fbe7ddb022000c5252008b2af423d976
+  head: f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
 last_completed_task:
-  id: task102_108_search_worker_case_cap_hardening
-  title: Search skipped-extension and worker tick-cap hardening
+  id: task102_103_108_artifact_browse_worker_hardening
+  title: Search artifact schema, browse NUL path, and worker idle-sleep hardening
   status: done
   summary: >-
-    Integrated two implementation-backed release-blocker hardening closures plus a
-    controller docs-sync tail. Search indexing now applies the binary/generated
-    skipped-extension policy case-insensitively, so uppercase `PACKAGE.LOCK` and
-    `IMAGE.PNG` style paths cannot be indexed or accepted through persisted
-    local-sync artifact validation when their lowercase equivalents are skipped.
-    The worker entrypoint now rejects `SOURCEBOT_WORKER_MAX_TICKS` values above
-    1,000,000 before execution, preserving the explicitly bounded runtime
-    contract instead of accepting an accidentally enormous operator loop. Coupled
-    acceptance, parity-gap, operator-runtime, and final-audit wording records the
-    bounded evidence while practical replacement parity remains unclaimed.
+    Integrated three disjoint implementation-backed release-blocker hardening
+    closures plus a controller docs-sync tail. Search local-sync `search-index.json`
+    artifacts are now schema-versioned and fail closed when the version is missing
+    or unsupported instead of silently trusting stale artifact shapes. Revisioned
+    browse blob lookups now reject NUL-byte paths at the relative-path validation
+    boundary before invoking Git, preserving the existing invalid-path contract.
+    The worker runtime now rejects `SOURCEBOT_WORKER_IDLE_SLEEP_MS` values above
+    one hour before execution so an operator typo cannot silently park the bounded
+    loop for days. Coupled acceptance and final-audit wording records those
+    bounded claims while practical replacement parity remains unclaimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_skips_ignored_extensions_case_insensitively failed before implementation because an uppercase .LOCK file was indexed and returned a result'
-    - 'main focused: cargo test -p sourcebot-search tests::local_search_store_skips_ignored_extensions_case_insensitively -- --exact passed with 1 test and 52 filtered out'
-    - 'main broader: cargo test -p sourcebot-search passed with 53 unit tests and 0 doc tests'
-    - 'worker RED: cargo test -p sourcebot-worker worker_max_ticks_fails_closed_when_configured_above_runtime_cap failed before implementation because SOURCEBOT_WORKER_MAX_TICKS=1000001 was accepted'
-    - 'main focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_max_ticks_fails_closed_when_configured_above_runtime_cap -- --exact passed with 1 test and 4 filtered out'
-    - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 5 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version failed before implementation with 0 passed, 1 failed, 53 filtered out because an unversioned artifact still loaded'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version passed with 1 test and 54 filtered out'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_with_unsupported_schema_version passed with 1 test and 54 filtered out'
+    - 'main broader: cargo test -p sourcebot-search passed with 55 unit tests and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup failed before implementation because the NUL path did not surface the invalid-relative-path contract'
+    - 'main focused: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup passed with 1 main-bin test, 468 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api browse::tests passed with 37 main-bin tests, 432 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api repo_blob passed with 11 main-bin tests, 458 filtered out, and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap failed before implementation with 0 passed, 1 failed, 5 filtered out because SOURCEBOT_WORKER_IDLE_SLEEP_MS=3600001 was accepted'
+    - 'main focused: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap passed with 1 main-bin test, 5 filtered out, and zero-test nonmatching targets'
+    - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
     - 'main: cargo fmt --check passed'
     - 'main: git diff --check origin/master..HEAD and git diff --check passed'
-    - 'main: added-lines security scan over origin/master..HEAD plus docs-sync scanned 75 added lines with no findings'
+    - 'main: added-lines security scan over origin/master..HEAD scanned 124 added lines with no findings'
     - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
-  commit: ef2b01b0fbe7ddb022000c5252008b2af423d976
+  commit: f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,21 +47,64 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed two real runtime hardening gaps: skipped
-    binary/generated search extensions are enforced case-insensitively across
-    live indexing and persisted local-sync artifact validation, and the worker
-    bounded-loop configuration now fails closed for tick counts above 1,000,000
-    before execution. A Browse/Code-Nav worker was attempted but ended with a
-    provider/account HTTP 503 after only an incomplete uncommitted test-only diff,
-    so it was not merged and its worktree was removed. Practical replacement
-    remains incomplete. Remaining blockers still include production-shaped
-    indexing lifecycle/status and failure recovery, relevance and pagination
-    behavior at scale beyond the bounded helper, branch and index availability,
-    broader provider fetch/import/reindex, worker scheduling/supervision and
-    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
-    client/session interoperability, operator runbook/deploy evidence, and the
-    other release blockers in this roadmap.
+    worktree is clean. This run closed three real runtime hardening gaps: persisted
+    local-sync search-index artifacts now require a supported schema version,
+    revisioned browse blob paths reject NUL bytes before Git lookup, and the
+    worker bounded-loop idle-sleep configuration now fails closed above one hour.
+    Practical replacement remains incomplete. Remaining blockers still include
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale beyond the bounded helper, branch and index
+    availability, broader provider fetch/import/reindex, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
+    deeper MCP client/session interoperability, operator runbook/deploy evidence,
+    and the other release blockers in this roadmap.
 history:
+  - id: task102_103_108_artifact_browse_worker_hardening
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures plus a
+      controller-owned docs-sync commit. Search artifact loading now requires a
+      supported persisted schema version, browse revision blob lookup rejects
+      NUL-byte paths before invoking Git, and worker runtime parsing rejects
+      idle-sleep values above one hour before execution. This was chosen over
+      paperwork because it closes real fail-closed runtime hardening gaps in
+      search/index, browse/source, and worker/operator surfaces; final parity
+      remains fail-closed on broader production indexing, provider, worker, auth,
+      MCP, and operator blockers.
+    commit: f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
+    component_commits:
+      - 7b5a3e5d780f7de0984fca75fc1d1d7c7a47f098
+      - 4e291a23dcf0626e427fdba3b9cfcd0e6583e736
+      - aa83fe0d39b53288bfa5ca4cf4031785f31ceaff
+      - f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version failed before implementation with 0 passed, 1 failed, 53 filtered out because an unversioned artifact still loaded'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version passed with 1 test and 54 filtered out'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_with_unsupported_schema_version passed with 1 test and 54 filtered out'
+      - 'main broader: cargo test -p sourcebot-search passed with 55 unit tests and 0 doc tests'
+      - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup failed before implementation because the NUL path did not surface the invalid-relative-path contract'
+      - 'main focused: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup passed with 1 main-bin test, 468 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api browse::tests passed with 37 main-bin tests, 432 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api repo_blob passed with 11 main-bin tests, 458 filtered out, and one zero-test lib target'
+      - 'worker RED: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap failed before implementation with 0 passed, 1 failed, 5 filtered out because SOURCEBOT_WORKER_IDLE_SLEEP_MS=3600001 was accepted'
+      - 'main focused: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap passed with 1 main-bin test, 5 filtered out, and zero-test nonmatching targets'
+      - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+      - 'main: added-lines security scan over origin/master..HEAD scanned 124 added lines with no findings'
+      - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
+    review: >-
+      Independent integration review inspected the main-worktree diff against
+      origin/master plus the dirty docs-sync changes after main verification. It
+      approved the search schema-version boundary, browse NUL-path rejection,
+      worker idle-sleep cap, and coupled README/acceptance/final-audit wording
+      with no blocking security concerns, logic errors, or bounded-claim issues.
+    workers: >-
+      Search worker commit ba2962d06343854b699d454cdca10874b7d4db09 was cherry-picked as main commit
+      7b5a3e5d780f7de0984fca75fc1d1d7c7a47f098. Browse/Code-Nav worker commit 3cd069df33dbbc52f6e4142c9a80c79331ff16ac was
+      cherry-picked as main commit 4e291a23dcf0626e427fdba3b9cfcd0e6583e736. Worker/Ops commit
+      2f32d185a5f36c7baa1b54da8371e266706472b9 was cherry-picked as main commit aa83fe0d39b53288bfa5ca4cf4031785f31ceaff. The
+      controller docs-sync commit f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e updated coupled acceptance and final-audit wording.
   - id: task102_108_search_worker_case_cap_hardening
     status: done
     summary: >-
