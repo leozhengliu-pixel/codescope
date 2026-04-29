@@ -6285,6 +6285,7 @@ fn malformed_search_index_artifact_status(
     for path in redaction_paths {
         error = error.replace(&path, "<redacted>");
     }
+    let error = format!("malformed local-sync search index artifact: {error}");
 
     RepositoryIndexStatus {
         repo_id: repo_id.to_string(),
@@ -31304,6 +31305,10 @@ mod tests {
         assert_eq!(payload.skipped_file_count, 0);
         let error = payload.error.expect("error status includes a reason");
         assert!(
+            error.starts_with("malformed local-sync search index artifact: "),
+            "unexpected error: {error}"
+        );
+        assert!(
             error.contains("search index artifact is not a regular file"),
             "unexpected error: {error}"
         );
@@ -31398,6 +31403,10 @@ mod tests {
         assert_eq!(payload.indexed_line_count, 0);
         assert_eq!(payload.skipped_file_count, 0);
         let error = payload.error.expect("error status includes a reason");
+        assert!(
+            error.starts_with("malformed local-sync search index artifact: "),
+            "unexpected error: {error}"
+        );
         assert!(
             error.contains("failed to parse local search index artifact"),
             "unexpected error: {error}"
