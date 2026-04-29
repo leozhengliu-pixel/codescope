@@ -608,9 +608,7 @@ fn run_local_repository_sync_execution(
         timeout,
         output_limit_bytes,
     ) {
-        Ok(Some(output))
-            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
-        {
+        Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
             return Err(local_git_output_limit_failure_detail(
                 "git rev-parse HEAD",
                 output_limit_bytes,
@@ -636,9 +634,7 @@ fn run_local_repository_sync_execution(
         timeout,
         output_limit_bytes,
     ) {
-        Ok(Some(output))
-            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
-        {
+        Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
             return Err(local_git_output_limit_failure_detail(
                 "git ls-tree -rz --name-only HEAD",
                 output_limit_bytes,
@@ -669,10 +665,7 @@ fn run_local_repository_sync_execution(
         timeout,
         output_limit_bytes,
     ) {
-        Ok(Some(output))
-            if output.stdout.len() > output_limit_bytes
-                || output.stderr.len() > output_limit_bytes =>
-        {
+        Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
             return Err(local_git_output_limit_failure_detail(
                 "git symbolic-ref --short HEAD",
                 output_limit_bytes,
@@ -735,9 +728,7 @@ fn resolve_detached_head_branch_label(
         timeout,
         output_limit_bytes,
     ) {
-        Ok(Some(output))
-            if output.stdout.len() > output_limit_bytes || output.stderr.len() > output_limit_bytes =>
-        {
+        Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
             Err(local_git_output_limit_failure_detail(
                 "git rev-parse --abbrev-ref HEAD",
                 output_limit_bytes,
@@ -814,10 +805,7 @@ fn write_local_repository_sync_snapshot(
             timeout,
             output_limit_bytes,
         ) {
-            Ok(Some(output))
-                if output.stdout.len() > output_limit_bytes
-                    || output.stderr.len() > output_limit_bytes =>
-            {
+            Ok(Some(output)) if local_git_output_exceeded_limit(&output, output_limit_bytes) => {
                 let _ = fs::remove_dir_all(&tmp_path);
                 return Err(local_git_output_limit_failure_detail(
                     "git show HEAD:<tracked-path>",
@@ -3569,6 +3557,58 @@ mod tests {
         assert_eq!(
             failed_job.error.as_deref(),
             Some("local repository sync preflight failed: git preflight output exceeded 8 bytes")
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_rev_parse_head_combined_output_over_cap_fails_closed() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-combined-head-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse --is-inside-work-tree\" ]; then\n  printf 'true\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse HEAD\" ]; then\n  printf '0123456789abcdef0123456789abcdef01234567\\n'\n  printf 'combined stderr warning\\n' >&2\n  exit 0\nfi\nprintf 'unexpected git invocation after oversized HEAD output: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_combined_oversized_head",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &state,
+                &state.repository_sync_jobs[0],
+                "2026-04-26T10:02:00Z",
+                fake_git_path.as_os_str(),
+                Duration::from_secs(2),
+                64,
+            )
+            .expect(
+                "combined oversized local repository HEAD output should terminally fail the job",
+            );
+
+        assert_eq!(failed_job.id, "sync_job_local_combined_oversized_head");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync execution failed: git rev-parse HEAD output exceeded 64 bytes")
         );
 
         fs::remove_dir_all(repo_path).unwrap();
