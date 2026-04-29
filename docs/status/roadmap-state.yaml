@@ -5,40 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 95bbd8ca3387ee8d14190ba4db92cda586219b6d
+  head: 78e875b06bcd01e8792712c529cd41ca20ba64b1
 last_completed_task:
-  id: task102_103_106_artifact_blob_prompt_bounds
-  title: Bound search artifact writes, local blob reads, and worker SSH prompts
+  id: task102_103_106_filter_revision_path_guards
+  title: Bound search path filters, browse revision selectors, and local repo paths
   status: done
   summary: >-
-    Integrated three disjoint implementation-worker closures that harden real
-    runtime surfaces instead of advancing state-only paperwork. Persisted
-    local-sync search-index artifact writes now fail closed before creating a
-    temp/final artifact when the serialized payload would exceed the loader cap;
-    no-revision local worktree blob reads now share the revision-backed 8 MiB
-    fail-closed content budget before reading file contents; and worker-spawned
-    Generic Git probes now force SSH/askpass prompt suppression in addition to
-    the existing non-interactive Git auth environment. Practical replacement
-    remains incomplete and still fails closed on production indexing lifecycle,
-    provider fetch/import/reindex, worker supervision/retry orchestration,
-    identity/provider flows, MCP client interoperability, and operator
-    deployment evidence.
+    Integrated three disjoint implementation-worker closures plus coupled
+    parity-evidence docs as one real runtime hardening batch. Search/index now
+    fails closed for oversized `path:` glob filters before matcher allocation;
+    browse/source local revision handling now rejects blank explicit revisions
+    and fails closed on control-character revision selectors before invoking
+    Git; and worker-side local repository sync now rejects blank, padded, or
+    control-character-bearing `repo_path` values before spawning Git. Practical
+    replacement remains incomplete and still fails closed on production
+    indexing lifecycle, provider fetch/import/reindex, worker supervision and
+    broad retry/backoff, identity/provider flows, MCP client/session
+    interoperability, and production operator deployment evidence.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_write_rejects_oversized_persisted_index_artifact -- --nocapture failed before implementation with 0 passed, 1 failed, 59 filtered out because oversized artifact writes were accepted'
-    - 'controller focused: cargo test -p sourcebot-search local_search_store_write_rejects_oversized_persisted_index_artifact -- --nocapture passed with 1 test and 59 filtered out'
-    - 'controller broader: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture passed with 27 tests and 33 filtered out'
-    - 'worker RED: cargo test -p sourcebot-api local_browse_store_bounds_worktree_blob_file_reads -- --nocapture failed before implementation with 0 passed, 1 failed, 475 filtered out because oversized local blob reads returned content metadata after reading the file'
-    - 'controller focused: cargo test -p sourcebot-api local_browse_store_bounds_worktree_blob_file_reads -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 475 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 39 main-bin tests and 437 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api --bin sourcebot-api repo_blob -- --nocapture passed with 11 tests and 465 filtered out'
-    - 'worker RED: cargo test -p sourcebot-worker generic_git_sync_forces_ssh_prompt_suppression_environment -- --nocapture failed before implementation with 0 passed, 1 failed, 81 filtered out because SSH askpass controls were unset'
-    - 'controller focused: cargo test -p sourcebot-worker generic_git_sync_forces_ssh_prompt_suppression_environment -- --nocapture passed with 1 lib test, 81 filtered out, and zero-test nonmatching targets'
-    - 'controller broader: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 38 lib tests, 44 filtered out, and zero-test nonmatching targets'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture failed before implementation with 0 passed, 1 failed, 60 filtered out because oversized path globs still matched results'
+    - 'controller focused: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture passed with 1 test and 60 filtered out'
+    - 'controller broader: cargo test -p sourcebot-search passed with 61 tests and 0 failures'
+    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture failed before implementation because empty explicit revision reached Git rev-parse and surfaced a backend error'
+    - 'controller focused: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 437 filtered out'
+    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git failed before implementation with 0 passed, 1 failed because padded repo_path reached Git as a missing path'
+    - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git -- --nocapture passed with 1 lib test, 82 filtered out, and zero-test nonmatching targets'
+    - 'controller broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 10 lib tests and 73 filtered out plus zero-test nonmatching targets'
+    - 'controller broader: cargo test -p sourcebot-worker repository_sync -- --nocapture passed with 34 lib tests, 49 filtered out, 3 repository_sync_claim_smoke tests, and 2 worker_runtime_logging_smoke tests'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check passed'
-    - 'controller: added-lines security scan over 7edf1f362aac009ae26292352fe344d850e04515..HEAD found no findings'
-    - 'independent integration review approved 7edf1f362aac009ae26292352fe344d850e04515..HEAD with no blocking security, logic, resource-bound, scope, or bounded-claim issues'
-  commit: 95bbd8ca3387ee8d14190ba4db92cda586219b6d
+    - 'controller: git diff --check passed before docs commit'
+    - 'controller: added-lines security scan over 2945c71347f0cb2dd63aa296d3545ed99e757094..HEAD plus docs-sync diff found no findings'
+    - 'independent integration review approved the runtime hardening batch and approved the docs-sync after a reviewer-forced browse status wording fix'
+  commit: 78e875b06bcd01e8792712c529cd41ca20ba64b1
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -48,18 +47,67 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing
     runtime closure while the accelerated controller may also take adjacent
     high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
-    the main worktree is clean. This batch closed three real runtime hardening
-    gaps: search artifact writes now share the loader-size contract, local
-    worktree blob reads are bounded before content reads, and worker Generic Git
-    subprocesses suppress SSH credential prompts. Practical replacement remains
-    incomplete. Remaining blockers still include production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale beyond bounded helpers, branch and index availability, broader
-    provider fetch/import/reindex, worker scheduling and supervision with broad
+    the main worktree is clean. This batch closed three real fail-closed
+    runtime hardening gaps: oversized search `path:` glob filters cannot drive
+    unbounded matcher allocation, blank/control-character browse revision
+    selectors fail closed before Git invocation, and local repository-sync
+    `repo_path` values with blank, padded, or control-character content fail
+    closed before spawning Git. Practical replacement remains incomplete.
+    Remaining blockers still include production-shaped indexing lifecycle/status
+    and failure recovery, relevance and pagination behavior at scale beyond
+    bounded helpers, branch and index availability, broader provider
+    fetch/import/reindex, worker scheduling and supervision with broad
     retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
     client/session interoperability, operator runbook/deploy evidence, and the
     other release blockers in this roadmap.
 history:
+  - id: task102_103_106_filter_revision_path_guards
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures plus a coupled
+      docs-sync tail as one meaningful runtime hardening batch rather than a
+      state-only micro-slice. Search/index now rejects oversized path-filter
+      globs before matcher allocation, browse/source rejects blank explicit
+      revisions and control-character revision selectors before Git invocation,
+      and worker local repository sync rejects blank/padded/control-character
+      `repo_path` values before spawning Git. Coupled acceptance, parity-gap,
+      and final-audit wording remains bounded below practical replacement
+      parity.
+    commit: 78e875b06bcd01e8792712c529cd41ca20ba64b1
+    component_commits:
+      - d3c3b6d6a5086202405b50d252ddfad27c97feeb
+      - 7f853456fbffb8ad774468e54bf1a96fa2e2d7e0
+      - f4b85ae8f5ef9700f928ab8fddeeddd53643261a
+      - 78e875b06bcd01e8792712c529cd41ca20ba64b1
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture failed before implementation with 0 passed, 1 failed, 60 filtered out because oversized path globs still matched results'
+      - 'controller focused: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture passed with 1 test and 60 filtered out'
+      - 'controller broader: cargo test -p sourcebot-search passed with 61 tests and 0 failures'
+      - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture failed before implementation because empty explicit revision reached Git rev-parse and surfaced a backend error'
+      - 'controller focused: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 437 filtered out'
+      - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git failed before implementation with 0 passed, 1 failed because padded repo_path reached Git as a missing path'
+      - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git -- --nocapture passed with 1 lib test, 82 filtered out, and zero-test nonmatching targets'
+      - 'controller broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 10 lib tests and 73 filtered out plus zero-test nonmatching targets'
+      - 'controller broader: cargo test -p sourcebot-worker repository_sync -- --nocapture passed with 34 lib tests, 49 filtered out, 3 repository_sync_claim_smoke tests, and 2 worker_runtime_logging_smoke tests'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check passed before docs commit'
+      - 'controller: added-lines security scan over 2945c71347f0cb2dd63aa296d3545ed99e757094..HEAD plus docs-sync diff found no findings'
+      - 'independent integration review approved the runtime hardening batch and approved the docs-sync after a reviewer-forced browse status wording fix'
+    review: >-
+      Independent integration review inspected the main-worktree integrated range
+      and the coupled docs-sync. It found no blocking security/resource-bound or
+      logic issues after the controller fixed an initial docs overclaim that had
+      said control-character browse revision selectors return bad request; the
+      final wording now truthfully says they fail closed before Git invocation as
+      not found, while blank present revision values are bad request.
+    workers: >-
+      Search worker commit 3669da19bc4d1cb28bd5ffe0b0f1cfe192950489 was
+      cherry-picked/integrated on master as d3c3b6d6a5086202405b50d252ddfad27c97feeb. Browse/code worker
+      commit 9b668d2304673b2cd497ca88bf435c239a1074c9 was cherry-picked/integrated
+      on master as 7f853456fbffb8ad774468e54bf1a96fa2e2d7e0. Provider/worker commit
+      95c7a8d3a7252924ac27dd273910ae5658fc8765 was cherry-picked/integrated on
+      master as f4b85ae8f5ef9700f928ab8fddeeddd53643261a. Coupled docs-sync landed on master as 78e875b06bcd01e8792712c529cd41ca20ba64b1.
   - id: task102_103_106_artifact_blob_prompt_bounds
     status: done
     summary: >-
