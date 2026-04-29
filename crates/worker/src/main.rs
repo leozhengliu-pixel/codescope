@@ -169,8 +169,16 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+const WORKER_MAX_TICKS_CAP: u64 = 1_000_000;
+
 fn worker_max_ticks_from_env() -> anyhow::Result<u64> {
-    parse_positive_u64_env("SOURCEBOT_WORKER_MAX_TICKS", 1)
+    let value = parse_positive_u64_env("SOURCEBOT_WORKER_MAX_TICKS", 1)?;
+    if value > WORKER_MAX_TICKS_CAP {
+        anyhow::bail!(
+            "SOURCEBOT_WORKER_MAX_TICKS must be less than or equal to {WORKER_MAX_TICKS_CAP}"
+        );
+    }
+    Ok(value)
 }
 
 fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
@@ -266,7 +274,24 @@ fn worker_idle_sleep_from_env() -> anyhow::Result<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_worker_status_error;
+    use super::{sanitize_worker_status_error, worker_max_ticks_from_env};
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn worker_max_ticks_fails_closed_when_configured_above_runtime_cap() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SOURCEBOT_WORKER_MAX_TICKS", "1000001");
+        let error = worker_max_ticks_from_env()
+            .expect_err("oversized max tick configuration must fail closed");
+        std::env::remove_var("SOURCEBOT_WORKER_MAX_TICKS");
+
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_MAX_TICKS must be less than or equal to 1000000"
+        );
+    }
 
     #[test]
     fn worker_status_error_redacts_known_prefix_details() {
