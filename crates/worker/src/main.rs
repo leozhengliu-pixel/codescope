@@ -65,6 +65,9 @@ async fn main() -> anyhow::Result<()> {
     let mut last_work_item_id: Option<String> = None;
     let mut last_work_item_status: Option<String> = None;
     let mut last_work_item_error: Option<String> = None;
+    let mut last_work_item_synced_revision: Option<String> = None;
+    let mut last_work_item_synced_branch: Option<String> = None;
+    let mut last_work_item_synced_content_file_count: Option<i64> = None;
 
     if let Some(path) = status_path.as_ref() {
         write_worker_status_snapshot(
@@ -73,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
             0,
             0,
             &last_outcome,
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -96,6 +102,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = Some(run.id.clone());
                 last_work_item_status = Some(format!("{:?}", run.status));
                 last_work_item_error = None;
+                last_work_item_synced_revision = None;
+                last_work_item_synced_branch = None;
+                last_work_item_synced_content_file_count = None;
                 info!(
                     tick,
                     review_agent_run_id = %run.id,
@@ -108,6 +117,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = Some(job.id.clone());
                 last_work_item_status = Some(format!("{:?}", job.status));
                 last_work_item_error = job.error.as_deref().map(sanitize_worker_status_error);
+                last_work_item_synced_revision = job.synced_revision.clone();
+                last_work_item_synced_branch = job.synced_branch.clone();
+                last_work_item_synced_content_file_count = job.synced_content_file_count;
                 info!(
                     tick,
                     repository_sync_job_id = %job.id,
@@ -115,6 +127,9 @@ async fn main() -> anyhow::Result<()> {
                     repository_id = %job.repository_id,
                     connection_id = %job.connection_id,
                     status = ?job.status,
+                    synced_revision = job.synced_revision.as_deref().unwrap_or(""),
+                    synced_branch = job.synced_branch.as_deref().unwrap_or(""),
+                    synced_content_file_count = job.synced_content_file_count,
                     error = job.error.as_deref().unwrap_or(""),
                     "recorded repository-sync terminal status after worker execution"
                 )
@@ -124,6 +139,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = None;
                 last_work_item_status = None;
                 last_work_item_error = None;
+                last_work_item_synced_revision = None;
+                last_work_item_synced_branch = None;
+                last_work_item_synced_content_file_count = None;
                 info!(
                     tick,
                     "no queued review-agent run or repository sync job available"
@@ -141,6 +159,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id.as_deref(),
                 last_work_item_status.as_deref(),
                 last_work_item_error.as_deref(),
+                last_work_item_synced_revision.as_deref(),
+                last_work_item_synced_branch.as_deref(),
+                last_work_item_synced_content_file_count,
                 false,
             )?;
         }
@@ -160,6 +181,9 @@ async fn main() -> anyhow::Result<()> {
             last_work_item_id.as_deref(),
             last_work_item_status.as_deref(),
             last_work_item_error.as_deref(),
+            last_work_item_synced_revision.as_deref(),
+            last_work_item_synced_branch.as_deref(),
+            last_work_item_synced_content_file_count,
             true,
         )?;
     }
@@ -208,6 +232,9 @@ fn write_worker_status_snapshot(
     last_work_item_id: Option<&str>,
     last_work_item_status: Option<&str>,
     last_work_item_error: Option<&str>,
+    last_work_item_synced_revision: Option<&str>,
+    last_work_item_synced_branch: Option<&str>,
+    last_work_item_synced_content_file_count: Option<i64>,
     completed: bool,
 ) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
@@ -228,6 +255,9 @@ fn write_worker_status_snapshot(
         "last_work_item_id": last_work_item_id,
         "last_work_item_status": last_work_item_status,
         "last_work_item_error": last_work_item_error,
+        "last_work_item_synced_revision": last_work_item_synced_revision,
+        "last_work_item_synced_branch": last_work_item_synced_branch,
+        "last_work_item_synced_content_file_count": last_work_item_synced_content_file_count,
     });
     fs::write(path, serde_json::to_vec_pretty(&payload)?)?;
     Ok(())
@@ -346,6 +376,41 @@ mod tests {
             sanitize_worker_status_error("repository sync stub execution configured to fail"),
             "repository sync stub execution configured to fail"
         );
+    }
+
+    #[test]
+    fn worker_status_snapshot_includes_repository_sync_terminal_metadata_fields() {
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-metadata-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        super::write_worker_status_snapshot(
+            &path,
+            3,
+            2,
+            2,
+            "repository_sync_job",
+            Some("sync_job_1"),
+            Some("Succeeded"),
+            None,
+            Some("abc123"),
+            Some("main"),
+            Some(7),
+            false,
+        )
+        .expect("status snapshot should be written");
+
+        let payload: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&path).expect("status snapshot should be readable"),
+        )
+        .expect("status snapshot should be JSON");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(payload["last_work_item_synced_revision"], "abc123");
+        assert_eq!(payload["last_work_item_synced_branch"], "main");
+        assert_eq!(payload["last_work_item_synced_content_file_count"], 7);
     }
 
     #[test]

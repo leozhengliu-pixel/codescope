@@ -1,8 +1,8 @@
 use sourcebot_api::auth::FileOrganizationStore;
 use sourcebot_core::OrganizationStore;
 use sourcebot_models::{
-    OrganizationState, RepositorySyncJob, RepositorySyncJobStatus, ReviewAgentRun,
-    ReviewAgentRunStatus,
+    Connection, ConnectionConfig, ConnectionKind, OrganizationState, RepositorySyncJob,
+    RepositorySyncJobStatus, ReviewAgentRun, ReviewAgentRunStatus,
 };
 use std::{
     fs,
@@ -53,6 +53,56 @@ fn repository_sync_job(
         synced_branch: None,
         synced_content_file_count: None,
     }
+}
+
+fn local_connection(repo_path: &Path) -> Connection {
+    Connection {
+        id: "conn_local".into(),
+        name: "Local fixture".into(),
+        kind: ConnectionKind::Local,
+        config: Some(ConnectionConfig::Local {
+            repo_path: repo_path.display().to_string(),
+        }),
+    }
+}
+
+fn initialize_local_git_fixture(name: &str) -> std::path::PathBuf {
+    let repo_path = unique_test_path(name).with_extension("repo");
+    fs::create_dir_all(&repo_path).expect("local Git fixture directory should be created");
+    let init_output = Command::new("git")
+        .arg("init")
+        .arg("--initial-branch=main")
+        .arg(&repo_path)
+        .output()
+        .expect("git init should run");
+    assert!(
+        init_output.status.success(),
+        "git init should succeed: stdout={} stderr={}",
+        String::from_utf8_lossy(&init_output.stdout),
+        String::from_utf8_lossy(&init_output.stderr)
+    );
+    let run_git = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(args)
+            .output()
+            .expect("git fixture command should run");
+        assert!(
+            output.status.success(),
+            "git fixture command {:?} should succeed: stdout={} stderr={}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    run_git(&["config", "user.email", "worker@example.invalid"]);
+    run_git(&["config", "user.name", "Worker Test"]);
+    fs::write(repo_path.join("README.md"), "tracked content\n")
+        .expect("tracked fixture file should be written");
+    run_git(&["add", "README.md"]);
+    run_git(&["commit", "-m", "initial"]);
+    repo_path
 }
 
 fn run_worker(path: &Path) -> std::process::Output {
@@ -361,4 +411,65 @@ async fn worker_binary_status_snapshot_includes_failed_repository_sync_error_det
 
     fs::remove_file(path).unwrap();
     fs::remove_file(status_path).unwrap();
+}
+
+#[tokio::test]
+async fn worker_binary_status_snapshot_includes_successful_repository_sync_metadata() {
+    let path = unique_test_path("worker-runtime-status-local-sync-state");
+    let status_path = unique_test_path("worker-runtime-status-local-sync-snapshot");
+    let repo_path = initialize_local_git_fixture("worker-runtime-status-local-sync-repo");
+    let store = FileOrganizationStore::new(&path);
+    let mut job = repository_sync_job(
+        "sync_job_local",
+        RepositorySyncJobStatus::Queued,
+        "2026-04-26T10:01:00Z",
+    );
+    job.connection_id = "conn_local".into();
+    store
+        .store_organization_state(OrganizationState {
+            connections: vec![local_connection(&repo_path)],
+            repository_sync_jobs: vec![job],
+            ..OrganizationState::default()
+        })
+        .await
+        .unwrap();
+
+    let output = run_worker_with_status_path(&path, &status_path);
+    assert!(
+        output.status.success(),
+        "worker should exit cleanly after writing local-sync status metadata: stderr={}",
+        normalized_log_output(&output.stderr)
+    );
+
+    let persisted = store.organization_state().await.unwrap();
+    let completed = persisted
+        .repository_sync_jobs
+        .iter()
+        .find(|job| job.id == "sync_job_local")
+        .expect("local sync job should persist");
+    assert_eq!(completed.status, RepositorySyncJobStatus::Succeeded);
+
+    let status: serde_json::Value = serde_json::from_slice(
+        &fs::read(&status_path).expect("worker should write supervisor status snapshot"),
+    )
+    .expect("supervisor status should be JSON");
+    assert_eq!(status["last_outcome"], "repository_sync_job");
+    assert_eq!(status["last_work_item_id"], "sync_job_local");
+    assert_eq!(status["last_work_item_status"], "Succeeded");
+    assert_eq!(
+        status["last_work_item_synced_revision"],
+        completed.synced_revision.as_deref().unwrap()
+    );
+    assert_eq!(
+        status["last_work_item_synced_branch"],
+        completed.synced_branch.as_deref().unwrap()
+    );
+    assert_eq!(
+        status["last_work_item_synced_content_file_count"],
+        completed.synced_content_file_count.unwrap()
+    );
+
+    fs::remove_file(path).unwrap();
+    fs::remove_file(status_path).unwrap();
+    fs::remove_dir_all(repo_path).unwrap();
 }
