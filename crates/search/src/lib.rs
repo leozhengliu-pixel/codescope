@@ -18,6 +18,7 @@ const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
 const MAX_LITERAL_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
+const MAX_INDEXED_PATH_BYTES: usize = 4096;
 #[cfg(unix)]
 const O_NONBLOCK: i32 = 0o4000;
 #[cfg(unix)]
@@ -831,6 +832,15 @@ fn validate_persisted_index_artifact(
     let mut seen_line_keys = BTreeSet::new();
     let mut previous_line_key: Option<(&str, usize)> = None;
     for indexed_line in &artifact.indexed_lines {
+        if indexed_line.path.len() > MAX_INDEXED_PATH_BYTES {
+            anyhow::bail!(
+                "oversized search index artifact path '{}' in {}: path is {} bytes, maximum is {} bytes",
+                indexed_line.path,
+                artifact_path.display(),
+                indexed_line.path.len(),
+                MAX_INDEXED_PATH_BYTES
+            );
+        }
         if !is_safe_persisted_index_path(&indexed_line.path) {
             anyhow::bail!(
                 "unsafe search index artifact path '{}' in {}",
@@ -2608,6 +2618,34 @@ mod tests {
                 "unexpected error for {unsafe_path:?}: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_oversized_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["path"] =
+            serde_json::Value::String(format!("{}.rs", "a".repeat(4097)));
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index paths above the runtime path budget must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("oversized search index artifact path"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
