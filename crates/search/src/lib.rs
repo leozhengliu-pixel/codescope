@@ -751,6 +751,13 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        if should_skip_file(Path::new(&indexed_line.path)) {
+            anyhow::bail!(
+                "ignored search index artifact path '{}' in {}: persisted indexes must not expose skipped runtime, generated, or binary paths",
+                indexed_line.path,
+                artifact_path.display()
+            );
+        }
         if indexed_line.line_number == 0 {
             anyhow::bail!(
                 "invalid search index artifact line number 0 for '{}' in {}",
@@ -2323,6 +2330,34 @@ mod tests {
                 "unexpected error for {unsafe_path:?}: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_ignored_runtime_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["path"] =
+            serde_json::Value::String(".sourcebot/local-sync-index.json".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index artifact runtime paths must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("ignored search index artifact path"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
