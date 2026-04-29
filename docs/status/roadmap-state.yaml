@@ -5,43 +5,51 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 209fc6f439511294bdd8bf17267531c8c8c141be
+  head: acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2
 last_completed_task:
-  id: task102ai-106c-107b
-  title: Search artifact duplicate-line validation, worker child-output draining, and MCP malformed repo params
+  id: task102aj-103c-106d
+  title: Search artifact ordering, snapshot symlink blob escape, and Generic Git head validation
   status: done
   summary: >-
-    Integrated an accelerated three-worker batch with three real runtime
-    closures. Persisted local-sync search index artifacts now reject duplicate
-    path/line-number entries even when status counts match, preventing malformed
-    artifacts from duplicating search results. Repository-sync worker child
-    process collection now retains only the configured output cap plus one byte
-    while continuing to drain finite oversized stdout/stderr, preserving bounded
-    memory and fail-closed output-limit semantics without inducing pipe
-    backpressure. MCP JSON-RPC tools/call now maps malformed repository-scope
-    bindings such as non-string repo_id values to protocol-shaped -32602 errors
-    instead of transport-level failures.
+    Integrated an accelerated three-worker batch plus review-forced hardening.
+    Persisted local-sync search index artifacts now reject unsorted path/line-key
+    entries and the writer sorts indexed lines before persistence so generated
+    artifacts satisfy the same validated order. Local snapshot/blob reads now fail
+    closed when a no-revision snapshot path resolves through a symlink outside
+    the repository root, preventing browse/code-navigation fallback from exposing
+    out-of-tree content. Generic Git repository-sync metadata probing now fails
+    closed when any git ls-remote --heads advertisement is malformed, including
+    malformed lines that appear after the preferred HEAD revision match.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_duplicate_line_keys -- --nocapture: passed in the main worktree with 1 test and 37 filtered out after worker-recorded RED failure where duplicate path/line entries were accepted'
-    - 'cargo test -p sourcebot-search: passed in the main worktree with 38 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-worker oversized_child_output_is_drained_after_the_retained_cap -- --nocapture: passed in the main worktree with 1 lib test and zero-test non-lib targets noted after worker-recorded RED failure where oversized finite output hit BrokenPipe/backpressure behavior'
-    - 'cargo test -p sourcebot-worker generic_git_remote_with_many_heads_does_not_deadlock_on_piped_output -- --nocapture: passed in the main worktree with 1 lib test and zero-test non-lib targets noted'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 47 lib tests, 3 main tests, 20 integration/smoke tests across worker smoke targets, and 0 doctests'
-    - 'cargo test -p sourcebot-api mcp_json_rpc_tools_call_malformed_repo_id_returns_protocol_invalid_params -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 446 filtered out after worker-recorded RED failure returning transport 400 instead of protocol error'
-    - 'cargo test -p sourcebot-api mcp_: passed in the main worktree with 17 bin tests, 0 lib tests, and 430 filtered out'
-    - 'cargo test -p sourcebot-mcp: passed in the main worktree with 9 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_line_keys -- --nocapture: passed with 1 test and 39 filtered out after worker-recorded RED failure where unsorted persisted artifact lines were accepted'
+    - 'cargo test -p sourcebot-search local_search_store_writes_persisted_index_artifact_in_validated_order -- --nocapture: RED failed before integrator fix with generated a/file.rs before a.rs rejected as unsorted, then GREEN passed with 1 test and 39 filtered out'
+    - 'cargo test -p sourcebot-search: passed with 40 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api local_browse_store_rejects_blob_symlinked_outside_repo_root -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out after worker-recorded RED failure exposing the symlink target'
+    - 'cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
+    - 'cargo test -p sourcebot-api definitions -- --nocapture: passed with 11 bin tests, 0 lib tests, and 437 filtered out'
+    - 'cargo test -p sourcebot-api references -- --nocapture: passed with 13 bin tests, 0 lib tests, and 435 filtered out'
+    - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 441 filtered out'
+    - 'cargo test -p sourcebot-api repo_blob -- --nocapture: passed with 10 bin tests, 0 lib tests, and 438 filtered out'
+    - 'cargo test -p sourcebot-api repository_tree -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_malformed_ref_line_fails_closed -- --nocapture: passed with 1 lib test and zero-test non-lib targets after worker-recorded RED failure accepting malformed --heads output'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_validates_later_lines_after_preferred_match -- --nocapture: RED failed before integrator fix by accepting a later malformed --heads line after preferred match, then GREEN passed with 1 lib test and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker generic_git_sync_prefers_remote_head_symref_default_branch -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker generic_git_sync_resolves_head_revision_when_remote_omits_symref -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker: passed with 49 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 5dfd62fdbb3cd6e963ccdcfa07070950a8b55c28..209fc6f439511294bdd8bf17267531c8c8c141be: passed'
-    - 'added-lines security scan over 5dfd62fdbb3cd6e963ccdcfa07070950a8b55c28..209fc6f439511294bdd8bf17267531c8c8c141be: passed with 159 added lines scanned and 0 findings'
-    - 'independent integration review over 5dfd62fdbb3cd6e963ccdcfa07070950a8b55c28..209fc6f439511294bdd8bf17267531c8c8c141be: initially failed on an overbroad MCP docs claim; after narrowing, re-review passed with no security concerns, logic errors, or docs-claim issues'
+    - 'git diff --check 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed'
+    - 'added-lines security scan over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed with 246 added lines scanned and 0 findings'
+    - 'independent integration review over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed after reviewer-found search writer ordering and Generic Git early-return blockers were fixed'
   review:
     code: >-
-      Independent integration review passed after the integrator narrowed the MCP
-      runtime acceptance wording. The reviewer confirmed the search duplicate
-      line-key validation, worker bounded retained-output draining, and MCP
-      JSON-RPC malformed repo_id protocol error semantics match the
-      implementation and do not overclaim.
-  commit: 209fc6f439511294bdd8bf17267531c8c8c141be
+      Independent integration review initially failed on two real blockers: the
+      new search artifact ordering validator could reject artifacts generated by
+      the writer, and Generic Git --heads parsing could return on a preferred
+      revision before validating later malformed lines. The integrator added
+      regressions and fixes for both. Final review passed with no security
+      concerns, logic errors, or docs-claim issues; the only suggestion was
+      future race hardening for symlink swaps in mutable snapshots.
+  commit: acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2
   next_task: task102
 current_task:
   id: task102
@@ -51,29 +59,55 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/106/107/108 blockers when scopes are disjoint. This batch landed a
-    search/index fail-closed duplicate line-key validation closure, a
-    provider/worker bounded child-output draining closure, and an MCP JSON-RPC
-    malformed repository-scope protocol-error closure. Existing search evidence
-    now includes bounded authenticated query-size validation, frontend-visible
-    saved-context management for non-empty repository scopes, fail-closed backend
-    context narrowing, explicit boolean/literal/regex modes, deterministic
-    ordering, repository-detail index-status visibility, indexed-empty/skipped-only
-    semantics, persisted artifact path/repo-id/count/status validation including
-    symlink/non-regular artifact and symlinked-parent rejection,
-    corrupt/inconsistent artifact hardening, fail-closed status/error consistency
-    validation, fail-closed regex bounds, fail-closed empty search semantics for
-    present malformed artifacts without aborting unscoped results from other
-    visible repositories, fail-closed pagination validation, authorization-domain
-    pagination/count evidence, symlinked repository-root rejection before
-    startup/local indexing, zero-line-number result rejection, and duplicate
-    path/line-number entry rejection for persisted artifacts. Remaining Task 102
-    work should move practical indexing/runtime behavior, operator-visible index
-    lifecycle/status, failure recovery, relevance/pagination stability at scale,
-    branch/index availability, and production search/indexing parity while
-    preserving fail-closed visibility boundaries, focused verification, bounded
-    docs claims, independent review, commit, state update, and push.
+    Task 103/106/107/108 blockers when scopes are disjoint. This batch landed
+    three real hardening closures and two review-forced correctness fixes: local
+    search artifacts reject unsorted path/line-key entries while the writer emits
+    the validated order, snapshot blob/code-navigation fallback rejects symlink
+    escapes outside the repository root, and Generic Git --heads metadata probing
+    validates every advertised head line before reporting success. Remaining
+    practical-replacement work still includes production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale, branch/index availability, broader provider fetch/import/reindex,
+    worker supervision/retry/backoff, and other release blockers in this roadmap.
 history:
+  - id: task102aj-103c-106d
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      runtime hardening closures plus reviewer-forced fixes. Search artifacts
+      now reject unsorted path/line-key entries and the writer serializes the
+      same order, snapshot blob/code-navigation fallback rejects out-of-root
+      symlink targets, and Generic Git --heads parsing validates every advertised
+      line before success.
+    commit: acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_line_keys -- --nocapture: passed with 1 test and 39 filtered out after worker-recorded RED failure where unsorted persisted artifact lines were accepted'
+      - 'cargo test -p sourcebot-search local_search_store_writes_persisted_index_artifact_in_validated_order -- --nocapture: RED failed before integrator fix with generated a/file.rs before a.rs rejected as unsorted, then GREEN passed with 1 test and 39 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 40 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api local_browse_store_rejects_blob_symlinked_outside_repo_root -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out after worker-recorded RED failure exposing the symlink target'
+      - 'cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
+      - 'cargo test -p sourcebot-api definitions -- --nocapture: passed with 11 bin tests, 0 lib tests, and 437 filtered out'
+      - 'cargo test -p sourcebot-api references -- --nocapture: passed with 13 bin tests, 0 lib tests, and 435 filtered out'
+      - 'cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture: passed with 7 bin tests, 0 lib tests, and 441 filtered out'
+      - 'cargo test -p sourcebot-api repo_blob -- --nocapture: passed with 10 bin tests, 0 lib tests, and 438 filtered out'
+      - 'cargo test -p sourcebot-api repository_tree -- --nocapture: passed with 1 bin test, 0 lib tests, and 447 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_malformed_ref_line_fails_closed -- --nocapture: passed with 1 lib test and zero-test non-lib targets after worker-recorded RED failure accepting malformed --heads output'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_validates_later_lines_after_preferred_match -- --nocapture: RED failed before integrator fix by accepting a later malformed --heads line after preferred match, then GREEN passed with 1 lib test and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git_sync_prefers_remote_head_symref_default_branch -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git_sync_resolves_head_revision_when_remote_omits_symref -- --nocapture: passed with 1 lib test and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker: passed with 49 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed'
+      - 'added-lines security scan over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed with 246 added lines scanned and 0 findings'
+      - 'independent integration review over 45f35de535b5464fc70a6173a363fb04634c15f0..acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2: passed after reviewer-found search writer ordering and Generic Git early-return blockers were fixed'
+    review: >-
+      Independent integration review initially failed on search artifact writer
+      ordering and Generic Git early-return validation blockers. After focused
+      regressions and fixes, final review passed with no blocking issues.
+    workers:
+      - 'search/index worker: integrated worker commit 6b2cc49897e44a473585737209fb9f9ce33a2d35 as main commit 0d220a0ed2e3db34f209b43552635c79c7957b83, then fixed reviewer-found writer-ordering blocker in 6335d7a450f883207d138e3d8f644a7540eb270a'
+      - 'browse/code-navigation worker: committed interrupted worker tree as f98c0f99f2622b79d37ae4a2934e8f0582f8bb3e and integrated as main commit fdb149bf2bdd0f708703708e9b35447bd16f8cc0'
+      - 'provider/worker worker: integrated worker commit b7f2758541567a51c8c5d652fc5ff37cb412f527 as main commit 5b891fa8868bc8f1270460192b78ff630ed89ef6, then fixed reviewer-found preferred-match early-return blocker in acd25b0f3e3b65a526d2ad5b9434ebd89113b0b2'
   - id: task102ai-106c-107b
     status: done
     summary: >-
