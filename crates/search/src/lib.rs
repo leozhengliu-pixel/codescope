@@ -689,6 +689,7 @@ fn validate_persisted_index_artifact(
     }
 
     let mut seen_line_keys = BTreeSet::new();
+    let mut previous_line_key: Option<(&str, usize)> = None;
     for indexed_line in &artifact.indexed_lines {
         if !is_safe_persisted_index_path(&indexed_line.path) {
             anyhow::bail!(
@@ -704,7 +705,9 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
-        if !seen_line_keys.insert((indexed_line.path.as_str(), indexed_line.line_number)) {
+
+        let line_key = (indexed_line.path.as_str(), indexed_line.line_number);
+        if !seen_line_keys.insert(line_key) {
             anyhow::bail!(
                 "duplicate search index artifact line key '{}:{}' in {}",
                 indexed_line.path,
@@ -712,6 +715,15 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        if previous_line_key.is_some_and(|previous_line_key| line_key < previous_line_key) {
+            anyhow::bail!(
+                "unsorted search index artifact line key '{}:{}' in {}: persisted lines must be ordered by path then line number",
+                indexed_line.path,
+                indexed_line.line_number,
+                artifact_path.display()
+            );
+        }
+        previous_line_key = Some(line_key);
     }
     Ok(())
 }
@@ -2014,6 +2026,36 @@ mod tests {
             error
                 .to_string()
                 .contains("duplicate search index artifact line key"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_unsorted_line_keys() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"]
+            .as_array_mut()
+            .unwrap()
+            .swap(0, 1);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index out-of-order path/line entries must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("unsorted search index artifact line key"),
             "unexpected error: {error:#}"
         );
 
