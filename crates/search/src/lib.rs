@@ -845,6 +845,14 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        if is_obviously_binary(&indexed_line.line) {
+            anyhow::bail!(
+                "binary search index artifact line content for '{}:{}' in {}: persisted indexes must not expose binary file payloads",
+                indexed_line.path,
+                indexed_line.line_number,
+                artifact_path.display()
+            );
+        }
         if indexed_line.line_number == 0 {
             anyhow::bail!(
                 "invalid search index artifact line number 0 for '{}' in {}",
@@ -2653,6 +2661,34 @@ mod tests {
             error
                 .to_string()
                 .contains("invalid search index artifact line number"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_binary_line_content() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["line"] =
+            serde_json::Value::String("build_router\0binary payload".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index binary line content must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("binary search index artifact line content"),
             "unexpected error: {error:#}"
         );
 
