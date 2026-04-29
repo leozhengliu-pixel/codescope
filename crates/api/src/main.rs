@@ -6261,10 +6261,19 @@ fn malformed_search_index_artifact_status(
     artifact_path: &std::path::Path,
     error: anyhow::Error,
 ) -> RepositoryIndexStatus {
-    let artifact_path = artifact_path.display().to_string();
+    let mut redaction_paths = artifact_path
+        .ancestors()
+        .filter_map(|path| {
+            let path = path.display().to_string();
+            (path.len() > 1).then_some(path)
+        })
+        .collect::<Vec<_>>();
+    redaction_paths.sort_by_key(|path| std::cmp::Reverse(path.len()));
+    redaction_paths.dedup();
+
     let mut error = error.to_string();
-    if !artifact_path.is_empty() {
-        error = error.replace(&artifact_path, "<redacted>");
+    for path in redaction_paths {
+        error = error.replace(&path, "<redacted>");
     }
 
     RepositoryIndexStatus {
@@ -29735,6 +29744,42 @@ mod tests {
         assert_eq!(payload.results[1].line_number, 2);
 
         fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[test]
+    fn malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error() {
+        let artifact_path = unique_test_path("search-redacted-artifact-status")
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("search-index.json");
+        let parent_path = artifact_path.parent().unwrap().to_path_buf();
+
+        let status = malformed_search_index_artifact_status(
+            "repo_local_import",
+            &artifact_path,
+            anyhow::anyhow!(
+                "search index artifact parent contains a symlink: {}",
+                parent_path.display()
+            ),
+        );
+
+        let error = status.error.as_deref().unwrap();
+        assert_eq!(status.status, RepositoryIndexState::Error);
+        assert!(
+            error.contains("<redacted>"),
+            "redacted error should keep an operator-visible location marker: {error}"
+        );
+        assert!(
+            !error.contains(parent_path.to_string_lossy().as_ref()),
+            "malformed artifact status must not expose absolute parent paths: {error}"
+        );
+        assert!(
+            !error.contains(artifact_path.to_string_lossy().as_ref()),
+            "malformed artifact status must not expose absolute artifact paths: {error}"
+        );
     }
 
     #[tokio::test]
