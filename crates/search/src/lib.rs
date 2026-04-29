@@ -922,7 +922,7 @@ fn indexed_line_matches_query(indexed_line: &IndexedLine, matcher: &QueryMatcher
                 && parsed_query
                     .path_filters
                     .iter()
-                    .all(|filter| normalized_path.contains(filter))
+                    .all(|filter| path_matches_filter(&normalized_path, filter))
                 && parsed_query
                     .language_filters
                     .iter()
@@ -980,6 +980,52 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
         parsed.line_term_groups.push(current_line_terms);
     }
     parsed
+}
+
+fn path_matches_filter(normalized_path: &str, filter: &str) -> bool {
+    if filter.contains('*') || filter.contains('?') {
+        return wildcard_path_matches(normalized_path.as_bytes(), filter.as_bytes());
+    }
+
+    normalized_path.contains(filter)
+}
+
+fn wildcard_path_matches(path: &[u8], pattern: &[u8]) -> bool {
+    let mut memo = vec![vec![None; pattern.len() + 1]; path.len() + 1];
+    wildcard_path_matches_from(path, pattern, 0, 0, &mut memo)
+}
+
+fn wildcard_path_matches_from(
+    path: &[u8],
+    pattern: &[u8],
+    path_index: usize,
+    pattern_index: usize,
+    memo: &mut [Vec<Option<bool>>],
+) -> bool {
+    if let Some(matched) = memo[path_index][pattern_index] {
+        return matched;
+    }
+
+    let matched = if pattern_index == pattern.len() {
+        path_index == path.len()
+    } else if pattern[pattern_index] == b'*' {
+        let is_double_star = pattern.get(pattern_index + 1) == Some(&b'*');
+        let next_pattern_index = pattern_index + if is_double_star { 2 } else { 1 };
+        wildcard_path_matches_from(path, pattern, path_index, next_pattern_index, memo)
+            || (path_index < path.len()
+                && (is_double_star || path[path_index] != b'/')
+                && wildcard_path_matches_from(path, pattern, path_index + 1, pattern_index, memo))
+    } else if path_index < path.len()
+        && (pattern[pattern_index] == path[path_index]
+            || (pattern[pattern_index] == b'?' && path[path_index] != b'/'))
+    {
+        wildcard_path_matches_from(path, pattern, path_index + 1, pattern_index + 1, memo)
+    } else {
+        false
+    };
+
+    memo[path_index][pattern_index] = Some(matched);
+    matched
 }
 
 fn path_matches_language(normalized_path: &str, language: &str) -> bool {
@@ -1671,6 +1717,47 @@ mod tests {
             quoted_filter_response.results.is_empty(),
             "quoted path:/lang: text should remain a literal phrase rather than becoming a filter"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_applies_path_glob_filters_to_result_paths() {
+        let root = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-path-glob-filter",
+            "path_glob_marker in readme\n",
+            "fn path_glob_marker() {}\n",
+            "target/generated.txt",
+        )
+        .root;
+        fs::create_dir_all(root.join("src").join("nested")).unwrap();
+        fs::write(
+            root.join("src").join("nested").join("lib.rs"),
+            "fn path_glob_marker_nested() {}\n",
+        )
+        .unwrap();
+        fs::write(root.join("src").join("main.ts"), "path_glob_marker ts\n").unwrap();
+
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let response = store
+            .search("path:src/*.rs path_glob_marker", Some("repo_test"))
+            .unwrap();
+
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].path, "src/main.rs");
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|result| result.path != "src/nested/lib.rs" && result.path != "src/main.ts"),
+            "single-star path globs should stay within one path component"
+        );
+
+        let recursive_response = store
+            .search("path:src/**/*.rs path_glob_marker", Some("repo_test"))
+            .unwrap();
+        assert_eq!(recursive_response.results.len(), 1);
+        assert_eq!(recursive_response.results[0].path, "src/nested/lib.rs");
 
         fs::remove_dir_all(root).unwrap();
     }
