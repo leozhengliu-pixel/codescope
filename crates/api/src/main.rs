@@ -6504,17 +6504,15 @@ async fn search_latest_local_sync_snapshot_for_repo(
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
-            return match LocalSearchStore::from_index_artifact(
+            return LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             )
             .and_then(|search| search.search_with_mode(query, Some(repo_id), mode))
-            {
-                Ok(response) => Ok(Some(response)),
-                Err(_) => Ok(Some(empty_local_sync_search_response(query, mode, repo_id))),
-            };
+            .map(Some)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -6530,19 +6528,6 @@ async fn search_latest_local_sync_snapshot_for_repo(
         .search_with_mode(query, Some(repo_id), mode)
         .map(Some)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-fn empty_local_sync_search_response(
-    query: &str,
-    mode: SearchMode,
-    repo_id: &str,
-) -> SearchResponse {
-    SearchResponse::unpaginated_with_mode(
-        query.trim().to_string(),
-        mode,
-        Some(repo_id.to_string()),
-        Vec::new(),
-    )
 }
 
 fn authorized_organization_ids_for_repo(
@@ -30025,12 +30010,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload: SearchResponse = read_json(response).await;
-        assert!(
-            payload.results.is_empty(),
-            "malformed local-sync search artifacts should fail closed to empty results without falling back to mutable snapshots"
-        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -30038,7 +30018,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unscoped_search_skips_malformed_local_sync_artifact_for_other_visible_repo() {
+    async fn unscoped_search_fails_closed_for_malformed_local_sync_artifact_in_any_visible_repo() {
         let bad_repo_root = unique_test_path("search-unscoped-bad-artifact-repo-root");
         let good_repo_root = unique_test_path("search-unscoped-good-artifact-repo-root");
         let bad_job_root = bad_repo_root
@@ -30166,17 +30146,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload: SearchResponse = read_json(response).await;
-        assert_eq!(payload.repo_id.as_deref(), None);
-        assert_eq!(payload.results.len(), 1);
-        assert_eq!(payload.results[0].repo_id, "repo_good");
-        assert!(payload.results[0]
-            .line
-            .contains("good_artifact_marker_survives_bad_neighbor"));
-        assert!(!payload.results[0]
-            .line
-            .contains("good_mutable_snapshot_must_not_be_used"));
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
