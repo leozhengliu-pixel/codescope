@@ -1492,11 +1492,17 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
         return Err("Generic Git base_url must not start with '-'".to_owned());
     }
     let Some((scheme, rest)) = trimmed.split_once("://") else {
+        if generic_git_url_has_unsupported_transport_prefix(trimmed) {
+            return Err("Generic Git base_url scheme is not supported".to_owned());
+        }
         if generic_git_scp_like_url_contains_userinfo(trimmed) {
             return Err("Generic Git base_url must not include embedded credentials".to_owned());
         }
         return Ok(());
     };
+    if !generic_git_url_scheme_is_supported(scheme) {
+        return Err("Generic Git base_url scheme is not supported".to_owned());
+    }
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     if authority.is_empty() && !scheme.eq_ignore_ascii_case("file") {
         return Err("Generic Git base_url URL authority must not be empty".to_owned());
@@ -1506,6 +1512,23 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn generic_git_url_scheme_is_supported(scheme: &str) -> bool {
+    matches!(
+        scheme.to_ascii_lowercase().as_str(),
+        "http" | "https" | "ssh" | "git" | "file"
+    )
+}
+
+fn generic_git_url_has_unsupported_transport_prefix(value: &str) -> bool {
+    let Some((prefix, _)) = value.split_once("::") else {
+        return false;
+    };
+    !prefix.is_empty()
+        && prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'.' | b'-'))
 }
 
 fn generic_git_scp_like_url_contains_userinfo(value: &str) -> bool {
@@ -2885,6 +2908,44 @@ mod tests {
             "file:// empty-authority URL should be preserved until git execution, got {error}"
         );
         assert!(!error.contains("URL authority must not be empty"));
+    }
+
+    #[test]
+    fn generic_git_ext_transport_url_fails_closed_before_spawning_git() {
+        let dangerous_url = "ext::sh -c 'printf owned >&2'";
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            dangerous_url,
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("Generic Git ext transport base_url should fail before git is spawned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url scheme is not supported"
+        );
+        assert!(!error.contains("owned"));
+        assert!(!error.contains(dangerous_url));
+    }
+
+    #[test]
+    fn generic_git_unknown_scheme_url_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            "ftp://example.invalid/org/repo.git",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!("Generic Git unsupported URL scheme should fail before git is spawned"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url scheme is not supported"
+        );
+        assert!(!error.contains("example.invalid"));
     }
 
     #[test]
