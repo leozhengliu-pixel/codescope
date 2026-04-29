@@ -5,34 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: a599b7a303e60b203cfba8ad2969bdb3a91aa842
+  head: 252e10d03ee1c3054f57d8f00693d71a6703f61e
 last_completed_task:
-  id: task107a_102t_106v
-  title: MCP JSON-RPC baseline, local-sync index-status fail-closed surfacing, and Generic Git output caps
+  id: task108a_worker_status_lease_summaries
+  title: Worker status lease-recovery error summaries
   status: done
   summary: >-
-    Closed the already-integrated carry-over batch instead of launching new
-    workers: the MCP/API surface now exposes an authenticated JSON-RPC
-    `/api/v1/mcp` protocol baseline with content negotiation, initialize/ping,
-    batch/notification handling, and permission-scoped `tools/call`; local-sync
-    index-status fallback now surfaces malformed or non-regular `search-index.json`
-    artifacts as operator-visible error status instead of silently masking them;
-    Generic Git remote metadata probing now caps combined stdout/stderr for HEAD
-    and heads probes and fails closed before terminal metadata success when output
-    exceeds the bounded limit. Coupled README, acceptance, gap-report, and final
-    audit wording were updated while preserving remaining practical-replacement
-    blockers.
+    Closed one implementation-backed worker/operator visibility slice from the
+    accelerated batch. Worker status snapshots now preserve the stable stale
+    repository-sync lease-recovery and malformed running-lease failure prefixes
+    while still redacting volatile timestamp/detail suffixes. This gives
+    operators a more actionable supervisor-readable status file without claiming
+    broad scheduling, retry/backoff, daemon supervision, or production observability
+    parity.
   tests:
-    - 'main: cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 14 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api repository_index_status_surfaces -- --nocapture passed with 2 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 29 lib tests plus zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-api local_sync -- --nocapture passed with 17 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-mcp -- --nocapture passed with 9 lib tests and zero doctests'
+    - 'worker C RED: cargo test -p sourcebot-worker worker_status_error_preserves_lease_recovery_prefixes_without_details failed before implementation because stale lease recovery collapsed to repository sync failed: details redacted'
+    - 'main: cargo test -p sourcebot-worker worker_status_error -- --nocapture passed with 4 sourcebot-worker bin tests; other targets matched zero tests as expected for this selector'
+    - 'main: cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture passed with 20 sourcebot-worker lib tests; other targets matched zero tests as expected for this selector'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD and final git diff --check passed'
-    - 'main: added-lines security scan over 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD scanned 236 added lines with no findings'
-    - 'independent integration review approved 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD with no blocking security, auth/scope, JSON-RPC protocol, local-sync fail-closed, Generic Git command/output-safety, or docs-claim issues; reviewer reran focused MCP, index-status, Generic Git, and diff-check commands'
-  commit: a599b7a303e60b203cfba8ad2969bdb3a91aa842
+    - 'main: git diff --check HEAD~1..HEAD passed'
+    - 'main: added-lines security scan over HEAD~1..HEAD scanned 31 added lines with no findings'
+    - 'independent review approved HEAD~1..HEAD with no blocking security, logic, status-redaction, bounded-claim, or test-coverage issues'
+  commit: 252e10d03ee1c3054f57d8f00693d71a6703f61e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,17 +36,57 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This close-out did not start new workers because the main
-    branch was already ahead with unpushed carry-over closures. The carry-over
-    batch landed an authenticated MCP JSON-RPC protocol baseline, fail-closed
-    local-sync artifact index-status surfacing, and bounded-output Generic Git
-    remote metadata probing. Remaining practical replacement work still includes
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale, branch/index availability, broader provider
-    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO
-    and richer admin/org flows, deeper MCP client/session interoperability,
-    operator runbook/deploy evidence, and other release blockers in this roadmap.
+    worktree is clean. This run integrated the Task 108 worker/operator status
+    closure from the parallel batch because the Search/Index and Browse/Code-nav
+    workers were stopped by provider/account exhaustion before producing commits.
+    Remaining practical replacement work still includes production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale, branch/index availability, broader provider fetch/import/reindex, worker
+    scheduling/supervision and broad retry/backoff, OIDC/SSO and richer admin/org
+    flows, deeper MCP client/session interoperability, operator runbook/deploy
+    evidence, and other release blockers in this roadmap.
 history:
+  - id: task108a_worker_status_lease_summaries
+    status: done
+    summary: >-
+      Integrated the successful Provider/Sync/Worker accelerated-worker closure
+      while failing closed on the two workers that hit provider/account exhaustion
+      before producing commits. The shipped worker/runtime change preserves stable
+      stale repository-sync lease-recovery and malformed running-lease failure
+      prefixes in `SOURCEBOT_WORKER_STATUS_PATH` snapshots while redacting volatile
+      suffix details, improving supervisor/operator triage without claiming broad
+      retry/backoff, continuous scheduling, daemon supervision, or production
+      observability parity.
+    commit: 252e10d03ee1c3054f57d8f00693d71a6703f61e
+    component_commits:
+      - 55e8df954c699e8d69d72885c9095bd4e9cef5c3
+      - 252e10d03ee1c3054f57d8f00693d71a6703f61e
+    tests:
+      - 'worker C RED: cargo test -p sourcebot-worker worker_status_error_preserves_lease_recovery_prefixes_without_details failed before implementation because stale lease recovery collapsed to repository sync failed: details redacted'
+      - 'main: cargo test -p sourcebot-worker worker_status_error -- --nocapture passed with 4 sourcebot-worker bin tests; other targets matched zero tests as expected for this selector'
+      - 'main: cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture passed with 20 sourcebot-worker lib tests; other targets matched zero tests as expected for this selector'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check HEAD~1..HEAD passed'
+      - 'main: added-lines security scan over HEAD~1..HEAD scanned 31 added lines with no findings'
+      - 'independent review approved HEAD~1..HEAD with no blocking security, logic, status-redaction, bounded-claim, or test-coverage issues'
+    review: >-
+      Independent review approved the exact `HEAD~1..HEAD` diff with no blocking
+      security, logic, worker-status redaction, bounded documentation-claim, or
+      test coverage issues. The reviewer confirmed the new sanitizer preserves only
+      known stale/malformed lease-recovery prefixes plus redacted suffixes, keeps
+      unknown or credential-bearing details generic, and leaves the acceptance
+      wording bounded to status-file summaries.
+    workers:
+      - 'Search/Index worker: failed with HTTP 503 account exhaustion before producing a commit; no mergeable product change'
+      - 'Browse/Code-nav worker: failed with HTTP 503 account exhaustion before producing a commit; no mergeable product change'
+      - 'Provider/Sync/Worker worker: produced commit 55e8df954c699e8d69d72885c9095bd4e9cef5c3, cherry-picked in main as 252e10d03ee1c3054f57d8f00693d71a6703f61e'
+    notes: >-
+      This was a real implementation-backed operator/runtime closure rather than
+      a paperwork or state-only micro-slice: it started from a failing regression,
+      changed shipped worker status behavior, updated the coupled worker-runtime
+      acceptance wording, passed focused and broader worker selectors, passed
+      mechanical/security checks, received independent review, and cleaned the
+      failed/completed worker worktrees.
   - id: task107a_102t_106v
     status: done
     summary: >-
