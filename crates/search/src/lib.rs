@@ -427,6 +427,14 @@ impl LocalSearchStore {
 
         let artifact_json =
             serde_json::to_vec(&artifact).context("failed to serialize search index artifact")?;
+        if artifact_json.len() as u64 > MAX_INDEX_ARTIFACT_SIZE_BYTES {
+            anyhow::bail!(
+                "search index artifact is too large: serialized artifact for {} is {} bytes, maximum is {} bytes",
+                artifact_path.display(),
+                artifact_json.len(),
+                MAX_INDEX_ARTIFACT_SIZE_BYTES
+            );
+        }
         let mut tmp_file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -2685,6 +2693,53 @@ mod tests {
                 .contains("ignored search index artifact path"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_write_rejects_oversized_persisted_index_artifact() {
+        let root = repo_tree_fixture::unique_temp_dir("search-artifact-oversized-writer");
+        fs::create_dir_all(&root).unwrap();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+        let tmp_path = artifact_path.with_extension("json.tmp");
+        let oversized_lines = (0..11_000)
+            .map(|index| IndexedLine {
+                path: format!("file-{index:05}.rs"),
+                line_number: 1,
+                line: format!("oversized artifact marker {}", "a".repeat(1_000)),
+            })
+            .collect::<Vec<_>>();
+        let store = LocalSearchStore {
+            repo_roots: HashMap::from([("repo_test".to_string(), root.clone())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: HashMap::from([("repo_test".to_string(), oversized_lines)]),
+            index_statuses: HashMap::from([(
+                "repo_test".to_string(),
+                RepositoryIndexStatus {
+                    repo_id: "repo_test".to_string(),
+                    status: RepositoryIndexState::Indexed,
+                    indexed_file_count: 11_000,
+                    indexed_line_count: 11_000,
+                    skipped_file_count: 0,
+                    error: None,
+                },
+            )]),
+        };
+
+        let error = match store.write_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("oversized persisted index artifacts must fail closed before writing"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact is too large"),
+            "unexpected error: {error:#}"
+        );
+        assert!(!artifact_path.exists());
+        assert!(!tmp_path.exists());
 
         fs::remove_dir_all(root).unwrap();
     }
