@@ -718,7 +718,13 @@ fn run_local_repository_sync_execution(
             ));
         }
         Ok(Some(output)) if output.status.success() && !output.stdout.is_empty() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if !is_valid_git_branch_name(&branch) {
+                return Err(format!(
+                    "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git symbolic-ref --short HEAD returned malformed branch name"
+                ));
+            }
+            branch
         }
         Ok(Some(output)) => {
             resolve_detached_head_branch_label(git_command, repo_path, timeout, output_limit_bytes)
@@ -4129,6 +4135,71 @@ mod tests {
                 .join("large.txt")
                 .exists(),
             "oversized output must fail before snapshot persistence"
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_malformed_current_branch_fails_before_artifact_persistence() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-malformed-branch-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse --is-inside-work-tree\" ]; then\n  printf 'true\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4\" = \"rev-parse HEAD\" ]; then\n  printf '0123456789abcdef0123456789abcdef01234567\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4 $5 $6\" = \"ls-tree -rz --name-only HEAD\" ]; then\n  printf 'README.md\\0'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3 $4 $5\" = \"symbolic-ref --short HEAD\" ]; then\n  printf 'main\\nbranch-injection\\n'\n  exit 0\nfi\nif [ \"$1\" = \"-C\" ] && [ \"$3\" = \"show\" ]; then\n  printf 'safe content\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_malformed_branch",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            fake_git_path.as_os_str(),
+            Duration::from_secs(2),
+        )
+        .expect("malformed local repository branch metadata should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_malformed_branch");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync execution failed: git symbolic-ref --short HEAD returned malformed branch name")
+        );
+        let manifest_path = local_repository_sync_manifest_path(
+            &repo_path.display().to_string(),
+            &state.repository_sync_jobs[0],
+        );
+        assert!(
+            !manifest_path.exists(),
+            "malformed branch metadata must fail before manifest persistence"
+        );
+        assert!(
+            !manifest_path
+                .parent()
+                .unwrap()
+                .join("snapshot")
+                .join("README.md")
+                .exists(),
+            "malformed branch metadata must fail before snapshot persistence"
         );
 
         fs::remove_dir_all(repo_path).unwrap();
