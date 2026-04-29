@@ -31,12 +31,37 @@ pub trait SearchStore: Send + Sync {
     fn search(&self, query: &str, repo_id: Option<&str>) -> Result<SearchResponse> {
         self.search_with_mode(query, repo_id, SearchMode::Boolean)
     }
+
+    fn search_page(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SearchResponse> {
+        self.search_page_with_mode(query, repo_id, SearchMode::Boolean, limit, offset)
+    }
+
     fn search_with_mode(
         &self,
         query: &str,
         repo_id: Option<&str>,
         mode: SearchMode,
     ) -> Result<SearchResponse>;
+
+    fn search_page_with_mode(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        mode: SearchMode,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SearchResponse> {
+        let mut response = self.search_with_mode(query, repo_id, mode)?;
+        apply_search_pagination(&mut response, limit, offset);
+        Ok(response)
+    }
+
     fn repository_index_status(&self, repo_id: &str) -> Result<Option<RepositoryIndexStatus>>;
 }
 
@@ -123,6 +148,23 @@ impl SearchResponse {
             },
         }
     }
+}
+
+fn apply_search_pagination(response: &mut SearchResponse, limit: usize, offset: usize) {
+    let total_count = response.results.len();
+    response.results = response
+        .results
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+    response.pagination = SearchPagination {
+        limit,
+        offset,
+        total_count,
+        has_more: offset.saturating_add(limit) < total_count,
+    };
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1482,6 +1524,41 @@ mod tests {
             post_index_response.results.is_empty(),
             "search must use the startup-built index rather than rewalking the filesystem per query"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_exposes_bounded_search_pages() {
+        let (store, root) = create_test_store();
+
+        let first_page = store
+            .search_page("build_router", Some("repo_test"), 1, 0)
+            .unwrap();
+        assert_eq!(first_page.query, "build_router");
+        assert_eq!(first_page.repo_id.as_deref(), Some("repo_test"));
+        assert_eq!(first_page.results.len(), 1);
+        assert_eq!(first_page.pagination.limit, 1);
+        assert_eq!(first_page.pagination.offset, 0);
+        assert_eq!(first_page.pagination.total_count, 2);
+        assert!(first_page.pagination.has_more);
+
+        let second_page = store
+            .search_page("build_router", Some("repo_test"), 1, 1)
+            .unwrap();
+        assert_eq!(second_page.results.len(), 1);
+        assert_eq!(second_page.pagination.limit, 1);
+        assert_eq!(second_page.pagination.offset, 1);
+        assert_eq!(second_page.pagination.total_count, 2);
+        assert!(!second_page.pagination.has_more);
+        assert_ne!(first_page.results[0].path, second_page.results[0].path);
+
+        let empty_page = store
+            .search_page("build_router", Some("repo_test"), 1, 99)
+            .unwrap();
+        assert!(empty_page.results.is_empty());
+        assert_eq!(empty_page.pagination.total_count, 2);
+        assert!(!empty_page.pagination.has_more);
 
         fs::remove_dir_all(root).unwrap();
     }
