@@ -5,36 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e5aaf3754331c83a7a37c6a17e20f7b60584eef8
+  head: 0aa8265537178f889bb913c13c0f2368c3645861
 last_completed_task:
-  id: task102ap-103h-106i
-  title: Local sync search, commit fallback, and worker output hardening
+  id: task102aq-103i-106j
+  title: Search artifact isolation, commit output fail-closed, and Generic Git HEAD ambiguity hardening
   status: done
   summary: >-
-    Integrated three accelerated worker closures plus coupled acceptance/final-audit
-    wording. Local-sync artifact-backed search now fails closed for present
-    malformed or non-regular search-index artifacts, including unscoped and
-    search-context fallbacks across visible repositories, instead of returning
-    empty or partial-success results. Local-sync commit fallback now fails closed
-    when duplicate authorized organization bindings make a shared repository id
-    ambiguous. Generic Git/local worker child-output handling now terminates the
-    child promptly once retained stdout or stderr exceeds the bounded output cap.
+    Integrated three accelerated worker closures plus an integrator fix and coupled
+    acceptance/final-audit wording. Search indexing now skips repository-root
+    `.sourcebot` runtime metadata without accidentally skipping authorized
+    local-sync snapshots that live under an external `.sourcebot` artifact root.
+    Commit-history Git stdout/stderr capture now fails closed instead of parsing
+    silently truncated commit/diff metadata. Generic Git remote HEAD metadata now
+    fails closed when `ls-remote --symref HEAD` advertises multiple valid HEAD
+    revisions before any `--heads` fallback can choose an arbitrary branch.
   tests:
-    - 'cargo test -p sourcebot-api malformed_local_sync -- --nocapture: passed in the main worktree with 3 bin tests, 0 lib tests, and 449 filtered out after worker-recorded RED failure for malformed search artifact returning 200/empty or partial success'
-    - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed in the main worktree with 14 bin tests, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-api duplicate_org_repo_bindings -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 451 filtered out after worker-recorded RED failure returned 200 for ambiguous local-sync commit fallback'
-    - 'cargo test -p sourcebot-api repo_commits_local_sync -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 450 filtered out'
-    - 'cargo test -p sourcebot-api local_commit_store -- --nocapture: passed in the main worktree with 10 bin tests, 0 lib tests, and 442 filtered out'
-    - 'cargo test -p sourcebot-api repo_commits -- --nocapture: passed in the main worktree with 8 bin tests, 0 lib tests, and 444 filtered out'
-    - 'cargo test -p sourcebot-worker bounded_child_output -- --nocapture: passed in the main worktree with 2 lib tests plus zero-test non-lib targets after worker-recorded RED failures around over-cap output termination'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_head_stdout_over_cap_fails_closed -- --nocapture: passed in the main worktree with 1 lib test plus zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_stdout_over_cap_fails_closed -- --nocapture: passed in the main worktree with 1 lib test plus zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 57 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-search local_search_store_skips_sourcebot_runtime_artifacts -- --nocapture: passed in the main worktree with 1 test and 42 filtered out after worker-recorded RED failure exposed .sourcebot runtime metadata in search results'
+    - 'cargo test -p sourcebot-search: passed in the main worktree with 43 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api commits::tests::read_stream_bounded_rejects_oversized_git_output -- --exact --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 452 filtered out after worker-recorded RED failure showed silent truncation'
+    - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed in the main worktree with 16 bin tests, 0 lib tests, and 437 filtered out'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_duplicate_head_revisions_fail_closed_before_heads_fallback -- --nocapture: passed in the main worktree with 1 lib test, 0 main tests, and zero-test smoke targets'
+    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path -- --nocapture: passed after the integrator fixed the .sourcebot skip to be repository-root-relative, with 1 lib test and 57 filtered out'
+    - 'cargo test -p sourcebot-worker: passed in the main worktree with 58 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus worktree docs diff: passed'
-    - 'added-lines security scan over 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus docs diff: passed with 237 added lines and no findings'
-    - 'independent integration review over 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus docs diff: approved with no blocking security, logic, auth/scope, or docs-claim issues'
-  commit: e5aaf3754331c83a7a37c6a17e20f7b60584eef8
+    - 'git diff --check 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD plus worktree state diff: passed'
+    - 'doc truth checks for search/browse/generic-local-git acceptance and final-audit wording: passed'
+    - 'added-lines security scan over 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD: passed with 114 added lines and no findings'
+    - 'independent integration review over 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD plus worktree state diff: approved with no blocking security, logic, auth/scope, or docs-claim issues'
+  commit: 0aa8265537178f889bb913c13c0f2368c3645861
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -44,18 +42,57 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    real fail-closed hardening across three release-blocker surfaces: malformed or
-    non-regular local-sync search-index artifacts no longer return empty/partial
-    search success, ambiguous duplicate-organization local-sync commit fallback no
-    longer chooses an arbitrary local Git root, and over-cap worker child output no
-    longer waits for the child to finish or time out. Remaining practical
-    replacement work still includes production-shaped indexing lifecycle/status
-    and failure recovery, relevance and pagination behavior at scale, branch/index
-    availability, broader provider fetch/import/reindex, worker supervision and
-    broad retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
-    interoperability, operator runbook/deployment evidence, and other release
-    blockers in this roadmap.
+    three real fail-closed hardening closures: repository-root `.sourcebot` runtime
+    metadata is excluded from source indexing without breaking local-sync snapshot
+    indexing under external artifact roots, commit-history Git capture no longer
+    parses silently truncated subprocess output, and Generic Git remote HEAD
+    metadata no longer accepts ambiguous duplicate HEAD revision advertisements.
+    Remaining practical replacement work still includes production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale, branch/index availability, broader provider fetch/import/reindex,
+    worker supervision and broad retry/backoff, OIDC/SSO and richer admin/org
+    flows, MCP client interoperability, operator runbook/deployment evidence, and
+    other release blockers in this roadmap.
 history:
+  - id: task102aq-103i-106j
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures plus one integrator fix found by broader verification.
+      Search indexing skips repository-root `.sourcebot` runtime artifacts without
+      suppressing external local-sync snapshot roots, commit Git output capture
+      fails closed on over-cap stdout/stderr, and Generic Git HEAD metadata rejects
+      ambiguous duplicate HEAD revision advertisements before fallback.
+    commit: 0aa8265537178f889bb913c13c0f2368c3645861
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_skips_sourcebot_runtime_artifacts -- --nocapture: passed with 1 test and 42 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 43 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api commits::tests::read_stream_bounded_rejects_oversized_git_output -- --exact --nocapture: passed with 1 bin test, 0 lib tests, and 452 filtered out'
+      - 'cargo test -p sourcebot-api commits::tests -- --nocapture: passed with 16 bin tests, 0 lib tests, and 437 filtered out'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_duplicate_head_revisions_fail_closed_before_heads_fallback -- --nocapture: passed with 1 lib test plus zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_succeeds_for_real_local_git_repository_path -- --nocapture: passed with 1 lib test and 57 filtered out after integration fix'
+      - 'cargo test -p sourcebot-worker: passed with 58 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 0f05c1ecdcaa8712fb9a5f7ddd0594d294ea9667..HEAD plus worktree state diff: passed'
+      - 'doc truth checks: passed'
+      - 'added-lines security scan: passed with 114 added lines and no findings'
+      - 'independent integration review: approved with no blocking issues'
+    review: >-
+      Independent integration review approved the actual repository diff and found
+      no blocking issues. The reviewer specifically checked repository-relative
+      `.sourcebot` skipping, exact-cap/over-cap commit Git capture behavior,
+      duplicate Generic Git HEAD fail-closed parsing, and bounded docs claims.
+    workers:
+      - 'search/index worker: integrated worker commit 905c47c0a5753a8fb16ddfb26336a7c4788917db as main commit 059d1376a1aa7ee4cc18ac286eec2993a5e4d17d, with integrator root-relative skip fix in 0aa8265537178f889bb913c13c0f2368c3645861'
+      - 'browse/commit worker: integrated worker commit be9ffd6c19253995c67dd6325edd88a416b895f7 as main commit 02d2d609c36c0298ad389b6891f3bf9779ebea5b, plus acceptance/final-audit sync in 0aa8265537178f889bb913c13c0f2368c3645861'
+      - 'worker/provider worker: integrated worker commit 6538c71a5029ba92da8b3296d7130ffff3a78456 as main commit 81895ae9f21b88750616b2b582f4c4cf09301f9a, plus acceptance/final-audit sync in 0aa8265537178f889bb913c13c0f2368c3645861'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: all
+      three workers shipped code with RED/GREEN evidence, the integrator
+      cherry-picked each closure, found and fixed a broader worker/search
+      interaction failure in the main worktree, reran focused and broader
+      selectors, synchronized coupled acceptance/final-audit wording, ran security
+      and mechanical checks, and obtained independent review before updating state.
   - id: task102ap-103h-106i
     status: done
     summary: >-
