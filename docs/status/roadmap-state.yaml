@@ -5,39 +5,41 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 78e875b06bcd01e8792712c529cd41ca20ba64b1
+  head: 95e57c07d52052988cf8bfbe1ffabe563afd07d7
 last_completed_task:
-  id: task102_103_106_filter_revision_path_guards
-  title: Bound search path filters, browse revision selectors, and local repo paths
+  id: task103_108_commit_diff_worker_status_metadata
+  title: Bound commit diff metadata paths and worker sync-status metadata
   status: done
   summary: >-
-    Integrated three disjoint implementation-worker closures plus coupled
-    parity-evidence docs as one real runtime hardening batch. Search/index now
-    fails closed for oversized `path:` glob filters before matcher allocation;
-    browse/source local revision handling now rejects blank explicit revisions
-    and fails closed on control-character revision selectors before invoking
-    Git; and worker-side local repository sync now rejects blank, padded, or
-    control-character-bearing `repo_path` values before spawning Git. Practical
-    replacement remains incomplete and still fails closed on production
-    indexing lifecycle, provider fetch/import/reindex, worker supervision and
-    broad retry/backoff, identity/provider flows, MCP client/session
-    interoperability, and production operator deployment evidence.
+    Integrated two disjoint implementation-worker closures plus an integrator
+    review fix/docs-sync as one meaningful practical-replacement hardening
+    batch. Commit diff parsing now rejects Git-reported current/old paths that
+    contain ASCII control characters before per-file patch loading or response
+    metadata. Worker status snapshots and terminal logs now expose nullable
+    repository-sync revision/branch/content-count metadata only for successful
+    repository-sync terminal jobs, while failed/no-work/non-repository paths
+    avoid surfacing stale sync metadata. Practical replacement remains
+    incomplete and still fails closed on production indexing lifecycle, real
+    provider fetch/import/reindex, broad retry/backoff and supervision,
+    identity/provider flows, MCP client/session interoperability, and
+    production operator deployment evidence.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture failed before implementation with 0 passed, 1 failed, 60 filtered out because oversized path globs still matched results'
-    - 'controller focused: cargo test -p sourcebot-search local_search_store_fails_closed_for_oversized_path_glob_filters -- --nocapture passed with 1 test and 60 filtered out'
-    - 'controller broader: cargo test -p sourcebot-search passed with 61 tests and 0 failures'
-    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture failed before implementation because empty explicit revision reached Git rev-parse and surfaced a backend error'
-    - 'controller focused: cargo test -p sourcebot-api local_browse_store_rejects_empty_explicit_revision_without_head_fallback -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 437 filtered out'
-    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git failed before implementation with 0 passed, 1 failed because padded repo_path reached Git as a missing path'
-    - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_repo_path_with_surrounding_whitespace_fails_closed_before_spawning_git -- --nocapture passed with 1 lib test, 82 filtered out, and zero-test nonmatching targets'
-    - 'controller broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture passed with 10 lib tests and 73 filtered out plus zero-test nonmatching targets'
-    - 'controller broader: cargo test -p sourcebot-worker repository_sync -- --nocapture passed with 34 lib tests, 49 filtered out, 3 repository_sync_claim_smoke tests, and 2 worker_runtime_logging_smoke tests'
+    - 'worker RED: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture failed before implementation with 0 passed, 1 failed, 476 filtered out because control-character diff metadata paths were still accepted'
+    - 'controller focused: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 458 filtered out'
+    - 'worker RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact failed before implementation because status snapshots lacked terminal sync metadata fields'
+    - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact passed with 1 test and 6 filtered out'
+    - 'controller focused: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_successful_repository_sync_metadata -- --exact passed with 1 test and 5 filtered out'
+    - 'review-forced RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact failed before integrator fix because successful-only metadata helper was missing after compile-clean test setup, proving stale failed-job metadata was not gated'
+    - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact passed with 1 test and 7 filtered out'
+    - 'controller broader: cargo test -p sourcebot-worker --bin sourcebot-worker worker_status -- --nocapture passed with 6 tests and 2 filtered out'
+    - 'controller broader: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke passed with 6 tests and 0 filtered out'
+    - 'controller broader: cargo test -p sourcebot-worker passed with 83 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check passed before docs commit'
-    - 'controller: added-lines security scan over 2945c71347f0cb2dd63aa296d3545ed99e757094..HEAD plus docs-sync diff found no findings'
-    - 'independent integration review approved the runtime hardening batch and approved the docs-sync after a reviewer-forced browse status wording fix'
-  commit: 78e875b06bcd01e8792712c529cd41ca20ba64b1
+    - 'controller: git diff --check passed'
+    - 'controller: added-lines security scan over 42d2136c62c3b6a6bff2e05c0932533efd6e9461^..HEAD found no findings'
+    - 'independent integration review initially blocked stale failed-job metadata exposure; after the integrator fix, independent re-review approved the batch with no security, logic, or claim issues'
+  commit: 95e57c07d52052988cf8bfbe1ffabe563afd07d7
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -47,20 +49,64 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing
     runtime closure while the accelerated controller may also take adjacent
     high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
-    the main worktree is clean. This batch closed three real fail-closed
-    runtime hardening gaps: oversized search `path:` glob filters cannot drive
-    unbounded matcher allocation, blank/control-character browse revision
-    selectors fail closed before Git invocation, and local repository-sync
-    `repo_path` values with blank, padded, or control-character content fail
-    closed before spawning Git. Practical replacement remains incomplete.
-    Remaining blockers still include production-shaped indexing lifecycle/status
-    and failure recovery, relevance and pagination behavior at scale beyond
-    bounded helpers, branch and index availability, broader provider
-    fetch/import/reindex, worker scheduling and supervision with broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
-    client/session interoperability, operator runbook/deploy evidence, and the
-    other release blockers in this roadmap.
+    the main worktree is clean. This batch closed two real Task 103/108
+    hardening gaps: commit diff metadata cannot carry control-character paths
+    into patch loading/response metadata, and worker status/log sync metadata is
+    success-only so stale failed-job metadata is not surfaced as operator
+    evidence. Practical replacement remains incomplete. Remaining blockers still
+    include production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale beyond bounded helpers, branch
+    and index availability, broader provider fetch/import/reindex, worker
+    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
+    admin/org flows, deeper MCP client/session interoperability, operator
+    runbook/deploy evidence, and the other release blockers in this roadmap.
 history:
+  - id: task103_108_commit_diff_worker_status_metadata
+    status: done
+    summary: >-
+      Integrated browse/commit and worker/operator hardening as one meaningful
+      runtime closure rather than a docs-only micro-slice. Commit diff metadata
+      rejects control-character current/old paths before patch loading or
+      response metadata, and worker status/log sync metadata is gated to
+      successful repository-sync terminal jobs so stale failed-job metadata does
+      not become operator evidence. Coupled acceptance, parity-gap, and final
+      audit wording remains bounded below practical replacement parity.
+    commit: 95e57c07d52052988cf8bfbe1ffabe563afd07d7
+    component_commits:
+      - 42d2136c62c3b6a6bff2e05c0932533efd6e9461
+      - 735ea64daf512dc3c1ff60a1c43798beb4677063
+      - 95e57c07d52052988cf8bfbe1ffabe563afd07d7
+    tests:
+      - 'worker RED: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture failed before implementation with 0 passed, 1 failed, 476 filtered out because control-character diff metadata paths were still accepted'
+      - 'controller focused: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 458 filtered out'
+      - 'worker RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact failed before implementation because status snapshots lacked terminal sync metadata fields'
+      - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact passed with 1 test and 6 filtered out'
+      - 'controller focused: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_successful_repository_sync_metadata -- --exact passed with 1 test and 5 filtered out'
+      - 'review-forced RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact failed before integrator fix because successful-only metadata helper was missing after compile-clean test setup, proving stale failed-job metadata was not gated'
+      - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact passed with 1 test and 7 filtered out'
+      - 'controller broader: cargo test -p sourcebot-worker --bin sourcebot-worker worker_status -- --nocapture passed with 6 tests and 2 filtered out'
+      - 'controller broader: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke passed with 6 tests and 0 filtered out'
+      - 'controller broader: cargo test -p sourcebot-worker passed with 83 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check passed'
+      - 'controller: added-lines security scan over 42d2136c62c3b6a6bff2e05c0932533efd6e9461^..HEAD found no findings'
+      - 'independent integration review initially blocked stale failed-job metadata exposure; after the integrator fix, independent re-review approved the batch with no security, logic, or claim issues'
+    review: >-
+      Independent integration review approved the commit diff path-safety
+      closure, but initially blocked the worker status metadata closure because
+      failed repository-sync jobs with stale sync metadata could still surface
+      revision/branch/content-count fields. The controller added a
+      success-only metadata gate plus a focused regression, reran worker status
+      and full worker verification, and independent re-review approved with no
+      remaining security, logic, or claim issues.
+    workers: >-
+      Browse/code worker commit 6e61825a9a45b092306898b2fe5489bddae6fd18 was
+      cherry-picked/integrated on master as 42d2136c62c3b6a6bff2e05c0932533efd6e9461. Provider/worker commit
+      61fbd9a7eca3836b054c24b2b9d1fb0891dbd5b4 was cherry-picked/integrated on
+      master as 735ea64daf512dc3c1ff60a1c43798beb4677063. Search/index worker failed before implementation due
+      to provider/account 503 exhaustion and produced no mergeable commit. The
+      integrator review-fix/docs-sync landed on master as 95e57c07d52052988cf8bfbe1ffabe563afd07d7.
   - id: task102_103_106_filter_revision_path_guards
     status: done
     summary: >-
