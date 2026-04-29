@@ -5,34 +5,33 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 825d3c1b248f540e163a356c4ee3b668b22c3179
+  head: 34f0af68ac97b60f2674423e2f697c570fc310a5
 last_completed_task:
-  id: task102am-103e-106g
-  title: Search ordering, tree traversal status, and detached local Git sync hardening
+  id: task102an-103f
+  title: Search index-status and browse tree symlink fail-closed hardening
   status: done
   summary: >-
-    Integrated an accelerated three-worker batch. Startup/local search now sorts
-    indexed lines by path and line after recursive collection, including
-    file-vs-directory prefix collisions such as a.rs before a/file.rs. Repository
-    tree requests now reject parent-directory traversal with the same 400 Bad
-    Request contract as blob reads instead of treating malformed paths as generic
-    not found. Local repository-sync worker execution now supports detached HEAD
-    checkouts by persisting the explicit HEAD branch label while still requiring
-    bounded Git preflight, readable revision, tracked content, snapshot,
-    manifest, and search-index artifact success before terminal success.
+    Integrated two accelerated worker closures plus coupled final-audit wording.
+    Artifact-backed repository index-status now reports a present non-regular
+    local-sync search-index artifact as a bounded error status with a redacted
+    operator reason instead of returning a generic 500 or falling back to mutable
+    snapshot contents. Local browse tree reads now reject symlinked directories
+    that resolve outside the repository root, aligning tree traversal with the
+    existing blob symlink escape protection.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_returns_deterministic_repo_path_line_order -- --nocapture: passed in the main worktree with 1 test and 41 filtered out after worker-recorded RED failure for a.rs versus a/file.rs ordering'
+    - 'cargo test -p sourcebot-api repository_index_status_surfaces_non_regular_local_sync_search_index_artifact_reason -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 449 filtered out after worker-recorded RED failure returned 500 instead of 200 error status'
+    - 'cargo test -p sourcebot-api repository_index_status_ -- --nocapture: passed in the main worktree with 4 bin tests, 0 lib tests, and 446 filtered out'
     - 'cargo test -p sourcebot-search: passed in the main worktree with 42 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_bad_request -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 448 filtered out after worker-recorded RED failure where traversal returned 404 instead of 400'
-    - 'cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed in the main worktree with 9 bin tests, 0 lib tests, and 440 filtered out'
-    - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed in the main worktree with 29 bin tests, 0 lib tests, and 420 filtered out'
-    - 'cargo test -p sourcebot-worker --lib tests::run_repository_sync_claim_tick_succeeds_for_detached_local_git_head -- --exact --nocapture: passed in the main worktree with 1 test and 53 filtered out after worker-recorded RED failure where detached HEAD local sync ended Failed instead of Succeeded'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 54 lib tests, 3 main tests, smoke targets 5/3/4/3/5 passed, and 0 doctests'
+    - 'cargo test -p sourcebot-api browse::tests::local_browse_store_rejects_tree_symlinked_outside_repo_root -- --exact: passed in the main worktree with 1 bin test, 0 lib tests, and 449 filtered out after worker-recorded RED failure listed the out-of-root symlink target'
+    - 'cargo test -p sourcebot-api browse::tests -- --nocapture: passed in the main worktree with 30 bin tests, 0 lib tests, and 420 filtered out'
+    - 'cargo test -p sourcebot-api commit -- --nocapture: passed in the main worktree with 29 bin tests, 0 lib tests, and 421 filtered out'
+    - 'cargo test -p sourcebot-api code_nav -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 448 filtered out'
+    - 'doc truth checks for specs/acceptance/search.md, specs/acceptance/browse.md, and docs/reports/2026-04-22-final-parity-audit-and-release-checklist.md: passed'
     - 'cargo fmt --check: passed'
-    - 'git diff --check c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed'
-    - 'added-lines security scan over c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed with 193 added lines and no findings'
-    - 'independent integration review over c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed with no blocking issues'
-  commit: 825d3c1b248f540e163a356c4ee3b668b22c3179
+    - 'git diff --check 9e0963bb542f09623dc6f787231e5e3607e2e744..HEAD: passed'
+    - 'added-lines security scan over 9e0963bb542f09623dc6f787231e5e3607e2e744..HEAD: passed with 54 added lines and no findings'
+    - 'independent integration review over 9e0963bb542f09623dc6f787231e5e3607e2e744..HEAD: passed with no blocking security, logic, or docs-claim issues'
+  commit: 34f0af68ac97b60f2674423e2f697c570fc310a5
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,18 +41,57 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    real hardening across three release-blocker surfaces: startup/local search
-    ordering is deterministic even for file-vs-directory prefix collisions,
-    repository tree traversal rejects malformed parent-directory paths with 400,
-    and local repository-sync can now complete bounded artifact generation for
-    detached HEAD checkouts using the explicit HEAD label. Remaining practical
-    replacement work still includes production-shaped indexing lifecycle/status
-    and failure recovery, relevance and pagination behavior at scale,
-    branch/index availability, broader provider fetch/import/reindex, worker
-    supervision/retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    real fail-closed hardening across two release-blocker surfaces: requested-repo
+    index-status now gives operators a bounded redacted error status for present
+    non-regular local-sync search-index artifacts instead of a generic 500, and
+    local browse tree reads now reject out-of-root symlinked directories. The
+    provider/worker lane did not produce a code closure because the implementation
+    worker hit upstream account exhaustion before work began, so provider/runtime
+    blockers remain available for the next batch. Remaining practical replacement
+    work still includes production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale, branch/index
+    availability, broader provider fetch/import/reindex, worker supervision/
+    retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
     interoperability, operator runbook/deployment evidence, and other release
     blockers in this roadmap.
 history:
+  - id: task102an-103f
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with two accepted real
+      hardening closures and one failed provider/worker lane. Index-status now
+      surfaces present non-regular local-sync search-index artifacts as bounded
+      error status with a redacted reason, and local browse tree reads now reject
+      symlinked directories that resolve outside the repository root.
+    commit: 34f0af68ac97b60f2674423e2f697c570fc310a5
+    tests:
+      - 'cargo test -p sourcebot-api repository_index_status_surfaces_non_regular_local_sync_search_index_artifact_reason -- --nocapture: passed with 1 bin test, 0 lib tests, and 449 filtered out after RED 500-vs-error-status failure'
+      - 'cargo test -p sourcebot-api repository_index_status_ -- --nocapture: passed with 4 bin tests, 0 lib tests, and 446 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 42 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api browse::tests::local_browse_store_rejects_tree_symlinked_outside_repo_root -- --exact: passed with 1 bin test, 0 lib tests, and 449 filtered out after RED symlink escape listing failure'
+      - 'cargo test -p sourcebot-api browse::tests -- --nocapture: passed with 30 bin tests, 0 lib tests, and 420 filtered out'
+      - 'cargo test -p sourcebot-api commit -- --nocapture: passed with 29 bin tests, 0 lib tests, and 421 filtered out'
+      - 'cargo test -p sourcebot-api code_nav -- --nocapture: passed with 2 bin tests, 0 lib tests, and 448 filtered out'
+      - 'doc truth checks for acceptance/final-audit wording: passed'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 9e0963bb542f09623dc6f787231e5e3607e2e744..HEAD: passed'
+      - 'added-lines security scan over 9e0963bb542f09623dc6f787231e5e3607e2e744..HEAD: passed with no findings'
+      - 'independent integration review: passed with no blocking security, logic, or docs-claim issues'
+    review: >-
+      Independent integration review passed. The reviewer noted non-blocking
+      future coverage opportunities for explicit symlink artifact index-status
+      and HTTP-level browse snapshot symlink escape tests, but found the current
+      implementation and docs bounded and correct for the shipped closures.
+    workers:
+      - 'search/index worker: integrated worker commit 331c7203614b2fff2da5f809fc42bcf02e5c58ee as main commit 8430f34bdb9ad53a974f1f721a1dad8b5aa0cd15, plus final-audit sync in 34f0af68ac97b60f2674423e2f697c570fc310a5'
+      - 'browse/code-navigation worker: integrated worker commit 8831164e1bc47df9f02597e095797e15ce060f1e as main commit a44a9840b318fd3c1ee7d080627326144ebdd54e, plus final-audit sync in 34f0af68ac97b60f2674423e2f697c570fc310a5'
+      - 'provider/worker worker: no merge; worker failed before implementation with upstream account exhaustion/rate-limit evidence, so provider/runtime blockers remain open for the next batch'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: two
+      workers shipped code with RED/GREEN evidence, the integrator cherry-picked
+      both closures, reran focused and broader selectors in the main worktree,
+      synchronized coupled final-audit wording, and kept the failed provider lane
+      fail-closed instead of inventing a paperwork substitute.
   - id: task102am-103e-106g
     status: done
     summary: >-
