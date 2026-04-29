@@ -245,6 +245,11 @@ impl CommitStore for LocalCommitStore {
             },
             None => None,
         };
+        if let Some(revision) = resolved_revision.as_deref() {
+            if !self.commit_is_visible_in_snapshot(repo_id, repo_root, revision)? {
+                return Ok(None);
+            }
+        }
 
         let mut args = vec![
             "log".to_string(),
@@ -955,6 +960,36 @@ mod tests {
 
         assert_eq!(feature_commits.commits[0].summary, "feature");
         assert_eq!(master_commits.commits[0].summary, "base");
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_rejects_revision_lists_outside_snapshot_scope() {
+        let repo_root = create_temp_git_repo("snapshot-revision-list-scope");
+        write_text_file(&repo_root.join("scoped.txt"), "base\n");
+        git_in(&repo_root, &["add", "scoped.txt"]);
+        git_in(&repo_root, &["commit", "-m", "base"]);
+        let snapshot_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+
+        write_text_file(&repo_root.join("scoped.txt"), "hidden\n");
+        git_in(&repo_root, &["commit", "-am", "hidden"]);
+        let hidden_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::with_snapshot_revision(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+            snapshot_revision.clone(),
+        );
+
+        assert!(store
+            .list_commits("repo_temp", 5, 0, Some(&hidden_revision))
+            .unwrap()
+            .is_none());
+        let scoped = store
+            .list_commits("repo_temp", 5, 0, Some(&snapshot_revision))
+            .unwrap()
+            .unwrap();
+        assert_eq!(scoped.commits[0].summary, "base");
 
         fs::remove_dir_all(repo_root).unwrap();
     }
