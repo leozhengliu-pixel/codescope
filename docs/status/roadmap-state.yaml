@@ -5,37 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: bb31b519153e4b8e4f0c202119f1bfa73edcc20b
+  head: b0c4863cd83311113c0b8b54c767de8fcb3eff01
 last_completed_task:
-  id: task102_103_108_search_commit_worker_hardening
-  title: Search boolean bounds, commit visibility gate, and local-sync branch metadata hardening
+  id: task102_103_106_literal_browse_git_transport_hardening
+  title: Literal search bounds, revision browse Git caps, and Generic Git transport validation
   status: done
   summary: >-
     Integrated three disjoint implementation-backed release-blocker hardening
-    closures plus a controller docs-sync tail. Search boolean matching now fails
-    closed for oversized OR-heavy queries before allocating unbounded term groups.
-    Authenticated commit list/detail/diff reads now check repository visibility
-    before serving seeded primary commit data, so hidden seeded repositories fail
-    closed instead of bypassing the browse/commit auth boundary. Local repository
-    sync now rejects malformed current-branch metadata before manifest,
-    snapshot, or search-index artifact persistence. Coupled acceptance, gap, and
-    final-audit wording records those bounded claims while practical replacement
-    parity remains unclaimed.
+    closures plus a controller docs-sync tail. Literal-mode local search now
+    fails closed for oversized query strings before allocating or lowercasing
+    unbounded input. Revision-backed browse/blob Git reads now use bounded
+    timeout/stdout/stderr capture with literal pathspecs and fail closed instead
+    of returning partial revision data. Generic Git repository-sync metadata
+    probes now reject unsupported schemes and unsafe transport prefixes such as
+    ext:: before spawning Git. Coupled acceptance, gap, and final-audit wording
+    records the bounded claims while practical replacement parity remains
+    unclaimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups failed before implementation with 0 passed, 1 failed, 54 filtered out because an oversized OR-heavy boolean query still matched'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups passed with 1 test and 54 filtered out'
-    - 'main broader: cargo test -p sourcebot-search passed with 55 unit tests and 0 doc tests'
-    - 'worker RED: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository failed before implementation with 1 failed and 469 filtered out because authenticated hidden seeded commit list returned 200 instead of 404'
-    - 'main focused: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository passed with 1 main-bin test, 469 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api repo_commit passed with 15 main-bin tests, 455 filtered out, and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence failed before implementation with 0 passed and 1 failed because malformed current-branch metadata could reach success/artifact persistence'
-    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence passed with 1 lib test, 75 filtered out, and zero-test nonmatching targets'
-    - 'main broader: cargo test -p sourcebot-worker passed with 76 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_literal_mode_fails_closed_for_oversized_queries failed before implementation with 1 failed because an oversized literal query still matched indexed huge content'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_literal_mode_fails_closed_for_oversized_queries passed with 1 test and 55 filtered out'
+    - 'main broader: cargo test -p sourcebot-search passed with 56 unit tests and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-api local_browse_store_bounds_revision_blob_git_output failed before implementation with 1 main-bin test failed, 470 filtered out, and one zero-test lib target because an oversized revision blob was returned successfully'
+    - 'main focused: cargo test -p sourcebot-api local_browse_store_bounds_revision_blob_git_output -- --nocapture passed with 1 main-bin test, 470 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api browse:: passed with 38 main-bin tests, 433 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api --bin sourcebot-api repo_blob_ passed with 11 tests and 460 filtered out'
+    - 'worker RED: cargo test -p sourcebot-worker generic_git_ext_transport_url_fails_closed_before_spawning_git failed before implementation because ext:: reached the Git spawn path'
+    - 'main focused: cargo test -p sourcebot-worker generic_git_ -- --nocapture passed with 35 lib tests, 43 filtered out, and zero-test nonmatching targets'
+    - 'main broader: cargo test -p sourcebot-worker passed with 78 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
     - 'main: cargo fmt --check passed'
     - 'main: git diff --check origin/master..HEAD and git diff --check passed'
-    - 'main: added-lines security scan over origin/master..HEAD scanned 148 added lines with no findings'
-    - 'independent integration review approved code and docs after the controller fixed a stale search-fallback overclaim about primary/local-sync result merging'
-  commit: bb31b519153e4b8e4f0c202119f1bfa73edcc20b
+    - 'main: added-lines security scan over origin/master..HEAD scanned 218 added lines with no findings'
+    - 'independent integration review approved code and docs with no blocking security, logic, path/scope safety, resource-bound, or bounded-claim issues'
+  commit: b0c4863cd83311113c0b8b54c767de8fcb3eff01
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -46,10 +47,10 @@ current_task:
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
     worktree is clean. This run closed three real runtime hardening gaps: local
-    boolean search now fails closed for oversized OR-heavy queries, authenticated
-    seeded commit list/detail/diff reads now enforce repository visibility before
-    returning primary commit data, and local-sync worker execution now rejects
-    malformed current-branch metadata before artifact persistence. Practical
+    literal-mode search now fails closed for oversized query strings,
+    revision-backed browse/blob Git reads are timeout/output bounded before
+    surfacing revision data, and Generic Git metadata probes reject unsupported
+    schemes or unsafe transport prefixes before spawning Git. Practical
     replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale beyond the bounded helper, branch and index
@@ -58,6 +59,52 @@ current_task:
     deeper MCP client/session interoperability, operator runbook/deploy evidence,
     and the other release blockers in this roadmap.
 history:
+  - id: task102_103_106_literal_browse_git_transport_hardening
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures plus a
+      controller-owned docs-sync commit. Literal-mode local search now rejects
+      oversized query strings before allocating/lowercasing unbounded input,
+      revision-backed browse/blob Git reads fail closed when bounded timeout or
+      stdout/stderr caps are exceeded, and Generic Git metadata probes reject
+      unsupported schemes and unsafe transport prefixes before spawning Git. This
+      was chosen over paperwork because it closes real fail-closed runtime
+      hardening gaps in search/index, browse/source, and provider/worker
+      surfaces; final parity remains fail-closed on broader production indexing,
+      provider, worker, auth, MCP, and operator blockers.
+    commit: b0c4863cd83311113c0b8b54c767de8fcb3eff01
+    component_commits:
+      - 3e033e8a75cbec2b5202d6e5c10717b58524dbc2
+      - 28f86cbdb7f311fbb0e79e6f3e646c176901ac5d
+      - b2ccbe782d0060ffa92cf8bb6b73af4ee964e6e7
+      - b0c4863cd83311113c0b8b54c767de8fcb3eff01
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_literal_mode_fails_closed_for_oversized_queries failed before implementation with 1 failed because an oversized literal query still matched indexed huge content'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_literal_mode_fails_closed_for_oversized_queries passed with 1 test and 55 filtered out'
+      - 'main broader: cargo test -p sourcebot-search passed with 56 unit tests and 0 doc tests'
+      - 'worker RED: cargo test -p sourcebot-api local_browse_store_bounds_revision_blob_git_output failed before implementation with 1 main-bin test failed, 470 filtered out, and one zero-test lib target because an oversized revision blob was returned successfully'
+      - 'main focused: cargo test -p sourcebot-api local_browse_store_bounds_revision_blob_git_output -- --nocapture passed with 1 main-bin test, 470 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api browse:: passed with 38 main-bin tests, 433 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api --bin sourcebot-api repo_blob_ passed with 11 tests and 460 filtered out'
+      - 'worker RED: cargo test -p sourcebot-worker generic_git_ext_transport_url_fails_closed_before_spawning_git failed before implementation because ext:: reached the Git spawn path'
+      - 'main focused: cargo test -p sourcebot-worker generic_git_ -- --nocapture passed with 35 lib tests, 43 filtered out, and zero-test nonmatching targets'
+      - 'main broader: cargo test -p sourcebot-worker passed with 78 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+      - 'main: added-lines security scan over origin/master..HEAD scanned 218 added lines with no findings'
+      - 'independent integration review approved code and docs with no blocking security, logic, path/scope safety, resource-bound, or bounded-claim issues'
+    review: >-
+      Independent integration review inspected the main-worktree diff against
+      origin/master plus the controller docs-sync tail. It approved the search
+      literal query bound, revision-backed browse/blob Git timeout/output caps,
+      Generic Git scheme/transport validation, and coupled acceptance, gap, and
+      final-audit wording with no blocking security concerns, logic errors,
+      path/scope safety issues, resource-bound gaps, or parity overclaims.
+    workers: >-
+      Search worker commit 7120e0d73a0e757061fd690027ca7ac1fb1f583c was cherry-picked as main commit
+      3e033e8a75cbec2b5202d6e5c10717b58524dbc2. Browse/Code-Nav worker commit 2d634d72e915b4b9ad22483d2186a2a557336692 was cherry-picked as main commit
+      28f86cbdb7f311fbb0e79e6f3e646c176901ac5d. Worker/Ops commit 3f831bd03dab2a7d6e5967da9303444383cb42ec was cherry-picked as main commit
+      b2ccbe782d0060ffa92cf8bb6b73af4ee964e6e7. The controller docs-sync commit b0c4863cd83311113c0b8b54c767de8fcb3eff01 updated coupled acceptance, gap, and final-audit wording.
   - id: task102_103_108_search_commit_worker_hardening
     status: done
     summary: >-
