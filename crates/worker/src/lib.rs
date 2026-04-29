@@ -1423,6 +1423,9 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     validate_non_blank_repository_sync_config_value("Generic Git base_url", base_url)?;
 
     let trimmed = base_url.trim();
+    if trimmed.starts_with('-') {
+        return Err("Generic Git base_url must not start with '-'".to_owned());
+    }
     let lower = trimmed.to_ascii_lowercase();
     let Some(authority) = lower
         .strip_prefix("https://")
@@ -3887,9 +3890,28 @@ mod tests {
     }
 
     #[test]
-    fn generic_git_remote_option_like_base_url_fails_closed() {
+    fn generic_git_remote_option_like_base_url_fails_closed_before_spawning_git() {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-option-like-generic-git-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        let marker_path = repo_path.join("spawned-marker");
+        let fake_git_path = repo_path.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker_path.display()),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
         let error = match run_generic_git_repository_sync_execution(
-            OsStr::new("git"),
+            fake_git_path.as_os_str(),
             "--upload-pack=/bin/echo",
             Duration::from_secs(2),
         ) {
@@ -3899,10 +3921,16 @@ mod tests {
             Err(error) => error,
         };
 
-        assert!(
-            error.starts_with(GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX),
-            "option-like base_url should fail closed with operator-visible prefix: {error}"
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url must not start with '-'"
         );
+        assert!(
+            !marker_path.exists(),
+            "option-like base_url validation should fail before spawning git"
+        );
+
+        fs::remove_dir_all(repo_path).unwrap();
     }
 
     #[test]
