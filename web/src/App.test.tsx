@@ -13999,6 +13999,121 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/definitions?path=src%2Fmain.rs&symbol=helper');
   });
 
+  it('clears stale code navigation results after opening a definition target', async () => {
+    window.location.hash = '#/repos/repo-42';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-42') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-42',
+            name: 'beta-repo',
+            default_branch: 'develop',
+            connection_id: 'conn-7',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-7',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: '',
+          entries: [{ name: 'src', path: 'src', kind: 'dir' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [
+            { name: 'main.rs', path: 'src/main.rs', kind: 'file' },
+            { name: 'lib.rs', path: 'src/lib.rs', kind: 'file' },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/tree?path=src&revision=rev-def-123') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src',
+          entries: [
+            { name: 'main.rs', path: 'src/main.rs', kind: 'file' },
+            { name: 'lib.rs', path: 'src/lib.rs', kind: 'file' },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Fmain.rs') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          size_bytes: 28,
+          content: 'fn helper() { lib::helper(); }',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/blob?path=src%2Flib.rs&revision=rev-def-123') {
+        return jsonResponse({
+          repo_id: 'repo-42',
+          path: 'src/lib.rs',
+          size_bytes: 24,
+          content: 'pub fn helper() {}',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-42/definitions?path=src%2Fmain.rs&symbol=helper') {
+        return jsonResponse({
+          status: 'supported',
+          repo_id: 'repo-42',
+          path: 'src/main.rs',
+          revision: 'rev-def-123',
+          symbol: 'helper',
+          definitions: [
+            {
+              path: 'src/lib.rs',
+              name: 'helper',
+              kind: 'function',
+              range: { start_line: 3, end_line: 6 },
+              browse_url: '/api/v1/repos/repo-42/blob?path=src%2Flib.rs&revision=rev-def-123#L3',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('beta-repo')).toBeInTheDocument();
+    fireEvent.click((await screen.findByText('src/')).closest('button')!);
+    fireEvent.click((await screen.findByText('main.rs')).closest('button')!);
+    expect(await screen.findByText('fn helper() { lib::helper(); }')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Symbol token'), { target: { value: 'helper' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Find definitions' }));
+    expect(await screen.findByText('Definition results')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /src\/lib\.rs/i }));
+
+    expect(await screen.findByText('pub fn helper() {}')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText('Definition results')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Symbol token')).toHaveValue('');
+    });
+    expect(window.location.hash).toBe('#/repos/repo-42?path=src%2Flib.rs&revision=rev-def-123');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-42/blob?path=src%2Flib.rs&revision=rev-def-123');
+  });
+
   it('ignores stale navigation responses after the user switches files', async () => {
     window.location.hash = '#/repos/repo-42';
 

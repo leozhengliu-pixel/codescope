@@ -3329,7 +3329,9 @@ function BrowsePanel({
     setTreePath(pathDirectory(target.path));
     setSelectedFilePath(target.path);
     setSelectedRevision(target.revision);
+    setSymbol('');
     setNavigationError(null);
+    setNavigationState(null);
     onRouteChange(target.path, pathDirectory(target.path), target.revision);
   };
 
