@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     thread,
@@ -1318,11 +1318,13 @@ fn wait_for_child_output_with_timeout_and_output_limit(
     output_limit_bytes: usize,
 ) -> std::io::Result<Option<Output>> {
     let output_limit_exceeded = Arc::new(AtomicBool::new(false));
+    let combined_output_bytes = Arc::new(AtomicUsize::new(0));
     let stdout_reader = child.stdout.take().map(|reader| {
         spawn_bounded_pipe_reader(
             reader,
             output_limit_bytes,
             Arc::clone(&output_limit_exceeded),
+            Arc::clone(&combined_output_bytes),
         )
     });
     let stderr_reader = child.stderr.take().map(|reader| {
@@ -1330,6 +1332,7 @@ fn wait_for_child_output_with_timeout_and_output_limit(
             reader,
             output_limit_bytes,
             Arc::clone(&output_limit_exceeded),
+            Arc::clone(&combined_output_bytes),
         )
     });
     let started_at = Instant::now();
@@ -1371,6 +1374,7 @@ fn spawn_bounded_pipe_reader<R>(
     mut reader: R,
     limit: usize,
     output_limit_exceeded: Arc<AtomicBool>,
+    combined_output_bytes: Arc<AtomicUsize>,
 ) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
 where
     R: Read + Send + 'static,
@@ -1383,6 +1387,12 @@ where
             let bytes_read = reader.read(&mut buffer)?;
             if bytes_read == 0 {
                 break;
+            }
+            let combined_after_read = combined_output_bytes
+                .fetch_add(bytes_read, Ordering::Relaxed)
+                .saturating_add(bytes_read);
+            if combined_after_read > limit {
+                output_limit_exceeded.store(true, Ordering::Relaxed);
             }
             let remaining_retained = retained_limit.saturating_sub(output.len());
             if remaining_retained > 0 {
@@ -3182,6 +3192,51 @@ mod tests {
             Err(error) => error,
         };
 
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads output exceeded 1048576 bytes"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_kills_hung_child() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-combined-output-kill-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  python3 - <<'PY'\nimport sys\nsys.stdout.write('a' * 600000)\nsys.stdout.flush()\nsys.stderr.write('e' * 600000)\nsys.stderr.flush()\nPY\n  sleep 5\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let started_at = Instant::now();
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(2),
+        ) {
+            Ok(execution) => panic!(
+                "combined Generic Git ls-remote --heads stdout/stderr over the cap must fail closed, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert!(
+            started_at.elapsed() < Duration::from_secs(1),
+            "combined output cap should kill the child without waiting for timeout"
+        );
         assert_eq!(
             error,
             "generic Git repository sync execution failed: git ls-remote --heads output exceeded 1048576 bytes"
