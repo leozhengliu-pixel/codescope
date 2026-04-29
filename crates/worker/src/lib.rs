@@ -449,8 +449,15 @@ fn parse_git_ls_remote_head_symref(
         (Some(branch), Some(revision)) => {
             Ok(Some(GenericGitRepositorySyncExecution { revision, branch }))
         }
-        _ => Ok(None),
+        (Some(_), None) => Err(generic_git_incomplete_head_symref_failure()),
+        (None, _) => Ok(None),
     }
+}
+
+fn generic_git_incomplete_head_symref_failure() -> String {
+    format!(
+        "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised incomplete HEAD symref metadata"
+    )
 }
 
 fn generic_git_malformed_head_revision_failure() -> String {
@@ -3509,6 +3516,46 @@ mod tests {
         assert_eq!(
             error,
             "generic Git repository sync execution failed: git ls-remote --symref HEAD advertised malformed HEAD metadata"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_head_symref_without_revision_fails_closed_before_heads_fallback() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-head-symref-without-revision-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/main\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "incomplete Generic Git HEAD symref metadata must not fall back to --heads, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --symref HEAD advertised incomplete HEAD symref metadata"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
