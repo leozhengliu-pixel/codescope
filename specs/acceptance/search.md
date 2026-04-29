@@ -36,7 +36,7 @@
 
 ## Edge cases
 - Very large repositories must remain searchable without loading full trees into memory.
-- Binary files are excluded by default.
+- Binary/generated extensions are excluded by default regardless of extension casing.
 - Queries that hit generated/minified/vendor content must be suppressible by policy.
 - Branches missing an index should surface partial availability rather than silent omission.
 

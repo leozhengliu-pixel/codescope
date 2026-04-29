@@ -1192,7 +1192,7 @@ fn should_skip_file(path: &Path) -> bool {
         .and_then(|value| value.to_str())
         .is_some_and(|ext| {
             matches!(
-                ext,
+                ext.to_ascii_lowercase().as_str(),
                 "png"
                     | "jpg"
                     | "jpeg"
@@ -1966,6 +1966,46 @@ mod tests {
             .all(|result| result.path != "large.txt"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_skips_ignored_extensions_case_insensitively() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-uppercase-ignored-extension",
+            "build_router is documented here\n",
+            "fn build_router() {}\n",
+            "target/generated.txt",
+        );
+        fs::write(
+            fixture.root.join("PACKAGE.LOCK"),
+            "uppercase_lock_marker must not be indexed\n",
+        )
+        .unwrap();
+        fs::write(
+            fixture.root.join("IMAGE.PNG"),
+            "uppercase_png_marker must not be indexed\n",
+        )
+        .unwrap();
+
+        let store = LocalSearchStore::new(HashMap::from([(
+            "repo_test".to_string(),
+            fixture.root.clone(),
+        )]));
+
+        assert!(store
+            .search("uppercase_lock_marker", Some("repo_test"))
+            .unwrap()
+            .results
+            .is_empty());
+        assert!(store
+            .search("uppercase_png_marker", Some("repo_test"))
+            .unwrap()
+            .results
+            .is_empty());
+        let status = store.repository_index_status("repo_test").unwrap().unwrap();
+        assert_eq!(status.skipped_file_count, 3);
+
+        fs::remove_dir_all(fixture.root).unwrap();
     }
 
     #[test]
