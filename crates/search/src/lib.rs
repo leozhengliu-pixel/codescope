@@ -15,6 +15,7 @@ const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
+const MAX_LITERAL_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 #[cfg(unix)]
@@ -988,7 +989,10 @@ impl QueryMatcher {
                 invalid_filter: true,
                 ..ParsedQuery::default()
             }),
-            SearchMode::Literal => Self::Literal(query.to_lowercase()),
+            SearchMode::Literal if query.len() <= MAX_LITERAL_QUERY_BYTES => {
+                Self::Literal(query.to_lowercase())
+            }
+            SearchMode::Literal => Self::Literal(String::new()),
             SearchMode::Regex => {
                 if query.is_empty() || query.len() > MAX_REGEX_QUERY_BYTES {
                     return Self::Regex(None);
@@ -1807,6 +1811,26 @@ mod tests {
         assert!(
             oversized_regex_response.results.is_empty(),
             "oversized regex mode queries should fail closed before compiling or matching"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_literal_mode_fails_closed_for_oversized_queries() {
+        let root = repo_tree_fixture::unique_temp_dir("search-oversized-literal-query");
+        fs::create_dir_all(&root).unwrap();
+        let oversized_literal = format!("oversized_literal_marker{}", "a".repeat(8_192));
+        fs::write(root.join("huge.txt"), format!("{oversized_literal}\n")).unwrap();
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        let response = store
+            .search_with_mode(&oversized_literal, Some("repo_test"), SearchMode::Literal)
+            .unwrap();
+
+        assert!(
+            response.results.is_empty(),
+            "oversized literal mode queries should fail closed before allocating unbounded normalized query strings"
         );
 
         fs::remove_dir_all(root).unwrap();
