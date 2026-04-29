@@ -19,6 +19,7 @@ const FIELD_SEPARATOR: char = '\u{1f}';
 const RECORD_SEPARATOR: char = '\u{1e}';
 const COMMIT_DIFF_PATCH_MAX_BYTES: usize = 64 * 1024;
 const COMMIT_DIFF_PATCH_TRUNCATED_MARKER: &str = "[Sourcebot diff truncated: patch exceeds 64 KiB]";
+const MAX_COMMIT_DIFF_FILES: usize = 100;
 const MAX_COMMIT_PAGE_LIMIT: usize = 100;
 
 pub trait CommitStore: Send + Sync {
@@ -377,6 +378,8 @@ impl CommitStore for LocalCommitStore {
 
         let statuses = parse_diff_name_status(&status_output)?;
         let numstats = parse_diff_numstat(&numstat_output)?;
+        ensure_diff_file_count_bounded(commit_id.as_str(), statuses.len())?;
+        ensure_diff_file_count_bounded(commit_id.as_str(), numstats.len())?;
         if statuses.len() != numstats.len() {
             return Err(anyhow!(
                 "mismatched git diff metadata for commit {commit_id}: {} status entries vs {} numstat entries",
@@ -627,6 +630,16 @@ fn truncate_str_to_byte_boundary(value: &str, max_bytes: usize) -> &str {
         boundary -= 1;
     }
     &value[..boundary]
+}
+
+fn ensure_diff_file_count_bounded(commit_id: &str, file_count: usize) -> Result<()> {
+    if file_count > MAX_COMMIT_DIFF_FILES {
+        return Err(anyhow!(
+            "commit diff changed file limit exceeded for commit {commit_id}: {file_count} files > {MAX_COMMIT_DIFF_FILES} limit"
+        ));
+    }
+
+    Ok(())
 }
 
 fn next_token<'a>(tokens: &'a [&str], index: &mut usize, label: &str) -> Result<&'a str> {
@@ -1415,6 +1428,37 @@ mod tests {
         assert!(file.patch_truncated);
         assert!(patch.len() <= COMMIT_DIFF_PATCH_MAX_BYTES);
         assert!(patch.contains(COMMIT_DIFF_PATCH_TRUNCATED_MARKER));
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_rejects_diff_metadata_over_file_limit() {
+        let repo_root = create_temp_git_repo("many-diff-files");
+        write_text_file(&repo_root.join("seed.txt"), "seed\n");
+        git_in(&repo_root, &["add", "seed.txt"]);
+        git_in(&repo_root, &["commit", "-m", "init"]);
+
+        for index in 0..101 {
+            write_text_file(&repo_root.join(format!("file-{index:03}.txt")), "added\n");
+        }
+        git_in(&repo_root, &["add", "."]);
+        git_in(&repo_root, &["commit", "-m", "many files"]);
+
+        let commit_id = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let error = store
+            .get_commit_diff("repo_temp", &commit_id)
+            .expect_err("oversized diff metadata must fail closed before per-file patch loading");
+
+        assert!(
+            error.to_string().contains("changed file limit"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(repo_root).unwrap();
     }
