@@ -339,7 +339,14 @@ impl BrowseStore for LocalBrowseStore {
             return Ok(None);
         };
 
-        if !full_path.exists() || !full_path.is_dir() {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        if !full_path.exists()
+            || !full_path.is_dir()
+            || !Self::path_is_within_repo_root(repo_root, &full_path)
+        {
             return Ok(None);
         }
 
@@ -1218,6 +1225,24 @@ mod tests {
             .is_none());
 
         fs::remove_file(outside_path).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_rejects_tree_symlinked_outside_repo_root() {
+        let (store, root) = create_test_store();
+        let outside_dir = root.with_extension("outside-tree-secret");
+        fs::create_dir_all(&outside_dir).unwrap();
+        fs::write(outside_dir.join("outside.txt"), "outside tree contents\n").unwrap();
+        std::os::unix::fs::symlink(&outside_dir, root.join("src").join("outside-dir")).unwrap();
+
+        assert!(store
+            .get_tree("repo_test", "src/outside-dir")
+            .unwrap()
+            .is_none());
+
+        fs::remove_dir_all(outside_dir).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
