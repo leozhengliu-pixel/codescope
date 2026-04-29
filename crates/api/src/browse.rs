@@ -672,6 +672,10 @@ fn path_contains_skipped_directory(path: &str) -> bool {
 }
 
 fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<String>> {
+    if !is_safe_revision_selector(revision) {
+        return Ok(None);
+    }
+
     let verify_arg = format!("{revision}^{{commit}}");
     let output = bounded_git_output(
         repo_root,
@@ -702,6 +706,10 @@ fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<S
         ],
         &output,
     ))
+}
+
+fn is_safe_revision_selector(revision: &str) -> bool {
+    !revision.is_empty() && !revision.chars().any(char::is_control)
 }
 
 fn run_git_show_blob(
@@ -1342,6 +1350,35 @@ mod tests {
                 .unwrap()
                 .is_none());
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_rejects_empty_explicit_revision_without_head_fallback() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-empty-explicit-revision",
+            "hello world\n",
+            "pub fn main() { /* empty_revision_symbol */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        assert!(store
+            .get_tree_at_revision("repo_test", "", Some(""))
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_blob_at_revision("repo_test", "README.md", Some(""))
+            .unwrap()
+            .is_none());
+        assert!(store
+            .find_text_references_at_revision("repo_test", "empty_revision_symbol", "")
+            .unwrap()
+            .is_none());
 
         fs::remove_dir_all(root).unwrap();
     }
