@@ -265,8 +265,10 @@ fn run_generic_git_repository_sync_execution(
         ));
     }
     let head_revision = parse_git_ls_remote_head_revision(&head_output.stdout);
-    if let Some(default_branch) = parse_git_ls_remote_head_symref(&head_output.stdout) {
-        return Ok(default_branch);
+    match parse_git_ls_remote_head_symref(&head_output.stdout) {
+        Ok(Some(default_branch)) => return Ok(default_branch),
+        Ok(None) => {}
+        Err(error) => return Err(error),
     }
 
     let output = match run_git_ls_remote_heads(git_command, base_url, timeout) {
@@ -358,18 +360,25 @@ fn parse_git_ls_remote_head_revision(stdout: &[u8]) -> Option<String> {
     })
 }
 
-fn parse_git_ls_remote_head_symref(stdout: &[u8]) -> Option<GenericGitRepositorySyncExecution> {
+fn parse_git_ls_remote_head_symref(
+    stdout: &[u8],
+) -> Result<Option<GenericGitRepositorySyncExecution>, String> {
     let mut branch = None;
     let mut revision = None;
 
     for line in String::from_utf8_lossy(stdout).lines() {
         if let Some(symref) = line.strip_prefix("ref: ") {
-            let (reference, target) = symref.split_once('\t')?;
+            let Some((reference, target)) = symref.split_once('\t') else {
+                return Err(generic_git_malformed_head_symref_failure());
+            };
             if target == "HEAD" {
-                let branch_name = reference.strip_prefix("refs/heads/")?;
-                if is_valid_git_branch_name(branch_name) {
-                    branch = Some(branch_name.to_owned());
+                let Some(branch_name) = reference.strip_prefix("refs/heads/") else {
+                    return Err(generic_git_malformed_head_symref_failure());
+                };
+                if !is_valid_git_branch_name(branch_name) {
+                    return Err(generic_git_malformed_head_symref_failure());
                 }
+                branch = Some(branch_name.to_owned());
             }
             continue;
         }
@@ -384,10 +393,16 @@ fn parse_git_ls_remote_head_symref(stdout: &[u8]) -> Option<GenericGitRepository
 
     match (branch, revision) {
         (Some(branch), Some(revision)) => {
-            Some(GenericGitRepositorySyncExecution { revision, branch })
+            Ok(Some(GenericGitRepositorySyncExecution { revision, branch }))
         }
-        _ => None,
+        _ => Ok(None),
     }
+}
+
+fn generic_git_malformed_head_symref_failure() -> String {
+    format!(
+        "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --symref HEAD advertised malformed HEAD symref"
+    )
 }
 
 fn is_valid_git_object_id(revision: &str) -> bool {
@@ -2722,6 +2737,46 @@ mod tests {
         assert_eq!(
             error,
             "generic Git repository sync execution failed: git ls-remote --heads advertised malformed ref line"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_malformed_head_symref_fails_closed_before_heads_fallback() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-malformed-head-symref-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'ref: refs/heads/.hidden\\tHEAD\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "malformed HEAD symref must not fall back to --heads, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --symref HEAD advertised malformed HEAD symref"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
