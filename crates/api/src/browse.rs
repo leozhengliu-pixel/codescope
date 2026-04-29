@@ -822,6 +822,7 @@ fn git_object_not_found_output(output: &Output) -> bool {
         || stderr.contains("bad object")
         || stderr.contains("fatal: invalid object name")
         || stderr.contains("ambiguous argument")
+        || stderr.contains("not a tree object")
         || stderr.contains("expected commit type")
 }
 
@@ -1322,6 +1323,27 @@ mod tests {
             .unwrap();
 
         assert_eq!(blob, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_does_not_return_revision_blob_as_tree() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-blob-as-tree",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let tree = store
+            .get_tree_at_revision("repo_test", "README.md", Some("HEAD"))
+            .unwrap();
+
+        assert_eq!(tree, None);
 
         fs::remove_dir_all(root).unwrap();
     }
