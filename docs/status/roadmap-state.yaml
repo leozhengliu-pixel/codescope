@@ -5,37 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 75054e4e17531b775da37964422aa98f83ba8297
+  head: 3c19438d6addc96633ab05b3eadf16d7f6839fd0
 last_completed_task:
-  id: task103l-106m
-  title: Frontend code-navigation target cleanup and Generic Git control-character base URL hardening
+  id: task102-105-106n
+  title: Search artifact integrity, settings observability filtering, and Generic Git output-cap hardening
   status: done
   summary: >-
-    Integrated two accelerated implementation-worker closures plus coupled
-    acceptance/parity wording. The repository detail code-navigation UI now clears
-    stale symbol input/results after a user opens a definition/reference target,
-    so the source panel no longer leaves prior navigation output attached to the
-    previous file. Generic Git repository-sync now rejects control-character-bearing
-    `base_url` values before spawning Git, preserving the stable
-    `generic Git repository sync execution failed` operator prefix without
-    reflecting attacker-controlled payload text. A third search/index worker did
-    not produce a closure because the provider returned HTTP 503/no available
-    accounts before code changes; no search/index changes were adopted.
+    Integrated three accelerated implementation-worker closures that each advanced
+    a real release-blocker surface without claiming practical replacement parity.
+    Search/index runtime now rejects persisted local-sync search-index artifacts
+    whose line entries exceed the artifact's reported indexed-line count, closing
+    an artifact-integrity gap before corrupted index data can drive search/status
+    behavior. The authenticated settings observability panel now offers a
+    user-visible local filter across returned audit and analytics rows, improving
+    admin triage while keeping server-side filtering/export explicit follow-up.
+    Generic Git repository-sync now fail-closes when combined ls-remote stdout and
+    stderr exceed the configured output cap, reducing remote-output memory/operator
+    risk while preserving the stable Generic Git execution-failure prefix.
   tests:
-    - 'npm test -- --run src/App.test.tsx -t "clears stale code navigation": passed in main worktree with 1 passed and 184 skipped after worker-recorded RED failure left stale Definition results visible'
-    - 'npm test -- --run src/App.test.tsx -t "browse|commit|repo detail": passed in main worktree with 6 passed and 179 skipped'
-    - 'npm test -- --run src/App.test.tsx -t "navigation|definitions|references": passed in main worktree with 9 passed and 176 skipped'
-    - 'npm run build: passed in web workspace'
-    - 'cargo test -p sourcebot-worker generic_git_base_url_with_control_character_fails_closed_before_spawning_git -- --nocapture: passed in main worktree with 1 lib test, 59 filtered out, and zero-test non-lib targets after worker-recorded RED failure attempted Git spawn'
-    - 'cargo test -p sourcebot-worker generic_git: passed in main worktree with 23 lib tests and 37 filtered out'
-    - 'cargo test -p sourcebot-worker repository_sync: passed in main worktree with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+    - 'cargo test -p sourcebot-search tests::local_search_store_rejects_persisted_index_artifact_line_numbers_beyond_indexed_line_count -- --exact: passed with 1 test and 43 filtered out after worker-recorded RED failure accepted inconsistent line numbers'
+    - 'cargo test -p sourcebot-search artifact: passed with 23 tests and 21 filtered out'
+    - 'cargo test -p sourcebot-api local_sync: passed with 15 main-bin tests, 442 filtered out, and one zero-test lib target'
+    - 'cargo test -p sourcebot-api repository_index_status: passed with 4 main-bin tests, 453 filtered out, and one zero-test lib target'
+    - 'npm test -- --run src/App.test.tsx -t "filters observability audit": passed with 1 test and 185 skipped after worker-recorded RED failure could not find the filter input'
+    - 'npm test -- --run src/App.test.tsx -t "observability|settings|auth": passed with 120 tests and 66 skipped'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_fails_closed: passed with 1 lib test, 60 filtered out, and zero-test non-lib targets after worker-recorded RED failure accepted oversized combined output'
+    - 'cargo test -p sourcebot-worker generic_git: passed with 24 lib tests, 37 filtered out, and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker repository_sync: passed with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
     - 'cargo fmt --check: passed'
-    - 'git diff --check HEAD~2..HEAD: passed for the two code commits'
-    - 'docs marker checks for browse/generic-local-git/parity-gap/final-audit wording: passed'
-    - 'git diff --check: passed after docs synchronization'
-    - 'added-lines security scan over f2da83e478dd771edb71ecec7ccec1013932d9d5..HEAD before docs/state: passed with 139 added lines and no findings'
-    - 'independent integration review over f2da83e478dd771edb71ecec7ccec1013932d9d5..HEAD before docs/state: approved with no blocking security or logic issues'
-  commit: 75054e4e17531b775da37964422aa98f83ba8297
+    - 'git diff --check 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: passed'
+    - 'npm run build: passed in web workspace'
+    - 'added-lines security scan over 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: passed with 246 added lines and no findings'
+    - 'independent integration review over 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: approved with no blocking security/auth/scope/path/memory/doc-claim issues'
+  commit: 3c19438d6addc96633ab05b3eadf16d7f6839fd0
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -45,18 +47,50 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    two real hardening closures: repository-detail code navigation now clears stale
-    symbol state after opening a definition/reference target, and Generic Git
-    repository-sync rejects control-character-bearing base URLs before spawning
-    Git. The attempted search/index worker failed before code changes because the
-    provider returned HTTP 503/no available accounts, so no search/index closure
-    was integrated this run. Remaining practical replacement work still includes
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale, branch/index availability, broader provider
-    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO and
-    richer admin/org flows, MCP client interoperability, operator runbook/deploy
-    evidence, and other release blockers in this roadmap.
+    three real closures: local-sync search-index artifact loading now rejects
+    internally inconsistent line-count metadata, the settings observability panel
+    can locally filter returned audit/analytics rows for admin triage, and Generic
+    Git repository-sync rejects combined ls-remote stdout/stderr over the output
+    cap before persisting terminal metadata. Remaining practical replacement work
+    still includes production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale, branch/index
+    availability, broader provider fetch/import/reindex, worker supervision and
+    broad retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    interoperability, operator runbook/deploy evidence, and other release blockers
+    in this roadmap.
 history:
+  - id: task102-105-106n
+    status: done
+    summary: >-
+      Integrated three accelerated implementation-worker closures: search-index
+      artifact loading now rejects line entries beyond the reported indexed-line
+      count, settings observability adds local audit/analytics filtering over
+      returned visible rows, and Generic Git repository-sync rejects combined
+      ls-remote stdout/stderr over the output cap before terminal metadata can be
+      accepted. The batch improves search/runtime integrity, admin triage, and
+      provider-output safety while preserving explicit blockers for production
+      indexing, broader provider sync, supervised workers, OIDC/SSO, MCP client
+      interoperability, and operator deploy/runbook parity.
+    commit: 3c19438d6addc96633ab05b3eadf16d7f6839fd0
+    component_commits:
+      - 2c1c9aa606512f6f4ad48be107887c9443c82dda
+      - 5940c60f7a6034fd51a6491ac3d2aef15821bccb
+      - 3c19438d6addc96633ab05b3eadf16d7f6839fd0
+    tests:
+      - 'cargo test -p sourcebot-search tests::local_search_store_rejects_persisted_index_artifact_line_numbers_beyond_indexed_line_count -- --exact: passed with 1 test and 43 filtered out'
+      - 'cargo test -p sourcebot-search artifact: passed with 23 tests and 21 filtered out'
+      - 'cargo test -p sourcebot-api local_sync: passed with 15 main-bin tests, 442 filtered out, and one zero-test lib target'
+      - 'cargo test -p sourcebot-api repository_index_status: passed with 4 main-bin tests, 453 filtered out, and one zero-test lib target'
+      - 'npm test -- --run src/App.test.tsx -t "filters observability audit": passed with 1 test and 185 skipped'
+      - 'npm test -- --run src/App.test.tsx -t "observability|settings|auth": passed with 120 tests and 66 skipped'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_fails_closed: passed with 1 lib test, 60 filtered out, and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git: passed with 24 lib tests and 37 filtered out'
+      - 'cargo test -p sourcebot-worker repository_sync: passed with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: passed'
+      - 'npm run build: passed in web workspace'
+      - 'added-lines security scan over 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: passed with 246 added lines and no findings'
+      - 'independent integration review over 671a37b2ef8dd0236a89ce73bc499569b0bbf519..HEAD: approved with no blockers'
   - id: task103l-106m
     status: done
     summary: >-
