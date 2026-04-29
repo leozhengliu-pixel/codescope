@@ -663,6 +663,11 @@ fn validate_diff_path<'a>(path: &'a str, label: &str) -> Result<&'a str> {
     if path.contains('\\') {
         return Err(anyhow!("unsafe git diff {label}: backslash path {path:?}"));
     }
+    if path.chars().any(char::is_control) {
+        return Err(anyhow!(
+            "unsafe git diff {label}: control-character path {path:?}"
+        ));
+    }
 
     let parsed = Path::new(path);
     if parsed.is_absolute() {
@@ -1195,6 +1200,7 @@ mod tests {
             "../parent",
             "nested/../parent",
             "windows\\path",
+            "line\nbreak",
         ] {
             assert!(
                 parse_diff_name_status(&format!("fe7f21f\0M\0{path}\0")).is_err(),
@@ -1212,6 +1218,7 @@ mod tests {
             "../parent",
             "nested/../parent",
             "windows\\path",
+            "line\nbreak",
         ] {
             assert!(
                 parse_diff_name_status(&format!("fe7f21f\0R100\0{old_path}\0safe/new.txt\0"))
