@@ -639,7 +639,7 @@ fn supports_text_reference_scan(path: &str) -> bool {
         Path::new(path)
             .extension()
             .and_then(|extension| extension.to_str()),
-        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs")
+        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" | "py" | "go",)
     )
 }
 
@@ -1596,6 +1596,48 @@ mod tests {
             reference.path == "web/src/AppShell.ts"
                 && reference.line_number == 1
                 && reference.line.contains("AppShell")
+        }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_finds_text_references_in_python_and_go_revision_files() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-python-go-references",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::create_dir_all(root.join("service")).unwrap();
+        fs::write(
+            root.join("service").join("handler.py"),
+            "def build_index():\n    return navigation_symbol\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("service").join("handler.go"),
+            "package service\n\nfunc UseNavigationSymbol() string { return navigation_symbol }\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "navigation_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert!(references.iter().any(|reference| {
+            reference.path == "service/handler.py"
+                && reference.line_number == 2
+                && reference.line.contains("navigation_symbol")
+        }));
+        assert!(references.iter().any(|reference| {
+            reference.path == "service/handler.go"
+                && reference.line_number == 3
+                && reference.line.contains("navigation_symbol")
         }));
 
         fs::remove_dir_all(root).unwrap();
