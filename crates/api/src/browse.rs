@@ -530,10 +530,9 @@ impl BrowseStore for LocalBrowseStore {
         };
 
         let mut matches = Vec::new();
-        for path in paths
-            .into_iter()
-            .filter(|path| supports_text_reference_scan(path))
-        {
+        for path in paths.into_iter().filter(|path| {
+            supports_text_reference_scan(path) && !path_contains_skipped_directory(path)
+        }) {
             let normalized_path = normalize_relative_path(&path)?;
             let Some(bytes) = run_git_show_blob(repo_root, &revision, &normalized_path)? else {
                 continue;
@@ -642,6 +641,16 @@ fn supports_text_reference_scan(path: &str) -> bool {
             .and_then(|extension| extension.to_str()),
         Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs")
     )
+}
+
+fn path_contains_skipped_directory(path: &str) -> bool {
+    Path::new(path).components().any(|component| {
+        matches!(
+            component,
+            Component::Normal(name)
+                if SKIPPED_DIR_NAMES.iter().any(|skipped| name == *skipped)
+        )
+    })
 }
 
 fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<String>> {
@@ -1524,6 +1533,47 @@ mod tests {
                 && reference.line_number == 1
                 && reference.line.contains("AppShell")
         }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_skips_ignored_directories_for_revision_references() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-reference-ignored-dirs",
+            "hello world\n",
+            "pub fn uses_shared_symbol() { /* shared_reference_symbol */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::write(
+            root.join("target").join("generated.rs"),
+            "pub fn generated() { /* shared_reference_symbol */ }\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("node_modules").join("pkg")).unwrap();
+        fs::write(
+            root.join("node_modules").join("pkg").join("index.ts"),
+            "export const generated = 'shared_reference_symbol';\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "shared_reference_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert!(references
+            .iter()
+            .any(|reference| reference.path == "src/main.rs"));
+        assert!(references
+            .iter()
+            .all(|reference| !reference.path.starts_with("target/")));
+        assert!(references
+            .iter()
+            .all(|reference| !reference.path.starts_with("node_modules/")));
 
         fs::remove_dir_all(root).unwrap();
     }
