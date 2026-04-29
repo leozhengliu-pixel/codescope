@@ -3,6 +3,7 @@ use sourcebot_config::{
     AppConfig, StubRepositorySyncJobExecutionOutcomeConfig,
     StubReviewAgentRunExecutionOutcomeConfig,
 };
+use sourcebot_models::{RepositorySyncJob, RepositorySyncJobStatus};
 use sourcebot_worker::{
     run_worker_tick, StubRepositorySyncJobExecutionOutcome, StubReviewAgentRunExecutionOutcome,
     WorkerTickOutcome,
@@ -117,9 +118,11 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = Some(job.id.clone());
                 last_work_item_status = Some(format!("{:?}", job.status));
                 last_work_item_error = job.error.as_deref().map(sanitize_worker_status_error);
-                last_work_item_synced_revision = job.synced_revision.clone();
-                last_work_item_synced_branch = job.synced_branch.clone();
-                last_work_item_synced_content_file_count = job.synced_content_file_count;
+                let (synced_revision, synced_branch, synced_content_file_count) =
+                    successful_repository_sync_metadata(&job);
+                last_work_item_synced_revision = synced_revision.map(str::to_string);
+                last_work_item_synced_branch = synced_branch.map(str::to_string);
+                last_work_item_synced_content_file_count = synced_content_file_count;
                 info!(
                     tick,
                     repository_sync_job_id = %job.id,
@@ -127,9 +130,9 @@ async fn main() -> anyhow::Result<()> {
                     repository_id = %job.repository_id,
                     connection_id = %job.connection_id,
                     status = ?job.status,
-                    synced_revision = job.synced_revision.as_deref().unwrap_or(""),
-                    synced_branch = job.synced_branch.as_deref().unwrap_or(""),
-                    synced_content_file_count = job.synced_content_file_count,
+                    synced_revision = synced_revision.unwrap_or(""),
+                    synced_branch = synced_branch.unwrap_or(""),
+                    synced_content_file_count,
                     error = job.error.as_deref().unwrap_or(""),
                     "recorded repository-sync terminal status after worker execution"
                 )
@@ -223,6 +226,20 @@ fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
 }
 
 #[allow(clippy::too_many_arguments)]
+fn successful_repository_sync_metadata(
+    job: &RepositorySyncJob,
+) -> (Option<&str>, Option<&str>, Option<i64>) {
+    if job.status != RepositorySyncJobStatus::Succeeded {
+        return (None, None, None);
+    }
+
+    (
+        job.synced_revision.as_deref(),
+        job.synced_branch.as_deref(),
+        job.synced_content_file_count,
+    )
+}
+
 fn write_worker_status_snapshot(
     path: &Path,
     max_ticks: u64,
@@ -411,6 +428,37 @@ mod tests {
         assert_eq!(payload["last_work_item_synced_revision"], "abc123");
         assert_eq!(payload["last_work_item_synced_branch"], "main");
         assert_eq!(payload["last_work_item_synced_content_file_count"], 7);
+    }
+
+    #[test]
+    fn worker_status_terminal_metadata_is_success_only() {
+        use sourcebot_models::{RepositorySyncJob, RepositorySyncJobStatus};
+
+        let mut job = RepositorySyncJob {
+            id: "sync_job_stale".to_string(),
+            organization_id: "org_1".to_string(),
+            repository_id: "repo_1".to_string(),
+            connection_id: "conn_1".to_string(),
+            status: RepositorySyncJobStatus::Failed,
+            queued_at: "2026-04-29T23:00:00Z".to_string(),
+            started_at: None,
+            finished_at: None,
+            error: Some("repository sync stub execution configured to fail".to_string()),
+            synced_revision: Some("stale_revision".to_string()),
+            synced_branch: Some("stale_branch".to_string()),
+            synced_content_file_count: Some(99),
+        };
+
+        let (revision, branch, content_count) = super::successful_repository_sync_metadata(&job);
+        assert_eq!(revision, None);
+        assert_eq!(branch, None);
+        assert_eq!(content_count, None);
+
+        job.status = RepositorySyncJobStatus::Succeeded;
+        let (revision, branch, content_count) = super::successful_repository_sync_metadata(&job);
+        assert_eq!(revision, Some("stale_revision"));
+        assert_eq!(branch, Some("stale_branch"));
+        assert_eq!(content_count, Some(99));
     }
 
     #[test]
