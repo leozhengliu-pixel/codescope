@@ -5,36 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0653b4a16fa672c7dee81e0ef52d9083ee966c61
+  head: 4f5c0a30838b728599490f8eca0ab169b5472f9a
 last_completed_task:
-  id: task102-103-106p
-  title: Search artifact continuity, Python/Go references, and local preflight output-cap hardening
+  id: task102-106q
+  title: Search artifact blank-path validation and local sync tabbed-path preservation
   status: done
   summary: >-
-    Integrated three accelerated implementation-worker closures plus coupled docs
-    synchronization. Search/index runtime now rejects persisted local-sync
-    search-index artifacts with non-contiguous stored line numbers for one path,
-    preventing truncated/corrupted artifacts from silently producing incomplete
-    search results. Code-navigation references now include bounded Python and Go
-    text-reference scanning through the existing revision-backed path. Local Git
-    repository-sync preflight now fails closed when combined stdout/stderr exceeds
-    the configured cap, before later Git probes or terminal success can proceed.
+    Integrated two accelerated implementation-worker closures plus coupled acceptance
+    and final-audit wording. Persisted local-sync search-index artifacts now reject
+    stored result paths with blank path components such as doubled or trailing
+    separators instead of letting path normalization hide malformed keys. Local Git
+    repository-sync artifacts now preserve valid tracked file names containing tabs
+    while still failing closed for manifest-delimiting/control path characters before
+    claiming artifact success.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_non_contiguous_line_numbers -- --nocapture: passed with 1 test and 45 filtered out after worker-recorded RED failure accepted the corrupted artifact'
-    - 'cargo test -p sourcebot-search persisted_index_artifact: passed with 19 tests and 27 filtered out'
-    - 'cargo test -p sourcebot-api python_and_go_revision_files -- --nocapture: passed with 1 main-bin test, 458 filtered out, and one zero-test lib target after worker-recorded RED failure missed Python/Go references'
-    - 'cargo test -p sourcebot-api references: passed with 15 main-bin tests, 444 filtered out, and one zero-test lib target'
-    - 'cargo test -p sourcebot-api browse::tests: passed with 35 main-bin tests, 424 filtered out, and one zero-test lib target'
-    - 'cargo test -p sourcebot-worker local_repository_sync_preflight_combined_output_over_cap_fails_closed -- --nocapture: passed with 1 lib test, 62 filtered out, and zero-test non-lib/smoke targets after worker-recorded RED failure progressed past preflight'
-    - 'cargo test -p sourcebot-worker local_repository_sync_preflight -- --nocapture: passed with 3 lib tests and 60 filtered out'
-    - 'cargo test -p sourcebot-worker repository_sync -- --nocapture: passed with 28 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
-    - 'cargo test -p sourcebot-worker -- --nocapture: passed with 63 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_blank_path_components -- --nocapture: passed with 1 test and 46 filtered out after worker-recorded RED failure accepted src//main.rs'
+    - 'cargo test -p sourcebot-search: passed with 47 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-worker local_sync_tracked_content_paths -- --nocapture: passed with 2 lib tests, 62 filtered out, and zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_snapshots_tracked_head_content_for_local_connections -- --nocapture: passed with 1 lib test, 63 filtered out, and zero-test non-lib/smoke targets'
+    - 'cargo test -p sourcebot-worker -- --nocapture: passed with 64 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check HEAD~3..HEAD and final git diff --check: passed'
-    - 'docs marker checks for search/code-nav/final-audit wording: passed'
-    - 'added-lines security scan over 1b4c295bb9fd35f83d01f8f56ed78f598f5c6afd..HEAD: passed with 153 added code lines and no findings'
-    - 'independent integration review over 1b4c295bb9fd35f83d01f8f56ed78f598f5c6afd..working-tree after docs sync: approved with no blockers'
-  commit: 0653b4a16fa672c7dee81e0ef52d9083ee966c61
+    - 'git diff --check HEAD~2..HEAD and final git diff --check: passed'
+    - 'docs marker checks for search artifact blank path, worker tabbed path, and final-audit wording: passed'
+    - 'added-lines security scan over HEAD~2..HEAD: passed with 63 added code lines and no findings'
+    - 'independent final integration review over HEAD~3..HEAD: approved with no blockers'
+  commit: 4f5c0a30838b728599490f8eca0ab169b5472f9a
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -45,15 +40,62 @@ current_task:
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
     real implementation-backed hardening: persisted search-index artifacts now
-    reject non-contiguous line keys, revision-backed references scan Python and Go
-    files as a bounded text-reference baseline, and local Git preflight enforces a
-    combined stdout/stderr output cap. Remaining practical replacement work still
-    includes production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale, branch/index availability, broader
-    provider fetch/import/reindex, worker supervision and broad retry/backoff,
+    reject blank path components in stored result paths, and local Git sync artifact
+    generation preserves valid tabbed tracked filenames while still failing closed
+    for manifest-delimiting/control path characters. Remaining practical replacement
+    work still includes production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale, branch/index availability,
+    broader provider fetch/import/reindex, worker supervision and broad retry/backoff,
     OIDC/SSO and richer admin/org flows, MCP client interoperability, operator
     runbook/deploy evidence, and other release blockers in this roadmap.
 history:
+  - id: task102-106q
+    status: done
+    summary: >-
+      Integrated two accelerated implementation-worker closures plus coupled
+      evidence wording. Search-index artifact loading rejects blank stored path
+      components such as doubled and trailing separators, and local Git sync
+      artifact generation preserves valid tabbed tracked filenames while rejecting
+      manifest-delimiting/control characters before artifact success. The batch
+      improves artifact integrity and local-provider path fidelity while preserving
+      explicit blockers for production indexing, broader provider sync, supervised
+      workers, OIDC/SSO, MCP client interoperability, and operator deploy/runbook
+      parity.
+    commit: 4f5c0a30838b728599490f8eca0ab169b5472f9a
+    component_commits:
+      - 3d2b0c87b297d6ff80976bb5e33d18893d3b206f
+      - 7b9db14b73ae292b09c59a637f4bb2bc6c5842f2
+      - 4f5c0a30838b728599490f8eca0ab169b5472f9a
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_blank_path_components -- --nocapture: passed with 1 test and 46 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 47 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-worker local_sync_tracked_content_paths -- --nocapture: passed with 2 lib tests, 62 filtered out, and zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_snapshots_tracked_head_content_for_local_connections -- --nocapture: passed with 1 lib test, 63 filtered out, and zero-test non-lib/smoke targets'
+      - 'cargo test -p sourcebot-worker -- --nocapture: passed with 64 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'docs marker checks: passed'
+      - 'added-lines security scan over HEAD~2..HEAD: passed with no findings'
+      - 'independent final integration review: approved with no blockers'
+    review: >-
+      Independent final integration review approved the actual repository range and
+      found no blocking security, logic, path-safety, test-adequacy, or release-claim
+      issues. The reviewer checked search blank-component artifact validation,
+      worker tabbed tracked-path preservation with continued control-character
+      fail-closed handling, and bounded docs/final-audit wording.
+    workers:
+      - 'search/index worker: integrated worker commit e7c09c84974786f9157a25255189cf99a7d75edf as main commit 3d2b0c87b297d6ff80976bb5e33d18893d3b206f'
+      - 'provider/worker worker: integrated worker commit 66e7b10ced597d5c1a9444fa1ebd665d39ae88d4 as main commit 7b9db14b73ae292b09c59a637f4bb2bc6c5842f2'
+      - 'browse/code-navigation worker: not merged; worker failed before producing a commit because provider accounts became unavailable/rate-limited during exploration'
+      - 'integrator docs sync: committed acceptance/final-audit wording as 4f5c0a30838b728599490f8eca0ab169b5472f9a'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: two
+      workers shipped code with RED/GREEN evidence in isolated worktrees, the
+      integrator cherry-picked each successful closure, reran focused and broader
+      selectors in the main worktree, synchronized coupled acceptance and audit
+      wording, ran security and mechanical checks, and obtained independent review
+      before updating roadmap state. One planned code-navigation worker produced no
+      commit and was discarded rather than being turned into a paperwork slice.
   - id: task102-103-106p
     status: done
     summary: >-
