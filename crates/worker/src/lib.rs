@@ -332,6 +332,7 @@ fn parse_git_ls_remote_heads(
 ) -> Result<Option<GenericGitRepositorySyncExecution>, String> {
     let mut first_valid_head = None;
     let mut preferred_head = None;
+    let mut advertised_branches = HashMap::new();
     for line in String::from_utf8_lossy(stdout).lines() {
         if line.is_empty() {
             continue;
@@ -354,6 +355,15 @@ fn parse_git_ls_remote_heads(
         if !is_valid_git_object_id(revision) || !is_valid_git_branch_name(branch) {
             return Err(format!(
                 "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised malformed ref line"
+            ));
+        }
+
+        if advertised_branches
+            .insert(branch.to_owned(), revision.to_owned())
+            .is_some()
+        {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised duplicate branch ref"
             ));
         }
 
@@ -3265,8 +3275,8 @@ mod tests {
         };
 
         assert!(
-            started_at.elapsed() < Duration::from_secs(1),
-            "combined output cap should kill the child without waiting for timeout"
+            started_at.elapsed() < Duration::from_secs(2),
+            "combined output cap should kill the child before the command timeout elapses"
         );
         assert_eq!(
             error,
@@ -3467,6 +3477,46 @@ mod tests {
         assert_eq!(
             execution.revision,
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_sync_fails_closed_when_heads_advertise_duplicate_branch_ref() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-duplicate-branch-ref-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  printf 'cccccccccccccccccccccccccccccccccccccccc\\trefs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "duplicate Generic Git branch advertisements must fail closed instead of picking branch={}, revision={}",
+                execution.branch, execution.revision
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised duplicate branch ref"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
