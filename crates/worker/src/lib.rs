@@ -888,7 +888,7 @@ fn safe_tracked_content_relative_path(content_path: &str) -> Result<PathBuf, Str
         .all(|component| matches!(component, std::path::Component::Normal(_)))
         && !content_path
             .bytes()
-            .any(|byte| byte <= 0x1f || byte == 0x7f)
+            .any(|byte| byte != b'\t' && (byte <= 0x1f || byte == 0x7f))
     {
         Ok(path.to_path_buf())
     } else {
@@ -1828,13 +1828,23 @@ mod tests {
     }
 
     #[test]
-    fn local_sync_tracked_content_paths_with_control_characters_fail_closed() {
+    fn local_sync_tracked_content_paths_with_manifest_delimiters_fail_closed() {
         let error = safe_tracked_content_relative_path("safe\nname.txt")
             .expect_err("tracked paths with newlines must not be snapshotted or persisted");
 
         assert_eq!(
             error,
             "local repository sync execution failed: tracked content path cannot be snapshotted safely: \"safe\\nname.txt\""
+        );
+    }
+
+    #[test]
+    fn local_sync_tracked_content_paths_preserve_valid_tabs() {
+        assert_eq!(
+            safe_tracked_content_relative_path("dir/safe\tname.txt").expect(
+                "tracked paths with tabs are valid Git paths and safe relative filesystem paths"
+            ),
+            std::path::PathBuf::from("dir/safe\tname.txt")
         );
     }
 
@@ -4510,11 +4520,13 @@ mod tests {
             .output()
             .expect("git init should run");
         let spaced_path = " spaced fixture .txt";
+        let tabbed_path = "tabbed\tfixture.txt";
         fs::write(repo_path.join(spaced_path), "tracked path with spaces\n").unwrap();
+        fs::write(repo_path.join(tabbed_path), "tracked path with tab\n").unwrap();
         Command::new("git")
             .arg("-C")
             .arg(&repo_path)
-            .args(["add", spaced_path])
+            .args(["add", spaced_path, tabbed_path])
             .output()
             .expect("git add should run");
         Command::new("git")
@@ -4544,19 +4556,22 @@ mod tests {
 
         assert_eq!(completed_job.id, "sync_job_local_spaced_path");
         assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
-        assert_eq!(completed_job.synced_content_file_count, Some(1));
+        assert_eq!(completed_job.synced_content_file_count, Some(2));
 
-        let snapshot_file = repo_path
+        let snapshot_dir = repo_path
             .join(".sourcebot")
             .join("local-sync")
             .join("org_acme")
             .join("repo_sync_job_local_spaced_path")
             .join("sync_job_local_spaced_path")
-            .join("snapshot")
-            .join(spaced_path);
+            .join("snapshot");
         assert_eq!(
-            fs::read_to_string(snapshot_file).unwrap(),
+            fs::read_to_string(snapshot_dir.join(spaced_path)).unwrap(),
             "tracked path with spaces\n"
+        );
+        assert_eq!(
+            fs::read_to_string(snapshot_dir.join(tabbed_path)).unwrap(),
+            "tracked path with tab\n"
         );
 
         let persisted = store.organization_state().await.unwrap();
