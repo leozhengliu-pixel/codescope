@@ -5,39 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 976e310f5767f84b8910c81ff62af28a0ec15580
+  head: 60329edf2c02a1d6bf1c37ae645c9d5b13cf0280
 last_completed_task:
-  id: task102u_103a_106w_parallel_runtime_hardening
-  title: Search path globs, blank code-nav fail-closed, and Generic Git userinfo rejection
+  id: task102v_106x_artifact_and_generic_git_credential_hardening
+  title: Local-sync search artifact path validation and scp-like Generic Git credential rejection
   status: done
   summary: >-
-    Integrated three disjoint accelerated-worker implementation closures plus a
-    controller-owned docs synchronization commit. Search now supports bounded
-    glob-style `path:` filters (`*`, `?`, and recursive `**`) while preserving
-    existing substring path filters; revision-backed code-navigation reference
-    scans now fail closed for blank symbols instead of matching every source line;
-    and Generic Git repository-sync jobs reject URL-authority userinfo or embedded
-    credentials for any URL scheme before spawning Git. Coupled acceptance,
-    parity-gap, and final-audit wording remains bounded and keeps production
-    indexing, deeper code-navigation, real provider fetch/import/reindex, broad
-    retry/backoff, and practical replacement parity as open blockers.
+    Integrated two successful accelerated-worker implementation closures and a
+    controller-owned docs synchronization tail. Persisted local-sync search-index
+    artifacts now fail closed when stored result paths target runtime/generated or
+    binary paths that the live indexer would skip, preventing poisoned artifacts
+    from reintroducing `.sourcebot`, `target`, `node_modules`, `dist`, or skipped
+    extension content as trusted search results. Generic Git repository-sync jobs
+    now reject scp-like remotes with embedded userinfo/credentials before spawning
+    Git, extending the existing credential fail-closed boundary beyond URL-authority
+    forms. Acceptance and final-audit wording remain bounded: this hardens bounded
+    local-sync artifact/provider metadata behavior but does not close production
+    indexing, real provider fetch/import/reindex, broad retry/backoff, supervised
+    runtime, or practical replacement parity.
   tests:
-    - 'search worker RED: cargo test -p sourcebot-search local_search_store_applies_path_glob_filters_to_result_paths failed before implementation with 0 passed, 1 failed, 47 filtered out because glob path filters returned zero matches'
-    - 'main: cargo test -p sourcebot-search local_search_store_applies_path_glob_filters_to_result_paths -- --nocapture passed with 1 sourcebot-search test and 47 filtered out'
-    - 'main: cargo test -p sourcebot-search passed with 48 tests and 0 doctests'
-    - 'browse worker RED: cargo test -p sourcebot-api local_browse_store_returns_no_revision_references_for_blank_symbol -- --nocapture failed before implementation because blank symbols matched revision source lines'
-    - 'main: cargo test -p sourcebot-api local_browse_store_returns_no_revision_references_for_blank_symbol -- --nocapture passed with 1 main-bin test and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api browse::tests -- --nocapture passed with 36 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api references_ -- --nocapture passed with 15 main-bin tests and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker generic_git_ssh_url_with_embedded_userinfo_fails_closed_before_spawning_git failed before implementation because ssh:// userinfo reached Git and returned an OS error instead of the stable validation error'
-    - 'main: cargo test -p sourcebot-worker generic_git_ssh_url_with_embedded_userinfo_fails_closed_before_spawning_git -- --nocapture passed with 1 lib test and zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker generic_git_ -- --test-threads=1 --nocapture passed with 30 lib tests and zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_kills_hung_child -- --nocapture passed alone after a broader full-worker serial run exposed the known timing-sensitive failure for that exact test'
+    - 'search worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_ignored_runtime_paths -- --nocapture failed before implementation with 0 passed, 1 failed, 48 filtered out because `.sourcebot/local-sync-index.json` inside a persisted artifact was accepted'
+    - 'main: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_ignored_runtime_paths -- --nocapture passed with 1 test and 48 filtered out'
+    - 'main: cargo test -p sourcebot-search passed with 49 tests and 0 doctests'
+    - 'search worker: cargo test -p sourcebot-api search -- --nocapture passed with 38 main-bin tests and one zero-test lib target'
+    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_remote_scp_like_credential -- --nocapture failed before implementation because `git@example.invalid:acme/repo.git` reached fake Git and returned remote metadata behavior instead of the credential validation error'
+    - 'main: cargo test -p sourcebot-worker generic_git_remote_scp_like_credential -- --nocapture passed with 1 lib test and zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker generic_git_ -- --test-threads=1 --nocapture ran 31 lib tests; the known timing-sensitive combined-output child-kill test failed in that broad selector, then passed when rerun alone'
+    - 'main: cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_kills_hung_child -- --nocapture passed with 1 lib test and zero-test non-lib targets'
+    - 'main: cargo test -p sourcebot-worker passed with 96 executable tests and 0 doctests'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check HEAD~4..HEAD and final git diff --check passed'
-    - 'main: added-lines security scan over the integrated range scanned 148 added lines with no findings'
-    - 'independent integration review and post-amend re-review approved HEAD~4..HEAD with no blocking security, logic, scope, path, provider-command, or bounded-claim issues'
-  commit: 976e310f5767f84b8910c81ff62af28a0ec15580
+    - 'main: git diff --check HEAD~3..HEAD and final git diff --check passed'
+    - 'main: added-lines security scan over git diff HEAD~3 excluding roadmap-state scanned 100 added lines with no findings'
+    - 'independent integration review approved the implementation range plus docs tail with no blocking security, logic, or bounded-claim issues'
+  commit: 60329edf2c02a1d6bf1c37ae645c9d5b13cf0280
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -47,16 +47,63 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run integrated three real implementation closures
-    across Search/Index, Browse/Code-nav, and Provider/Sync/Worker, but practical
-    replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale, branch/index availability, broader provider
-    fetch/import/reindex, worker scheduling/supervision and broad retry/backoff,
-    OIDC/SSO and richer admin/org flows, deeper MCP client/session
-    interoperability, operator runbook/deploy evidence, and other release
+    worktree is clean. This run landed two implementation-backed hardening
+    closures across Search/Index and Provider/Sync/Worker; the Browse/Code-nav
+    worker failed before producing a commit because the provider account pool was
+    exhausted. Practical replacement remains incomplete. Remaining blockers still
+    include production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale, branch/index availability, broader
+    provider fetch/import/reindex, worker scheduling/supervision and broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability, operator runbook/deploy evidence, and the other release
     blockers in this roadmap.
 history:
+  - id: task102v_106x_artifact_and_generic_git_credential_hardening
+    status: done
+    summary: >-
+      Integrated two successful accelerated-worker implementation closures plus a
+      docs-sync tail. The shipped changes make persisted local-sync search-index
+      artifacts fail closed when indexed paths would be skipped by the live indexer,
+      and reject scp-like Generic Git remotes with embedded credentials before any
+      Git subprocess is spawned. The Browse/Code-nav worker failed before commit
+      due to provider account exhaustion, so no browse/code-nav changes were merged.
+      This is real search/provider runtime hardening, not a docs-only or state-only
+      micro-slice, while the final audit still fails closed on broader practical
+      replacement blockers.
+    commit: 60329edf2c02a1d6bf1c37ae645c9d5b13cf0280
+    component_commits:
+      - 7dc69f2a6afbda232da69f8cae10d03c1e06f3dd
+      - d3134f1f4ac12bf41fca04f84238e3fdb9592629
+      - 60329edf2c02a1d6bf1c37ae645c9d5b13cf0280
+    tests:
+      - 'search worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_ignored_runtime_paths -- --nocapture failed before implementation with 0 passed, 1 failed, 48 filtered out because `.sourcebot/local-sync-index.json` inside a persisted artifact was accepted'
+      - 'main: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_ignored_runtime_paths -- --nocapture passed with 1 test and 48 filtered out'
+      - 'main: cargo test -p sourcebot-search passed with 49 tests and 0 doctests'
+      - 'search worker: cargo test -p sourcebot-api search -- --nocapture passed with 38 main-bin tests and one zero-test lib target'
+      - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_remote_scp_like_credential -- --nocapture failed before implementation because `git@example.invalid:acme/repo.git` reached fake Git and returned remote metadata behavior instead of the credential validation error'
+      - 'main: cargo test -p sourcebot-worker generic_git_remote_scp_like_credential -- --nocapture passed with 1 lib test and zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker generic_git_ -- --test-threads=1 --nocapture ran 31 lib tests; the known timing-sensitive combined-output child-kill test failed in that broad selector, then passed when rerun alone'
+      - 'main: cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_kills_hung_child -- --nocapture passed with 1 lib test and zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-worker passed with 96 executable tests and 0 doctests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check HEAD~3..HEAD and final git diff --check passed'
+      - 'main: added-lines security scan over git diff HEAD~3 excluding roadmap-state scanned 100 added lines with no findings'
+      - 'independent integration review approved the implementation range plus docs tail with no blocking security, logic, or bounded-claim issues'
+    review: >-
+      Independent integration review approved the committed implementation range plus
+      docs tail with no blocking security concerns, logic errors, or bounded-claim
+      issues. Non-blocking suggestions were to consider future table-driven coverage
+      for additional skipped artifact paths and extra scp-like URL boundary cases.
+    workers:
+      - 'Search/Index worker: produced a1006ec088ca7b7149e41479eca8358dcdd707f2, cherry-picked in main as 7dc69f2a6afbda232da69f8cae10d03c1e06f3dd'
+      - 'Browse/Code-nav worker: failed before producing a commit because the provider returned HTTP 503 / no available accounts; the worktree stayed clean and no changes were merged'
+      - 'Provider/Sync/Worker worker: produced 896740710ede5f32de0b5a7dfd4603f50a3cb0be, cherry-picked in main as d3134f1f4ac12bf41fca04f84238e3fdb9592629'
+    notes: >-
+      This batch was selected over paperwork because it landed two disjoint runtime
+      hardenings with RED/GREEN regressions, synchronized coupled acceptance/audit
+      wording, ran focused and broader verification in the main worktree, completed
+      security scan and independent review, and will clean all worker worktrees before
+      stopping.
   - id: task102u_103a_106w_parallel_runtime_hardening
     status: done
     summary: >-
@@ -223,7 +270,7 @@ history:
       - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture passed with 20 lib tests plus zero-test non-lib targets'
       - 'main: cargo test -p sourcebot-worker passed: lib 69, main 3, integration smoke tests 20, doc-tests 0'
       - 'main: cargo fmt --check passed'
-      - 'main: git diff --check HEAD~2..HEAD and final git diff --check passed before docs commit; doc/state diff checks passed after docs/state edits'
+      - 'main: git diff --check HEAD~3..HEAD and final git diff --check passed before docs commit; doc/state diff checks passed after docs/state edits'
       - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
       - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, fallback precedence, Generic Git parser, or docs-claim blockers; reviewer reran focused search and generic_git tests'
     review: >-
