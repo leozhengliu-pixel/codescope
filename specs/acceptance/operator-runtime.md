@@ -52,7 +52,7 @@ when the operator runs:
 ```bash
 make worker
 ```
-then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes one worker tick by default, and exits. Operators may explicitly set `SOURCEBOT_WORKER_MAX_TICKS=<positive integer>` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` to run a bounded multi-tick loop before exit.
+then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes one worker tick by default, and exits. Operators may explicitly set `SOURCEBOT_WORKER_MAX_TICKS=<positive integer up to 1000000>` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` to run a bounded multi-tick loop before exit; oversized tick counts fail closed before execution.
 
 This worker baseline is intentionally limited to default one-tick local bring-up plus an explicit bounded multi-tick loop. It is not a supervised background service contract.
 
