@@ -1494,12 +1494,23 @@ async fn process_mcp_json_rpc_request(
                         )));
                     }
                 };
-            let tool_response = execute_mcp_json_rpc_tool_call_for_visible_repos(
+            let tool_response = match execute_mcp_json_rpc_tool_call_for_visible_repos(
                 state,
                 visible_repo_ids.to_vec(),
                 &mut tool_request,
             )
-            .await?;
+            .await
+            {
+                Ok(response) => response,
+                Err(StatusCode::BAD_REQUEST) => {
+                    return Ok(Some(mcp_json_rpc_error(
+                        id,
+                        -32602,
+                        "invalid params for tools/call: repo_id must be a non-empty string when provided",
+                    )));
+                }
+                Err(status) => return Err(status),
+            };
             mcp_json_rpc_tool_call_result(tool_response)
         }
         _ => {
@@ -8546,6 +8557,68 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("params must match MCP tool-call schema"));
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_tools_call_malformed_repo_id_returns_protocol_invalid_params() {
+        let organization_state_path =
+            unique_test_path("mcp-json-rpc-malformed-repo-id-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-malformed-repo-id-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-malformed-repo-id-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "malformed-repo-id-call",
+                            "method": "tools/call",
+                            "params": {
+                                "name": "read_file",
+                                "arguments": {
+                                    "repo_id": ["repo_sourcebot_rewrite"],
+                                    "path": "README.md"
+                                }
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(response).await;
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["id"], "malformed-repo-id-call");
+        assert_eq!(body["error"]["code"], -32602);
+        assert!(body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("repo_id must be a non-empty string"));
 
         fs::remove_file(organization_state_path).unwrap();
     }
