@@ -22,6 +22,7 @@ pub type DynBrowseStore = Arc<dyn BrowseStore>;
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 const SKIPPED_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "dist"];
+const BLOB_CONTENT_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub trait BrowseStore: Send + Sync {
     fn get_tree(&self, repo_id: &str, path: &str) -> Result<Option<TreeResponse>>;
@@ -498,13 +499,20 @@ impl BrowseStore for LocalBrowseStore {
                     return Ok(None);
                 }
 
-                let bytes = fs::read(&full_path)
-                    .with_context(|| format!("failed to read file {}", full_path.display()))?;
                 let size_bytes = fs::metadata(&full_path)
                     .with_context(|| {
                         format!("failed to read metadata for {}", full_path.display())
                     })?
                     .len();
+                if size_bytes > BLOB_CONTENT_MAX_BYTES as u64 {
+                    anyhow::bail!(
+                        "blob exceeds {} byte read limit: {}",
+                        BLOB_CONTENT_MAX_BYTES,
+                        path
+                    );
+                }
+                let bytes = fs::read(&full_path)
+                    .with_context(|| format!("failed to read file {}", full_path.display()))?;
                 let blob_content = decode_blob_content(bytes);
                 (blob_content.content, size_bytes, blob_content.is_binary)
             }
@@ -875,7 +883,6 @@ fn run_git_list_files_at_revision(
 
 fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
     const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
-    const GIT_STDOUT_CAPTURE_MAX_BYTES: usize = 8 * 1024 * 1024;
     const GIT_STDERR_CAPTURE_MAX_BYTES: usize = 64 * 1024;
 
     let mut child = Command::new("git")
@@ -892,8 +899,7 @@ fn bounded_git_output(repo_root: &PathBuf, args: &[&str]) -> Result<Output> {
     let stderr = child.stderr.take().ok_or_else(|| {
         anyhow::anyhow!("failed to capture git stderr in {}", repo_root.display())
     })?;
-    let stdout_reader =
-        thread::spawn(move || read_stream_bounded(stdout, GIT_STDOUT_CAPTURE_MAX_BYTES));
+    let stdout_reader = thread::spawn(move || read_stream_bounded(stdout, BLOB_CONTENT_MAX_BYTES));
     let stderr_reader =
         thread::spawn(move || read_stream_bounded(stderr, GIT_STDERR_CAPTURE_MAX_BYTES));
 
@@ -1482,6 +1488,27 @@ mod tests {
         assert_eq!(blob.content, "");
         assert_eq!(blob.size_bytes, 4);
         assert!(blob.is_binary);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_bounds_worktree_blob_file_reads() {
+        let (store, root) = create_test_store();
+        fs::write(
+            root.join("huge-worktree.txt"),
+            "x".repeat(8 * 1024 * 1024 + 1),
+        )
+        .unwrap();
+
+        let error = store
+            .get_blob("repo_test", "huge-worktree.txt")
+            .expect_err("worktree blob file reads must be size-bounded");
+
+        assert!(
+            error.to_string().contains("blob exceeds"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
