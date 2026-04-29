@@ -294,40 +294,55 @@ fn run_generic_git_repository_sync_execution(
         return Err(generic_git_failure_detail("git ls-remote --heads", &output));
     }
 
-    parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref()).ok_or_else(|| {
-        format!(
-            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
-        )
+    parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref()).and_then(|execution| {
+        execution.ok_or_else(|| {
+            format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
+            )
+        })
     })
 }
 
 fn parse_git_ls_remote_heads(
     stdout: &[u8],
     preferred_revision: Option<&str>,
-) -> Option<GenericGitRepositorySyncExecution> {
+) -> Result<Option<GenericGitRepositorySyncExecution>, String> {
     let mut first_valid_head = None;
     for line in String::from_utf8_lossy(stdout).lines() {
-        let Some((revision, reference)) = line.split_once('\t') else {
+        if line.is_empty() {
             continue;
+        }
+        let Some((revision, reference)) = line.split_once('\t') else {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised malformed ref line"
+            ));
         };
         if reference.contains('\t') {
-            continue;
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised malformed ref line"
+            ));
         }
         let Some(branch) = reference.strip_prefix("refs/heads/") else {
-            continue;
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised malformed ref line"
+            ));
         };
-        if is_valid_git_object_id(revision) && is_valid_git_branch_name(branch) {
-            let execution = GenericGitRepositorySyncExecution {
-                revision: revision.to_owned(),
-                branch: branch.to_owned(),
-            };
-            if preferred_revision == Some(revision) {
-                return Some(execution);
-            }
-            first_valid_head.get_or_insert(execution);
+        if !is_valid_git_object_id(revision) || !is_valid_git_branch_name(branch) {
+            return Err(format!(
+                "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised malformed ref line"
+            ));
         }
+
+        let execution = GenericGitRepositorySyncExecution {
+            revision: revision.to_owned(),
+            branch: branch.to_owned(),
+        };
+        if preferred_revision == Some(revision) {
+            return Ok(Some(execution));
+        }
+        first_valid_head.get_or_insert(execution);
     }
-    first_valid_head
+    Ok(first_valid_head)
 }
 
 fn parse_git_ls_remote_head_revision(stdout: &[u8]) -> Option<String> {
@@ -2677,6 +2692,43 @@ mod tests {
     }
 
     #[test]
+    fn generic_git_ls_remote_heads_malformed_ref_line_fails_closed() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-malformed-heads-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/feature\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb refs/heads/main\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(_) => panic!("malformed Generic Git ls-remote --heads output must fail closed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised malformed ref line"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
     fn generic_git_sync_resolves_head_revision_when_remote_omits_symref() {
         let fake_git_dir = std::env::temp_dir().join(format!(
             "sourcebot-worker-generic-git-head-revision-{}",
@@ -3358,7 +3410,7 @@ mod tests {
             "malformed head advertisements should fail closed with operator-visible prefix: {error}"
         );
         assert!(
-            error.contains("advertised no valid branch refs"),
+            error.contains("advertised malformed ref line"),
             "malformed head advertisements should not be treated as synced metadata: {error}"
         );
 
