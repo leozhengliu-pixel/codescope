@@ -5,34 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 015e6fb6136930acb2cd042bf3f849bfaffee101
+  head: 23059d0aad7a864ed23a215ae01f106ab602d417
 last_completed_task:
-  id: task102ar-103j-106k
-  title: Mixed search artifact fallback, generated-dir reference skips, and Generic Git HEAD revision hardening
+  id: task102as-103k-106l
+  title: Primary-index error search fallback, newline-safe revision trees, and option-like Generic Git remote hardening
   status: done
   summary: >-
-    Integrated three accelerated worker closures. Unscoped/search-context search
-    now preserves primary-index hits while merging caller-authorized local-sync
-    artifact results for visible repositories missing from the primary startup
-    index, without falling back for primary-indexed repositories with zero
-    matches. Revision-backed code-navigation reference scans now skip generated
-    and dependency directories (`.git`, `target`, `node_modules`, and `dist`)
-    before loading Git blobs. Generic Git remote metadata now fails closed when a
-    direct `HEAD` advertisement has a malformed revision before any `--heads`
-    fallback can record misleading branch/revision metadata.
+    Integrated three accelerated worker closures plus coupled parity-report sync.
+    Requested-repo search now treats a primary startup index in `error` status as
+    unavailable for fallback purposes, so a visible repository can still use its
+    latest authorized local-sync `search-index.json` artifact instead of returning
+    an empty success from a failed primary index. Revision-backed tree browsing now
+    consumes NUL-delimited `git ls-tree` output so embedded-newline Git paths are
+    preserved rather than split into fake entries. Generic Git repository-sync now
+    rejects option-like remote `base_url` values before spawning Git.
   tests:
-    - 'cargo test -p sourcebot-api search_merges_snapshot_for_visible_repo_missing_from_primary_index -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 454 filtered out after worker-recorded RED failure showed missing mixed primary/local-sync results'
-    - 'cargo test -p sourcebot-api search_: passed in main worktree with 34 bin tests, 0 lib tests, and 421 filtered out'
-    - 'cargo test -p sourcebot-api local_browse_store_skips_ignored_directories_for_revision_references -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 454 filtered out after worker-recorded RED failure returned target/ references'
-    - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed in main worktree with 32 bin tests, 0 lib tests, and 423 filtered out'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_malformed_head_revision_fails_closed_before_heads_fallback -- --nocapture: passed in main worktree with 1 lib test, 58 filtered out, and zero-test non-lib targets after worker-recorded RED failure fell back to --heads'
-    - 'cargo test -p sourcebot-worker generic_git: passed in main worktree with 22 lib tests, 37 filtered out, and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker: passed in main worktree with 59 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-api requested_search_falls_back_to_local_sync_artifact_when_primary_index_status_is_error -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 456 filtered out after worker-recorded RED failure returned 0 results instead of the authorized artifact hit'
+    - 'cargo test -p sourcebot-api search_ -- --nocapture: passed in main worktree with 35 bin tests, 0 lib tests, and 422 filtered out'
+    - 'cargo test -p sourcebot-search: passed in main worktree with 43 unit tests and 0 doctests'
+    - 'cargo test -p sourcebot-api local_browse_store_preserves_newline_paths_in_revision_tree_entries -- --nocapture: passed in main worktree with 1 bin test, 0 lib tests, and 456 filtered out after worker-recorded RED failure split the newline path'
+    - 'cargo test -p sourcebot-api browse::tests::local_browse_store -- --nocapture: passed in main worktree with 24 bin tests, 0 lib tests, and 433 filtered out'
+    - 'cargo test -p sourcebot-worker --lib tests::generic_git_remote_option_like_base_url_fails_closed_before_spawning_git -- --exact: passed in main worktree with 1 lib test and 58 filtered out after worker-recorded RED failure spawned fake git'
+    - 'cargo test -p sourcebot-worker --lib generic_git: passed in main worktree with 22 lib tests and 37 filtered out'
+    - 'cargo test -p sourcebot-worker repository_sync: passed in main worktree with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
     - 'cargo fmt --check: passed'
-    - 'git diff --check 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: passed'
-    - 'added-lines security scan over 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: passed with 286 added lines and no findings'
-    - 'independent integration review over 36ff419be244292ddd80c28ccbe75d2bf54a6a47..HEAD: approved with no blocking security, logic, auth/scope, fail-closed, docs-claim, or integration issues'
-  commit: 015e6fb6136930acb2cd042bf3f849bfaffee101
+    - 'git diff --check 1a3db001f8d040134d9ec0e478b858db0ef46c9a: passed'
+    - 'added-lines security scan over 1a3db001f8d040134d9ec0e478b858db0ef46c9a..worktree: passed with 207 added lines and no findings'
+    - 'independent integration review over 1a3db001f8d040134d9ec0e478b858db0ef46c9a..worktree: approved with no blocking security, logic, auth/scope, fail-closed, or docs-claim issues'
+  commit: 23059d0aad7a864ed23a215ae01f106ab602d417
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,19 +42,59 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    three real runtime hardening closures: unscoped/search-context search can now
-    merge authorized local-sync artifact hits for visible repositories that are
-    missing from the primary startup index without dropping primary-index hits or
-    falling back for indexed zero-match repositories; revision-backed reference
-    scans skip generated/dependency directories before reading Git blobs; and
-    Generic Git remote HEAD parsing rejects malformed direct HEAD revisions before
-    fallback. Remaining practical replacement work still includes production-shaped
-    indexing lifecycle/status and failure recovery, relevance and pagination
-    behavior at scale, branch/index availability, broader provider fetch/import/
-    reindex, worker supervision and broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, MCP client interoperability, operator runbook/deployment
+    three real runtime hardening closures: requested-repo search can use an
+    authorized local-sync artifact when the primary startup index is in `error`
+    status, revision tree browsing preserves embedded-newline Git paths through
+    NUL-delimited parsing, and Generic Git remotes reject option-like base URLs
+    before spawning Git. Remaining practical replacement work still includes
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale, branch/index availability, broader provider
+    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO and
+    richer admin/org flows, MCP client interoperability, operator runbook/deploy
     evidence, and other release blockers in this roadmap.
 history:
+  - id: task102as-103k-106l
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures. Requested-repo search now falls back to a caller-
+      authorized local-sync artifact when the primary startup index reports
+      `error`, revision tree parsing preserves embedded-newline Git paths via
+      NUL-delimited `git ls-tree` output, and Generic Git remote validation rejects
+      option-like base URLs before spawning Git.
+    commit: 23059d0aad7a864ed23a215ae01f106ab602d417
+    tests:
+      - 'cargo test -p sourcebot-api requested_search_falls_back_to_local_sync_artifact_when_primary_index_status_is_error -- --nocapture: passed with 1 bin test, 0 lib tests, and 456 filtered out'
+      - 'cargo test -p sourcebot-api search_ -- --nocapture: passed with 35 bin tests, 0 lib tests, and 422 filtered out'
+      - 'cargo test -p sourcebot-search: passed with 43 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api local_browse_store_preserves_newline_paths_in_revision_tree_entries -- --nocapture: passed with 1 bin test, 0 lib tests, and 456 filtered out'
+      - 'cargo test -p sourcebot-api browse::tests::local_browse_store -- --nocapture: passed with 24 bin tests, 0 lib tests, and 433 filtered out'
+      - 'cargo test -p sourcebot-worker --lib tests::generic_git_remote_option_like_base_url_fails_closed_before_spawning_git -- --exact: passed with 1 lib test and 58 filtered out'
+      - 'cargo test -p sourcebot-worker --lib generic_git: passed with 22 lib tests and 37 filtered out'
+      - 'cargo test -p sourcebot-worker repository_sync: passed with 27 lib tests, 3 repository-sync smoke tests, 2 worker-runtime logging tests, and zero-test non-matching targets'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 1a3db001f8d040134d9ec0e478b858db0ef46c9a: passed'
+      - 'added-lines security scan: passed with 207 added lines and no findings'
+      - 'independent integration review: approved with no blocking issues'
+    review: >-
+      Independent integration review approved the actual repository diff and found
+      no blocking issues. The reviewer specifically checked search fallback
+      authorization and primary-index precedence, malformed local-sync artifact
+      fail-closed behavior, newline-safe revision tree parsing without weakening
+      path safety, Generic Git pre-spawn option-like URL rejection, and bounded
+      docs/audit claims.
+    workers:
+      - 'search/index worker: integrated worker commit f37657b7a5aa90610d1d89ebebf7bee05835aa76 as main commit 23a2f41e15f2e2ed38ca0044ee8216c3aacce126'
+      - 'browse/code-navigation worker: integrated worker commit da853bbff27d212bb550f50d7a862b21d725985f as main commit c691668aa613bb9f3f1c1b6befeb845c32556ef5'
+      - 'provider/worker worker: integrated worker commit d1fb2389573906a4a46926b9afde0ce19c564008 as main commit 389749b69765875d58ac2cd3b1e5d1033f5ade71'
+      - 'integrator docs sync: committed parity-gap/final-audit wording as 23059d0aad7a864ed23a215ae01f106ab602d417'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: all
+      three workers shipped code with RED/GREEN evidence in isolated worktrees,
+      the integrator cherry-picked each closure, reran focused and broader
+      selectors in the main worktree, synchronized coupled acceptance, gap-report,
+      and final-audit wording, ran security and mechanical checks, and obtained
+      independent review before updating state.
   - id: task102ar-103j-106k
     status: done
     summary: >-
