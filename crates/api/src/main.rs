@@ -5914,6 +5914,10 @@ async fn list_repository_commits(
     Query(query): Query<CommitListQuery>,
     headers: HeaderMap,
 ) -> Result<Json<CommitListResponse>, StatusCode> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+    }
+
     let revision = parse_optional_revision_query(&query.revision)?;
     let revision = revision.as_deref();
 
@@ -5944,6 +5948,10 @@ async fn get_repository_commit(
     Path((repo_id, commit_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<CommitDetailResponse>, StatusCode> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+    }
+
     let commit = if let Some(commit) = state
         .commits
         .get_commit(&repo_id, &commit_id)
@@ -5968,6 +5976,10 @@ async fn get_repository_commit_diff(
     Path((repo_id, commit_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<CommitDiffResponse>, StatusCode> {
+    if headers.contains_key(header::AUTHORIZATION) {
+        ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+    }
+
     let diff = if let Some(diff) = state
         .commits
         .get_commit_diff(&repo_id, &commit_id)
@@ -28555,6 +28567,47 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn repo_commit_endpoints_return_not_found_for_hidden_seeded_repository() {
+        let organization_state_path = unique_test_path("repo-commits-hidden-seeded-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_other_visible"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-commits-hidden-seeded-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-commits-hidden-seeded-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        for uri in [
+            "/api/v1/repos/repo_sourcebot_rewrite/commits",
+            "/api/v1/repos/repo_sourcebot_rewrite/commits/HEAD",
+            "/api/v1/repos/repo_sourcebot_rewrite/commits/HEAD/diff",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .header(header::AUTHORIZATION, authorization.clone())
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+        }
     }
 
     #[tokio::test]
