@@ -63,6 +63,7 @@ pub enum RepositoryIndexState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct RepositoryIndexStatus {
     pub repo_id: String,
     pub status: RepositoryIndexState,
@@ -2110,12 +2111,16 @@ mod tests {
         let artifact_json: serde_json::Value =
             serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
 
-        let cases: [(&str, fn(&mut serde_json::Value)); 2] = [
+        let cases: [(&str, fn(&mut serde_json::Value)); 3] = [
             ("top-level", |artifact_json| {
                 artifact_json["unexpected_schema_field"] = serde_json::Value::Bool(true);
             }),
             ("indexed-line", |artifact_json| {
                 artifact_json["indexed_lines"][0]["unexpected_schema_field"] =
+                    serde_json::Value::Bool(true);
+            }),
+            ("index-status", |artifact_json| {
+                artifact_json["index_status"]["unexpected_schema_field"] =
                     serde_json::Value::Bool(true);
             }),
         ];
