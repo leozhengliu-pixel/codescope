@@ -5,45 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: af3d67c861d5931563683e5de57d553f37ca1395
+  head: 825d3c1b248f540e163a356c4ee3b668b22c3179
 last_completed_task:
-  id: task102al-103d-106f
-  title: Search artifact temp-path hardening, revision browse not-found hardening, and Generic Git HEAD symref fail-closed parsing
+  id: task102am-103e-106g
+  title: Search ordering, tree traversal status, and detached local Git sync hardening
   status: done
   summary: >-
-    Integrated an accelerated three-worker batch plus one reviewer-forced Generic
-    Git parser fix. Local-sync search index artifact writes now reject symlinked
-    temp artifacts without clobbering external targets. Revision tree browse now
-    treats blob-as-tree requests as not found instead of surfacing backend Git
-    errors. Generic Git remote metadata probing now fails closed for malformed
-    HEAD symref advertisements, including invalid branch names, extra fields,
-    non-HEAD targets, and duplicate symref records, before falling back to
-    --heads.
+    Integrated an accelerated three-worker batch. Startup/local search now sorts
+    indexed lines by path and line after recursive collection, including
+    file-vs-directory prefix collisions such as a.rs before a/file.rs. Repository
+    tree requests now reject parent-directory traversal with the same 400 Bad
+    Request contract as blob reads instead of treating malformed paths as generic
+    not found. Local repository-sync worker execution now supports detached HEAD
+    checkouts by persisting the explicit HEAD branch label while still requiring
+    bounded Git preflight, readable revision, tracked content, snapshot,
+    manifest, and search-index artifact success before terminal success.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_temp_artifacts_without_clobbering_target -- --nocapture: passed in the main worktree with 1 test and 41 filtered out after worker-recorded RED failure where the writer followed/clobbered a symlinked temp artifact path'
+    - 'cargo test -p sourcebot-search local_search_store_returns_deterministic_repo_path_line_order -- --nocapture: passed in the main worktree with 1 test and 41 filtered out after worker-recorded RED failure for a.rs versus a/file.rs ordering'
     - 'cargo test -p sourcebot-search: passed in the main worktree with 42 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api local_browse_store_does_not_return_revision_blob_as_tree -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 448 filtered out after worker-recorded RED failure surfacing fatal not-a-tree Git output'
+    - 'cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_bad_request -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 448 filtered out after worker-recorded RED failure where traversal returned 404 instead of 400'
+    - 'cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed in the main worktree with 9 bin tests, 0 lib tests, and 440 filtered out'
     - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed in the main worktree with 29 bin tests, 0 lib tests, and 420 filtered out'
-    - 'cargo test -p sourcebot-worker tests::generic_git_ls_remote_malformed_head_symref_fails_closed_before_heads_fallback -- --exact --nocapture: passed in the main worktree with 1 lib test and zero-test non-lib targets after worker-recorded RED failure falling back to --heads'
-    - 'cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_extra_field_fails_closed_before_heads_fallback -- --nocapture: RED failed before the integrator fix by falling back to --heads; cargo test -p sourcebot-worker generic_git_ls_remote_head_symref -- --nocapture then passed with 2 lib tests and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker generic_git_ -- --nocapture: passed in the main worktree with 20 lib tests and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 53 lib tests, 3 main tests, 20 integration/smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-worker --lib tests::run_repository_sync_claim_tick_succeeds_for_detached_local_git_head -- --exact --nocapture: passed in the main worktree with 1 test and 53 filtered out after worker-recorded RED failure where detached HEAD local sync ended Failed instead of Succeeded'
+    - 'cargo test -p sourcebot-worker: passed in the main worktree with 54 lib tests, 3 main tests, smoke targets 5/3/4/3/5 passed, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check a814d7eb47f513b412e457a019118a9d91266f27..af3d67c861d5931563683e5de57d553f37ca1395: passed'
-    - 'added-lines security scan over a814d7eb47f513b412e457a019118a9d91266f27..af3d67c861d5931563683e5de57d553f37ca1395: passed with 250 added lines scanned and 0 findings'
-    - 'independent integration review over a814d7eb47f513b412e457a019118a9d91266f27..worktree: initially failed on incomplete Generic Git malformed HEAD symref handling; passed after adding extra-field/non-HEAD-target RED/GREEN regressions and stricter parser validation'
-  review:
-    code: >-
-      Independent integration review initially failed because Generic Git HEAD
-      symref parsing still allowed malformed extra-field or non-HEAD-target ref
-      lines to fall back to --heads. The integrator added focused RED/GREEN
-      regressions, required exactly two fields, target HEAD, a valid refs/heads
-      branch, and no duplicate symref records, then re-ran worker tests and
-      re-review. Final review passed with no blocking security, logic, or docs
-      claim issues across search artifact writes, browse not-found handling, and
-      Generic Git metadata hardening.
-  commit: af3d67c861d5931563683e5de57d553f37ca1395
-  next_task: task102
+    - 'git diff --check c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed'
+    - 'added-lines security scan over c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed with 193 added lines and no findings'
+    - 'independent integration review over c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed with no blocking issues'
+  commit: 825d3c1b248f540e163a356c4ee3b668b22c3179
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -53,17 +42,44 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    real hardening across three release-blocker surfaces: local-sync search index
-    artifact writes now fail closed on symlinked temp artifacts without clobbering
-    external targets, revision tree browse now treats blob-as-tree requests as not
-    found instead of leaking backend Git errors, and Generic Git HEAD symref
-    parsing fails closed on malformed advertisements before --heads fallback.
-    Remaining practical-replacement work still includes production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale, branch/index availability, broader provider fetch/import/reindex,
-    worker supervision/retry/backoff, OIDC/SSO and richer admin/org flows, MCP
-    client interoperability, and other release blockers in this roadmap.
+    real hardening across three release-blocker surfaces: startup/local search
+    ordering is deterministic even for file-vs-directory prefix collisions,
+    repository tree traversal rejects malformed parent-directory paths with 400,
+    and local repository-sync can now complete bounded artifact generation for
+    detached HEAD checkouts using the explicit HEAD label. Remaining practical
+    replacement work still includes production-shaped indexing lifecycle/status
+    and failure recovery, relevance and pagination behavior at scale,
+    branch/index availability, broader provider fetch/import/reindex, worker
+    supervision/retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    interoperability, operator runbook/deployment evidence, and other release
+    blockers in this roadmap.
 history:
+  - id: task102am-103e-106g
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures: search path/line ordering now survives
+      file-vs-directory prefix collisions, tree traversal returns 400 for
+      malformed parent-directory input, and bounded local Git sync succeeds for
+      detached HEAD checkouts while persisting the explicit HEAD label and local
+      artifacts.
+    commit: 825d3c1b248f540e163a356c4ee3b668b22c3179
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_returns_deterministic_repo_path_line_order -- --nocapture: passed with 1 test and 41 filtered out after RED ordering failure'
+      - 'cargo test -p sourcebot-search: passed with 42 unit tests and 0 doctests'
+      - 'cargo test -p sourcebot-api repo_tree_rejects_parent_directory_traversal_with_bad_request -- --nocapture: passed with 1 bin test, 0 lib tests, and 448 filtered out after RED 404-vs-400 failure'
+      - 'cargo test -p sourcebot-api repo_tree_ -- --nocapture: passed with 9 bin tests, 0 lib tests, and 440 filtered out'
+      - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture: passed with 29 bin tests, 0 lib tests, and 420 filtered out'
+      - 'cargo test -p sourcebot-worker --lib tests::run_repository_sync_claim_tick_succeeds_for_detached_local_git_head -- --exact --nocapture: passed with 1 test and 53 filtered out after RED detached-HEAD terminal-status failure'
+      - 'cargo test -p sourcebot-worker: passed with 54 lib tests, 3 main tests, smoke targets 5/3/4/3/5 passed, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed'
+      - 'added-lines security scan over c279672e13e70e4e48f5d7ad3a777ab5ee57a699..HEAD: passed with no findings'
+      - 'independent integration review: passed with no blocking issues'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: each
+      worker shipped code plus focused RED/GREEN evidence and the integrator
+      reran focused and broader tests in the main worktree before updating state.
   - id: task102al-103d-106f
     status: done
     summary: >-
