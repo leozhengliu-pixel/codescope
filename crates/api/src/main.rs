@@ -6565,6 +6565,10 @@ fn latest_local_sync_snapshot(
     repo_id: &str,
     authorized_organization_ids: &HashSet<String>,
 ) -> Option<LocalSyncSnapshot> {
+    if authorized_organization_ids.len() != 1 {
+        return None;
+    }
+
     let latest_successful_job = organization_state
         .repository_sync_jobs
         .iter()
@@ -28519,6 +28523,132 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repo_commits_local_sync_fallback_fails_closed_for_duplicate_org_repo_bindings() {
+        let acme_repo_root = unique_test_path("commits-local-sync-acme-duplicate-repo");
+        create_local_git_repository(&acme_repo_root);
+        let hidden_repo_root = unique_test_path("commits-local-sync-hidden-duplicate-repo");
+        create_local_git_repository(&hidden_repo_root);
+        assert!(Command::new("git")
+            .args([
+                "-C",
+                &hidden_repo_root.display().to_string(),
+                "commit",
+                "--allow-empty",
+                "-m",
+                "hidden duplicate org repo head",
+            ])
+            .status()
+            .unwrap()
+            .success());
+
+        let organization_state_path =
+            unique_test_path("commits-local-sync-duplicate-org-repo-orgs");
+        let local_session_state_path =
+            unique_test_path("commits-local-sync-duplicate-org-repo-sessions");
+        let user_id = "user_local_sync_duplicate_org_repo";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_shared"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.organizations.push(Organization {
+            id: "org_hidden".into(),
+            slug: "hidden".into(),
+            name: "Hidden".into(),
+        });
+        organization_state.memberships.push(OrganizationMembership {
+            organization_id: "org_hidden".into(),
+            user_id: user_id.into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-21T00:01:00Z".into(),
+        });
+        organization_state
+            .repo_permissions
+            .push(RepositoryPermissionBinding {
+                organization_id: "org_hidden".into(),
+                repository_id: "repo_shared".into(),
+                synced_at: "2026-04-21T00:07:00Z".into(),
+            });
+        organization_state.connections = vec![
+            Connection {
+                id: "conn_acme".into(),
+                name: "Acme Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: acme_repo_root.display().to_string(),
+                }),
+            },
+            Connection {
+                id: "conn_hidden".into(),
+                name: "Hidden Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: hidden_repo_root.display().to_string(),
+                }),
+            },
+        ];
+        organization_state.repository_sync_jobs = vec![
+            RepositorySyncJob {
+                id: "job_acme_success".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_shared".into(),
+                connection_id: "conn_acme".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("acme-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+            RepositorySyncJob {
+                id: "job_hidden_success".into(),
+                organization_id: "org_hidden".into(),
+                repository_id: "repo_shared".into(),
+                connection_id: "conn_hidden".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:11:00Z".into(),
+                started_at: Some("2026-04-21T00:11:01Z".into()),
+                finished_at: Some("2026-04-21T00:11:02Z".into()),
+                error: None,
+                synced_revision: Some("hidden-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            },
+        ];
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_shared/commits?limit=1")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(acme_repo_root).unwrap();
+        fs::remove_dir_all(hidden_repo_root).unwrap();
     }
 
     #[tokio::test]
