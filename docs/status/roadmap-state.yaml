@@ -5,35 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0970fef8d969ca481a2f6f0655ab09725db792db
+  head: ef2b01b0fbe7ddb022000c5252008b2af423d976
 last_completed_task:
-  id: task102_107_search_mcp_schema_parent_hardening
-  title: Search artifact parent and MCP schema contract hardening
+  id: task102_108_search_worker_case_cap_hardening
+  title: Search skipped-extension and worker tick-cap hardening
   status: done
   summary: >-
     Integrated two implementation-backed release-blocker hardening closures plus a
-    controller docs-sync tail. The search-index artifact writer now rejects
-    symlinked artifact parent components before creating nested directories through
-    them, preventing a compromised local-sync artifact path from creating runtime
-    directories outside the intended tree before fail-closed handling. MCP
-    retrieval tool-list schemas now advertise closed JSON objects with
-    `additionalProperties: false`, aligning the published client contract with the
-    existing runtime unknown-field rejection. Coupled acceptance, gap-report, and
-    final-audit wording records the bounded evidence; practical replacement parity
-    is still not claimed.
+    controller docs-sync tail. Search indexing now applies the binary/generated
+    skipped-extension policy case-insensitively, so uppercase `PACKAGE.LOCK` and
+    `IMAGE.PNG` style paths cannot be indexed or accepted through persisted
+    local-sync artifact validation when their lowercase equivalents are skipped.
+    The worker entrypoint now rejects `SOURCEBOT_WORKER_MAX_TICKS` values above
+    1,000,000 before execution, preserving the explicitly bounded runtime
+    contract instead of accepting an accidentally enormous operator loop. Coupled
+    acceptance, parity-gap, operator-runtime, and final-audit wording records the
+    bounded evidence while practical replacement parity remains unclaimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture failed before implementation because the writer created nested-created-by-writer through a symlinked artifact parent before failing'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_write_rejects_symlinked_parent_before_creating_directories -- --nocapture passed with 1 test and 51 filtered out'
-    - 'main broader: cargo test -p sourcebot-search local_search_store_ -- --nocapture passed with 46 tests and 6 filtered out'
-    - 'worker RED: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas failed before implementation because retrieval schemas lacked additionalProperties false'
-    - 'main focused: cargo test -p sourcebot-mcp retrieval_tool_definitions_expose_expected_input_schemas -- --nocapture passed with 1 test and 8 filtered out'
-    - 'main broader: cargo test -p sourcebot-mcp passed with 9 unit tests and 0 doc tests'
-    - 'main broader: cargo test -p sourcebot-api mcp passed with 18 main-bin tests, 450 filtered out, and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_skips_ignored_extensions_case_insensitively failed before implementation because an uppercase .LOCK file was indexed and returned a result'
+    - 'main focused: cargo test -p sourcebot-search tests::local_search_store_skips_ignored_extensions_case_insensitively -- --exact passed with 1 test and 52 filtered out'
+    - 'main broader: cargo test -p sourcebot-search passed with 53 unit tests and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-worker worker_max_ticks_fails_closed_when_configured_above_runtime_cap failed before implementation because SOURCEBOT_WORKER_MAX_TICKS=1000001 was accepted'
+    - 'main focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_max_ticks_fails_closed_when_configured_above_runtime_cap -- --exact passed with 1 test and 4 filtered out'
+    - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 5 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
     - 'main: cargo fmt --check passed'
     - 'main: git diff --check origin/master..HEAD and git diff --check passed'
-    - 'main: added-lines security scan over git diff origin/master..HEAD scanned 77 added lines with no findings'
+    - 'main: added-lines security scan over origin/master..HEAD plus docs-sync scanned 75 added lines with no findings'
     - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
-  commit: 0970fef8d969ca481a2f6f0655ab09725db792db
+  commit: ef2b01b0fbe7ddb022000c5252008b2af423d976
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -43,20 +42,64 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed two real fail-closed contract gaps: the
-    search-index artifact writer no longer creates nested directories through a
-    symlinked artifact parent before rejecting the path, and MCP retrieval
-    tool-list schemas now publish closed JSON objects that match runtime
-    unknown-field rejection. A Provider/Sync/Worker worker was attempted but ended
-    with a provider/account HTTP 503 before producing a worktree or commit, so it
-    was not merged. Practical replacement remains incomplete. Remaining blockers
-    still include production-shaped indexing lifecycle/status and failure
-    recovery, relevance and pagination behavior at scale beyond the bounded
-    helper, branch and index availability, broader provider fetch/import/reindex,
-    worker scheduling/supervision and broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, deeper MCP client/session interoperability, operator
-    runbook/deploy evidence, and the other release blockers in this roadmap.
+    worktree is clean. This run closed two real runtime hardening gaps: skipped
+    binary/generated search extensions are enforced case-insensitively across
+    live indexing and persisted local-sync artifact validation, and the worker
+    bounded-loop configuration now fails closed for tick counts above 1,000,000
+    before execution. A Browse/Code-Nav worker was attempted but ended with a
+    provider/account HTTP 503 after only an incomplete uncommitted test-only diff,
+    so it was not merged and its worktree was removed. Practical replacement
+    remains incomplete. Remaining blockers still include production-shaped
+    indexing lifecycle/status and failure recovery, relevance and pagination
+    behavior at scale beyond the bounded helper, branch and index availability,
+    broader provider fetch/import/reindex, worker scheduling/supervision and
+    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
+    client/session interoperability, operator runbook/deploy evidence, and the
+    other release blockers in this roadmap.
 history:
+  - id: task102_108_search_worker_case_cap_hardening
+    status: done
+    summary: >-
+      Integrated two disjoint implementation-worker closures plus a controller-owned
+      docs-sync commit. Search indexing now skips generated/binary extensions
+      regardless of extension casing, preventing uppercase skipped artifacts from
+      appearing in live search or persisted local-sync search-index artifacts. The
+      worker runtime now rejects `SOURCEBOT_WORKER_MAX_TICKS` values above
+      1,000,000 before execution so the explicit bounded-loop contract remains
+      fail-closed. This was chosen over paperwork because it closes real runtime
+      hardening gaps in search/index and worker/operator surfaces; final parity
+      remains fail-closed on broader production indexing, provider, worker, auth,
+      MCP, and operator blockers.
+    commit: ef2b01b0fbe7ddb022000c5252008b2af423d976
+    component_commits:
+      - 2199640d9c21bccb778e41c14d15e52a6295fcd4
+      - 1d03c94a38eb169470bb7d2a49bbcb1098b858cc
+      - ef2b01b0fbe7ddb022000c5252008b2af423d976
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_skips_ignored_extensions_case_insensitively failed before implementation because an uppercase .LOCK file was indexed and returned a result'
+      - 'main focused: cargo test -p sourcebot-search tests::local_search_store_skips_ignored_extensions_case_insensitively -- --exact passed with 1 test and 52 filtered out'
+      - 'main broader: cargo test -p sourcebot-search passed with 53 unit tests and 0 doc tests'
+      - 'worker RED: cargo test -p sourcebot-worker worker_max_ticks_fails_closed_when_configured_above_runtime_cap failed before implementation because SOURCEBOT_WORKER_MAX_TICKS=1000001 was accepted'
+      - 'main focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_max_ticks_fails_closed_when_configured_above_runtime_cap -- --exact passed with 1 test and 4 filtered out'
+      - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 5 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+      - 'main: added-lines security scan over origin/master..HEAD plus docs-sync scanned 75 added lines with no findings'
+      - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
+    review: >-
+      Independent integration review checked the main-worktree range
+      origin/master..HEAD after the docs-sync commit, reran the focused search and
+      worker tests, and approved the Rust changes plus acceptance/gap/final-audit
+      wording with no blocking security, logic, or bounded-claim issues. The only
+      non-blocking note was that a future cleanup could wrap worker env-var tests
+      in an RAII guard; it was not required for this closure.
+    workers: >-
+      Search worker commit 2199640d9c21bccb778e41c14d15e52a6295fcd4 was cherry-picked as the main search
+      hardening commit. Provider/Worker commit 1d03c94a38eb169470bb7d2a49bbcb1098b858cc was cherry-picked as
+      the main worker hardening commit. Integrator docs-sync commit
+      ef2b01b0fbe7ddb022000c5252008b2af423d976 updated coupled acceptance, gap-report, operator-runtime,
+      and final-audit wording. Browse/Code-Nav worker failed due to provider/account
+      HTTP 503 after an incomplete uncommitted test-only diff and was not merged.
   - id: task102_107_search_mcp_schema_parent_hardening
     status: done
     summary: >-
