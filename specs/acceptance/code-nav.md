@@ -22,6 +22,7 @@
 
 ## Permission behavior
 - Definitions and references only return locations inside repositories the caller can access.
+- Blank present `revision` query values are rejected as bad requests instead of being treated as omitted and triggering default-HEAD or local-sync snapshot fallback behavior.
 - Cross-repo references must honor the same permission boundary as search.
 
 ## Edge cases

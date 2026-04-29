@@ -971,6 +971,20 @@ fn default_commit_limit() -> usize {
     20
 }
 
+fn parse_optional_revision_query(revision: &Option<String>) -> Result<Option<String>, StatusCode> {
+    revision
+        .as_deref()
+        .map(str::trim)
+        .map(|value| {
+            if value.is_empty() {
+                Err(StatusCode::BAD_REQUEST)
+            } else {
+                Ok(value.to_string())
+            }
+        })
+        .transpose()
+}
+
 async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
@@ -5438,11 +5452,8 @@ async fn get_repository_tree(
 ) -> Result<Json<TreeResponse>, StatusCode> {
     ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
 
-    let revision = query
-        .revision
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let revision = parse_optional_revision_query(&query.revision)?;
+    let revision = revision.as_deref();
 
     if let Some(tree) = state
         .browse
@@ -5477,11 +5488,8 @@ async fn get_repository_blob(
 ) -> Result<Json<BlobResponse>, StatusCode> {
     ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
 
-    let revision = query
-        .revision
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let revision = parse_optional_revision_query(&query.revision)?;
+    let revision = revision.as_deref();
 
     if let Some(blob) = state
         .browse
@@ -5527,12 +5535,7 @@ async fn get_repository_definitions(
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
     ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
-    let requested_revision = query
-        .revision
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+    let requested_revision = parse_optional_revision_query(&query.revision)?;
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
     let response_revision = Some(effective_revision.to_string());
 
@@ -5636,12 +5639,7 @@ async fn get_repository_references(
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
     ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
-    let requested_revision = query
-        .revision
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+    let requested_revision = parse_optional_revision_query(&query.revision)?;
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
     let response_revision = Some(effective_revision.to_string());
 
@@ -5886,11 +5884,8 @@ async fn list_repository_commits(
     Query(query): Query<CommitListQuery>,
     headers: HeaderMap,
 ) -> Result<Json<CommitListResponse>, StatusCode> {
-    let revision = query
-        .revision
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let revision = parse_optional_revision_query(&query.revision)?;
+    let revision = revision.as_deref();
 
     let commits = if let Some(commits) = state
         .commits
@@ -28196,6 +28191,42 @@ mod tests {
         assert!(payload.content.contains("[workspace]"));
         assert!(!payload.is_binary);
         assert!(payload.size_bytes > 0);
+    }
+
+    #[tokio::test]
+    async fn repo_blob_rejects_blank_explicit_revision() {
+        let organization_state_path = unique_test_path("repo-blob-blank-revision-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("repo-blob-blank-revision-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("repo-blob-blank-revision-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        });
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(
+                        "/api/v1/repos/repo_sourcebot_rewrite/blob?path=Cargo.toml&revision=%20%20",
+                    )
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
