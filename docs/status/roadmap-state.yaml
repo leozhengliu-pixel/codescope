@@ -5,31 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4f5c0a30838b728599490f8eca0ab169b5472f9a
+  head: a9c79921b673e04a1b50b22cf62f389b96a631c0
 last_completed_task:
-  id: task102-106q
-  title: Search artifact blank-path validation and local sync tabbed-path preservation
+  id: task102-103-106r
+  title: Search ordering, literal commit diffs, and local Git output caps
   status: done
   summary: >-
-    Integrated two accelerated implementation-worker closures plus coupled acceptance
-    and final-audit wording. Persisted local-sync search-index artifacts now reject
-    stored result paths with blank path components such as doubled or trailing
-    separators instead of letting path normalization hide malformed keys. Local Git
-    repository-sync artifacts now preserve valid tracked file names containing tabs
-    while still failing closed for manifest-delimiting/control path characters before
-    claiming artifact success.
+    Closed the dirty carry-over from the previous accelerated batch instead of
+    starting new workers on top of uncommitted evidence. The batch integrated real
+    implementation hardening across three disjoint practical-replacement blockers:
+    unscoped/search-context search now sorts merged primary-index and authorized
+    local-sync artifact results by repo/path/line before pagination; commit diff
+    patch loading now uses literal Git pathspec semantics so metacharacter-bearing
+    filenames cannot include sibling patches; and local Git repository-sync probes
+    now enforce the combined stdout/stderr output cap across preflight, revision,
+    content-discovery, branch/detached-label, and tracked-file snapshot commands.
+    Coupled acceptance and final-audit wording was synchronized while preserving
+    explicit fail-closed blockers for real indexing, real provider fetch/import,
+    production worker supervision/retry, OIDC/SSO, MCP interoperability, and
+    operator deployment/runbook parity.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_blank_path_components -- --nocapture: passed with 1 test and 46 filtered out after worker-recorded RED failure accepted src//main.rs'
-    - 'cargo test -p sourcebot-search: passed with 47 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-worker local_sync_tracked_content_paths -- --nocapture: passed with 2 lib tests, 62 filtered out, and zero-test non-lib targets'
-    - 'cargo test -p sourcebot-worker run_repository_sync_claim_tick_snapshots_tracked_head_content_for_local_connections -- --nocapture: passed with 1 lib test, 63 filtered out, and zero-test non-lib/smoke targets'
-    - 'cargo test -p sourcebot-worker -- --nocapture: passed with 64 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-worker combined_output_over_cap -- --nocapture: passed with 2 lib tests and zero-test non-lib/smoke targets'
+    - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test and zero-test non-lib/smoke targets'
+    - 'cargo test -p sourcebot-api local_commit_store_loads_literal_pathspec_patches -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
+    - 'cargo test -p sourcebot-api search_orders_merged_primary_and_local_sync_artifact_results_by_repo_path_line -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
+    - 'cargo test -p sourcebot-worker: passed with 65 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-api repo_commit -- --nocapture: passed with 14 main-bin tests and one zero-test lib target'
+    - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed with 16 main-bin tests and one zero-test lib target'
     - 'cargo fmt --check: passed'
-    - 'git diff --check HEAD~2..HEAD and final git diff --check: passed'
-    - 'docs marker checks for search artifact blank path, worker tabbed path, and final-audit wording: passed'
-    - 'added-lines security scan over HEAD~2..HEAD: passed with 63 added code lines and no findings'
-    - 'independent final integration review over HEAD~3..HEAD: approved with no blockers'
-  commit: 4f5c0a30838b728599490f8eca0ab169b5472f9a
+    - 'git diff --check: passed'
+    - 'added-lines security scan over git diff HEAD~3 plus docs: passed with 242 added lines and no findings'
+    - 'independent final integration review: approved with no blockers'
+  commit: a9c79921b673e04a1b50b22cf62f389b96a631c0
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -38,17 +45,66 @@ current_task:
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
-    Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    real implementation-backed hardening: persisted search-index artifacts now
-    reject blank path components in stored result paths, and local Git sync artifact
-    generation preserves valid tabbed tracked filenames while still failing closed
-    for manifest-delimiting/control path characters. Remaining practical replacement
-    work still includes production-shaped indexing lifecycle/status and failure
-    recovery, relevance and pagination behavior at scale, branch/index availability,
-    broader provider fetch/import/reindex, worker supervision and broad retry/backoff,
-    OIDC/SSO and richer admin/org flows, MCP client interoperability, operator
-    runbook/deploy evidence, and other release blockers in this roadmap.
+    Task 103/105/106/107/108 blockers when scopes are disjoint and the main
+    worktree is clean. This carry-over close-out landed implementation-backed
+    hardening for deterministic merged search pagination, literal commit-diff
+    pathspec handling, and combined-output-capped local Git sync probes. Remaining
+    practical replacement work still includes production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale, branch/index availability, broader provider fetch/import/reindex,
+    worker supervision and broad retry/backoff, OIDC/SSO and richer admin/org
+    flows, MCP client interoperability, operator runbook/deploy evidence, and
+    other release blockers in this roadmap.
 history:
+  - id: task102-103-106r
+    status: done
+    summary: >-
+      Closed dirty carry-over from the prior accelerated batch with three real
+      implementation-backed closures plus coupled evidence wording: merged
+      primary/local-sync search results are deterministically sorted before
+      pagination, commit-diff patch loading uses literal Git pathspec semantics
+      for metacharacter-bearing paths, and local Git repository-sync probes enforce
+      combined stdout/stderr caps through tracked-file snapshot generation. The
+      batch improves search pagination determinism, browse/commit path safety, and
+      operator-visible local-provider failure boundaries while keeping full
+      replacement blockers explicit.
+    commit: a9c79921b673e04a1b50b22cf62f389b96a631c0
+    component_commits:
+      - d5c9f6903be734e8e0146abede032d7a10e3dab2
+      - 5e087b8d54f66c3025e5caafcc142f90639d6959
+      - 28424891e1946d3c0250e235513e368ba9037ca9
+      - a9c79921b673e04a1b50b22cf62f389b96a631c0
+    tests:
+      - 'cargo test -p sourcebot-worker combined_output_over_cap -- --nocapture: passed with 2 lib tests and zero-test non-lib/smoke targets'
+      - 'cargo test -p sourcebot-worker local_repository_sync_git_show_output_over_cap_fails_before_artifact_persistence -- --nocapture: passed with 1 lib test and zero-test non-lib/smoke targets'
+      - 'cargo test -p sourcebot-api local_commit_store_loads_literal_pathspec_patches -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
+      - 'cargo test -p sourcebot-api search_orders_merged_primary_and_local_sync_artifact_results_by_repo_path_line -- --nocapture: passed with 1 main-bin test and one zero-test lib target'
+      - 'cargo test -p sourcebot-worker: passed with 65 lib tests, 3 main tests, 5 explicit-completed smoke tests, 3 invalid-stub smoke tests, 4 idle smoke tests, 3 repository-sync smoke tests, 5 worker-runtime logging smoke tests, and 0 doctests'
+      - 'cargo test -p sourcebot-api repo_commit -- --nocapture: passed with 14 main-bin tests and one zero-test lib target'
+      - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed with 16 main-bin tests and one zero-test lib target'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over git diff HEAD~3 plus docs: passed with 242 added lines and no findings'
+      - 'independent final integration review: approved with no blockers'
+    review: >-
+      Independent final integration review approved the live main-worktree range
+      and uncommitted docs evidence with no blocking security, logic, path-safety,
+      test-adequacy, or release-claim issues. The reviewer inspected search
+      auth-scope preservation and deterministic ordering before pagination, commit
+      diff literal pathspec behavior, local Git combined-output cap handling, and
+      bounded acceptance/final-audit language.
+    workers:
+      - 'search/index worker: already integrated before this close-out as main commit d5c9f6903be734e8e0146abede032d7a10e3dab2'
+      - 'browse/code-navigation worker: already integrated before this close-out as main commit 5e087b8d54f66c3025e5caafcc142f90639d6959'
+      - 'provider/worker worker: already integrated before this close-out as main commit 28424891e1946d3c0250e235513e368ba9037ca9'
+      - 'integrator docs sync: committed acceptance/final-audit wording as a9c79921b673e04a1b50b22cf62f389b96a631c0'
+    notes: >-
+      This was real carry-over closure, not a new paperwork micro-slice: the
+      repo was dirty at startup with documentation evidence matching the three
+      already-integrated implementation commits, so the controller verified the
+      code paths, synchronized coupled release evidence, obtained independent
+      review, and updated state rather than spawning new workers on top of an
+      unclosed batch.
   - id: task102-106q
     status: done
     summary: >-
