@@ -5,32 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3c7e58cda1787aaf83e15fb79e4409b0212028bd
+  head: 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab
 last_completed_task:
-  id: task102s
-  title: Search artifact status path redaction
+  id: task106r
+  title: Generic Git advertised-head fail-closed hardening
   status: done
   summary: >-
-    Closed a Task 102 search/indexing runtime hardening slice: malformed
-    local-sync search-index artifact status errors now redact the artifact path
-    and every non-root ancestor path before surfacing the operator-visible error.
-    This prevents parent-directory or symlink-parent failures from leaking
-    absolute local filesystem paths while preserving a bounded <redacted> failure
-    marker for troubleshooting. Two requested parallel worker scopes for
-    browse/code-navigation and provider/worker did not produce commits because
-    the delegation backend returned HTTP 503/account exhaustion; those worktrees
-    were inspected and had no coherent dirty changes to integrate.
+    Closed a Task 106 provider/sync runtime hardening slice: Generic Git
+    repository-sync execution now requires the separate timeout-bounded
+    `git ls-remote --heads -- <base_url>` probe to advertise at least one
+    valid `refs/heads/*` branch before the worker records terminal
+    revision/current-branch metadata, even when `git ls-remote --symref HEAD`
+    returns HEAD symref metadata. This prevents a remote that only exposes HEAD
+    metadata from being treated as a successful branch-backed Generic Git sync
+    while preserving the bounded metadata-only claim and all clone/fetch/import
+    blockers.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error failed with 1 failing test before implementation'
-    - 'cargo test -p sourcebot-api tests::malformed_search_index_artifact_status_redacts_parent_paths_from_operator_error -- --exact: passed with 1 main-bin test and one zero-test lib target'
-    - 'cargo test -p sourcebot-api search_index_artifact: passed with 8 main-bin tests and one zero-test lib target'
-    - 'cargo test -p sourcebot-search artifact: passed with 26 unit tests'
-    - 'cargo test -p sourcebot-api search_: passed with 37 main-bin tests and one zero-test lib target'
+    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_requires_advertised_heads_even_when_remote_head_symref_exists -- --nocapture failed with 0 passed / 1 failed before implementation because HEAD symref metadata was accepted while --heads advertised no branch refs'
+    - 'cargo test -p sourcebot-worker generic_git_sync_requires_advertised_heads_even_when_remote_head_symref_exists -- --nocapture: passed with 1 lib test and zero-test non-lib/smoke targets'
+    - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 26 lib tests and zero-test non-lib/smoke targets'
     - 'cargo fmt --check: passed'
     - 'git diff --check: passed'
-    - 'added-lines security scan over HEAD~1..HEAD: passed with 48 added lines and no findings'
-    - 'independent integration review: approved with no blockers'
-  commit: 3c7e58cda1787aaf83e15fb79e4409b0212028bd
+    - 'added-lines security scan over HEAD~1..HEAD: passed with 58 added lines and no findings'
+    - 'independent integration review: approved with no blockers; reviewer also reran the focused advertised-heads regression'
+  commit: 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -40,15 +38,57 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run landed implementation-backed redaction hardening
-    for malformed local-sync search-index artifact status errors. Remaining
-    practical replacement work still includes production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale, branch/index availability, broader provider fetch/import/reindex,
-    worker supervision and broad retry/backoff, OIDC/SSO and richer admin/org
-    flows, MCP client interoperability, operator runbook/deploy evidence, and
-    other release blockers in this roadmap.
+    worktree is clean. This run landed implementation-backed Generic Git
+    advertised-head fail-closed hardening for Task 106 rather than a docs-only
+    micro-slice. Remaining practical replacement work still includes
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale, branch/index availability, broader provider
+    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO
+    and richer admin/org flows, MCP client interoperability, operator
+    runbook/deploy evidence, and other release blockers in this roadmap.
 history:
+  - id: task106r
+    status: done
+    summary: >-
+      Integrated one provider/sync runtime hardening closure from a dirty
+      carry-over worker worktree: Generic Git repository-sync execution now
+      requires the separate timeout-bounded `git ls-remote --heads -- <base_url>`
+      probe to advertise at least one valid branch ref before treating HEAD
+      symref metadata as terminal revision/current-branch evidence. This closes a
+      concrete fail-closed metadata-probe gap without claiming clone/fetch/import
+      or full provider/runtime parity. The run intentionally used one worker
+      scope instead of spawning three new workers because a previous provider
+      worktree already contained the RED regression and needed closure before
+      additional disk/worktree churn.
+    commit: 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab
+    component_commits:
+      - 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab
+    tests:
+      - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_requires_advertised_heads_even_when_remote_head_symref_exists -- --nocapture failed with 0 passed / 1 failed before implementation because HEAD symref metadata was accepted while --heads advertised no branch refs'
+      - 'cargo test -p sourcebot-worker generic_git_sync_requires_advertised_heads_even_when_remote_head_symref_exists -- --nocapture: passed with 1 lib test and zero-test non-lib/smoke targets'
+      - 'cargo test -p sourcebot-worker generic_git -- --nocapture: passed with 26 lib tests and zero-test non-lib/smoke targets'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check: passed'
+      - 'added-lines security scan over HEAD~1..HEAD: passed with 58 added lines and no findings'
+      - 'independent integration review: approved with no blockers; reviewer also reran the focused advertised-heads regression'
+    review: >-
+      Independent integration review approved commit 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab with no blocking
+      security, logic, path/command-injection, test-adequacy, or release-claim
+      issues. The reviewer confirmed the change removes the early success path
+      from `--symref HEAD`, preserves shell-free `Command::args(...)` execution
+      with `--` before the base URL, and only returns HEAD symref metadata after
+      `--heads` advertises a valid branch.
+    workers:
+      - 'provider/worker carry-over: worktree commit eeeeb6d1488bb73c99cb17b4ab2cb09d453958cb cherry-picked to main as 6a26fd6bcc73d2971a1903f4812bada9d2bf60ab'
+      - 'browse/code-navigation: no new worker launched; stale clean worktree removed before dispatch to preserve disk budget'
+      - 'search/index: no new worker launched; stale clean worktree removed before dispatch to preserve disk budget'
+    notes: >-
+      This was real implementation-backed provider/runtime closure, not state-only
+      progress: the run recovered a dirty carry-over worker test, observed the RED
+      failure, integrated the worker's production fix, reran focused and broader
+      Generic Git selectors in the main worktree, ran mechanical/security checks,
+      obtained independent review, and kept remaining practical replacement
+      blockers explicit.
   - id: task102s
     status: done
     summary: >-
