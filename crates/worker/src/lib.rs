@@ -1479,13 +1479,16 @@ fn validate_generic_git_base_url(base_url: &str) -> Result<(), String> {
     if trimmed.starts_with('-') {
         return Err("Generic Git base_url must not start with '-'".to_owned());
     }
-    let Some((_, rest)) = trimmed.split_once("://") else {
+    let Some((scheme, rest)) = trimmed.split_once("://") else {
         if generic_git_scp_like_url_contains_userinfo(trimmed) {
             return Err("Generic Git base_url must not include embedded credentials".to_owned());
         }
         return Ok(());
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    if authority.is_empty() && !scheme.eq_ignore_ascii_case("file") {
+        return Err("Generic Git base_url URL authority must not be empty".to_owned());
+    }
     if authority.contains('@') || percent_decode_ascii(authority).contains('@') {
         Err("Generic Git base_url must not include embedded credentials".to_owned())
     } else {
@@ -2833,6 +2836,25 @@ mod tests {
             "generic Git repository sync execution failed: Generic Git base_url must not include control characters"
         );
         assert!(!error.contains("--upload-pack"));
+    }
+
+    #[test]
+    fn generic_git_http_url_with_empty_authority_fails_closed_before_spawning_git() {
+        let error = match run_generic_git_repository_sync_execution(
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            "https:///org/repo.git",
+            Duration::from_millis(50),
+        ) {
+            Ok(_) => panic!(
+                "Generic Git URL base_url with empty authority should fail before git is spawned"
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: Generic Git base_url URL authority must not be empty"
+        );
     }
 
     #[test]
