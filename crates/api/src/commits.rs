@@ -127,11 +127,26 @@ struct NormalizedPatch {
 #[derive(Clone, Default)]
 pub struct LocalCommitStore {
     repo_roots: HashMap<String, PathBuf>,
+    snapshot_revisions: HashMap<String, String>,
 }
 
 impl LocalCommitStore {
     pub fn new(repo_roots: HashMap<String, PathBuf>) -> Self {
-        Self { repo_roots }
+        Self {
+            repo_roots,
+            snapshot_revisions: HashMap::new(),
+        }
+    }
+
+    pub fn with_snapshot_revision(
+        repo_id: String,
+        repo_root: PathBuf,
+        snapshot_revision: String,
+    ) -> Self {
+        Self {
+            repo_roots: HashMap::from([(repo_id.clone(), repo_root)]),
+            snapshot_revisions: HashMap::from([(repo_id, snapshot_revision)]),
+        }
     }
 
     pub fn seeded() -> Self {
@@ -143,6 +158,25 @@ impl LocalCommitStore {
 
     fn repo_root(&self, repo_id: &str) -> Option<&PathBuf> {
         self.repo_roots.get(repo_id)
+    }
+
+    fn snapshot_revision(&self, repo_id: &str) -> Option<&str> {
+        self.snapshot_revisions.get(repo_id).map(String::as_str)
+    }
+
+    fn commit_is_visible_in_snapshot(
+        &self,
+        repo_id: &str,
+        repo_root: &PathBuf,
+        commit_id: &str,
+    ) -> Result<bool> {
+        let Some(snapshot_revision) = self.snapshot_revision(repo_id) else {
+            return Ok(true);
+        };
+        let Some(snapshot_revision) = resolve_single_commit(repo_root, snapshot_revision)? else {
+            return Ok(false);
+        };
+        commit_is_ancestor(repo_root, commit_id, &snapshot_revision)
     }
 
     fn supports_empty_history(&self, repo_id: &str) -> bool {
@@ -203,6 +237,7 @@ impl CommitStore for LocalCommitStore {
             return Ok(None);
         };
 
+        let revision = revision.or_else(|| self.snapshot_revision(repo_id));
         let resolved_revision = match revision {
             Some(revision) => match resolve_single_commit(repo_root, revision)? {
                 Some(resolved) => Some(resolved),
@@ -251,6 +286,9 @@ impl CommitStore for LocalCommitStore {
         let Some(commit_id) = resolve_single_commit(repo_root, commit_id)? else {
             return Ok(None);
         };
+        if !self.commit_is_visible_in_snapshot(repo_id, repo_root, &commit_id)? {
+            return Ok(None);
+        }
 
         let output = run_git_allow_not_found(
             repo_root,
@@ -288,6 +326,9 @@ impl CommitStore for LocalCommitStore {
         let Some(commit_id) = resolve_single_commit(repo_root, commit_id)? else {
             return Ok(None);
         };
+        if !self.commit_is_visible_in_snapshot(repo_id, repo_root, &commit_id)? {
+            return Ok(None);
+        }
 
         let status_output = run_git_allow_not_found(
             repo_root,
@@ -677,6 +718,24 @@ fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<
         return Ok(None);
     }
     Ok(Some(resolved))
+}
+
+fn commit_is_ancestor(repo_root: &PathBuf, commit_id: &str, ancestor_of: &str) -> Result<bool> {
+    let output = bounded_git_output(
+        repo_root,
+        &["merge-base", "--is-ancestor", commit_id, ancestor_of],
+    )?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    match output.status.code() {
+        Some(1) => Ok(false),
+        _ => Err(git_command_error(
+            repo_root,
+            &["merge-base", "--is-ancestor", "<commit>", "<snapshot>"],
+            &output,
+        )),
+    }
 }
 
 fn git_not_found_output(output: &Output) -> bool {

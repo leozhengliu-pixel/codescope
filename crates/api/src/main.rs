@@ -5987,10 +5987,11 @@ async fn local_sync_commit_store_for_repo(
         return Ok(None);
     };
 
-    Ok(Some(LocalCommitStore::new(HashMap::from([(
+    Ok(Some(LocalCommitStore::with_snapshot_revision(
         repo_id.to_string(),
         snapshot.repo_root,
-    )]))))
+        snapshot.revision,
+    )))
 }
 
 async fn visible_repo_ids_for_user_id(
@@ -28420,6 +28421,38 @@ mod tests {
         .list_commits("repo_local_import", 1, 0, None)
         .unwrap()
         .unwrap();
+        fs::write(
+            repo_root.join("README.md"),
+            "# imported repo\n\nunsynced change\n",
+        )
+        .unwrap();
+        assert!(Command::new("git")
+            .args(["-C", &repo_root.display().to_string(), "add", "README.md"])
+            .status()
+            .unwrap()
+            .success());
+        assert!(Command::new("git")
+            .args([
+                "-C",
+                &repo_root.display().to_string(),
+                "commit",
+                "-m",
+                "unsynced head after local sync snapshot",
+            ])
+            .status()
+            .unwrap()
+            .success());
+        let unsynced_head = LocalCommitStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            repo_root.clone(),
+        )]))
+        .list_commits("repo_local_import", 1, 0, None)
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            unsynced_head.commits[0].summary,
+            "unsynced head after local sync snapshot"
+        );
 
         let organization_state_path = unique_test_path("commits-local-sync-orgs");
         let local_session_state_path = unique_test_path("commits-local-sync-sessions");
@@ -28526,6 +28559,37 @@ mod tests {
             .files
             .iter()
             .any(|file| file.path == "README.md"));
+
+        let unsynced_commit_id = unsynced_head.commits[0].short_id.clone();
+        let unsynced_detail_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/repos/repo_local_import/commits/{unsynced_commit_id}"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unsynced_detail_response.status(), StatusCode::NOT_FOUND);
+
+        let unsynced_diff_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/repos/repo_local_import/commits/{unsynced_commit_id}/diff"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unsynced_diff_response.status(), StatusCode::NOT_FOUND);
 
         let revision_response = app
             .oneshot(
