@@ -5794,6 +5794,7 @@ function SettingsObservabilityPage() {
   const section = settingsSectionById('observability');
   const [auditEvents, setAuditEvents] = useState<AuditEventListItem[]>([]);
   const [analyticsRecords, setAnalyticsRecords] = useState<AnalyticsRecordListItem[]>([]);
+  const [observabilityFilter, setObservabilityFilter] = useState('');
   const [auditLoading, setAuditLoading] = useState(true);
   const [analyticsLoading, setAnalyticsLoading] = useState(true);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -5845,30 +5846,94 @@ function SettingsObservabilityPage() {
     };
   }, []);
 
+  const observabilityFilterTerms = observabilityFilter
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((term) => term.length > 0);
+  const auditMatchesFilter = (auditEvent: AuditEventListItem) => {
+    if (observabilityFilterTerms.length === 0) {
+      return true;
+    }
+
+    const searchableText = [
+      auditEvent.organization_id,
+      auditEvent.action,
+      auditEvent.target_type,
+      auditEvent.target_id,
+      auditEvent.occurred_at,
+      auditEvent.actor.user_id ?? '',
+      auditEvent.actor.api_key_id ?? '',
+      formatJsonValue(auditEvent.metadata),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return observabilityFilterTerms.every((term) => searchableText.includes(term));
+  };
+  const analyticsMatchesFilter = (record: AnalyticsRecordListItem) => {
+    if (observabilityFilterTerms.length === 0) {
+      return true;
+    }
+
+    const searchableText = [
+      record.organization_id,
+      record.metric,
+      record.recorded_at,
+      formatJsonValue(record.value),
+      formatJsonValue(record.dimensions),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return observabilityFilterTerms.every((term) => searchableText.includes(term));
+  };
+  const filteredAuditEvents = auditEvents.filter(auditMatchesFilter);
+  const filteredAnalyticsRecords = analyticsRecords.filter(analyticsMatchesFilter);
+
   return (
     <Panel title="Observability" subtitle={section.description}>
       <div style={{ display: 'grid', gap: 16 }}>
         <p style={{ margin: 0, color: '#57606a' }}>
           This minimal panel turns the observability route into a real authenticated operator surface by loading visible audit
-          events and analytics records side by side. Richer filtering, drill-down, and export workflows remain follow-up work.
+          events and analytics records side by side with local filtering across organization ids, actions, metrics, and JSON
+          details. Richer drill-down and export workflows remain follow-up work.
         </p>
 
         <div style={detailGridStyle}>
           <Detail
             label="Visible audit events"
-            value={auditLoading ? 'Loading…' : auditError ? 'Unavailable' : String(auditEvents.length)}
+            value={auditLoading ? 'Loading…' : auditError ? 'Unavailable' : String(filteredAuditEvents.length)}
           />
           <Detail
             label="Visible analytics metrics"
-            value={analyticsLoading ? 'Loading…' : analyticsError ? 'Unavailable' : String(analyticsRecords.length)}
+            value={analyticsLoading ? 'Loading…' : analyticsError ? 'Unavailable' : String(filteredAnalyticsRecords.length)}
           />
         </div>
+
+        {!auditLoading && !analyticsLoading && !auditError && !analyticsError ? (
+          <div style={{ ...detailCardStyle, display: 'grid', gap: 8 }}>
+            <label style={fieldLabelStyle}>
+              <span>Filter audit and analytics</span>
+              <input
+                value={observabilityFilter}
+                onChange={(event) => setObservabilityFilter(event.target.value)}
+                style={inputStyle}
+                placeholder="Filter by organization, action, metric, actor, target, or JSON detail"
+              />
+            </label>
+            <div style={{ color: '#57606a' }}>
+              Showing {filteredAuditEvents.length} of {auditEvents.length} audit events and {filteredAnalyticsRecords.length} of{' '}
+              {analyticsRecords.length} analytics records.
+            </div>
+          </div>
+        ) : null}
 
         <div style={{ display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Audit events</div>
           {auditLoading ? <div>Loading audit events…</div> : null}
           {!auditLoading && auditError ? <div>Unable to load audit events: {auditError}</div> : null}
-          {!auditLoading && !auditError && auditEvents.length === 0 ? (
+          {!auditLoading && !auditError && filteredAuditEvents.length === 0 ? (
             <div style={detailCardStyle}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>No audit events found</div>
               <div style={{ color: '#57606a' }}>
@@ -5876,9 +5941,9 @@ function SettingsObservabilityPage() {
               </div>
             </div>
           ) : null}
-          {!auditLoading && !auditError && auditEvents.length > 0 ? (
+          {!auditLoading && !auditError && filteredAuditEvents.length > 0 ? (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
-              {auditEvents.map((auditEvent) => (
+              {filteredAuditEvents.map((auditEvent) => (
                 <li
                   key={auditEvent.id}
                   aria-label={`Audit event ${auditEvent.action}`}
@@ -5923,7 +5988,7 @@ function SettingsObservabilityPage() {
           <div style={{ fontSize: 18, fontWeight: 700 }}>Analytics</div>
           {analyticsLoading ? <div>Loading analytics…</div> : null}
           {!analyticsLoading && analyticsError ? <div>Unable to load analytics: {analyticsError}</div> : null}
-          {!analyticsLoading && !analyticsError && analyticsRecords.length === 0 ? (
+          {!analyticsLoading && !analyticsError && filteredAnalyticsRecords.length === 0 ? (
             <div style={detailCardStyle}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>No analytics records found</div>
               <div style={{ color: '#57606a' }}>
@@ -5931,9 +5996,9 @@ function SettingsObservabilityPage() {
               </div>
             </div>
           ) : null}
-          {!analyticsLoading && !analyticsError && analyticsRecords.length > 0 ? (
+          {!analyticsLoading && !analyticsError && filteredAnalyticsRecords.length > 0 ? (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 12 }}>
-              {analyticsRecords.map((record) => (
+              {filteredAnalyticsRecords.map((record) => (
                 <li
                   key={record.id}
                   aria-label={`Analytics metric ${record.metric}`}

@@ -3732,6 +3732,82 @@ describe('App', () => {
     });
   });
 
+  it('filters observability audit and analytics rows by organization, action, metric, and metadata text', async () => {
+    window.location.hash = '#/settings/observability';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+
+      if (url === '/api/v1/auth/audit-events' && !init) {
+        return jsonResponse([
+          {
+            id: 'audit-acme',
+            organization_id: 'org-acme',
+            actor: { user_id: 'local-user-1', api_key_id: null },
+            action: 'auth.member.invited',
+            target_type: 'invite',
+            target_id: 'invite-123',
+            occurred_at: '2026-04-23T10:15:00Z',
+            metadata: { email: 'teammate@acme.test' },
+          },
+          {
+            id: 'audit-beta',
+            organization_id: 'org-beta',
+            actor: { user_id: 'local-user-2', api_key_id: null },
+            action: 'auth.api_key.created',
+            target_type: 'api_key',
+            target_id: 'key-beta',
+            occurred_at: '2026-04-23T10:30:00Z',
+            metadata: { name: 'Beta automation' },
+          },
+        ]);
+      }
+
+      if (url === '/api/v1/auth/analytics' && !init) {
+        return jsonResponse([
+          {
+            id: 'analytics-acme',
+            organization_id: 'org-acme',
+            metric: 'search.query.count',
+            recorded_at: '2026-04-23T10:20:00Z',
+            value: { count: 4 },
+            dimensions: { repo_id: 'repo-alpha' },
+          },
+          {
+            id: 'analytics-beta',
+            organization_id: 'org-beta',
+            metric: 'repo.sync.count',
+            recorded_at: '2026-04-23T10:40:00Z',
+            value: { count: 9 },
+            dimensions: { repo_id: 'repo-beta' },
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByLabelText('Audit event auth.member.invited')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Analytics metric search.query.count')).toBeInTheDocument();
+    expect(screen.getByLabelText('Audit event auth.api_key.created')).toBeInTheDocument();
+    expect(screen.getByLabelText('Analytics metric repo.sync.count')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter audit and analytics'), { target: { value: 'org-beta repo.sync' } });
+
+    expect(screen.queryByLabelText('Audit event auth.member.invited')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Analytics metric search.query.count')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Analytics metric repo.sync.count')).toBeInTheDocument();
+    expect(screen.getByText('Showing 0 of 2 audit events and 1 of 2 analytics records.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter audit and analytics'), { target: { value: 'teammate@acme.test' } });
+
+    expect(screen.getByLabelText('Audit event auth.member.invited')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Analytics metric repo.sync.count')).not.toBeInTheDocument();
+    expect(screen.getByText('Showing 1 of 2 audit events and 0 of 2 analytics records.')).toBeInTheDocument();
+  });
+
   it('shows observability loading failures per endpoint', async () => {
     window.location.hash = '#/settings/observability';
 
