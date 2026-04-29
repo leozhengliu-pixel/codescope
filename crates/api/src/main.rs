@@ -6219,7 +6219,14 @@ async fn local_sync_snapshot_index_status_for_repo(
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Some(malformed_search_index_artifact_status(
+                    repo_id,
+                    &snapshot.search_index_artifact_path,
+                    anyhow::anyhow!(
+                        "search index artifact is not a regular file: {}",
+                        snapshot.search_index_artifact_path.display()
+                    ),
+                )));
             }
             return match LocalSearchStore::from_index_artifact(
                 repo_id,
@@ -30413,8 +30420,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repository_index_status_fails_closed_for_malformed_local_sync_search_index_artifact() {
-        let repo_root = unique_test_path("index-status-malformed-search-artifact-repo-root");
+    async fn repository_index_status_surfaces_non_regular_local_sync_search_index_artifact_reason()
+    {
+        let repo_root = unique_test_path("index-status-non-regular-search-artifact-repo-root");
         let job_root = repo_root
             .join(".sourcebot")
             .join("local-sync")
@@ -30488,7 +30496,19 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatusResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.status, "error");
+        assert_eq!(payload.indexed_file_count, 0);
+        assert_eq!(payload.indexed_line_count, 0);
+        assert_eq!(payload.skipped_file_count, 0);
+        let error = payload.error.expect("error status includes a reason");
+        assert!(
+            error.contains("search index artifact is not a regular file"),
+            "unexpected error: {error}"
+        );
+        assert!(!error.contains(repo_root.to_string_lossy().as_ref()));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
