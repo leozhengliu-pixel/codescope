@@ -5,41 +5,45 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 95e57c07d52052988cf8bfbe1ffabe563afd07d7
+  head: 245df549c462452367fac14034f2081eb683871e
 last_completed_task:
-  id: task103_108_commit_diff_worker_status_metadata
-  title: Bound commit diff metadata paths and worker sync-status metadata
+  id: task102_103_108_artifact_revision_utf8_guards
+  title: Fail closed on error search artifacts, unsafe commit revisions, and non-UTF-8 local-sync paths
   status: done
   summary: >-
-    Integrated two disjoint implementation-worker closures plus an integrator
-    review fix/docs-sync as one meaningful practical-replacement hardening
-    batch. Commit diff parsing now rejects Git-reported current/old paths that
-    contain ASCII control characters before per-file patch loading or response
-    metadata. Worker status snapshots and terminal logs now expose nullable
-    repository-sync revision/branch/content-count metadata only for successful
-    repository-sync terminal jobs, while failed/no-work/non-repository paths
-    avoid surfacing stale sync metadata. Practical replacement remains
-    incomplete and still fails closed on production indexing lifecycle, real
-    provider fetch/import/reindex, broad retry/backoff and supervision,
-    identity/provider flows, MCP client/session interoperability, and
-    production operator deployment evidence.
+    Integrated three disjoint implementation-worker closures as one meaningful
+    practical-replacement hardening batch rather than a paperwork slice. Search
+    requests now fail closed when the latest caller-authorized local-sync
+    search-index artifact is valid but reports an error status, while
+    index-status still exposes the operator-visible error. Commit list/detail/diff
+    revision selectors now reject Git revision-expression and metacharacter
+    syntax before invocation so fallback commit reads cannot widen to parent,
+    reflog, range, or path-expression selectors. Local repository sync now
+    rejects non-UTF-8 tracked path bytes from NUL-delimited `git ls-tree` output
+    before manifest, snapshot, or search-index artifact creation. Practical
+    replacement remains incomplete and still fails closed on production indexing
+    lifecycle/recovery, real provider fetch/import/reindex, broad retry/backoff
+    and supervision, identity/provider flows, deeper MCP client/session
+    interoperability, and production operator deployment evidence.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture failed before implementation with 0 passed, 1 failed, 476 filtered out because control-character diff metadata paths were still accepted'
-    - 'controller focused: cargo test -p sourcebot-api diff_metadata_parsers_reject_unsafe_paths -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 476 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 458 filtered out'
-    - 'worker RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact failed before implementation because status snapshots lacked terminal sync metadata fields'
-    - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --exact passed with 1 test and 6 filtered out'
-    - 'controller focused: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_successful_repository_sync_metadata -- --exact passed with 1 test and 5 filtered out'
-    - 'review-forced RED: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact failed before integrator fix because successful-only metadata helper was missing after compile-clean test setup, proving stale failed-job metadata was not gated'
-    - 'controller focused: cargo test -p sourcebot-worker --bin sourcebot-worker tests::worker_status_terminal_metadata_is_success_only -- --exact passed with 1 test and 7 filtered out'
-    - 'controller broader: cargo test -p sourcebot-worker --bin sourcebot-worker worker_status -- --nocapture passed with 6 tests and 2 filtered out'
-    - 'controller broader: cargo test -p sourcebot-worker --test worker_runtime_logging_smoke passed with 6 tests and 0 filtered out'
-    - 'controller broader: cargo test -p sourcebot-worker passed with 83 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
+    - 'worker RED: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because search returned 200 for an error-status artifact'
+    - 'controller focused: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 470 filtered out'
+    - 'controller broader: cargo test -p sourcebot-search index_artifact -- --nocapture passed with 28 tests and 33 filtered out'
+    - 'worker RED: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because HEAD~1/HEAD^1 revision selectors were accepted'
+    - 'controller focused: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 459 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 438 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api code_nav -- --nocapture passed with one zero-test lib target plus 3 main-bin tests and 475 filtered out'
+    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture failed before implementation with 0 passed, 1 failed, 83 filtered out because non-UTF-8 tracked paths were lossy-decoded into later Git/snapshot logic'
+    - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture passed with 1 lib test, 83 filtered out, and zero-test nonmatching targets'
+    - 'controller broader: cargo test -p sourcebot-worker repository_sync passed with 35 lib tests, 1 main-bin test, 3 repository_sync_claim_smoke tests, and 3 worker_runtime_logging_smoke tests'
+    - 'controller broader: cargo test -p sourcebot-worker passed with 84 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check passed'
-    - 'controller: added-lines security scan over 42d2136c62c3b6a6bff2e05c0932533efd6e9461^..HEAD found no findings'
-    - 'independent integration review initially blocked stale failed-job metadata exposure; after the integrator fix, independent re-review approved the batch with no security, logic, or claim issues'
-  commit: 95e57c07d52052988cf8bfbe1ffabe563afd07d7
+    - 'controller: git diff --check 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD passed'
+    - 'controller: added-lines security scan over 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD found no findings'
+    - 'independent integration review approved the integrated range with no blocking security, logic, auth/scope, path/revision safety, fail-closed, or docs-claim issues'
+  commit: 245df549c462452367fac14034f2081eb683871e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -49,18 +53,68 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing
     runtime closure while the accelerated controller may also take adjacent
     high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
-    the main worktree is clean. This batch closed two real Task 103/108
-    hardening gaps: commit diff metadata cannot carry control-character paths
-    into patch loading/response metadata, and worker status/log sync metadata is
-    success-only so stale failed-job metadata is not surfaced as operator
-    evidence. Practical replacement remains incomplete. Remaining blockers still
-    include production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale beyond bounded helpers, branch
-    and index availability, broader provider fetch/import/reindex, worker
-    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, deeper MCP client/session interoperability, operator
-    runbook/deploy evidence, and the other release blockers in this roadmap.
+    the main worktree is clean. This batch closed three real hardening gaps:
+    error-status local-sync search-index artifacts now fail closed for search
+    while staying visible through index-status, commit fallback revision
+    selectors reject Git revision-expression/metacharacter syntax before
+    invocation, and local-sync artifact creation rejects non-UTF-8 tracked path
+    bytes before manifest/snapshot/search-index persistence. Practical
+    replacement remains incomplete. Remaining blockers still include
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale beyond bounded helpers, branch and index
+    availability, broader provider fetch/import/reindex, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
+    deeper MCP client/session interoperability, operator runbook/deploy evidence,
+    and the other release blockers in this roadmap.
 history:
+  - id: task102_103_108_artifact_revision_utf8_guards
+    status: done
+    summary: >-
+      Integrated three implementation-backed hardening closures rather than a
+      docs-only micro-slice: search fails closed on valid local-sync artifacts
+      whose index-status is error, commit fallback selectors reject Git
+      revision-expression/metacharacter syntax before invocation, and local-sync
+      worker artifact creation rejects non-UTF-8 tracked path bytes before
+      persistence. Coupled acceptance wording remains bounded below practical
+      replacement parity.
+    commit: 245df549c462452367fac14034f2081eb683871e
+    component_commits:
+      - 205d28ad302ffbbe258437b7b48a73b2de3c91dc
+      - c6034b819282be5e83fbc1875bab960c2c40e300
+      - 245df549c462452367fac14034f2081eb683871e
+    tests:
+      - 'worker RED: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because search returned 200 for an error-status artifact'
+      - 'controller focused: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 470 filtered out'
+      - 'controller broader: cargo test -p sourcebot-search index_artifact -- --nocapture passed with 28 tests and 33 filtered out'
+      - 'worker RED: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because HEAD~1/HEAD^1 revision selectors were accepted'
+      - 'controller focused: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 459 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 438 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api code_nav -- --nocapture passed with one zero-test lib target plus 3 main-bin tests and 475 filtered out'
+      - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture failed before implementation with 0 passed, 1 failed, 83 filtered out because non-UTF-8 tracked paths were lossy-decoded into later Git/snapshot logic'
+      - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture passed with 1 lib test, 83 filtered out, and zero-test nonmatching targets'
+      - 'controller broader: cargo test -p sourcebot-worker repository_sync passed with 35 lib tests, 1 main-bin test, 3 repository_sync_claim_smoke tests, and 3 worker_runtime_logging_smoke tests'
+      - 'controller broader: cargo test -p sourcebot-worker passed with 84 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD passed'
+      - 'controller: added-lines security scan over 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD found no findings'
+      - 'independent integration review approved the integrated range with no blocking security, logic, auth/scope, path/revision safety, fail-closed, or docs-claim issues'
+    review: >-
+      Independent integration review inspected the committed range
+      15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD and approved with no
+      blocking issues. It specifically checked search artifact fail-closed
+      semantics versus index-status visibility, commit revision selector
+      hardening before Git invocation, strict non-UTF-8 local-sync path
+      rejection before artifact persistence, auth/scope regressions, and bounded
+      docs claims.
+    workers: >-
+      Search/index worker commit 54a85b05d24ef2b38d8f9184f96c938f197d8c76 was
+      cherry-picked/integrated on master as 205d28ad302ffbbe258437b7b48a73b2de3c91dc. Browse/commit worker commit
+      b8bbadb6b1d97b8a627d3ab9fd1666a9a01690a6 was cherry-picked/integrated on
+      master as c6034b819282be5e83fbc1875bab960c2c40e300. Provider/worker commit
+      a2054442e938d5a0208f53301c6657ea4c8f2156 was cherry-picked/integrated on
+      master as 245df549c462452367fac14034f2081eb683871e.
   - id: task103_108_commit_diff_worker_status_metadata
     status: done
     summary: >-
