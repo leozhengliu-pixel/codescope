@@ -5,39 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
+  head: bb31b519153e4b8e4f0c202119f1bfa73edcc20b
 last_completed_task:
-  id: task102_103_108_artifact_browse_worker_hardening
-  title: Search artifact schema, browse NUL path, and worker idle-sleep hardening
+  id: task102_103_108_search_commit_worker_hardening
+  title: Search boolean bounds, commit visibility gate, and local-sync branch metadata hardening
   status: done
   summary: >-
     Integrated three disjoint implementation-backed release-blocker hardening
-    closures plus a controller docs-sync tail. Search local-sync `search-index.json`
-    artifacts are now schema-versioned and fail closed when the version is missing
-    or unsupported instead of silently trusting stale artifact shapes. Revisioned
-    browse blob lookups now reject NUL-byte paths at the relative-path validation
-    boundary before invoking Git, preserving the existing invalid-path contract.
-    The worker runtime now rejects `SOURCEBOT_WORKER_IDLE_SLEEP_MS` values above
-    one hour before execution so an operator typo cannot silently park the bounded
-    loop for days. Coupled acceptance and final-audit wording records those
-    bounded claims while practical replacement parity remains unclaimed.
+    closures plus a controller docs-sync tail. Search boolean matching now fails
+    closed for oversized OR-heavy queries before allocating unbounded term groups.
+    Authenticated commit list/detail/diff reads now check repository visibility
+    before serving seeded primary commit data, so hidden seeded repositories fail
+    closed instead of bypassing the browse/commit auth boundary. Local repository
+    sync now rejects malformed current-branch metadata before manifest,
+    snapshot, or search-index artifact persistence. Coupled acceptance, gap, and
+    final-audit wording records those bounded claims while practical replacement
+    parity remains unclaimed.
   tests:
-    - 'worker RED: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version failed before implementation with 0 passed, 1 failed, 53 filtered out because an unversioned artifact still loaded'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_without_schema_version passed with 1 test and 54 filtered out'
-    - 'main focused: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifacts_with_unsupported_schema_version passed with 1 test and 54 filtered out'
+    - 'worker RED: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups failed before implementation with 0 passed, 1 failed, 54 filtered out because an oversized OR-heavy boolean query still matched'
+    - 'main focused: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups passed with 1 test and 54 filtered out'
     - 'main broader: cargo test -p sourcebot-search passed with 55 unit tests and 0 doc tests'
-    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup failed before implementation because the NUL path did not surface the invalid-relative-path contract'
-    - 'main focused: cargo test -p sourcebot-api local_browse_store_rejects_nul_bytes_before_revision_blob_git_lookup passed with 1 main-bin test, 468 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api browse::tests passed with 37 main-bin tests, 432 filtered out, and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api repo_blob passed with 11 main-bin tests, 458 filtered out, and one zero-test lib target'
-    - 'worker RED: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap failed before implementation with 0 passed, 1 failed, 5 filtered out because SOURCEBOT_WORKER_IDLE_SLEEP_MS=3600001 was accepted'
-    - 'main focused: cargo test -p sourcebot-worker worker_idle_sleep_fails_closed_when_configured_above_operator_cap passed with 1 main-bin test, 5 filtered out, and zero-test nonmatching targets'
-    - 'main broader: cargo test -p sourcebot-worker passed with 75 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+    - 'worker RED: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository failed before implementation with 1 failed and 469 filtered out because authenticated hidden seeded commit list returned 200 instead of 404'
+    - 'main focused: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository passed with 1 main-bin test, 469 filtered out, and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-api repo_commit passed with 15 main-bin tests, 455 filtered out, and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence failed before implementation with 0 passed and 1 failed because malformed current-branch metadata could reach success/artifact persistence'
+    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence passed with 1 lib test, 75 filtered out, and zero-test nonmatching targets'
+    - 'main broader: cargo test -p sourcebot-worker passed with 76 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
     - 'main: cargo fmt --check passed'
     - 'main: git diff --check origin/master..HEAD and git diff --check passed'
-    - 'main: added-lines security scan over origin/master..HEAD scanned 124 added lines with no findings'
-    - 'independent integration review approved code and docs with no blocking security, logic, or bounded-claim issues'
-  commit: f0bc53abfee5c974fd6d2dc5d16ccec1fa45825e
+    - 'main: added-lines security scan over origin/master..HEAD scanned 148 added lines with no findings'
+    - 'independent integration review approved code and docs after the controller fixed a stale search-fallback overclaim about primary/local-sync result merging'
+  commit: bb31b519153e4b8e4f0c202119f1bfa73edcc20b
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -47,11 +45,12 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed three real runtime hardening gaps: persisted
-    local-sync search-index artifacts now require a supported schema version,
-    revisioned browse blob paths reject NUL bytes before Git lookup, and the
-    worker bounded-loop idle-sleep configuration now fails closed above one hour.
-    Practical replacement remains incomplete. Remaining blockers still include
+    worktree is clean. This run closed three real runtime hardening gaps: local
+    boolean search now fails closed for oversized OR-heavy queries, authenticated
+    seeded commit list/detail/diff reads now enforce repository visibility before
+    returning primary commit data, and local-sync worker execution now rejects
+    malformed current-branch metadata before artifact persistence. Practical
+    replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale beyond the bounded helper, branch and index
     availability, broader provider fetch/import/reindex, worker scheduling and
@@ -59,6 +58,55 @@ current_task:
     deeper MCP client/session interoperability, operator runbook/deploy evidence,
     and the other release blockers in this roadmap.
 history:
+  - id: task102_103_108_search_commit_worker_hardening
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures plus a
+      controller-owned docs-sync commit. Search boolean matching now rejects
+      oversized OR-heavy input before allocating unbounded term groups,
+      authenticated commit browse endpoints gate seeded primary commit data by
+      repository visibility, and local-sync worker execution rejects malformed
+      current-branch metadata before writing manifest/snapshot/search-index
+      artifacts. This was chosen over paperwork because it closes real
+      fail-closed runtime hardening gaps in search/index, browse/commit, and
+      worker/operator surfaces; final parity remains fail-closed on broader
+      production indexing, provider, worker, auth, MCP, and operator blockers.
+    commit: bb31b519153e4b8e4f0c202119f1bfa73edcc20b
+    component_commits:
+      - 18da8850eee3a3f99b186359022529a23ea3cbd5
+      - f32ad41cdb9e73526a692747433db3e90aa10b55
+      - 7ec63d0b80f9d25693af751cc65028f36b776389
+      - bb31b519153e4b8e4f0c202119f1bfa73edcc20b
+    tests:
+      - 'worker RED: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups failed before implementation with 0 passed, 1 failed, 54 filtered out because an oversized OR-heavy boolean query still matched'
+      - 'main focused: cargo test -p sourcebot-search local_search_store_matches_bounded_boolean_or_groups passed with 1 test and 54 filtered out'
+      - 'main broader: cargo test -p sourcebot-search passed with 55 unit tests and 0 doc tests'
+      - 'worker RED: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository failed before implementation with 1 failed and 469 filtered out because authenticated hidden seeded commit list returned 200 instead of 404'
+      - 'main focused: cargo test -p sourcebot-api repo_commit_endpoints_return_not_found_for_hidden_seeded_repository passed with 1 main-bin test, 469 filtered out, and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-api repo_commit passed with 15 main-bin tests, 455 filtered out, and one zero-test lib target'
+      - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence failed before implementation with 0 passed and 1 failed because malformed current-branch metadata could reach success/artifact persistence'
+      - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_current_branch_fails_before_artifact_persistence passed with 1 lib test, 75 filtered out, and zero-test nonmatching targets'
+      - 'main broader: cargo test -p sourcebot-worker passed with 76 lib tests, 6 main-bin tests, smoke test groups 5+3+4+3+5, and 0 doc tests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD and git diff --check passed'
+      - 'main: added-lines security scan over origin/master..HEAD scanned 148 added lines with no findings'
+      - 'independent integration review approved code and docs after the controller fixed a stale search-fallback overclaim about primary/local-sync result merging'
+    review: >-
+      Independent integration review inspected the main-worktree diff against
+      origin/master plus the controller docs-sync tail. The first review approved
+      the implementation but found a stale search-fallback documentation
+      overclaim that implied local-sync artifact results were merged into
+      non-empty primary search results. The controller narrowed
+      specs/acceptance/search.md, the parity-gap report, and the final audit to
+      the true fallback-only behavior, reran mechanical/security checks, and the
+      re-review approved the search boolean bound, authenticated commit
+      visibility gate, malformed branch fail-closed behavior, and bounded docs
+      claims with no remaining blocking issues.
+    workers: >-
+      Search worker commit f2c2bafc46a1132a9e10cec78117170277c6b7ac was cherry-picked as main commit
+      18da8850eee3a3f99b186359022529a23ea3cbd5. Browse/Code-Nav worker commit 39e3b259b8524a1f531ff16976782f52faf14732 was cherry-picked as main commit
+      f32ad41cdb9e73526a692747433db3e90aa10b55. Worker/Ops commit 6f5fbe4ce323a1d41c0714900e2b24512ba8f201 was cherry-picked as main commit
+      7ec63d0b80f9d25693af751cc65028f36b776389. The controller docs-sync commit bb31b519153e4b8e4f0c202119f1bfa73edcc20b updated coupled acceptance, gap, and final-audit wording.
   - id: task102_103_108_artifact_browse_worker_hardening
     status: done
     summary: >-
