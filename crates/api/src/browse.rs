@@ -814,7 +814,7 @@ fn run_git_list_tree_entries_at_revision(
         .with_context(|| format!("failed to run git ls-tree in {}", repo_root.display()))?;
 
     if output.status.success() {
-        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let mut entries = stdout
             .split('\0')
             .filter(|record| !record.is_empty())
@@ -1182,6 +1182,41 @@ mod tests {
         assert!(tree.entries.iter().any(|entry| {
             entry.name == "generated\nview.rs"
                 && entry.path == "src/generated\nview.rs"
+                && entry.kind == EntryKind::File
+        }));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_tolerates_non_utf8_paths_in_revision_tree_entries() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-non-utf8-tree",
+            "hello world\n",
+            "fn main() {}\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        let non_utf8_name = std::ffi::OsString::from_vec(b"invalid-\xff.rs".to_vec());
+        fs::write(
+            root.join("src").join(non_utf8_name),
+            "pub fn generated_view() {}\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let tree = store
+            .get_tree_at_revision("repo_test", "src", Some("HEAD"))
+            .unwrap()
+            .unwrap();
+
+        assert!(tree.entries.iter().any(|entry| {
+            entry.name == "invalid-�.rs"
+                && entry.path == "src/invalid-�.rs"
                 && entry.kind == EntryKind::File
         }));
 
