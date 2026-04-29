@@ -761,9 +761,15 @@ fn read_stream_bounded(mut stream: impl Read, max_bytes: usize) -> Result<Vec<u8
         }
 
         let remaining = max_bytes.saturating_sub(captured.len());
-        if remaining > 0 {
-            captured.extend_from_slice(&buffer[..read.min(remaining)]);
+        if read > remaining {
+            if remaining > 0 {
+                captured.extend_from_slice(&buffer[..remaining]);
+            }
+            return Err(anyhow!(
+                "git output exceeded {max_bytes} byte capture limit"
+            ));
         }
+        captured.extend_from_slice(&buffer[..read]);
     }
 }
 
@@ -1083,6 +1089,19 @@ mod tests {
 
         assert_eq!(normalized.patch, None);
         assert!(!normalized.truncated);
+    }
+
+    #[test]
+    fn read_stream_bounded_rejects_oversized_git_output() {
+        let oversized_output = vec![b'x'; 17];
+
+        let error = read_stream_bounded(std::io::Cursor::new(oversized_output), 16)
+            .expect_err("oversized git output must fail closed instead of silently truncating");
+
+        assert!(
+            error.to_string().contains("exceeded 16 byte capture limit"),
+            "unexpected error: {error:#}"
+        );
     }
 
     #[test]
