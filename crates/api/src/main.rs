@@ -6286,7 +6286,7 @@ async fn local_sync_snapshot_index_status_for_repo(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
-    if !snapshot.path.is_dir() {
+    if !local_sync_legacy_snapshot_dir_is_usable(&snapshot.path)? {
         return Ok(None);
     }
 
@@ -6295,6 +6295,16 @@ async fn local_sync_snapshot_index_status_for_repo(
     snapshot_search
         .repository_index_status(repo_id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn local_sync_legacy_snapshot_dir_is_usable(
+    snapshot_path: &std::path::Path,
+) -> Result<bool, StatusCode> {
+    match std::fs::symlink_metadata(snapshot_path) {
+        Ok(metadata) => Ok(metadata.is_dir() && !metadata.file_type().is_symlink()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 fn malformed_search_index_artifact_status(
@@ -6573,7 +6583,7 @@ async fn search_latest_local_sync_snapshot_for_repo(
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 
-    if !snapshot.path.is_dir() {
+    if !local_sync_legacy_snapshot_dir_is_usable(&snapshot.path)? {
         return Ok(None);
     }
 
@@ -31516,6 +31526,187 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_local_sync_snapshot_symlink_fallback_fails_closed() {
+        let repo_root = unique_test_path("search-local-symlink-snapshot-repo-root");
+        let outside_root = unique_test_path("search-local-symlink-snapshot-outside-root");
+        fs::create_dir_all(outside_root.join("src")).unwrap();
+        fs::write(
+            outside_root.join("src").join("lib.rs"),
+            "pub fn symlinked_snapshot_search_marker() {}\n",
+        )
+        .unwrap();
+        let snapshot_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("snapshot");
+        fs::create_dir_all(snapshot_root.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside_root, &snapshot_root).unwrap();
+
+        let organization_state_path = unique_test_path("search-local-symlink-snapshot-orgs");
+        let local_session_state_path = unique_test_path("search-local-symlink-snapshot-sessions");
+        let user_id = "user_local_symlink_snapshot_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=symlinked&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert!(
+            payload.results.is_empty(),
+            "symlinked snapshot fallback must not leak results from {}: {:?}",
+            outside_root.display(),
+            payload.results
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+        fs::remove_dir_all(outside_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_index_status_local_sync_snapshot_symlink_fallback_fails_closed() {
+        let repo_root = unique_test_path("index-status-local-symlink-snapshot-repo-root");
+        let outside_root = unique_test_path("index-status-local-symlink-snapshot-outside-root");
+        fs::create_dir_all(outside_root.join("src")).unwrap();
+        fs::write(
+            outside_root.join("src").join("lib.rs"),
+            "pub fn symlinked_snapshot_index_status_marker() {}\n",
+        )
+        .unwrap();
+        let snapshot_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest")
+            .join("snapshot");
+        fs::create_dir_all(snapshot_root.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside_root, &snapshot_root).unwrap();
+
+        let organization_state_path = unique_test_path("index-status-local-symlink-snapshot-orgs");
+        let local_session_state_path =
+            unique_test_path("index-status-local-symlink-snapshot-sessions");
+        let user_id = "user_local_symlink_snapshot_index_status";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+        fs::remove_dir_all(outside_root).unwrap();
     }
 
     #[tokio::test]
