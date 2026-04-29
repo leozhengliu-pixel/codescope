@@ -5,33 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 3687b75c2d934fc105ad2f1f0ab1d17f54deaf40
+  head: e5aaf3754331c83a7a37c6a17e20f7b60584eef8
 last_completed_task:
-  id: task102ao-103g-106h
-  title: Search regex, revision symlink blob, and local-sync path hardening
+  id: task102ap-103h-106i
+  title: Local sync search, commit fallback, and worker output hardening
   status: done
   summary: >-
     Integrated three accelerated worker closures plus coupled acceptance/final-audit
-    wording. Regex-mode search now fails closed for empty or whitespace-only regex
-    queries instead of compiling a pattern that matches every indexed line.
-    Revisioned Git symlink blobs now fail closed before blob rendering or
-    reference scanning instead of returning symlink target payloads as file
-    contents. Local repository sync now rejects tracked content paths containing
-    ASCII control characters before snapshot, manifest, or search-index artifact
-    persistence.
+    wording. Local-sync artifact-backed search now fails closed for present
+    malformed or non-regular search-index artifacts, including unscoped and
+    search-context fallbacks across visible repositories, instead of returning
+    empty or partial-success results. Local-sync commit fallback now fails closed
+    when duplicate authorized organization bindings make a shared repository id
+    ambiguous. Generic Git/local worker child-output handling now terminates the
+    child promptly once retained stdout or stderr exceeds the bounded output cap.
   tests:
-    - 'cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture: passed in the main worktree with 1 test and 41 filtered out after worker-recorded RED failure for empty regex matching every indexed line'
-    - 'cargo test -p sourcebot-search: passed in the main worktree with 42 unit tests and 0 doctests'
-    - 'cargo test -p sourcebot-api local_browse_store_does_not_return_revision_symlink_as_blob -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 450 filtered out after worker-recorded RED failure returned the symlink target payload'
-    - 'cargo test -p sourcebot-api browse:: -- --nocapture: passed in the main worktree with 31 bin tests, 0 lib tests, and 420 filtered out'
-    - 'cargo test -p sourcebot-api references -- --nocapture: passed in the main worktree with 13 bin tests, 0 lib tests, and 438 filtered out'
-    - 'cargo test -p sourcebot-worker tests::local_sync_tracked_content_paths_with_control_characters_fail_closed -- --exact --nocapture: passed in the main worktree with 1 lib test plus zero-test non-lib targets after worker-recorded RED failure accepted a newline-bearing tracked path'
-    - 'cargo test -p sourcebot-worker: passed in the main worktree with 55 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+    - 'cargo test -p sourcebot-api malformed_local_sync -- --nocapture: passed in the main worktree with 3 bin tests, 0 lib tests, and 449 filtered out after worker-recorded RED failure for malformed search artifact returning 200/empty or partial success'
+    - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed in the main worktree with 14 bin tests, 0 lib tests, and 438 filtered out'
+    - 'cargo test -p sourcebot-api duplicate_org_repo_bindings -- --nocapture: passed in the main worktree with 1 bin test, 0 lib tests, and 451 filtered out after worker-recorded RED failure returned 200 for ambiguous local-sync commit fallback'
+    - 'cargo test -p sourcebot-api repo_commits_local_sync -- --nocapture: passed in the main worktree with 2 bin tests, 0 lib tests, and 450 filtered out'
+    - 'cargo test -p sourcebot-api local_commit_store -- --nocapture: passed in the main worktree with 10 bin tests, 0 lib tests, and 442 filtered out'
+    - 'cargo test -p sourcebot-api repo_commits -- --nocapture: passed in the main worktree with 8 bin tests, 0 lib tests, and 444 filtered out'
+    - 'cargo test -p sourcebot-worker bounded_child_output -- --nocapture: passed in the main worktree with 2 lib tests plus zero-test non-lib targets after worker-recorded RED failures around over-cap output termination'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_head_stdout_over_cap_fails_closed -- --nocapture: passed in the main worktree with 1 lib test plus zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_stdout_over_cap_fails_closed -- --nocapture: passed in the main worktree with 1 lib test plus zero-test non-lib targets'
+    - 'cargo test -p sourcebot-worker: passed in the main worktree with 57 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
     - 'cargo fmt --check: passed'
-    - 'git diff --check f2f391b745b3598ef5fa654b553ae6e649ae0a74..HEAD: passed'
-    - 'added-lines security scan over f2f391b745b3598ef5fa654b553ae6e649ae0a74..HEAD: passed with 117 added lines and no findings'
-    - 'independent integration review over f2f391b745b3598ef5fa654b553ae6e649ae0a74..HEAD: passed with no blocking security, logic, or docs-claim issues'
-  commit: 3687b75c2d934fc105ad2f1f0ab1d17f54deaf40
+    - 'git diff --check 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus worktree docs diff: passed'
+    - 'added-lines security scan over 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus docs diff: passed with 237 added lines and no findings'
+    - 'independent integration review over 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus docs diff: approved with no blocking security, logic, auth/scope, or docs-claim issues'
+  commit: e5aaf3754331c83a7a37c6a17e20f7b60584eef8
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -41,18 +44,58 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the parallel-worker controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint. This batch landed
-    real fail-closed hardening across three release-blocker surfaces: regex-mode
-    search no longer treats empty or whitespace-only regex patterns as match-all,
-    revisioned symlink blobs no longer surface Git symlink target text as source
-    content or reference-scan input, and local-sync artifact generation rejects
-    tracked content paths with ASCII control characters before writing
-    line-oriented runtime artifacts. Remaining practical replacement work still
-    includes production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale, branch/index availability,
-    broader provider fetch/import/reindex, worker supervision/retry/backoff,
-    OIDC/SSO and richer admin/org flows, MCP client interoperability, operator
-    runbook/deployment evidence, and other release blockers in this roadmap.
+    real fail-closed hardening across three release-blocker surfaces: malformed or
+    non-regular local-sync search-index artifacts no longer return empty/partial
+    search success, ambiguous duplicate-organization local-sync commit fallback no
+    longer chooses an arbitrary local Git root, and over-cap worker child output no
+    longer waits for the child to finish or time out. Remaining practical
+    replacement work still includes production-shaped indexing lifecycle/status
+    and failure recovery, relevance and pagination behavior at scale, branch/index
+    availability, broader provider fetch/import/reindex, worker supervision and
+    broad retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
+    interoperability, operator runbook/deployment evidence, and other release
+    blockers in this roadmap.
 history:
+  - id: task102ap-103h-106i
+    status: done
+    summary: >-
+      Closed an accelerated parallel integration batch with three accepted real
+      hardening closures. Artifact-backed local-sync search now fails closed for
+      present malformed/non-regular artifacts instead of returning empty or
+      partial unscoped/context success, local-sync commit fallback fails closed
+      for duplicate authorized organization bindings, and worker child-output
+      handling terminates promptly once retained stdout/stderr exceeds the cap.
+    commit: e5aaf3754331c83a7a37c6a17e20f7b60584eef8
+    tests:
+      - 'cargo test -p sourcebot-api malformed_local_sync -- --nocapture: passed with 3 bin tests, 0 lib tests, and 449 filtered out'
+      - 'cargo test -p sourcebot-api local_sync -- --nocapture: passed with 14 bin tests, 0 lib tests, and 438 filtered out'
+      - 'cargo test -p sourcebot-api duplicate_org_repo_bindings -- --nocapture: passed with 1 bin test, 0 lib tests, and 451 filtered out'
+      - 'cargo test -p sourcebot-api repo_commits_local_sync -- --nocapture: passed with 2 bin tests, 0 lib tests, and 450 filtered out'
+      - 'cargo test -p sourcebot-api local_commit_store -- --nocapture: passed with 10 bin tests, 0 lib tests, and 442 filtered out'
+      - 'cargo test -p sourcebot-api repo_commits -- --nocapture: passed with 8 bin tests, 0 lib tests, and 444 filtered out'
+      - 'cargo test -p sourcebot-worker bounded_child_output -- --nocapture: passed with 2 lib tests plus zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_head_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test plus zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker generic_git_ls_remote_heads_stdout_over_cap_fails_closed -- --nocapture: passed with 1 lib test plus zero-test non-lib targets'
+      - 'cargo test -p sourcebot-worker: passed with 57 lib tests, 3 main tests, 5/3/4/3/5 integration-smoke tests, and 0 doctests'
+      - 'cargo fmt --check: passed'
+      - 'git diff --check 4edb12670836fe9b7c19eac555948a5720804c29..HEAD plus worktree docs diff: passed'
+      - 'added-lines security scan: passed with 237 added lines and no findings'
+      - 'independent integration review: approved with no blocking security, logic, auth/scope, or docs-claim issues'
+    review: >-
+      Independent integration review approved the actual repository diff and found
+      no blocking issues. The reviewer specifically checked the artifact search
+      fail-closed path, duplicate-organization commit fallback ambiguity, bounded
+      child-output termination, and bounded docs claims.
+    workers:
+      - 'search/index worker: integrated worker commit dea6078fde89f0975805458eb452334818cad5d9 as main commit 68100a26d59c51d3cfb02e707fde644b679fa9a9, plus acceptance/final-audit sync in e5aaf3754331c83a7a37c6a17e20f7b60584eef8'
+      - 'browse/commit worker: integrated worker commit 39d3a13b4f8e2a1ac4b4aef06750baafa7956627 as main commit 7a2a49e06f40c50814bfbf60588e771976c9c130, plus acceptance/final-audit sync in e5aaf3754331c83a7a37c6a17e20f7b60584eef8'
+      - 'worker/provider worker: integrated worker commit fd93a5f69c1e82138e187b63f475e857917e2c7f as main commit c48d30473ff19930eeef424f2a92cc135c540aa6, plus acceptance/final-audit sync in e5aaf3754331c83a7a37c6a17e20f7b60584eef8'
+    notes: >-
+      This was real implementation-backed closure, not state-only progress: all
+      three workers shipped code with RED/GREEN evidence, the integrator
+      cherry-picked each closure, reran focused and broader selectors in the main
+      worktree, synchronized coupled acceptance/final-audit wording, ran security
+      and mechanical checks, and obtained independent review before updating state.
   - id: task102ao-103g-106h
     status: done
     summary: >-
