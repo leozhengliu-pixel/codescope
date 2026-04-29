@@ -758,6 +758,15 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        if indexed_line.line_number > artifact.index_status.indexed_line_count {
+            anyhow::bail!(
+                "search index artifact line number exceeds indexed line count for '{}:{}' in {}: status reports {} indexed lines",
+                indexed_line.path,
+                indexed_line.line_number,
+                artifact_path.display(),
+                artifact.index_status.indexed_line_count
+            );
+        }
 
         let line_key = (indexed_line.path.as_str(), indexed_line.line_number);
         if !seen_line_keys.insert(line_key) {
@@ -2154,6 +2163,36 @@ mod tests {
             error
                 .to_string()
                 .contains("invalid search index artifact line number"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_line_numbers_beyond_indexed_line_count()
+    {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["line_number"] = serde_json::Value::from(999);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => {
+                panic!("persisted index line numbers beyond indexed line count must fail closed")
+            }
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact line number exceeds indexed line count"),
             "unexpected error: {error:#}"
         );
 
