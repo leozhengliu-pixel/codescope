@@ -853,16 +853,17 @@ impl SearchStore for LocalSearchStore {
         mode: SearchMode,
     ) -> Result<SearchResponse> {
         let query = query.trim();
-        let requested_repo_id = repo_id.map(str::trim).filter(|value| !value.is_empty());
+        let requested_repo_id = repo_id.map(str::trim);
         let matcher = QueryMatcher::from_query(query, mode);
 
         let mut repos: Vec<&String> = match requested_repo_id {
-            Some(repo_id) => self
+            Some(repo_id) if !repo_id.is_empty() => self
                 .repo_roots
                 .get_key_value(repo_id)
                 .map(|(repo_id, _)| repo_id)
                 .into_iter()
                 .collect(),
+            Some(_) => Vec::new(),
             None => self.repo_roots.keys().collect(),
         };
         repos.sort();
@@ -1902,6 +1903,39 @@ mod tests {
         assert_eq!(response.repo_id.as_deref(), Some("missing_repo"));
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_blank_repo_filter_fails_closed_without_cross_repo_widening() {
+        let root_a = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-blank-repo-filter-a",
+            "blank_repo_marker in readme\n",
+            "blank_repo_marker in source\n",
+            "target/generated.txt",
+        )
+        .root;
+        let root_b = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-blank-repo-filter-b",
+            "blank_repo_marker in other readme\n",
+            "blank_repo_marker in other source\n",
+            "target/generated.txt",
+        )
+        .root;
+        let store = LocalSearchStore::new(HashMap::from([
+            ("repo_a".to_string(), root_a.clone()),
+            ("repo_b".to_string(), root_b.clone()),
+        ]));
+
+        let response = store.search("blank_repo_marker", Some("   ")).unwrap();
+
+        assert_eq!(response.repo_id.as_deref(), Some(""));
+        assert!(
+            response.results.is_empty(),
+            "blank repo filters must not be normalized to an unscoped all-repository search"
+        );
+
+        fs::remove_dir_all(root_a).unwrap();
+        fs::remove_dir_all(root_b).unwrap();
     }
 
     #[test]
