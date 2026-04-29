@@ -1482,6 +1482,20 @@ async fn process_mcp_json_rpc_request(
         return Ok(None);
     }
 
+    if matches!(
+        method,
+        "initialize" | "ping" | "notifications/initialized" | "tools/list" | "tools/call"
+    ) && request
+        .get("params")
+        .is_some_and(|params| !params.is_object())
+    {
+        return Ok(Some(mcp_json_rpc_error(
+            id,
+            -32602,
+            format!("invalid params for {method}: params must be an object when provided"),
+        )));
+    }
+
     let result = match method {
         "initialize" => mcp_json_rpc_initialize_result(),
         "ping" => serde_json::json!({}),
@@ -8075,6 +8089,66 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("id must be a string, number, or null"));
+        }
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_rejects_non_object_mcp_params_before_dispatch() {
+        let organization_state_path =
+            unique_test_path("mcp-json-rpc-non-object-params-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-non-object-params-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-non-object-params-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        for method in ["initialize", "ping", "tools/list"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/mcp")
+                        .header("content-type", "application/json")
+                        .header(header::AUTHORIZATION, &authorization)
+                        .body(Body::from(
+                            serde_json::json!({
+                                "jsonrpc": "2.0",
+                                "id": format!("{method}-non-object-params"),
+                                "method": method,
+                                "params": "not-an-object"
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value = read_json(response).await;
+            assert_eq!(body["jsonrpc"], "2.0");
+            assert_eq!(body["id"], format!("{method}-non-object-params"));
+            assert_eq!(body["error"]["code"], -32602);
+            assert_eq!(
+                body["error"]["message"],
+                format!("invalid params for {method}: params must be an object when provided")
+            );
+            assert!(body.get("result").is_none());
         }
 
         fs::remove_file(organization_state_path).unwrap();
