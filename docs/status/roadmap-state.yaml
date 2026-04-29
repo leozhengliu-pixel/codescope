@@ -5,40 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0bde00bc0cfbd7804653f496f20d68452c15920c
+  head: f72acb46c6404efd33347f8089b1cb0092693d49
 last_completed_task:
-  id: task102x_103c_106z_search_pagination_binary_codenav_generic_git_empty_authority
-  title: Search pagination helper, binary code-nav fail-closed, and Generic Git empty-authority hardening
+  id: task103_106_local_sync_snapshot_head_failclosed
+  title: Local-sync snapshot-root and local-Git HEAD revision fail-closed hardening
   status: done
   summary: >-
-    Integrated the current accelerated worker batch as one implementation-backed
-    release-blocker closure across Task 102 Search/Index, adjacent Task 103
-    Browse/Code-nav, and adjacent Task 106 Provider/Sync/Worker. The search crate
-    now exposes a bounded shared `search_page` / `search_page_with_mode` helper that
-    slices already-materialized search responses while preserving truthful
-    `limit`, `offset`, `total_count`, and `has_more` metadata for store-level
-    callers. Code-navigation endpoints now treat binary blobs as an explicit
-    unsupported input instead of reporting a successful empty symbol result.
-    Generic Git URL validation now rejects non-`file://` URL-form base URLs with an
-    empty authority such as `https:///org/repo.git` before spawning Git, while a
-    regression preserves `file:///...` remotes until Git execution. Coupled search,
-    browse, generic/local Git, and final-audit wording stayed bounded; practical
-    replacement parity is still not claimed.
+    Integrated two implementation-backed release-blocker hardening closures across
+    adjacent Task 103 Browse/Code-nav and Task 106/108 Provider/Sync/Worker. The
+    browse/tree/blob local-sync fallback now rejects a selected snapshot root that
+    is itself a symlink before constructing a local browse store, preventing a
+    compromised persisted sync record from turning the fallback into an out-of-tree
+    browse surface. The local-Git repository-sync execution path now validates that
+    `git rev-parse HEAD` returned a 40- or 64-character hex object id before using
+    it as terminal sync metadata or proceeding to content/artifact success. Coupled
+    acceptance and final-audit wording records the bounded fail-closed evidence;
+    practical replacement parity is still not claimed.
   tests:
-    - 'main focused: cargo test -p sourcebot-search local_search_store_exposes_bounded_search_pages -- --nocapture passed with 1 test and 50 filtered out'
-    - 'main focused: cargo test -p sourcebot-api code_nav_definitions_treats_binary_blob_as_unsupported -- --nocapture passed with 1 main-bin test and one zero-test lib target'
-    - 'main focused: cargo test -p sourcebot-worker tests::generic_git_http_url_with_empty_authority_fails_closed_before_spawning_git -- --exact --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
-    - 'main focused: cargo test -p sourcebot-worker generic_git_file_url_with_empty_authority -- --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
-    - 'main focused: cargo test -p sourcebot-worker generic_git_ls_remote_heads_combined_stdout_stderr_over_limit_fails_closed -- --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
-    - 'main broader: cargo test -p sourcebot-search passed with 51 tests and 0 doctests'
-    - 'main broader: cargo test -p sourcebot-api code_nav -- --nocapture passed with 3 main-bin tests and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-api binary_blob_metadata -- --nocapture passed with 4 main-bin tests and one zero-test lib target'
-    - 'main broader: cargo test -p sourcebot-worker generic_git_ -- --test-threads=1 --nocapture passed with 33 lib tests and zero-test non-lib/smoke targets'
+    - 'worker RED: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture failed before implementation because the symlinked snapshot root returned 200 OK instead of 404 NOT_FOUND'
+    - 'main focused: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture passed with 1 main-bin test and one zero-test lib target'
+    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture failed before implementation because malformed rev-parse HEAD output let execution continue to git ls-tree'
+    - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
+    - 'main broader: cargo test -p sourcebot-api local_sync -- --nocapture passed with 18 main-bin tests and one zero-test lib target'
+    - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --test-threads=1 --nocapture passed with 7 lib tests and zero-test non-lib/smoke targets'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check passed'
-    - 'main: added-lines security scan over git diff origin/master..HEAD scanned 153 added lines with no findings'
-    - 'independent integration review approved git diff origin/master with no blocking security, logic, or bounded-doc-claim issues after the docs overclaim fix'
-  commit: 0bde00bc0cfbd7804653f496f20d68452c15920c
+    - 'main: git diff --check origin/master..HEAD passed'
+    - 'main: added-lines security scan over git diff origin/master..HEAD scanned 162 added lines with no findings'
+    - 'independent integration review approved the code and docs diff with no blocking security, logic, or bounded-claim issues'
+  commit: f72acb46c6404efd33347f8089b1cb0092693d49
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -48,17 +42,68 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed a real three-worker batch: store-level
-    search pagination metadata, binary code-navigation fail-closed semantics, and
-    Generic Git non-file empty-authority URL hardening with file-url preservation.
-    Practical replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond the bounded helper, branch/index
-    availability, broader provider fetch/import/reindex, worker scheduling/
-    supervision and broad retry/backoff, OIDC/SSO and richer admin/org flows,
-    deeper MCP client/session interoperability, operator runbook/deploy evidence,
-    and the other release blockers in this roadmap.
+    worktree is clean. This run closed two real fail-closed hardening gaps in
+    adjacent local-sync surfaces: symlinked snapshot roots no longer reach browse
+    fallback tree/blob reads, and malformed local-Git HEAD metadata no longer
+    reaches terminal sync success/artifact persistence. A parallel Search/Index
+    worker was attempted but ended with a provider/account 503 after leaving only
+    an incomplete uncommitted semantic experiment; it was not merged and was
+    removed. Practical replacement remains incomplete. Remaining blockers still
+    include production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale beyond the bounded helper, branch
+    and index availability, broader provider fetch/import/reindex, worker
+    scheduling/supervision and broad retry/backoff, OIDC/SSO and richer admin/org
+    flows, deeper MCP client/session interoperability, operator runbook/deploy
+    evidence, and the other release blockers in this roadmap.
 history:
+  - id: task103_106_local_sync_snapshot_head_failclosed
+    status: done
+    summary: >-
+      Integrated two disjoint implementation-worker closures plus a controller-owned
+      docs-sync commit. Browse tree/blob local-sync fallback now rejects a symlinked
+      snapshot root before local browsing, and local repository-sync execution now
+      validates `git rev-parse HEAD` output as a 40- or 64-character hex object id
+      before persisting sync success metadata or artifacts. This was chosen over a
+      paperwork slice because it closes real path-safety/operator-trust gaps in
+      already-shipped local-sync fallback and worker surfaces; final parity remains
+      fail-closed on broader production indexing, provider, worker, auth, MCP, and
+      operator blockers.
+    commit: f72acb46c6404efd33347f8089b1cb0092693d49
+    component_commits:
+      - 2821349259164ecf8ab3bd31401dba1ac51e4b31
+      - d2c69ebd048b1ac9096cdc540a0fe7767ba3be15
+      - f72acb46c6404efd33347f8089b1cb0092693d49
+    tests:
+      - 'worker RED: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture failed before implementation because the symlinked snapshot root returned 200 OK instead of 404 NOT_FOUND'
+      - 'main focused: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_for_symlink_snapshot_root -- --nocapture passed with 1 main-bin test and one zero-test lib target'
+      - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture failed before implementation because malformed rev-parse HEAD output let execution continue to git ls-tree'
+      - 'main focused: cargo test -p sourcebot-worker local_repository_sync_malformed_head_revision_fails_closed -- --test-threads=1 --nocapture passed with 1 lib test and zero-test non-lib/smoke targets'
+      - 'main broader: cargo test -p sourcebot-api local_sync -- --nocapture passed with 18 main-bin tests and one zero-test lib target'
+      - 'main broader: cargo test -p sourcebot-worker local_repository_sync -- --test-threads=1 --nocapture passed with 7 lib tests and zero-test non-lib/smoke targets'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check origin/master..HEAD passed'
+      - 'main: added-lines security scan over git diff origin/master..HEAD scanned 162 added lines with no findings'
+      - 'independent integration review approved the code and docs diff with no blocking security, logic, or bounded-claim issues'
+    review: >-
+      Independent integration review checked the main-worktree diff after docs sync
+      and approved: the symlinked snapshot-root guard happens before constructing
+      the local browse fallback, existing authorization/scope checks remain in
+      front of snapshot selection, the worker validates HEAD revision shape before
+      artifact/success persistence, and docs claims stay bounded to those two
+      fail-closed behaviors.
+    workers:
+      - 'Browse/Code-nav worker: produced 8b11f1b0e398979187eab0820ecad339d159b40e, cherry-picked in main as 2821349259164ecf8ab3bd31401dba1ac51e4b31'
+      - 'Provider/Sync/Worker worker: produced 7ddeb279c56615d36363453475e6f60ff3fd6506, cherry-picked in main as d2c69ebd048b1ac9096cdc540a0fe7767ba3be15'
+      - 'Search/Index worker: failed with provider/account HTTP 503 after leaving an incomplete uncommitted search fallback semantic experiment; not merged and worktree removed'
+      - 'Controller docs-sync tail: f72acb46c6404efd33347f8089b1cb0092693d49'
+    notes: >-
+      The main repo began clean and synchronized with origin/master at ec4c1ae,
+      `/opt/data` was 50% used, and sourcebot-worktrees was 4.0K, so the controller
+      launched three disjoint worker scopes under the disk budget. Two workers
+      delivered committed implementation closures and were integrated serially. The
+      Search/Index worker did not produce a mergeable commit; its dirty uncommitted
+      work was discarded with its worktree rather than promoted into an unverified
+      semantic change.
   - id: task102x_103c_106z_search_pagination_binary_codenav_generic_git_empty_authority
     status: done
     summary: >-
