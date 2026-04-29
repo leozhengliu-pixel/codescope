@@ -5,36 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
+  head: a599b7a303e60b203cfba8ad2969bdb3a91aa842
 last_completed_task:
-  id: task102s_106u
-  title: Search fallback primary precedence and Generic Git HEAD metadata hardening
+  id: task107a_102t_106v
+  title: MCP JSON-RPC baseline, local-sync index-status fail-closed surfacing, and Generic Git output caps
   status: done
   summary: >-
-    Integrated two approved accelerated-worker closures. Task 102 search now keeps
-    primary startup search results authoritative for unscoped/search-context
-    searches: local-sync search-index artifacts are consulted only when the
-    primary response is otherwise empty instead of being merged into non-empty
-    primary results. Task 106 Generic Git sync now fails closed when the
-    timeout-bounded HEAD metadata probe advertises unexpected non-`HEAD` records,
-    rather than falling back to a different branch. Coupled README, acceptance,
-    gap-report, and final-audit wording were updated to keep both claims bounded;
-    the MCP worker failed before producing a mergeable closure due to HTTP 503
-    account exhaustion.
+    Closed the already-integrated carry-over batch instead of launching new
+    workers: the MCP/API surface now exposes an authenticated JSON-RPC
+    `/api/v1/mcp` protocol baseline with content negotiation, initialize/ping,
+    batch/notification handling, and permission-scoped `tools/call`; local-sync
+    index-status fallback now surfaces malformed or non-regular `search-index.json`
+    artifacts as operator-visible error status instead of silently masking them;
+    Generic Git remote metadata probing now caps combined stdout/stderr for HEAD
+    and heads probes and fails closed before terminal metadata success when output
+    exceeds the bounded limit. Coupled README, acceptance, gap-report, and final
+    audit wording were updated while preserving remaining practical-replacement
+    blockers.
   tests:
-    - 'search worker RED: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches failed before implementation with 0 passed, 1 failed, 463 filtered out because local-sync artifacts were merged into non-empty primary results'
-    - 'provider worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_head_symref_unexpected_ref_line -- --nocapture failed before implementation with 0 passed, 1 failed because unexpected non-HEAD symref output fell through to --heads fallback'
-    - 'main: cargo test -p sourcebot-api unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches -- --nocapture passed with one main-bin test and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-api search_ -- --nocapture passed with 38 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 14 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-api repository_index_status_surfaces -- --nocapture passed with 2 main-bin tests and one zero-test lib target'
+    - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 29 lib tests plus zero-test non-lib targets'
     - 'main: cargo test -p sourcebot-api local_sync -- --nocapture passed with 17 main-bin tests and one zero-test lib target'
-    - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 28 lib tests plus zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker run_repository_sync_claim_tick -- --nocapture passed with 20 lib tests plus zero-test non-lib targets'
-    - 'main: cargo test -p sourcebot-worker passed: lib 69, main 3, integration smoke tests 20, doc-tests 0'
+    - 'main: cargo test -p sourcebot-mcp -- --nocapture passed with 9 lib tests and zero doctests'
     - 'main: cargo fmt --check passed'
-    - 'main: git diff --check HEAD~2..HEAD and final git diff --check passed before docs commit; doc/state diff checks passed after docs/state edits'
-    - 'main: added-lines security scan over HEAD~2..HEAD passed with no findings'
-    - 'independent integration review approved HEAD~2..HEAD with no security, logic, auth/scope, fallback precedence, Generic Git parser, or docs-claim blockers; reviewer reran focused search and generic_git tests'
-  commit: 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6
+    - 'main: git diff --check 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD and final git diff --check passed'
+    - 'main: added-lines security scan over 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD scanned 236 added lines with no findings'
+    - 'independent integration review approved 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD with no blocking security, auth/scope, JSON-RPC protocol, local-sync fail-closed, Generic Git command/output-safety, or docs-claim issues; reviewer reran focused MCP, index-status, Generic Git, and diff-check commands'
+  commit: a599b7a303e60b203cfba8ad2969bdb3a91aa842
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -44,20 +42,65 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run landed two implementation-backed hardening
-    closures from the worker batch: unscoped/search-context search now preserves
-    primary startup search-store precedence and consults local-sync artifacts only
-    for otherwise empty primary responses, and Generic Git remote metadata parsing
-    now rejects unexpected non-`HEAD` HEAD-probe records instead of falling back to
-    a different branch. The MCP worker failed before a mergeable closure due to
-    HTTP 503 account exhaustion. Remaining practical replacement work still
-    includes production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale, branch/index availability,
-    broader provider fetch/import/reindex, worker supervision and broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, MCP client
-    interoperability, operator runbook/deploy evidence, and other release
-    blockers in this roadmap.
+    worktree is clean. This close-out did not start new workers because the main
+    branch was already ahead with unpushed carry-over closures. The carry-over
+    batch landed an authenticated MCP JSON-RPC protocol baseline, fail-closed
+    local-sync artifact index-status surfacing, and bounded-output Generic Git
+    remote metadata probing. Remaining practical replacement work still includes
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale, branch/index availability, broader provider
+    fetch/import/reindex, worker supervision and broad retry/backoff, OIDC/SSO
+    and richer admin/org flows, deeper MCP client/session interoperability,
+    operator runbook/deploy evidence, and other release blockers in this roadmap.
 history:
+  - id: task107a_102t_106v
+    status: done
+    summary: >-
+      Closed the live carry-over batch that was already committed on `master` and
+      ahead of `origin/master`, rather than launching more workers over an
+      unclosed tree. MCP now has an authenticated JSON-RPC `/api/v1/mcp` baseline
+      with content negotiation, initialize/ping, batch/notification handling, and
+      permission-scoped `tools/call`; local-sync index-status fallback now returns
+      operator-visible error status for malformed or non-regular search-index
+      artifacts; and Generic Git remote metadata probes now fail closed when
+      combined stdout/stderr exceeds the bounded limit. The docs/audit wording
+      names these as bounded advances and keeps broad practical-replacement gaps
+      explicit.
+    commit: a599b7a303e60b203cfba8ad2969bdb3a91aa842
+    component_commits:
+      - 7d4225fbd0f67fc3462f9c441fd16e12244d4ea4
+      - b5558a3b910143a1b84f6ee30a35a3b207c06de4
+      - 4dce45fc425c35cc04df8bcb02bfb891dc61872d
+      - a599b7a303e60b203cfba8ad2969bdb3a91aa842
+    tests:
+      - 'main: cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 14 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-api repository_index_status_surfaces -- --nocapture passed with 2 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-worker generic_git -- --nocapture passed with 29 lib tests plus zero-test non-lib targets'
+      - 'main: cargo test -p sourcebot-api local_sync -- --nocapture passed with 17 main-bin tests and one zero-test lib target'
+      - 'main: cargo test -p sourcebot-mcp -- --nocapture passed with 9 lib tests and zero doctests'
+      - 'main: cargo fmt --check passed'
+      - 'main: git diff --check 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD and final git diff --check passed'
+      - 'main: added-lines security scan over 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD scanned 236 added lines with no findings'
+      - 'independent integration review approved 6c6a1d235c33b21af63f0783a73a23fa30ef1cf6..HEAD with no blocking security, auth/scope, JSON-RPC protocol, local-sync fail-closed, Generic Git command/output-safety, or docs-claim issues; reviewer reran focused MCP, index-status, Generic Git, and diff-check commands'
+    review: >-
+      Independent integration review approved the full carry-over range with no
+      blocking security, auth/scope, MCP JSON-RPC protocol/content-negotiation,
+      local-sync artifact fail-closed, Generic Git command/output-safety, or
+      bounded documentation-claim issues. The reviewer confirmed the route uses
+      existing auth/visibility boundaries, local-sync artifact errors are not
+      silently masked, and Generic Git execution still uses bounded `Command`
+      invocations with the literal `--` separator.
+    workers:
+      - 'MCP/Ops worker: previous carry-over produced commit 7d4225fbd0f67fc3462f9c441fd16e12244d4ea4, already integrated on master'
+      - 'Provider/worker worker: previous carry-over produced commit b5558a3b910143a1b84f6ee30a35a3b207c06de4, already integrated on master'
+      - 'Search/index worker: previous carry-over produced commit 4dce45fc425c35cc04df8bcb02bfb891dc61872d, already integrated on master'
+    notes: >-
+      This was a real close-out of implementation-backed product/runtime work,
+      not a micro-slice or state-only update: the run verified shipped MCP,
+      search/index-status, and provider/worker behavior, performed security and
+      independent review, synchronized state with existing substantive commits,
+      pushed the carry-over range, and cleaned obsolete worker worktrees before
+      stopping.
   - id: task102s_106u
     status: done
     summary: >-
