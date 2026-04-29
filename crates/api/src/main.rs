@@ -891,6 +891,8 @@ struct ReferencesQuery {
     revision: Option<String>,
 }
 
+const CODE_NAV_BINARY_CAPABILITY: &str = "binary_blob";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct DefinitionRangeResponse {
     start_line: usize,
@@ -5589,7 +5591,7 @@ async fn get_repository_definitions(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    let response = match extract_symbols(path, &blob.content) {
+    let response = match code_nav_symbol_extraction(path, &blob) {
         sourcebot_search::SymbolExtraction::Supported { symbols } => {
             let definitions = symbols
                 .into_iter()
@@ -5663,7 +5665,7 @@ async fn get_repository_references(
         .map_err(map_browse_error_to_status)?;
 
     let response = if let Some(blob) = primary_blob {
-        match extract_symbols(path, &blob.content) {
+        match code_nav_symbol_extraction(path, &blob) {
             sourcebot_search::SymbolExtraction::Supported { .. } => {
                 let references = state
                     .browse
@@ -5711,7 +5713,7 @@ async fn get_repository_references(
             .get_blob_at_revision(&repo_id, path, None)
             .map_err(map_browse_error_to_status)?
             .ok_or(StatusCode::NOT_FOUND)?;
-        match extract_symbols(path, &blob.content) {
+        match code_nav_symbol_extraction(path, &blob) {
             sourcebot_search::SymbolExtraction::Supported { .. } => {
                 let references = snapshot_context
                     .browse
@@ -5755,6 +5757,20 @@ async fn get_repository_references(
     Ok(Json(response))
 }
 
+fn code_nav_symbol_extraction(
+    path: &str,
+    blob: &BlobResponse,
+) -> sourcebot_search::SymbolExtraction {
+    if blob.is_binary {
+        return sourcebot_search::SymbolExtraction::Unsupported {
+            capability: CODE_NAV_BINARY_CAPABILITY.to_string(),
+            symbols: Vec::new(),
+        };
+    }
+
+    extract_symbols(path, &blob.content)
+}
+
 fn build_definitions_response(
     repo_id: String,
     path: &str,
@@ -5762,7 +5778,7 @@ fn build_definitions_response(
     revision: &str,
     blob: BlobResponse,
 ) -> DefinitionsResponse {
-    match extract_symbols(path, &blob.content) {
+    match code_nav_symbol_extraction(path, &blob) {
         sourcebot_search::SymbolExtraction::Supported { symbols } => {
             let definitions = symbols
                 .into_iter()
@@ -7032,6 +7048,34 @@ mod tests {
         path: String,
         line_number: usize,
         line: String,
+    }
+
+    #[test]
+    fn code_nav_definitions_treats_binary_blob_as_unsupported() {
+        let response = build_definitions_response(
+            "repo_binary".into(),
+            "src/lib.rs",
+            "binary_symbol",
+            "HEAD",
+            crate::browse::BlobResponse {
+                repo_id: "repo_binary".into(),
+                path: "src/lib.rs".into(),
+                content: String::new(),
+                size_bytes: 4,
+                is_binary: true,
+            },
+        );
+
+        let DefinitionsResponse::Unsupported {
+            capability,
+            definitions,
+            ..
+        } = response
+        else {
+            panic!("binary source blobs should not be treated as supported code-navigation inputs");
+        };
+        assert_eq!(capability, "binary_blob");
+        assert!(definitions.is_empty());
     }
 
     #[derive(Debug, Deserialize, Serialize)]
