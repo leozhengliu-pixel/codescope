@@ -13,6 +13,7 @@ use std::{
 
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_INDEX_ARTIFACT_LINE_BYTES: usize = DEFAULT_MAX_FILE_SIZE_BYTES as usize;
 const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
 const MAX_LITERAL_QUERY_BYTES: usize = 4096;
@@ -853,6 +854,16 @@ fn validate_persisted_index_artifact(
                 "ignored search index artifact path '{}' in {}: persisted indexes must not expose skipped runtime, generated, or binary paths",
                 indexed_line.path,
                 artifact_path.display()
+            );
+        }
+        if indexed_line.line.len() > MAX_INDEX_ARTIFACT_LINE_BYTES {
+            anyhow::bail!(
+                "oversized search index artifact line content for '{}:{}' in {}: line is {} bytes, maximum is {} bytes",
+                indexed_line.path,
+                indexed_line.line_number,
+                artifact_path.display(),
+                indexed_line.line.len(),
+                MAX_INDEX_ARTIFACT_LINE_BYTES
             );
         }
         if is_obviously_binary(&indexed_line.line) {
@@ -2727,6 +2738,34 @@ mod tests {
             error
                 .to_string()
                 .contains("binary search index artifact line content"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_oversized_line_content() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_lines"][0]["line"] =
+            serde_json::Value::String(format!("build_router{}", "a".repeat(1_000_001)));
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("persisted index oversized line content must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("oversized search index artifact line content"),
             "unexpected error: {error:#}"
         );
 
