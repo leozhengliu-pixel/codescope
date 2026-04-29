@@ -231,10 +231,12 @@ fn sanitize_worker_status_error(error: &str) -> String {
     }
 
     const STUB_FAILURE: &str = "repository sync stub execution configured to fail";
-    const KNOWN_PREFIXES: [&str; 3] = [
+    const KNOWN_PREFIXES: [&str; 5] = [
         "local repository sync preflight failed",
         "local repository sync execution failed",
         "generic Git repository sync execution failed",
+        "repository sync job exceeded worker lease and was marked failed before the next claim",
+        "repository sync job had malformed running lease timestamp and was marked failed before the next claim",
     ];
 
     if trimmed == STUB_FAILURE {
@@ -242,8 +244,13 @@ fn sanitize_worker_status_error(error: &str) -> String {
     }
 
     for prefix in KNOWN_PREFIXES {
-        if trimmed == prefix || trimmed.starts_with(&format!("{prefix}:")) {
+        if trimmed == prefix {
             return format!("{prefix}: details redacted");
+        }
+        if let Some(suffix) = trimmed.strip_prefix(prefix) {
+            if suffix.starts_with(':') || suffix.starts_with(char::is_whitespace) {
+                return format!("{prefix}: details redacted");
+            }
         }
     }
 
@@ -294,6 +301,27 @@ mod tests {
             sanitize_worker_status_error("repository sync stub execution configured to fail"),
             "repository sync stub execution configured to fail"
         );
+    }
+
+    #[test]
+    fn worker_status_error_preserves_lease_recovery_prefixes_without_details() {
+        let stale = sanitize_worker_status_error(
+            "repository sync job exceeded worker lease and was marked failed before the next claim at 2026-04-29T14:00:00Z",
+        );
+        assert_eq!(
+            stale,
+            "repository sync job exceeded worker lease and was marked failed before the next claim: details redacted"
+        );
+        assert!(!stale.contains("2026-04-29"));
+
+        let malformed = sanitize_worker_status_error(
+            "repository sync job had malformed running lease timestamp and was marked failed before the next claim: invalid started_at at 2026-04-29T14:00:00Z",
+        );
+        assert_eq!(
+            malformed,
+            "repository sync job had malformed running lease timestamp and was marked failed before the next claim: details redacted"
+        );
+        assert!(!malformed.contains("invalid started_at"));
     }
 }
 
