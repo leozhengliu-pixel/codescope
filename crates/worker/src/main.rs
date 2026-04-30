@@ -389,12 +389,13 @@ fn sanitize_worker_status_error(error: &str) -> String {
     }
 
     const STUB_FAILURE: &str = "repository sync stub execution configured to fail";
-    const KNOWN_PREFIXES: [&str; 5] = [
+    const KNOWN_PREFIXES: [&str; 6] = [
         "local repository sync preflight failed",
         "local repository sync execution failed",
         "generic Git repository sync execution failed",
         "repository sync job exceeded worker lease and was marked failed before the next claim",
         "repository sync job had malformed running lease timestamp and was marked failed before the next claim",
+        "repository sync job had malformed queued_at timestamp and was marked failed before claim",
     ];
 
     if trimmed == STUB_FAILURE {
@@ -877,6 +878,20 @@ mod tests {
             "repository sync job had malformed running lease timestamp and was marked failed before the next claim: details redacted"
         );
         assert!(!malformed.contains("invalid started_at"));
+    }
+
+    #[test]
+    fn worker_status_error_preserves_malformed_queued_timestamp_prefix_without_details() {
+        let sanitized = sanitize_worker_status_error(
+            "repository sync job had malformed queued_at timestamp and was marked failed before claim: invalid queued_at \"not-a-date\" at 2026-04-29T14:00:00Z",
+        );
+
+        assert_eq!(
+            sanitized,
+            "repository sync job had malformed queued_at timestamp and was marked failed before claim: details redacted"
+        );
+        assert!(!sanitized.contains("not-a-date"));
+        assert!(!sanitized.contains("2026-04-29"));
     }
 }
 
