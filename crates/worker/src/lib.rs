@@ -1517,6 +1517,7 @@ fn fail_local_repository_sync_job(
     let error = if detail.starts_with(LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX) {
         detail
     } else {
+        let detail = bounded_local_repository_sync_failure_detail(&detail);
         format!("{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}")
     };
 
@@ -2008,6 +2009,67 @@ mod tests {
             "local git failure detail should be bounded, got {} bytes",
             detail.len()
         );
+    }
+
+    #[test]
+    fn local_repository_sync_preflight_failure_detail_is_bounded() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-local-preflight-bounds-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\npython3 -c 'import sys; sys.stderr.write(\"x\" * 9000)'\nexit 1\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let job = local_repository_sync_job(
+            "sync_job_local_preflight_bounds",
+            RepositorySyncJobStatus::Running,
+            "2026-04-26T10:01:00Z",
+        );
+        let completed =
+            complete_local_repository_sync_job_with_git_command_and_output_limit_if_applicable(
+                &OrganizationState {
+                    connections: vec![local_connection(
+                        "/tmp/sourcebot-worker-local-preflight-bounds",
+                    )],
+                    ..OrganizationState::default()
+                },
+                &job,
+                "2026-04-26T10:02:00Z",
+                fake_git_path.as_os_str(),
+                Duration::from_secs(5),
+                16 * 1024 * 1024,
+            )
+            .expect("local connection should complete as a failed sync job");
+
+        let error = completed
+            .error
+            .expect("preflight failure should be surfaced to operators");
+        assert!(
+            error.starts_with("local repository sync preflight failed: "),
+            "preflight failures should retain operator-visible prefix: {error}"
+        );
+        assert!(
+            error.ends_with("...[truncated]"),
+            "oversized preflight details should be explicitly truncated: {error}"
+        );
+        assert!(
+            error.len() <= 4200,
+            "local preflight failure detail should be bounded, got {} bytes",
+            error.len()
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
     }
 
     #[test]
