@@ -120,6 +120,7 @@ pub struct SearchOptions {
     pub case_sensitive: bool,
     pub include_paths: Vec<String>,
     pub exclude_paths: Vec<String>,
+    pub max_matches_per_file: Option<usize>,
 }
 
 impl Default for SearchOptions {
@@ -129,6 +130,7 @@ impl Default for SearchOptions {
             case_sensitive: false,
             include_paths: Vec::new(),
             exclude_paths: Vec::new(),
+            max_matches_per_file: None,
         }
     }
 }
@@ -1073,6 +1075,29 @@ fn filter_included_paths(results: &mut Vec<SearchResult>, include_paths: &[Strin
     });
 }
 
+fn cap_matches_per_file(results: &mut Vec<SearchResult>, max_matches_per_file: Option<usize>) {
+    let Some(max_matches_per_file) = max_matches_per_file else {
+        return;
+    };
+    if max_matches_per_file == 0 {
+        results.clear();
+        return;
+    }
+
+    let mut counts_by_file: HashMap<(String, String), usize> = HashMap::new();
+    results.retain(|result| {
+        let count = counts_by_file
+            .entry((result.repo_id.clone(), result.path.clone()))
+            .or_default();
+        if *count >= max_matches_per_file {
+            false
+        } else {
+            *count += 1;
+            true
+        }
+    });
+}
+
 impl SearchStore for LocalSearchStore {
     fn search_with_mode(
         &self,
@@ -1118,6 +1143,7 @@ impl SearchStore for LocalSearchStore {
         }
         filter_included_paths(&mut results, &options.include_paths);
         filter_excluded_paths(&mut results, &options.exclude_paths);
+        cap_matches_per_file(&mut results, options.max_matches_per_file);
 
         Ok(SearchResponse::unpaginated_with_mode(
             query.to_string(),
@@ -1960,6 +1986,91 @@ mod tests {
         assert_eq!(second_page.pagination.total_count, 2);
         assert!(!second_page.pagination.has_more);
         assert_eq!(second_page.results[0].path, "vendor/generated.rs");
+    }
+
+    #[test]
+    fn max_matches_per_file_caps_each_file_before_pagination() {
+        let store = LocalSearchStore {
+            repo_roots: HashMap::from([("repo_test".to_string(), PathBuf::new())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: HashMap::from([(
+                "repo_test".to_string(),
+                vec![
+                    IndexedLine {
+                        path: "README.md".to_string(),
+                        line_number: 1,
+                        line: "per_file_marker readme first".to_string(),
+                    },
+                    IndexedLine {
+                        path: "README.md".to_string(),
+                        line_number: 2,
+                        line: "per_file_marker readme second".to_string(),
+                    },
+                    IndexedLine {
+                        path: "src/lib.rs".to_string(),
+                        line_number: 1,
+                        line: "per_file_marker src first".to_string(),
+                    },
+                    IndexedLine {
+                        path: "src/lib.rs".to_string(),
+                        line_number: 2,
+                        line: "per_file_marker src second".to_string(),
+                    },
+                ],
+            )]),
+            index_statuses: HashMap::from([(
+                "repo_test".to_string(),
+                RepositoryIndexStatus {
+                    repo_id: "repo_test".to_string(),
+                    status: RepositoryIndexState::Indexed,
+                    indexed_file_count: 2,
+                    indexed_line_count: 4,
+                    skipped_file_count: 0,
+                    error: None,
+                },
+            )]),
+        };
+
+        let response = store
+            .search_page_with_options(
+                "per_file_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    max_matches_per_file: Some(1),
+                    ..SearchOptions::default()
+                },
+                1,
+                0,
+            )
+            .unwrap();
+
+        assert_eq!(response.pagination.total_count, 2);
+        assert!(response.pagination.has_more);
+        assert_eq!(
+            response
+                .results
+                .iter()
+                .map(|result| (result.path.as_str(), result.line_number))
+                .collect::<Vec<_>>(),
+            vec![("README.md", 1)]
+        );
+
+        let second_page = store
+            .search_page_with_options(
+                "per_file_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    max_matches_per_file: Some(1),
+                    ..SearchOptions::default()
+                },
+                1,
+                1,
+            )
+            .unwrap();
+        assert_eq!(second_page.pagination.total_count, 2);
+        assert!(!second_page.pagination.has_more);
+        assert_eq!(second_page.results[0].path, "src/lib.rs");
+        assert_eq!(second_page.results[0].line_number, 1);
     }
 
     #[test]

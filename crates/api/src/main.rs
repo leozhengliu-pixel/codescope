@@ -531,6 +531,7 @@ struct SearchQuery {
     mode: Option<SearchMode>,
     limit: Option<usize>,
     offset: Option<usize>,
+    max_matches_per_file: Option<usize>,
     #[serde(default)]
     case_sensitive: bool,
 }
@@ -6520,6 +6521,7 @@ const DEFAULT_SEARCH_RESULT_LIMIT: usize = 100;
 const MAX_SEARCH_RESULT_LIMIT: usize = 500;
 const MAX_SEARCH_RESULT_OFFSET: usize = 10_000;
 const MAX_SEARCH_QUERY_BYTES: usize = 1024;
+const MAX_SEARCH_MATCHES_PER_FILE: usize = 100;
 
 async fn search_repository_contents(
     State(state): State<AppState>,
@@ -6543,6 +6545,13 @@ async fn search_repository_contents(
     }
     let search_offset = query.offset.unwrap_or(0);
     if search_offset > MAX_SEARCH_RESULT_OFFSET {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if matches!(query.max_matches_per_file, Some(0))
+        || query
+            .max_matches_per_file
+            .is_some_and(|max_matches| max_matches > MAX_SEARCH_MATCHES_PER_FILE)
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -6590,6 +6599,7 @@ async fn search_repository_contents(
         case_sensitive: query.case_sensitive,
         include_paths: parse_include_path_query_values(raw_query.as_deref()),
         exclude_paths: parse_exclude_path_query_values(raw_query.as_deref()),
+        max_matches_per_file: query.max_matches_per_file,
     };
 
     let primary_search_response = search_visible_authorized_repositories(
@@ -31097,6 +31107,81 @@ mod tests {
         assert_eq!(payload.results[0].path, "src/lib.rs");
         assert_eq!(payload.results[0].line_number, 2);
         assert!(payload.results[0].line.contains("paginated_marker_beta"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_max_matches_per_file_query_caps_each_file_before_pagination() {
+        let search_root = unique_test_path("search-max-matches-per-file-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("README.md"),
+            "api_per_file_marker readme first\napi_per_file_marker readme second\n",
+        )
+        .unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "api_per_file_marker src first\napi_per_file_marker src second\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-max-matches-per-file-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-max-matches-per-file-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-max-matches-per-file-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=api_per_file_marker&repo_id=repo_sourcebot_rewrite&max_matches_per_file=1&limit=1")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.pagination.total_count, 2);
+        assert!(payload.pagination.has_more);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].path, "README.md");
+        assert_eq!(payload.results[0].line_number, 1);
+
+        let rejected = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=api_per_file_marker&repo_id=repo_sourcebot_rewrite&max_matches_per_file=0")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
