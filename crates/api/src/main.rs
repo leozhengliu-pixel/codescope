@@ -6841,7 +6841,13 @@ struct LocalSyncSnapshot {
 }
 
 fn is_valid_local_sync_snapshot_revision(revision: &str) -> bool {
-    !revision.trim().is_empty() && !revision.chars().any(char::is_control)
+    !revision.trim().is_empty()
+        && !revision.starts_with('-')
+        && !revision.contains("..")
+        && !revision.contains("@{")
+        && !revision
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
 }
 
 fn latest_local_sync_snapshot(
@@ -7374,6 +7380,59 @@ mod tests {
             &authorized_organization_ids,
         )
         .is_none());
+    }
+
+    #[test]
+    fn local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata() {
+        for unsafe_revision in [
+            "HEAD:README.md",
+            "HEAD~1",
+            "HEAD^1",
+            "HEAD..main",
+            "HEAD@{0}",
+            "--path-format=absolute",
+            "feature*glob",
+            "feature[glob]",
+            "feature\\path",
+        ] {
+            let mut organization_state = OrganizationState::default();
+            organization_state.connections.push(Connection {
+                id: "conn_local".into(),
+                name: "Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: "/tmp/sourcebot-local-sync-repo".into(),
+                }),
+            });
+            organization_state
+                .repository_sync_jobs
+                .push(RepositorySyncJob {
+                    id: "job_unsafe_revision".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_local".into(),
+                    connection_id: "conn_local".into(),
+                    status: RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-21T00:03:00Z".into(),
+                    started_at: Some("2026-04-21T00:03:01Z".into()),
+                    finished_at: Some("2026-04-21T00:03:02Z".into()),
+                    error: None,
+                    synced_revision: Some(unsafe_revision.into()),
+                    synced_branch: Some("main".into()),
+                    synced_content_file_count: Some(1),
+                });
+
+            let authorized_organization_ids = HashSet::from(["org_acme".to_string()]);
+
+            assert!(
+                latest_local_sync_snapshot(
+                    &organization_state,
+                    "repo_local",
+                    &authorized_organization_ids,
+                )
+                .is_none(),
+                "local-sync fallback must reject unsafe synced_revision metadata {unsafe_revision:?}"
+            );
+        }
     }
 
     #[test]
