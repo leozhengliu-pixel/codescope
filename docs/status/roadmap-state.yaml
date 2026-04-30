@@ -5,47 +5,43 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5d3d88a962536404729a20b121215e0d941d1dd0
+  head: 03d6ae7e91fe93b3ccca5e861a8a773464de102d
 last_completed_task:
-  id: task102_103_108_accelerated_runtime_hardening
-  title: Accelerated search, code-navigation, and worker-runtime hardening batch
+  id: task103_revision_blob_size_preflight
+  title: Revision-backed source blob size preflight
   status: done
   summary: >-
-    Closed a three-scope implementation-backed practical-replacement batch rather than a
-    docs-only or state-only slice. The Search/Index closure added bounded
-    `max_matches_per_file` support to `/api/v1/search` and the local/index-artifact
-    search contract so callers can cap repeated line hits per repository file before
-    pagination/counting. The Browse/Code-Nav closure hardened reference scans to reject
-    substring-only identifier matches in revision-backed and authorized local-sync
-    fallback paths. The Worker/Ops closure hardened local supervisor status snapshots so
-    newly created status files are private to the worker account (`0600`). Each claim is
-    bounded below production indexing, full code-navigation, provider sync, scheduling,
-    supervision, or practical replacement parity.
+    Closed a bounded implementation-backed Browse/source hardening slice from the
+    practical-replacement blocker roadmap instead of a docs-only or state-only update.
+    The successful Browse/Code-Nav worker added a Git object-size preflight before
+    revision-backed blob reads stream `git show` contents, so oversized source files fail
+    closed on the existing 8 MiB source payload budget before unbounded stdout capture.
+    The integrator cherry-picked the worker commit, synchronized browse acceptance and
+    final audit wording, cleaned all worker worktrees, and left the broader practical
+    replacement gaps explicit. The Search/Index and Worker/Runtime workers failed before
+    producing commits because the delegated provider returned HTTP 503/no available
+    accounts; their clean placeholder worktrees were removed rather than retained as
+    implicit state.
   tests:
-    - 'worker Search RED: max_matches_per_file missing from SearchOptions/API propagation before implementation'
-    - 'worker Code-Nav RED: substring-only references such as prefix_symbol/symbol_suffix matched before boundary filtering'
-    - 'worker Worker RED: worker status snapshot file mode was 0644 before private-file creation hardening'
-    - 'integrator: cargo test -p sourcebot-search max_matches_per_file -- --nocapture (1 passed, 68 filtered)'
-    - 'integrator: cargo test -p sourcebot-api search_max_matches_per_file -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
-    - 'integrator: cargo test -p sourcebot-api local_browse_store_revision_references_require_identifier_boundaries -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
-    - 'integrator: cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
-    - 'integrator broader: cargo test -p sourcebot-api references -- --nocapture (17 passed, 497 filtered)'
-    - 'integrator broader: cargo test -p sourcebot-api definitions -- --nocapture (12 passed, 502 filtered)'
-    - 'integrator: cargo test -p sourcebot-worker worker_status_snapshot_payload_creates_private_status_file -- --nocapture (main 1 passed; other worker targets 0 tests for selector)'
-    - 'integrator broader: cargo test -p sourcebot-search -- --nocapture (69 passed)'
-    - 'integrator broader: cargo test -p sourcebot-worker -- --nocapture (92 lib + 21 bin + 21 integration tests passed)'
-    - 'cargo fmt --check'
-    - 'git diff --check HEAD~3..HEAD'
-    - 'added-lines security scan over 800ebab..HEAD: 0 findings'
-    - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents failed with old git output capture limit behavior before implementation (1 failed)'
+    - 'worker GREEN: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents (lib target 0 tests; bin target 1 passed)'
+    - 'worker broader: cargo test -p sourcebot-api browse::tests (lib target 0 tests; bin target 43 passed)'
+    - 'worker: cargo fmt --check -p sourcebot-api (passed)'
+    - 'worker: cargo check -p sourcebot-api (passed with pre-existing unrelated warnings)'
+    - 'integrator: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents -- --nocapture (lib target 0 tests / 68 filtered; bin target 1 passed / 513 filtered)'
+    - 'integrator broader: cargo test -p sourcebot-api browse::tests -- --nocapture (lib target 0 tests / 68 filtered; bin target 43 passed / 471 filtered)'
+    - 'cargo fmt --check -p sourcebot-api'
+    - 'git diff --check'
+    - 'added-lines security scan over HEAD~1..HEAD and code diff: 0 findings'
+    - 'independent code review over HEAD~1..HEAD passed with no blocking security or logic issues'
+    - 'cleanup: removed failed search/runtime worker worktrees and merged browse worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
   review: >-
-    Independent integration review over `800ebabac1403c865abd1c47847e756d88c78254..HEAD`
-    passed with no blocking security, logic, or truthfulness issues. The reviewer confirmed
-    the search per-file cap is bounded and applied before pagination/counting, code-nav
-    boundary filtering does not overclaim tree-sitter or full multi-language parity, and
-    worker status-file permission wording remains limited to newly created local status
-    snapshots rather than production supervision.
-  commit: 5d3d88a962536404729a20b121215e0d941d1dd0
+    Independent review passed with no blocking security or logic issues. It confirmed the
+    size preflight runs after path normalization, revision commit resolution, mode lookup,
+    and object-type verification, before `git show`; Git commands remain argument-based and
+    bounded, missing objects keep not-found semantics, oversized blobs fail closed, and the
+    acceptance/final-audit wording stays bounded below full source-view parity.
+  commit: 03d6ae7e91fe93b3ccca5e861a8a773464de102d
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -54,9 +50,9 @@ current_task:
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap. Recent runs added
     repeated API-visible `exclude_path` and `include_path` controls plus a bounded
-    `max_matches_per_file` cap for local/index-artifact search result shaping, while the
-    same accelerated batch also hardened code-navigation reference boundaries and local
-    worker status-file permissions. Production search/indexing remains a major blocker:
+    `max_matches_per_file` cap for local/index-artifact search result shaping; an adjacent
+    Task 103 Browse/source hardening slice also now preflights revision-backed blob object
+    size before streaming contents. Production search/indexing remains a major blocker:
     remaining work still includes a real indexing pipeline beyond startup/local-sync
     artifacts, cross-branch/index availability semantics, relevance and pagination
     guarantees at scale, richer filter validation and policy controls, streaming search
@@ -65,6 +61,55 @@ current_task:
     capability over docs-only paperwork unless another practical-replacement blocker is
     clearly higher value.
 history:
+  - id: task103_revision_blob_size_preflight
+    status: done
+    summary: >-
+      Closed a bounded Browse/source hardening closure from the practical-replacement
+      blockers roadmap after parallel worker fan-out. The merged worker added a revision
+      blob Git object-size preflight before `git show`, turning oversized revision-backed
+      source reads into a fail-closed payload-budget error before unbounded capture. Docs
+      and final audit wording now record the exact bounded behavior while preserving gaps
+      for production syntax highlighting, frontend download affordances, richer large-file
+      UX, and broader source-view parity. Two other attempted workers failed due provider
+      HTTP 503/no-account errors before commits and their clean worktrees were removed.
+    commit: 03d6ae7e91fe93b3ccca5e861a8a773464de102d
+    component_commits:
+      - 48a2b467c06b3d647cfd2d94fb0a905b5c8b24af
+      - 03d6ae7e91fe93b3ccca5e861a8a773464de102d
+    tests:
+      - 'worker RED: focused oversized revision blob test failed with old git output capture limit behavior (1 failed)'
+      - 'worker GREEN: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents (lib 0; bin 1 passed)'
+      - 'worker broader: cargo test -p sourcebot-api browse::tests (lib 0; bin 43 passed)'
+      - 'worker: cargo fmt --check -p sourcebot-api'
+      - 'worker: cargo check -p sourcebot-api (passed with pre-existing unrelated warnings)'
+      - 'integrator: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents -- --nocapture (lib 0; bin 1 passed)'
+      - 'integrator broader: cargo test -p sourcebot-api browse::tests -- --nocapture (lib 0; bin 43 passed)'
+      - 'cargo fmt --check -p sourcebot-api'
+      - 'git diff --check'
+      - 'added-lines security scan: 0 findings'
+      - 'independent review passed with no blocking security or logic issues'
+      - 'cleanup confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    review: >-
+      Independent review found no blocking issues and confirmed bounded argument-based Git
+      execution, path/revision/object-type checks before the new size preflight, fail-closed
+      oversized blob semantics, and bounded docs claims. Non-blocking suggestion: a future
+      test shim could directly prove `git show` is not invoked after the preflight error.
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-a
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-503-cleaned
+      - scope: Browse/Code-Nav
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-binary-guard
+        worker_commit: d9d22347a9e9ad97c6abd115248cfb00a3ef791e
+        integrated_commit: 48a2b467c06b3d647cfd2d94fb0a905b5c8b24af
+        result: merged
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/runtime-c
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-503-cleaned
   - id: task102_103_108_accelerated_runtime_hardening
     status: done
     summary: >-
