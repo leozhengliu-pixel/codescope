@@ -5,30 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8ad7aa698a12e9c6cea48e6ee363175b68014fa7
+  head: fef89034c97a3a2ef11924fd6dea6aa9c6830bc3
 last_completed_task:
-  id: task102_search_context_create_scope
-  title: Saved search-context creation scope hardening
+  id: task102_requested_search_primary_error_fallback
+  title: Requested-repo primary search error local-sync fallback
   status: done
   summary: >-
-    Closed a real Task 102 saved-search-context contract gap rather than a
-    paperwork slice: authenticated POST /api/v1/auth/search-contexts now
-    canonicalizes submitted repository scopes, filters them to repositories
-    visible to the caller, rejects empty/blank/invisible effective scopes with
-    400 before persistence, and stores only the visible canonical repository
-    ids. This keeps saved search contexts non-empty and prevents stale or hidden
-    repository ids from being persisted by the creation surface.
+    Closed a real Task 102 search/index runtime resilience slice rather than a
+    paperwork update: authenticated requested-repository `/api/v1/search` now may
+    answer a primary search-store outage from the latest valid caller-authorized
+    local-sync `search-index.json` artifact for that same requested repository.
+    The path remains fail-closed: unscoped/context search primary outages still
+    return 500, and requested-repo primary outages return 500 when no valid
+    authorized artifact is available or when the artifact is malformed,
+    non-regular, or marked error instead of silently returning an empty 200.
   tests:
-    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture failed before implementation with 201 Created instead of 400 Bad Request'
-    - 'worker GREEN: focused rejection selector passed with 0 lib tests plus 1 main-bin test; adjacent create/filter selector passed with 0 lib tests plus 1 main-bin test; broader auth_search_contexts selector passed with 0 lib tests plus 6 main-bin tests'
-    - 'controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
-    - 'controller adjacent: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
-    - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 478 filtered out'
+    - 'worker/controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out after fixing the reviewer-found malformed-artifact masking bug'
+    - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check HEAD~1..HEAD passed'
+    - 'controller: git diff --check HEAD~1..HEAD and git diff --check passed'
     - 'controller: added-lines security scan over HEAD~1..HEAD found no findings'
-    - 'independent review: approved HEAD~1..HEAD with no security or logic blockers; non-blocking suggestion was an endpoint-level canonical ordering/duplicate assertion'
-  commit: 8ad7aa698a12e9c6cea48e6ee363175b68014fa7
+    - 'independent review: initial review blocked masking malformed artifacts during primary outage; final re-review approved HEAD~1..HEAD with no security, logic, or docs-truthfulness blockers'
+  commit: fef89034c97a3a2ef11924fd6dea6aa9c6830bc3
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -38,18 +36,54 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed the saved search-context creation-scope
-    hardening gap by making the creation endpoint enforce the already-documented
-    non-empty, caller-visible repository-scope contract before persistence.
-    Practical replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, a full branch/ref
-    picker and revision-switching UX beyond summary visibility, broader provider
-    fetch/import/reindex, worker scheduling and supervision with broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
-    interoperability, operator runbook/deploy evidence, and the other release
-    blockers in this roadmap.
+    worktree is clean. This run closed a requested-repo search runtime resilience
+    gap by allowing a valid caller-authorized local-sync search artifact to answer
+    a primary requested-repo search-store outage without widening scope, while
+    keeping unscoped/context primary outages and malformed/unavailable artifacts
+    fail-closed. Practical replacement remains incomplete. Remaining blockers
+    still include production-shaped indexing lifecycle/status and failure recovery,
+    relevance and pagination behavior at scale beyond bounded helpers, a full
+    branch/ref picker and revision-switching UX beyond summary visibility,
+    broader provider fetch/import/reindex, worker scheduling and supervision with
+    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
+    client/session interoperability, operator runbook/deploy evidence, and the
+    other release blockers in this roadmap.
 history:
+  - id: task102_requested_search_primary_error_fallback
+    status: done
+    summary: >-
+      Closed a bounded Task 102 requested-repository search runtime resilience
+      slice: when the primary search store errors for an explicitly requested
+      visible repository, the API may use the latest valid caller-authorized
+      local-sync search-index artifact for that same repository, but it returns
+      500 for unscoped/context primary outages and for requested-repo outages
+      without a valid artifact or with malformed/non-regular/error artifacts.
+    commit: fef89034c97a3a2ef11924fd6dea6aa9c6830bc3
+    tests:
+      - 'worker/controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out after fixing the reviewer-found malformed-artifact masking bug'
+      - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check HEAD~1..HEAD and git diff --check passed'
+      - 'controller: added-lines security scan over HEAD~1..HEAD found no findings'
+      - 'independent review: initial review blocked masking malformed artifacts during primary outage; final re-review approved HEAD~1..HEAD with no security, logic, or docs-truthfulness blockers'
+    review: >-
+      Independent review inspected the committed range and found the auth/scope
+      boundary preserved: requested repo visibility is checked before fallback,
+      local-sync selection recomputes authorized organizations and requires a
+      matching local connection/config, and primary outage fallback succeeds only
+      with a valid caller-authorized artifact. A first review blocked an
+      over-broad 200-empty behavior for malformed artifacts during primary outage;
+      the fix now returns 500 unless a valid artifact can answer, and docs were
+      tightened to state that boundary.
+    workers: >-
+      Three implementation worktrees were created under
+      /opt/data/projects/sourcebot-worktrees after disk preflight. Browse and
+      worker workers failed immediately because the delegated provider returned
+      HTTP 503/no available accounts and produced no changes. The search worker
+      left a scoped crates/api/src/main.rs diff before hitting provider limits;
+      the controller verified, fixed the reviewer-found fail-closed edge,
+      cherry-picked/amended the closure on master as fef89034c97a3a2ef11924fd6dea6aa9c6830bc3, and cleaned all
+      worker worktrees before final report.
   - id: task102_search_context_create_scope
     status: done
     summary: >-
