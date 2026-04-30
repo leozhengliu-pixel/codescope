@@ -74,6 +74,40 @@ pub fn retrieval_tool_definitions() -> Vec<McpToolDefinition> {
     ]
 }
 
+pub fn initialize_result() -> Value {
+    let manifest = server_manifest();
+    json!({
+        "protocolVersion": manifest.protocol_version,
+        "serverInfo": {
+            "name": manifest.server_info.name,
+            "version": manifest.server_info.version,
+        },
+        "capabilities": {
+            "tools": {
+                "listChanged": manifest.capabilities.tools.list_changed,
+            }
+        }
+    })
+}
+
+pub fn tools_list_result() -> Value {
+    Value::Object(Map::from_iter([(
+        "tools".into(),
+        Value::Array(
+            retrieval_tool_definitions()
+                .into_iter()
+                .map(|tool| {
+                    json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "inputSchema": tool.input_schema,
+                    })
+                })
+                .collect(),
+        ),
+    )]))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct McpToolCallRequest {
     pub name: String,
@@ -149,6 +183,40 @@ impl McpToolCallResponse {
             Self::Success { .. } => None,
             Self::Error { error, .. } => Some(error.message.as_str()),
         }
+    }
+}
+
+pub fn tools_call_result(response: McpToolCallResponse) -> Value {
+    match response {
+        McpToolCallResponse::Success {
+            tool_name,
+            structured_content,
+        } => json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": format!("{tool_name} completed successfully"),
+                }
+            ],
+            "structuredContent": structured_content,
+            "isError": false,
+        }),
+        McpToolCallResponse::Error { tool_name, error } => json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": error.message,
+                }
+            ],
+            "structuredContent": {
+                "toolName": tool_name,
+                "error": {
+                    "code": error.code,
+                    "message": error.message,
+                }
+            },
+            "isError": true,
+        }),
     }
 }
 
@@ -402,8 +470,9 @@ mod tests {
     use sourcebot_models::{Connection, RepositoryDetail, RepositorySummary, SyncState};
 
     use crate::{
-        execute_tool_call, retrieval_tool_definitions, server_manifest, McpToolCallErrorCode,
-        McpToolCallRequest, McpToolCallResponse,
+        execute_tool_call, initialize_result, retrieval_tool_definitions, server_manifest,
+        tools_call_result, tools_list_result, McpToolCallErrorCode, McpToolCallRequest,
+        McpToolCallResponse,
     };
 
     struct StaticCatalogStore {
@@ -540,6 +609,91 @@ mod tests {
         assert_eq!(
             names,
             vec!["list_repos", "list_tree", "read_file", "glob", "grep"]
+        );
+    }
+
+    #[test]
+    fn initialize_result_uses_mcp_protocol_field_names() {
+        assert_eq!(
+            initialize_result(),
+            json!({
+                "protocolVersion": "2025-06-18",
+                "serverInfo": {
+                    "name": "sourcebot-mcp",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+                "capabilities": {
+                    "tools": {
+                        "listChanged": false,
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn tools_list_result_uses_mcp_input_schema_field_name() {
+        let result = tools_list_result();
+
+        assert_eq!(result["tools"][0]["name"], json!("list_repos"));
+        assert_eq!(
+            result["tools"][0]["inputSchema"],
+            json!({
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false,
+            })
+        );
+        assert!(result["tools"][0].get("input_schema").is_none());
+    }
+
+    #[test]
+    fn tools_call_result_wraps_structured_content_for_mcp_clients() {
+        assert_eq!(
+            tools_call_result(McpToolCallResponse::success(
+                "list_tree",
+                json!({ "tool": "list_tree", "payload": { "path": "src" } })
+            )),
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "list_tree completed successfully",
+                    }
+                ],
+                "structuredContent": {
+                    "tool": "list_tree",
+                    "payload": { "path": "src" }
+                },
+                "isError": false,
+            })
+        );
+    }
+
+    #[test]
+    fn tools_call_result_wraps_tool_errors_as_mcp_errors_without_widening() {
+        assert_eq!(
+            tools_call_result(McpToolCallResponse::error(
+                "read_file",
+                McpToolCallErrorCode::PermissionDenied,
+                "active repository repo_secret is outside retrieval scope",
+            )),
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "active repository repo_secret is outside retrieval scope",
+                    }
+                ],
+                "structuredContent": {
+                    "toolName": "read_file",
+                    "error": {
+                        "code": "permission_denied",
+                        "message": "active repository repo_secret is outside retrieval scope",
+                    }
+                },
+                "isError": true,
+            })
         );
     }
 
