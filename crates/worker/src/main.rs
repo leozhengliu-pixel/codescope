@@ -369,6 +369,7 @@ fn write_worker_status_snapshot_payload(path: &Path, payload: &[u8]) -> anyhow::
         .write(true)
         .create(true)
         .truncate(true)
+        .mode(0o600)
         .custom_flags(O_NOFOLLOW)
         .open(path)
         .map_err(|error| {
@@ -747,6 +748,32 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn worker_status_snapshot_payload_creates_private_status_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-private-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        super::write_worker_status_snapshot_payload(&path, br#"{"completed":false}"#)
+            .expect("status payload should be created");
+
+        let mode = std::fs::metadata(&path)
+            .expect("status payload should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "new worker status snapshots can expose runtime metadata and should be private"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
