@@ -2653,7 +2653,15 @@ function RepositoryIndexStatusPanel({ repoId }: { repoId: string }) {
   );
 }
 
-function RepositoryRefsPanel({ repoId }: { repoId: string }) {
+function RepositoryRefsPanel({
+  repoId,
+  currentRevision,
+  onRevisionSelect,
+}: {
+  repoId: string;
+  currentRevision: string | null;
+  onRevisionSelect: (revision: string) => void;
+}) {
   const [refs, setRefs] = useState<RefSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -2691,6 +2699,8 @@ function RepositoryRefsPanel({ repoId }: { repoId: string }) {
 
   const branches = refs.filter((ref) => ref.kind === 'branch');
   const tags = refs.filter((ref) => ref.kind === 'tag');
+  const advertisedRevisionNames = refs.map((ref) => ref.name);
+  const selectedAdvertisedRevision = currentRevision && advertisedRevisionNames.includes(currentRevision) ? currentRevision : '';
   const renderRef = (ref: RefSummary) => (
     <li key={`${ref.kind}:${ref.name}:${ref.target ?? ''}`} style={{ display: 'grid', gap: 4 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -2705,22 +2715,43 @@ function RepositoryRefsPanel({ repoId }: { repoId: string }) {
     <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
       <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>Branches and tags</h3>
       <div style={{ color: '#57606a', marginBottom: 12 }}>
-        Visible branch and tag summaries only; revision picker and navigation parity remain separate.
+        Visible branch and tag summaries with a bounded read-only revision picker for advertised refs.
       </div>
       {loading ? <div>Loading branch and tag summaries…</div> : null}
       {!loading && error ? <div>Branch and tag summaries unavailable: {error}</div> : null}
       {!loading && !error && refs.length === 0 ? <div>No visible branches or tags found.</div> : null}
       {!loading && !error && refs.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-          <div>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Branches</div>
-            {branches.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{branches.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible branches.</div>}
+        <>
+          <label style={{ ...fieldLabelStyle, marginBottom: 16 }}>
+            <span>Advertised branch or tag</span>
+            <select
+              value={selectedAdvertisedRevision}
+              onChange={(event) => {
+                if (event.target.value) {
+                  onRevisionSelect(event.target.value);
+                }
+              }}
+              style={inputStyle}
+            >
+              <option value="">Select an advertised ref…</option>
+              {refs.map((ref) => (
+                <option key={`${ref.kind}:${ref.name}`} value={ref.name}>
+                  {ref.name} {ref.kind}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Branches</div>
+              {branches.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{branches.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible branches.</div>}
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Tags</div>
+              {tags.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{tags.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible tags.</div>}
+            </div>
           </div>
-          <div>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Tags</div>
-            {tags.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{tags.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible tags.</div>}
-          </div>
-        </div>
+        </>
       ) : null}
     </div>
   );
@@ -2839,7 +2870,11 @@ function RepoDetailPage({
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
       <RepositoryIndexStatusPanel repoId={repoId} />
-      <RepositoryRefsPanel repoId={repoId} />
+      <RepositoryRefsPanel
+        repoId={repoId}
+        currentRevision={initialRevision}
+        onRevisionSelect={(revision) => updateRepoHash(initialPath, initialTreePath, revision)}
+      />
       <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={fieldLabelStyle}>

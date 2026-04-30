@@ -1862,7 +1862,7 @@ describe('App', () => {
 
     expect(await screen.findByText('visible-repo')).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Branches and tags' })).toBeInTheDocument();
-    expect(await screen.findByText('Visible branch and tag summaries only; revision picker and navigation parity remain separate.')).toBeInTheDocument();
+    expect(await screen.findByText('Visible branch and tag summaries with a bounded read-only revision picker for advertised refs.')).toBeInTheDocument();
     expect(screen.getAllByText('main').length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByText('feature/refs-ui')).toBeInTheDocument();
     expect(await screen.findByText('v1.0.0')).toBeInTheDocument();
@@ -1871,6 +1871,130 @@ describe('App', () => {
     expect(await screen.findByText('222222222222')).toBeInTheDocument();
     expect(await screen.findByText('333333333333')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo_visible/refs');
+  });
+
+  it('selects an advertised branch or tag from repo refs and reloads browse at that revision', async () => {
+    window.location.hash = '#/repos/repo-pick?path=src%2Fmain.ts&revision=main';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-pick') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-pick',
+            name: 'picker-repo',
+            default_branch: 'main',
+            connection_id: 'conn-picker',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-picker',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/index-status') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          status: 'indexed',
+          indexed_file_count: 2,
+          indexed_line_count: 20,
+          skipped_file_count: 0,
+          error: null,
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/refs') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          refs: [
+            { kind: 'branch', name: 'main', target: '1111111111111111111111111111111111111111', is_default: true },
+            { kind: 'branch', name: 'feature/picker', target: '2222222222222222222222222222222222222222', is_default: false },
+            { kind: 'tag', name: 'v2.0.0', target: '3333333333333333333333333333333333333333', is_default: false },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/tree?path=src&revision=main') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          path: 'src',
+          entries: [{ name: 'main.ts', path: 'src/main.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/blob?path=src%2Fmain.ts&revision=main') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          path: 'src/main.ts',
+          size_bytes: 13,
+          content: 'main revision',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/commits?limit=20&revision=main') {
+        return jsonResponse({ repo_id: 'repo-pick', commits: [] });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/tree?path=src&revision=v2.0.0') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          path: 'src',
+          entries: [{ name: 'tag.ts', path: 'src/tag.ts', kind: 'file' }],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/blob?path=src%2Ftag.ts&revision=v2.0.0') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          path: 'src/tag.ts',
+          size_bytes: 12,
+          content: 'tag revision',
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-pick/commits?limit=20&revision=v2.0.0') {
+        return jsonResponse({
+          repo_id: 'repo-pick',
+          commits: [
+            {
+              id: 'tagcommit123',
+              short_id: 'tagcomm',
+              summary: 'Tagged release commit',
+              author_name: 'Hermes Agent',
+              authored_at: '2026-04-18T14:00:00Z',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('picker-repo')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Advertised branch or tag')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'feature/picker branch' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'v2.0.0 tag' })).toBeInTheDocument();
+    expect(await screen.findByText('Viewing revision: main')).toBeInTheDocument();
+    expect(await screen.findByText('main revision')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Advertised branch or tag'), { target: { value: 'v2.0.0' } });
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/repos/repo-pick?path=src%2Ftag.ts&revision=v2.0.0');
+    }, { timeout: 4000 });
+    expect(await screen.findByText('Viewing revision: v2.0.0', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText('tag revision', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText('Tagged release commit', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-pick/refs');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-pick/tree?path=src&revision=v2.0.0');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-pick/blob?path=src%2Ftag.ts&revision=v2.0.0');
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-pick/commits?limit=20&revision=v2.0.0');
   });
 
   it('loads repository detail and browses directories and files from the browse api', async () => {
