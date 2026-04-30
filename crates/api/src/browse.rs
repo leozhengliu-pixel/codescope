@@ -713,7 +713,9 @@ fn is_safe_revision_selector(revision: &str) -> bool {
         && !revision.starts_with('-')
         && !revision.contains("..")
         && !revision.contains("@{")
-        && !revision.chars().any(char::is_control)
+        && !revision
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
 }
 
 fn run_git_show_blob(
@@ -1400,7 +1402,18 @@ mod tests {
 
         let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
 
-        for revision in ["HEAD@{0}", "HEAD..HEAD", "-HEAD"] {
+        for revision in [
+            "HEAD@{0}",
+            "HEAD..HEAD",
+            "-HEAD",
+            "HEAD~1",
+            "HEAD^1",
+            "HEAD:README.md",
+            "HEAD?glob",
+            "HEAD*glob",
+            "HEAD[glob]",
+            "HEAD\\path",
+        ] {
             assert!(
                 store
                     .get_tree_at_revision("repo_test", "", Some(revision))
