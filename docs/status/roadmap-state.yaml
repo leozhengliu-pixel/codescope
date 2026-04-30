@@ -5,30 +5,38 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e8eaca2016237fceeedba0f845c2953004cd2a86
+  head: 584eb953a74fac1dc5e0566396d2909dbe055744
 last_completed_task:
-  id: task102_java_language_filter
-  title: Bounded Java language filter coverage for local/index-artifact search
+  id: task102_case_sensitive_search
+  title: API-visible case-sensitive search for local/index-artifact search
   status: done
   summary: >-
-    Closed one implementation-backed Task 102 search/filter closure from the accelerated
-    worker batch. The Search/Index worker produced a TDD-backed local/index-artifact
-    filter expansion so unquoted `lang:java` now narrows boolean searches to `.java`
-    files, with README and search acceptance wording updated to the bounded Java claim.
-    Browse/Code-Nav and Provider/Worker workers failed closed with provider/account
-    exhaustion before producing worktrees or commits. This remains a bounded filter
-    baseline and does not claim production indexing, cross-branch semantics, relevance
-    tuning, streaming search, stale/degraded index recovery, or practical Sourcebot
-    replacement readiness.
+    Closed an implementation-backed Task 102 search/index closure by adding a bounded
+    `case_sensitive=true` API/search option for local/index-artifact search. The
+    shipped default remains case-insensitive, while boolean, literal, and regex local
+    search can now request exact-case matching; boolean grammar such as `OR`, `path:`,
+    and `lang:` remains case-insensitive so exact-case matching does not turn query
+    syntax into a surprising filter miss. This advances the proven search contract but
+    remains a bounded local/index-artifact baseline, not production indexing,
+    relevance/pagination-at-scale, streaming search, stale/degraded recovery, or full
+    practical replacement parity.
   tests:
-    - 'baseline: live master d97f390a86e4a061a79329ba9993c5963e3b868a was clean and in sync with origin/master; /opt/data was 60% used; sourcebot-worktrees was 4.0K before dispatch'
-    - 'parallel workers: Search/Index worktree produced a commit after controller close-out; Browse/Code-Nav and Provider/Worker failed closed with HTTP 503 provider/account exhaustion before creating mergeable worktrees or commits'
-    - 'RED(worker): CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture failed as expected with lang:java returning 0 results instead of 1'
-    - 'GREEN(worker/main focused): same focused selector passed with 1 test / 64 filtered after adding .java filter coverage'
-    - 'broader search(worker/main): CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search passed with 65 unit tests and 0 doctests'
-    - 'quality: cargo fmt --check, git diff --check HEAD~1..HEAD, added-lines security scan, and independent integration review passed'
-    - 'cleanup: removed successful worker worktree, ran git worktree prune, confirmed only the main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
-  commit: e8eaca2016237fceeedba0f845c2953004cd2a86
+    - 'worker RED/GREEN: sourcebot-search case_sensitive initially failed on missing SearchOptions/search_with_options, then passed with 1 test / 65 filtered after implementation'
+    - 'worker RED/GREEN: sourcebot-api search_case_sensitive initially returned 4 total results instead of 2 before API propagation, then passed with lib 0 tests / 68 filtered and main 1 test / 509 filtered'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search case_sensitive -- --nocapture (1 passed, 65 filtered)'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_case_sensitive -- --nocapture (lib 0 tests, main 1 passed, 509 filtered)'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture (1 passed, 65 filtered)'
+    - 'cargo fmt --check'
+    - 'git diff --check HEAD~1..HEAD'
+    - 'added-lines security scan over HEAD~1..HEAD: 0 findings'
+  review: >-
+    Independent review of the worker diff initially failed closed on case-sensitive
+    boolean grammar/filter syntax drift and mutually-recursive SearchStore defaults.
+    The integrator fixed both by keeping `OR`/`path:`/`lang:` grammar case-insensitive,
+    normalizing language filters, adding mixed-case grammar regression coverage, and
+    making `search_with_mode` the required trait method while `search_with_options`
+    defaults to it. Independent re-review then passed with no security or logic issues.
+  commit: 584eb953a74fac1dc5e0566396d2909dbe055744
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -36,16 +44,43 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap. This run added
-    bounded Java `lang:` filter coverage for local/index-artifact search, on top of
-    the existing Rust, TypeScript/JavaScript, Python, Markdown, Go, JSON, YAML/YML,
-    and TOML coverage. Production search/indexing remains a major blocker: remaining
-    work still includes a real indexing pipeline beyond startup/local-sync artifacts,
-    cross-branch/index availability semantics, relevance and pagination guarantees
-    at scale, richer filter grammar and validation, streaming search behavior,
-    stale/degraded index status and recovery, and final fail-closed release audit
-    evidence. Prefer the next closure with implementation-backed search/index runtime
-    capability over docs-only paperwork.
+    API-visible exact-case search control for the local/index-artifact search contract,
+    on top of existing bounded boolean/literal/regex modes, path/language filters,
+    deterministic ordering, pagination, and local-sync artifact fallback surfaces.
+    Production search/indexing remains a major blocker: remaining work still includes
+    a real indexing pipeline beyond startup/local-sync artifacts, cross-branch/index
+    availability semantics, relevance and pagination guarantees at scale, richer
+    filter grammar and validation, streaming search behavior, stale/degraded index
+    status and recovery, and final fail-closed release audit evidence. Prefer the next
+    closure with implementation-backed search/index runtime capability over docs-only
+    paperwork.
 history:
+  - id: task102_case_sensitive_search
+    status: done
+    summary: >-
+      Closed a bounded implementation-backed Task 102 search contract slice rather than
+      another docs-only or language-filter micro-slice. A worker added `case_sensitive=true`
+      support through the search crate and `/api/v1/search`; integrator review fixed
+      grammar and trait-default issues before cherry-picking into master. Default search
+      behavior remains case-insensitive, while exact-case boolean/literal/regex matching
+      is now API-visible for local/index-artifact search. This is useful user/API-facing
+      search behavior, but it remains bounded and does not claim production indexing,
+      relevance, streaming, recovery, or practical replacement readiness.
+    commit: 584eb953a74fac1dc5e0566396d2909dbe055744
+    tests:
+      - 'worker RED/GREEN: sourcebot-search case_sensitive missing-API failure, then 1 passed / 65 filtered'
+      - 'worker RED/GREEN: sourcebot-api search_case_sensitive overbroad 4-result failure, then lib 0 tests and main 1 passed / 509 filtered'
+      - 'integrator: cargo test -p sourcebot-search case_sensitive -- --nocapture (1 passed, 65 filtered)'
+      - 'integrator: cargo test -p sourcebot-api search_case_sensitive -- --nocapture (lib 0 tests, main 1 passed, 509 filtered)'
+      - 'integrator: cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture (1 passed, 65 filtered)'
+      - 'cargo fmt --check'
+      - 'git diff --check HEAD~1..HEAD'
+      - 'added-lines security scan over HEAD~1..HEAD: 0 findings'
+    review: >-
+      Independent review failed closed on exact-case grammar drift and SearchStore trait
+      recursion; integrator patches added mixed-case `OR`/`Lang:Rust`/`PATH:src`
+      coverage, grammar normalization, and non-recursive trait defaults. Independent
+      re-review passed with no security or logic issues.
   - id: task102_java_language_filter
     status: done
     summary: >-
