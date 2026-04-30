@@ -5,46 +5,83 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b8dde32f89e3ad8b14aa9d6701d494995a7132a4
+  head: e8eaca2016237fceeedba0f845c2953004cd2a86
 last_completed_task:
-  id: task102_config_language_filters
-  title: Bounded search language filters for config/source files
+  id: task102_java_language_filter
+  title: Bounded Java language filter coverage for local/index-artifact search
   status: done
   summary: >-
-    Closed a real Task 102 search/filter closure after all three parallel implementation
-    workers failed closed on provider/account exhaustion before producing commits. The
-    controller used TDD to expand the local/index-artifact boolean search language
-    filter baseline from code-only extensions into common configuration/source files:
-    JSON, YAML/YML, and TOML now match through bounded unquoted lang: filters while
-    unknown or malformed language filters still fail closed. Coupled search acceptance,
-    parity-gap, and final-audit wording were updated with the bounded claim; this does
-    not claim production indexing, cross-branch semantics, relevance tuning, streaming
-    search, or practical Sourcebot replacement readiness.
+    Closed one implementation-backed Task 102 search/filter closure from the accelerated
+    worker batch. The Search/Index worker produced a TDD-backed local/index-artifact
+    filter expansion so unquoted `lang:java` now narrows boolean searches to `.java`
+    files, with README and search acceptance wording updated to the bounded Java claim.
+    Browse/Code-Nav and Provider/Worker workers failed closed with provider/account
+    exhaustion before producing worktrees or commits. This remains a bounded filter
+    baseline and does not claim production indexing, cross-branch semantics, relevance
+    tuning, streaming search, stale/degraded index recovery, or practical Sourcebot
+    replacement readiness.
   tests:
-    - 'baseline: live master 0e55cc9ddfa8e9b2a7e59f281d1cbb97db82f5f0 was clean and in sync with origin/master; /opt/data was 60% used; sourcebot-worktrees was 4.0K before dispatch'
-    - 'parallel workers: Search/Index, Browse/Code-Nav, and Provider/Worker worktrees were created under /opt/data/projects/sourcebot-worktrees; all three failed closed with HTTP 503 provider/account exhaustion before producing commits or dirty diffs; controller inspected the worktrees and found no mergeable changes'
-    - 'RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture failed as expected with lang:json returning 0 results instead of 1'
-    - 'GREEN focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture passed with 1 test / 64 filtered'
-    - 'broader search: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search passed with 65 unit tests and 0 doctests'
-    - 'quality: cargo fmt --check, git diff --check, added-lines security scan, and independent review passed; reviewer noted only non-blocking optional .yml fixture expansion'
-    - 'cleanup: removed all three failed worker worktrees, ran git worktree prune, confirmed only the main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
-  commit: b8dde32f89e3ad8b14aa9d6701d494995a7132a4
+    - 'baseline: live master d97f390a86e4a061a79329ba9993c5963e3b868a was clean and in sync with origin/master; /opt/data was 60% used; sourcebot-worktrees was 4.0K before dispatch'
+    - 'parallel workers: Search/Index worktree produced a commit after controller close-out; Browse/Code-Nav and Provider/Worker failed closed with HTTP 503 provider/account exhaustion before creating mergeable worktrees or commits'
+    - 'RED(worker): CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture failed as expected with lang:java returning 0 results instead of 1'
+    - 'GREEN(worker/main focused): same focused selector passed with 1 test / 64 filtered after adding .java filter coverage'
+    - 'broader search(worker/main): CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search passed with 65 unit tests and 0 doctests'
+    - 'quality: cargo fmt --check, git diff --check HEAD~1..HEAD, added-lines security scan, and independent integration review passed'
+    - 'cleanup: removed successful worker worktree, ran git worktree prune, confirmed only the main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
+  commit: e8eaca2016237fceeedba0f845c2953004cd2a86
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue the blocker-focused practical replacement roadmap from Task 102. This
-    run improved the bounded local/index-artifact search filter baseline by adding
-    config/source file language filters for JSON, YAML/YML, and TOML, but production
-    search/indexing remains a major blocker. Remaining work still includes a real
-    indexing pipeline beyond startup/local-sync artifacts, cross-branch/index
-    availability semantics, relevance and pagination guarantees at scale, richer
-    filter grammar and validation, streaming search behavior, stale/degraded index
-    status, and the final fail-closed release audit. Prefer the next closure with
-    implementation-backed search/index runtime capability over docs-only paperwork.
+    Continue Task 102 from the practical replacement blocker roadmap. This run added
+    bounded Java `lang:` filter coverage for local/index-artifact search, on top of
+    the existing Rust, TypeScript/JavaScript, Python, Markdown, Go, JSON, YAML/YML,
+    and TOML coverage. Production search/indexing remains a major blocker: remaining
+    work still includes a real indexing pipeline beyond startup/local-sync artifacts,
+    cross-branch/index availability semantics, relevance and pagination guarantees
+    at scale, richer filter grammar and validation, streaming search behavior,
+    stale/degraded index status and recovery, and final fail-closed release audit
+    evidence. Prefer the next closure with implementation-backed search/index runtime
+    capability over docs-only paperwork.
 history:
+  - id: task102_java_language_filter
+    status: done
+    summary: >-
+      Closed an implementation-backed Task 102 filter closure from the accelerated
+      batch rather than recording a provider-failure-only run. The Search/Index worker
+      added bounded Java `.java` support to unquoted local/index-artifact `lang:` filters
+      with focused RED/GREEN evidence and bounded README/search acceptance updates.
+      Browse/Code-Nav and Provider/Worker workers failed closed on provider/account
+      exhaustion with no mergeable commits, so Task 102 remains the next preferred
+      product/runtime target.
+    commit: e8eaca2016237fceeedba0f845c2953004cd2a86
+    component_commits:
+      - e8eaca2016237fceeedba0f845c2953004cd2a86
+    tests:
+      - 'baseline: live master d97f390a86e4a061a79329ba9993c5963e3b868a clean/in-sync; /opt/data 60% used; sourcebot-worktrees 4.0K'
+      - 'parallel workers: Search/Index committed ca6f3ab00e3be67a84cc9c97eee33cf9ab42460e and integrated as e8eaca2016237fceeedba0f845c2953004cd2a86; Browse/Code-Nav and Provider/Worker failed closed with HTTP 503 provider/account exhaustion and produced no mergeable commits'
+      - 'RED: focused sourcebot-search lang/path filter test failed on lang:java returning 0 results'
+      - 'GREEN: focused sourcebot-search lang/path filter test passed with 1 test / 64 filtered; full cargo test -p sourcebot-search passed with 65 unit tests and 0 doctests'
+      - 'quality: cargo fmt --check, git diff --check HEAD~1..HEAD, added-lines security scan, and independent review passed'
+      - 'cleanup: removed successful worker worktree, ran git worktree prune, confirmed only main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-202604302016
+        worker_commit: ca6f3ab00e3be67a84cc9c97eee33cf9ab42460e
+        integrated_commit: e8eaca2016237fceeedba0f845c2953004cd2a86
+        result: merged
+      - scope: Browse/Code-Nav
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-codenav-202604302016
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-worktree
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/provider-worker-202604302016
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-worktree
   - id: task102_config_language_filters
     status: done
     summary: >-
