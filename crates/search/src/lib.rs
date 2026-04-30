@@ -393,6 +393,7 @@ impl LocalSearchStore {
             indexed_lines,
             index_status,
         };
+        validate_persisted_index_artifact(&artifact, repo_id, artifact_path)?;
         if let Some(parent) = artifact_path.parent() {
             validate_existing_index_artifact_parent_components(artifact_path)?;
             fs::create_dir_all(parent).with_context(|| {
@@ -2731,6 +2732,53 @@ mod tests {
                 .contains("ignored search index artifact path"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_write_rejects_inconsistent_status_before_replacing_artifact() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let original_artifact = fs::read(&artifact_path).unwrap();
+
+        let inconsistent_store = LocalSearchStore {
+            repo_roots: HashMap::from([("repo_test".to_string(), root.clone())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: store.indexed_lines.clone(),
+            index_statuses: HashMap::from([(
+                "repo_test".to_string(),
+                RepositoryIndexStatus {
+                    repo_id: "repo_test".to_string(),
+                    status: RepositoryIndexState::Indexed,
+                    indexed_file_count: 2,
+                    indexed_line_count: 999,
+                    skipped_file_count: 0,
+                    error: None,
+                },
+            )]),
+        };
+
+        let error = match inconsistent_store.write_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("inconsistent index status must fail closed before publication"),
+            Err(error) => error,
+        };
+
+        assert!(
+            error
+                .to_string()
+                .contains("search index artifact status count mismatch"),
+            "unexpected error: {error:#}"
+        );
+        assert_eq!(
+            fs::read(&artifact_path).unwrap(),
+            original_artifact,
+            "failed index artifact writes must leave the last valid artifact intact"
+        );
+        assert!(!artifact_path.with_extension("json.tmp").exists());
 
         fs::remove_dir_all(root).unwrap();
     }
