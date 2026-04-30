@@ -5,62 +5,131 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 03d6ae7e91fe93b3ccca5e861a8a773464de102d
+  head: 598948035fbe3e553b9819958e5daeb3b6eb8d86
 last_completed_task:
-  id: task103_revision_blob_size_preflight
-  title: Revision-backed source blob size preflight
+  id: task102_107_108_failclosed_runtime_batch
+  title: Search, MCP, and worker runtime fail-closed hardening
   status: done
   summary: >-
-    Closed a bounded implementation-backed Browse/source hardening slice from the
-    practical-replacement blocker roadmap instead of a docs-only or state-only update.
-    The successful Browse/Code-Nav worker added a Git object-size preflight before
-    revision-backed blob reads stream `git show` contents, so oversized source files fail
-    closed on the existing 8 MiB source payload budget before unbounded stdout capture.
-    The integrator cherry-picked the worker commit, synchronized browse acceptance and
-    final audit wording, cleaned all worker worktrees, and left the broader practical
-    replacement gaps explicit. The Search/Index and Worker/Runtime workers failed before
-    producing commits because the delegated provider returned HTTP 503/no available
-    accounts; their clean placeholder worktrees were removed rather than retained as
-    implicit state.
+    Closed an accelerated three-scope implementation-backed batch instead of a
+    docs-only or state-only micro-slice. Search/index status now converts an
+    unreadable local-sync search-index artifact path into a bounded redacted
+    malformed-artifact index error instead of a generic 500; MCP now exposes
+    crate-owned initialize/tools-list/tools-call result helpers with protocol
+    field names for downstream client/session wiring; and the worker now rejects
+    symlink local repository paths before spawning Git for local sync. These
+    closures improve fail-closed runtime/operator behavior while remaining below
+    production indexing, full MCP transport/session parity, worker supervision,
+    or practical replacement readiness.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents failed with old git output capture limit behavior before implementation (1 failed)'
-    - 'worker GREEN: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents (lib target 0 tests; bin target 1 passed)'
-    - 'worker broader: cargo test -p sourcebot-api browse::tests (lib target 0 tests; bin target 43 passed)'
-    - 'worker: cargo fmt --check -p sourcebot-api (passed)'
-    - 'worker: cargo check -p sourcebot-api (passed with pre-existing unrelated warnings)'
-    - 'integrator: cargo test -p sourcebot-api local_browse_store_rejects_oversized_revision_blob_before_streaming_contents -- --nocapture (lib target 0 tests / 68 filtered; bin target 1 passed / 513 filtered)'
-    - 'integrator broader: cargo test -p sourcebot-api browse::tests -- --nocapture (lib target 0 tests / 68 filtered; bin target 43 passed / 471 filtered)'
-    - 'cargo fmt --check -p sourcebot-api'
-    - 'git diff --check'
-    - 'added-lines security scan over HEAD~1..HEAD and code diff: 0 findings'
-    - 'independent code review over HEAD~1..HEAD passed with no blocking security or logic issues'
-    - 'cleanup: removed failed search/runtime worker worktrees and merged browse worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    - 'worker Search RED: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status failed because unreadable artifact metadata returned 500 before implementation'
+    - 'worker Search GREEN: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'worker Search broader: cargo test -p sourcebot-api search_ -- --nocapture (54 passed)'
+    - 'worker Search broader: cargo test -p sourcebot-api local_sync_ -- --nocapture (37 passed)'
+    - 'worker Search broader: cargo test -p sourcebot-api repository_index_status_ -- --nocapture (8 passed)'
+    - 'worker MCP RED: cargo test -p sourcebot-mcp initialize_result_uses_mcp_protocol_field_names failed on unresolved initialize/tools result helpers before implementation'
+    - 'worker MCP GREEN: cargo test -p sourcebot-mcp initialize_result_uses_mcp_protocol_field_names -- --nocapture (1 passed)'
+    - 'worker MCP broader: cargo test -p sourcebot-mcp tools_ -- --nocapture (4 passed)'
+    - 'worker MCP broader: cargo test -p sourcebot-mcp -- --nocapture (13 passed; doc-tests 0)'
+    - 'worker Worker RED: local_repository_sync_symlink_repo_path_fails_closed_before_spawning_git failed because symlink paths reached Git spawn before implementation'
+    - 'worker Worker GREEN/broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (14 lib tests passed; non-lib selector targets 0)'
+    - 'worker Worker full: cargo test -p sourcebot-worker -- --nocapture (93 lib + 21 bin + 21 integration tests passed; doc-tests 0)'
+    - 'integrator: cargo test -p sourcebot-mcp -- --nocapture (13 passed; doc-tests 0)'
+    - 'integrator: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status -- --nocapture (lib 0; bin 1 passed)'
+    - 'integrator: cargo test -p sourcebot-api repository_index_status_ -- --nocapture (lib 0; bin 8 passed)'
+    - 'integrator: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (14 lib tests passed; non-lib selector targets 0)'
+    - 'integrator broader: cargo test -p sourcebot-api search_ -- --nocapture (lib 0; bin 54 passed)'
+    - 'integrator broader: cargo test -p sourcebot-worker -- --nocapture (93 lib + 21 bin + 21 integration tests passed; doc-tests 0)'
+    - 'cargo fmt --check'
+    - 'git diff --check HEAD~3..HEAD and git diff --check'
+    - 'added-lines security scan over HEAD~3..HEAD: 0 findings'
+    - 'independent integration review over HEAD~3..HEAD passed with no blocking security, logic, or truthfulness issues'
+    - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
   review: >-
-    Independent review passed with no blocking security or logic issues. It confirmed the
-    size preflight runs after path normalization, revision commit resolution, mode lookup,
-    and object-type verification, before `git show`; Git commands remain argument-based and
-    bounded, missing objects keep not-found semantics, oversized blobs fail closed, and the
-    acceptance/final-audit wording stays bounded below full source-view parity.
-  commit: 03d6ae7e91fe93b3ccca5e861a8a773464de102d
+    Independent integration review passed with no blocking issues. It confirmed the MCP
+    helpers do not widen auth scope, local-sync index-status now surfaces a redacted
+    fail-closed malformed-artifact status instead of generic server failure or mutable
+    snapshot fallback, worker local sync rejects final repo-path symlinks before Git
+    spawn, and docs/spec updates stay bounded to the implemented behavior.
+  commit: 598948035fbe3e553b9819958e5daeb3b6eb8d86
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 from the practical replacement blocker roadmap. Recent runs added
-    repeated API-visible `exclude_path` and `include_path` controls plus a bounded
-    `max_matches_per_file` cap for local/index-artifact search result shaping; an adjacent
-    Task 103 Browse/source hardening slice also now preflights revision-backed blob object
-    size before streaming contents. Production search/indexing remains a major blocker:
-    remaining work still includes a real indexing pipeline beyond startup/local-sync
-    artifacts, cross-branch/index availability semantics, relevance and pagination
-    guarantees at scale, richer filter validation and policy controls, streaming search
-    behavior, stale/degraded index status and recovery, and final fail-closed release audit
-    evidence. Prefer the next closure with implementation-backed search/index runtime
-    capability over docs-only paperwork unless another practical-replacement blocker is
-    clearly higher value.
+    Continue Task 102 from the practical replacement blocker roadmap after the latest
+    accelerated hardening batch. Search/index status now fails closed with redacted
+    malformed-artifact status for unreadable local-sync search-index artifact paths,
+    and earlier runs added repeated `exclude_path`/`include_path`, bounded
+    `max_matches_per_file`, artifact-backed requested/unscoped/search-context fallback,
+    and related browse/source guards. Production search/indexing remains a major
+    blocker: remaining work still includes a real indexing pipeline beyond startup and
+    local-sync artifacts, cross-branch/index availability semantics, relevance and
+    pagination guarantees at scale, richer filter validation and policy controls,
+    streaming search behavior, stale/degraded index recovery, and final fail-closed
+    release audit evidence. Prefer the next closure with implementation-backed
+    search/index runtime capability over docs-only paperwork unless another
+    practical-replacement blocker is clearly higher value.
 history:
+  - id: task102_107_108_failclosed_runtime_batch
+    status: done
+    summary: >-
+      Closed an accelerated three-scope implementation-backed batch rather than another
+      paperwork update. Search/index status now reports unreadable local-sync search-index
+      artifact paths as redacted malformed-artifact error status; MCP now has crate-owned
+      protocol-shaped initialize/tools-list/tools-call result helpers; and worker local
+      repository sync rejects symlink repo paths before Git spawn. The batch improves
+      fail-closed runtime/operator behavior while preserving explicit gaps for production
+      indexing, full MCP transport/session parity, worker supervision, and practical
+      replacement readiness.
+    commit: 598948035fbe3e553b9819958e5daeb3b6eb8d86
+    component_commits:
+      - 811eb2f8b28e4334eed30f3cfd87b4c8d6f98831
+      - 86fe4e5a4f51761e5e31ab3de33ebc413d79319b
+      - 598948035fbe3e553b9819958e5daeb3b6eb8d86
+    tests:
+      - 'worker Search RED: unreadable artifact path focused test failed with 500 before implementation'
+      - 'worker Search GREEN/focused: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status (1 passed)'
+      - 'worker Search broader: cargo test -p sourcebot-api search_ (54 passed), local_sync_ (37 passed), repository_index_status_ (8 passed)'
+      - 'worker MCP RED: initialize_result_uses_mcp_protocol_field_names failed on unresolved result helpers before implementation'
+      - 'worker MCP GREEN/focused: cargo test -p sourcebot-mcp initialize_result_uses_mcp_protocol_field_names (1 passed)'
+      - 'worker MCP broader: cargo test -p sourcebot-mcp tools_ (4 passed) and cargo test -p sourcebot-mcp (13 passed)'
+      - 'worker Worker RED: symlink repo_path focused test failed because the path reached Git spawn before implementation'
+      - 'worker Worker GREEN/broader: cargo test -p sourcebot-worker local_repository_sync (14 passed) and cargo test -p sourcebot-worker (93 lib + 21 bin + 21 integration passed)'
+      - 'integrator: cargo test -p sourcebot-mcp -- --nocapture (13 passed; doc-tests 0)'
+      - 'integrator: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status -- --nocapture (lib 0; bin 1 passed)'
+      - 'integrator: cargo test -p sourcebot-api repository_index_status_ -- --nocapture (lib 0; bin 8 passed)'
+      - 'integrator: cargo test -p sourcebot-api search_ -- --nocapture (lib 0; bin 54 passed)'
+      - 'integrator: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (14 lib tests passed; non-lib selector targets 0)'
+      - 'integrator: cargo test -p sourcebot-worker -- --nocapture (93 lib + 21 bin + 21 integration tests passed)'
+      - 'cargo fmt --check'
+      - 'git diff --check HEAD~3..HEAD and git diff --check'
+      - 'added-lines security scan over HEAD~3..HEAD: 0 findings'
+      - 'independent integration review passed with no blocking issues'
+      - 'cleanup confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    review: >-
+      Independent review found no blocking security, logic, path-safety, auth-scope,
+      fail-closed, or truthfulness issues. Non-blocking suggestions were to reuse the new
+      MCP helpers in API JSON-RPC wrappers later, consider parent-component symlink policy
+      if desired, and document the local filesystem TOCTOU boundary in a future hardening
+      slice.
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-task102-20260430231113
+        worker_commit: 4f4bad6486be64e5aebb7cb8b2519b5016e81ab9
+        integrated_commit: 86fe4e5a4f51761e5e31ab3de33ebc413d79319b
+        result: merged
+      - scope: MCP/Ops release
+        worktree: /opt/data/projects/sourcebot-worktrees/mcp-task107-20260430231113
+        worker_commit: cb11f611ae5c34af578d2b8201ec5de74069f519
+        integrated_commit: 811eb2f8b28e4334eed30f3cfd87b4c8d6f98831
+        result: merged
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-task108-20260430231113
+        worker_commit: c8c5a908488f60d88d96bf43accd8636f77e0836
+        integrated_commit: 598948035fbe3e553b9819958e5daeb3b6eb8d86
+        result: merged
   - id: task103_revision_blob_size_preflight
     status: done
     summary: >-
