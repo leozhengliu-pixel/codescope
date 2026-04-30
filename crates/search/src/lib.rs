@@ -1182,6 +1182,7 @@ fn language_to_extension(language: &str) -> Option<&'static str> {
     match language {
         "rust" | "rs" => Some(".rs"),
         "tsx" => Some(".tsx"),
+        "typescript" | "ts" => Some(".ts"),
         "javascript" | "js" => Some(".js"),
         "jsx" => Some(".jsx"),
         "python" | "py" => Some(".py"),
@@ -1877,7 +1878,13 @@ mod tests {
 
     #[test]
     fn local_search_store_applies_lang_and_path_filters_without_line_term_broadening() {
-        let (store, root) = create_test_store();
+        let (_store, root) = create_test_store();
+        fs::write(
+            root.join("src").join("client.ts"),
+            "export function build_router_client() {}\n",
+        )
+        .unwrap();
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
 
         let response = store
             .search("lang:rust path:src build_router", Some("repo_test"))
@@ -1902,6 +1909,18 @@ mod tests {
             .results
             .iter()
             .all(|result| result.path != "src/main.rs"));
+
+        let typescript_response = store
+            .search("lang:typescript build_router_client", Some("repo_test"))
+            .unwrap();
+        assert_eq!(typescript_response.results.len(), 1);
+        assert_eq!(typescript_response.results[0].path, "src/client.ts");
+
+        let ts_alias_response = store
+            .search("lang:ts build_router_client", Some("repo_test"))
+            .unwrap();
+        assert_eq!(ts_alias_response.results.len(), 1);
+        assert_eq!(ts_alias_response.results[0].path, "src/client.ts");
 
         let unknown_language_response = store
             .search("lang:python build_router", Some("repo_test"))
