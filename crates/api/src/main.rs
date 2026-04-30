@@ -1554,7 +1554,12 @@ async fn process_mcp_json_rpc_request(
     }
 
     let result = match method {
-        "initialize" => mcp_json_rpc_initialize_result(),
+        "initialize" => {
+            if let Some(error) = mcp_json_rpc_validate_initialize_params(&id, &request) {
+                return Ok(Some(error));
+            }
+            mcp_json_rpc_initialize_result()
+        }
         "ping" => serde_json::json!({}),
         "notifications/initialized" => serde_json::json!({}),
         "tools/list" => serde_json::json!({
@@ -1612,6 +1617,31 @@ async fn process_mcp_json_rpc_request(
         "id": id,
         "result": result,
     })))
+}
+
+fn mcp_json_rpc_validate_initialize_params(
+    id: &serde_json::Value,
+    request: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let params = request.get("params")?;
+    match params.get("protocolVersion") {
+        Some(protocol_version) => match protocol_version.as_str() {
+            Some(sourcebot_mcp::MCP_PROTOCOL_VERSION) => None,
+            Some(protocol_version) => Some(mcp_json_rpc_error(
+                id.clone(),
+                -32602,
+                format!(
+                    "invalid params for initialize: unsupported protocolVersion {protocol_version}"
+                ),
+            )),
+            None => Some(mcp_json_rpc_error(
+                id.clone(),
+                -32602,
+                "invalid params for initialize: protocolVersion must be a string",
+            )),
+        },
+        None => None,
+    }
 }
 
 fn mcp_json_rpc_initialize_result() -> serde_json::Value {
@@ -8837,6 +8867,66 @@ mod tests {
         assert_eq!(body["id"], "ping-1");
         assert_eq!(body["result"], serde_json::json!({}));
         assert!(body.get("error").is_none());
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_json_rpc_initialize_rejects_unsupported_protocol_version() {
+        let organization_state_path = unique_test_path("mcp-json-rpc-init-protocol-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-json-rpc-init-protocol-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-json-rpc-init-protocol-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp")
+                    .header("content-type", "application/json")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": "init-old-protocol",
+                            "method": "initialize",
+                            "params": {
+                                "protocolVersion": "2024-11-05",
+                                "capabilities": {},
+                                "clientInfo": {"name": "old-client", "version": "1.0.0"}
+                            }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = read_json(response).await;
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["id"], "init-old-protocol");
+        assert_eq!(body["error"]["code"], -32602);
+        assert_eq!(
+            body["error"]["message"],
+            "invalid params for initialize: unsupported protocolVersion 2024-11-05"
+        );
+        assert!(body.get("result").is_none());
 
         fs::remove_file(organization_state_path).unwrap();
     }
