@@ -6464,13 +6464,12 @@ async fn search_repository_contents(
     let primary_search_failed = primary_search_response.is_err();
     let mut response = match primary_search_response {
         Ok(response) => response,
-        Err(_error) if requested_repo_id.is_some() => SearchResponse::unpaginated_with_mode(
+        Err(_error) => SearchResponse::unpaginated_with_mode(
             trimmed_query.to_string(),
             search_mode,
             requested_repo_id.map(ToOwned::to_owned),
             Vec::new(),
         ),
-        Err(error) => return Err(error),
     };
 
     if let Some(repo_id) = requested_repo_id {
@@ -6497,9 +6496,10 @@ async fn search_repository_contents(
                 }
             }
         }
-    } else if response.results.is_empty() {
+    } else if primary_search_failed || response.results.is_empty() {
         let mut fallback_repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
         fallback_repo_ids.sort();
+        let mut searched_local_sync_snapshot = false;
 
         for repo_id in fallback_repo_ids {
             match search_latest_local_sync_snapshot_for_repo(
@@ -6512,13 +6512,21 @@ async fn search_repository_contents(
             .await?
             {
                 LocalSyncSearchFallback::Searchable(mut snapshot_response) => {
+                    searched_local_sync_snapshot = true;
                     response.results.append(&mut snapshot_response.results);
                 }
                 LocalSyncSearchFallback::FailClosed => {
                     return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
+                LocalSyncSearchFallback::Unavailable if primary_search_failed => {
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
                 LocalSyncSearchFallback::Unavailable => {}
             }
+        }
+
+        if primary_search_failed && !searched_local_sync_snapshot {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -30558,6 +30566,140 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unscoped_search_primary_error_without_local_sync_artifact_fails_closed() {
+        let organization_state_path =
+            unique_test_path("search-unscoped-primary-runtime-error-no-fallback-orgs");
+        let local_session_state_path =
+            unique_test_path("search-unscoped-primary-runtime-error-no-fallback-sessions");
+        let user_id = "user_unscoped_primary_runtime_error_no_fallback";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(UnavailablePrimarySearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=primary_runtime_error_no_local_sync_fallback")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors() {
+        let repo_root =
+            unique_test_path("search-unscoped-primary-runtime-error-fallback-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn unscoped_primary_runtime_error_artifact_fallback_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path =
+            unique_test_path("search-unscoped-primary-runtime-error-fallback-orgs");
+        let local_session_state_path =
+            unique_test_path("search-unscoped-primary-runtime-error-fallback-sessions");
+        let user_id = "user_unscoped_primary_runtime_error_fallback_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(UnavailablePrimarySearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=unscoped_primary_runtime_error_artifact_fallback_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert!(payload.results[0]
+            .line
+            .contains("unscoped_primary_runtime_error_artifact_fallback_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
     async fn requested_search_falls_back_to_local_sync_artifact_when_primary_search_errors() {
         let repo_root = unique_test_path("search-primary-runtime-error-fallback-repo-root");
         let job_root = repo_root
@@ -31464,6 +31606,99 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unscoped_primary_error_fails_closed_when_any_visible_repo_lacks_local_sync_artifact() {
+        let good_repo_root = unique_test_path("search-unscoped-primary-error-good-repo-root");
+        let good_job_root = good_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_good")
+            .join("job_good_latest");
+        let good_snapshot_root = good_job_root.join("snapshot");
+        fs::create_dir_all(good_snapshot_root.join("src")).unwrap();
+        fs::write(
+            good_snapshot_root.join("src").join("lib.rs"),
+            "pub fn good_artifact_must_not_mask_missing_visible_repo() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_good".to_string(),
+            good_snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_good", &good_job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-unscoped-primary-error-mixed-orgs");
+        let local_session_state_path =
+            unique_test_path("search-unscoped-primary-error-mixed-sessions");
+        let user_id = "user_unscoped_primary_error_mixed_search";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_good", "repo_missing"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_good".into(),
+            name: "Good local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: good_repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_good_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_good".into(),
+                connection_id: "conn_good".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:11:00Z".into(),
+                started_at: Some("2026-04-21T00:11:01Z".into()),
+                finished_at: Some("2026-04-21T00:11:02Z".into()),
+                error: None,
+                synced_revision: Some("good-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(UnavailablePrimarySearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=good_artifact_must_not_mask_missing_visible_repo")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(good_repo_root).unwrap();
     }
 
     #[tokio::test]
