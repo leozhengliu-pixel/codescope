@@ -318,7 +318,7 @@ impl CommitStore for LocalCommitStore {
             return Ok(None);
         };
 
-        let default_branch = current_branch_name(repo_root)?;
+        let default_branch = default_branch_ref_name(repo_root)?;
         let output = run_git(
             repo_root,
             &[
@@ -825,8 +825,16 @@ fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<
     Err(git_command_error(repo_root, args, &output))
 }
 
-fn current_branch_name(repo_root: &PathBuf) -> Result<Option<String>> {
-    let output = bounded_git_output(repo_root, &["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+fn default_branch_ref_name(repo_root: &PathBuf) -> Result<Option<String>> {
+    if let Some(branch) = symbolic_ref_short(repo_root, "HEAD")? {
+        return Ok(Some(branch));
+    }
+
+    symbolic_ref_short(repo_root, "refs/remotes/origin/HEAD")
+}
+
+fn symbolic_ref_short(repo_root: &PathBuf, refname: &str) -> Result<Option<String>> {
+    let output = bounded_git_output(repo_root, &["symbolic-ref", "--quiet", "--short", refname])?;
     if output.status.success() {
         let branch = String::from_utf8(output.stdout)
             .context("git output was not utf-8")?
@@ -838,7 +846,7 @@ fn current_branch_name(repo_root: &PathBuf) -> Result<Option<String>> {
         Some(1) => Ok(None),
         _ => Err(git_command_error(
             repo_root,
-            &["symbolic-ref", "--quiet", "--short", "HEAD"],
+            &["symbolic-ref", "--quiet", "--short", "<ref>"],
             &output,
         )),
     }
@@ -1222,6 +1230,50 @@ mod tests {
                 .iter()
                 .all(|reference| reference.name != "origin/HEAD"),
             "symbolic remote HEAD should not be exposed as a selectable branch"
+        );
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_marks_remote_head_default_when_detached() {
+        let repo_root = create_temp_git_repo("detached-remote-default-ref");
+        write_text_file(&repo_root.join("demo.txt"), "base\n");
+        git_in(&repo_root, &["add", "demo.txt"]);
+        git_in(&repo_root, &["commit", "-m", "base"]);
+        let main_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        git_in(
+            &repo_root,
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        );
+        git_in(
+            &repo_root,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
+        );
+        git_in(&repo_root, &["checkout", "--detach", "HEAD"]);
+
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let refs = store.list_refs("repo_temp").unwrap().unwrap();
+
+        assert!(refs.refs.iter().any(|reference| {
+            reference.name == "origin/main"
+                && reference.kind == RefKind::Branch
+                && reference.target == main_revision
+                && reference.is_default
+        }));
+        assert!(
+            refs.refs
+                .iter()
+                .all(|reference| reference.name != "origin/HEAD"),
+            "symbolic remote HEAD should remain hidden when used as the default marker"
         );
 
         fs::remove_dir_all(repo_root).unwrap();
