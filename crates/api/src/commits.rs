@@ -15,8 +15,6 @@ pub type DynCommitStore = Arc<dyn CommitStore>;
 const SOURCEBOT_REWRITE_REPO_ID: &str = "repo_sourcebot_rewrite";
 const SOURCEBOT_REWRITE_ROOT: &str = "/opt/data/projects/sourcebot-rewrite";
 const EMPTY_HISTORY_REPO_IDS: &[&str] = &["repo_demo_docs"];
-const FIELD_SEPARATOR: char = '\u{1f}';
-const RECORD_SEPARATOR: char = '\u{1e}';
 const COMMIT_DIFF_PATCH_MAX_BYTES: usize = 64 * 1024;
 const COMMIT_DIFF_PATCH_TRUNCATED_MARKER: &str = "[Sourcebot diff truncated: patch exceeds 64 KiB]";
 const MAX_COMMIT_DIFF_FILES: usize = 100;
@@ -287,7 +285,7 @@ impl CommitStore for LocalCommitStore {
             "log".to_string(),
             format!("--max-count={}", page_limit.saturating_add(1)),
             format!("--skip={offset}"),
-            "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e".to_string(),
+            "--format=%H%x00%h%x00%s%x00%an%x00%aI%x00".to_string(),
         ];
         if let Some(revision) = resolved_revision.as_deref() {
             args.push(revision.to_string());
@@ -295,9 +293,9 @@ impl CommitStore for LocalCommitStore {
         let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
         let output = run_git(repo_root, &arg_refs)?;
 
-        let mut commits = parse_records(&output)
+        let mut commits = parse_nul_field_records(&output, 5)?
             .into_iter()
-            .map(|record| self.parse_summary_record(record))
+            .map(|record| self.parse_summary_record(&record))
             .collect::<Result<Vec<_>>>()?;
         let has_next_page = commits.len() > page_limit;
         commits.truncate(page_limit);
@@ -398,7 +396,7 @@ impl CommitStore for LocalCommitStore {
             &[
                 "show",
                 "--no-patch",
-                &format!("--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b%x1f%P%x1e"),
+                "--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%b%x00%P%x00",
                 &commit_id,
             ],
         )?;
@@ -407,13 +405,13 @@ impl CommitStore for LocalCommitStore {
             return Ok(None);
         };
 
-        let Some(record) = parse_records(&output).into_iter().next() else {
+        let Some(record) = parse_nul_field_records(&output, 7)?.into_iter().next() else {
             return Ok(None);
         };
 
         Ok(Some(CommitDetailResponse {
             repo_id: repo_id.to_string(),
-            commit: self.parse_detail_record(record)?,
+            commit: self.parse_detail_record(&record)?,
         }))
     }
 
@@ -519,7 +517,7 @@ impl CommitStore for LocalCommitStore {
 }
 
 fn split_record(record: &str, expected_parts: usize) -> Result<Vec<&str>> {
-    let parts: Vec<&str> = record.split(FIELD_SEPARATOR).collect();
+    let parts: Vec<&str> = record.split('\0').collect();
     if parts.len() != expected_parts {
         return Err(anyhow!(
             "unexpected git output: expected {expected_parts} fields, got {}",
@@ -529,12 +527,35 @@ fn split_record(record: &str, expected_parts: usize) -> Result<Vec<&str>> {
     Ok(parts)
 }
 
-fn parse_records(output: &str) -> Vec<&str> {
-    output
-        .split(RECORD_SEPARATOR)
-        .map(|record| record.trim_matches('\n'))
-        .filter(|record| !record.is_empty())
-        .collect()
+fn parse_nul_field_records(output: &str, fields_per_record: usize) -> Result<Vec<String>> {
+    if fields_per_record == 0 {
+        return Err(anyhow!("git output record width must be non-zero"));
+    }
+
+    let mut tokens = output.trim_matches('\n').split('\0').collect::<Vec<_>>();
+    if tokens.last().is_some_and(|token| token.is_empty()) {
+        tokens.pop();
+    }
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    if tokens.len() % fields_per_record != 0 {
+        return Err(anyhow!(
+            "unexpected git output: expected groups of {fields_per_record} NUL-delimited fields, got {} fields",
+            tokens.len()
+        ));
+    }
+
+    Ok(tokens
+        .chunks(fields_per_record)
+        .map(|chunk| {
+            let mut record = chunk.join("\0");
+            if let Some(stripped) = record.strip_prefix('\n') {
+                record = stripped.to_string();
+            }
+            record
+        })
+        .collect())
 }
 
 fn parse_diff_name_status(output: &str) -> Result<Vec<RawDiffStatus>> {
@@ -1070,6 +1091,43 @@ mod tests {
         assert_eq!(response.commit.author_name, "Hermes Agent");
         assert_eq!(response.commit.id.len(), 40);
         assert!(response.commit.authored_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn local_commit_store_preserves_commit_messages_with_internal_field_separators() {
+        let repo_root = create_temp_git_repo("commit-message-separators");
+        write_text_file(&repo_root.join("demo.txt"), "separator-safe\n");
+        git_in(&repo_root, &["add", "demo.txt"]);
+        git_in(
+            &repo_root,
+            &[
+                "commit",
+                "-m",
+                "subject with \u{1f} separator",
+                "-m",
+                "body keeps \u{1e} record marker",
+            ],
+        );
+
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_test".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let list = store
+            .list_commits("repo_test", 1, 0, None)
+            .expect("commit list should parse separator-bearing subject")
+            .unwrap();
+        assert_eq!(list.commits[0].summary, "subject with \u{1f} separator");
+
+        let detail = store
+            .get_commit("repo_test", &list.commits[0].id)
+            .expect("commit detail should parse separator-bearing body")
+            .unwrap();
+        assert_eq!(detail.commit.summary, "subject with \u{1f} separator");
+        assert_eq!(detail.commit.body, "body keeps \u{1e} record marker");
+
+        fs::remove_dir_all(repo_root).unwrap();
     }
 
     #[test]
