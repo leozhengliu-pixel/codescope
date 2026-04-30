@@ -10,6 +10,9 @@ use sourcebot_worker::{
 };
 use std::{
     env, fs,
+    fs::OpenOptions,
+    io::Write,
+    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -301,11 +304,13 @@ fn write_worker_status_snapshot(
     last_work_item_synced_content_file_count: Option<i64>,
     completed: bool,
 ) -> anyhow::Result<()> {
+    validate_worker_status_path(path)?;
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent)?;
         }
     }
+    validate_worker_status_path(path)?;
 
     let payload = serde_json::json!({
         "schema_version": 1,
@@ -323,7 +328,27 @@ fn write_worker_status_snapshot(
         "last_work_item_synced_branch": last_work_item_synced_branch,
         "last_work_item_synced_content_file_count": last_work_item_synced_content_file_count,
     });
-    fs::write(path, serde_json::to_vec_pretty(&payload)?)?;
+    write_worker_status_snapshot_payload(path, &serde_json::to_vec_pretty(&payload)?)?;
+    Ok(())
+}
+
+fn write_worker_status_snapshot_payload(path: &Path, payload: &[u8]) -> anyhow::Result<()> {
+    const O_NOFOLLOW: i32 = 0o00400000;
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "failed to open SOURCEBOT_WORKER_STATUS_PATH without following symlinks: {}: {error}",
+                path.display()
+            )
+        })?;
+    file.write_all(payload)?;
+    file.sync_all()?;
     Ok(())
 }
 
@@ -579,6 +604,90 @@ mod tests {
             sanitize_worker_status_error("repository sync stub execution configured to fail"),
             "repository sync stub execution configured to fail"
         );
+    }
+
+    #[test]
+    fn worker_status_snapshot_write_fails_closed_when_target_becomes_symlink() {
+        let target = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-write-symlink-target-{}",
+            std::process::id()
+        ));
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-write-symlink-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+        std::fs::write(&target, "existing operator-owned status")
+            .expect("status symlink target fixture should be created");
+        std::os::unix::fs::symlink(&target, &path)
+            .expect("status symlink fixture should be created");
+
+        let error = super::write_worker_status_snapshot(
+            &path,
+            1,
+            0,
+            0,
+            "not_started",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .expect_err("status snapshot writes must not follow symlink targets");
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not be a symlink: {}",
+                path.display()
+            )
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("target should remain readable"),
+            "existing operator-owned status"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn worker_status_snapshot_payload_open_does_not_follow_symlink_target() {
+        let target = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-payload-symlink-target-{}",
+            std::process::id()
+        ));
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-payload-symlink-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+        std::fs::write(&target, "existing operator-owned status")
+            .expect("status symlink target fixture should be created");
+        std::os::unix::fs::symlink(&target, &path)
+            .expect("status symlink fixture should be created");
+
+        let error = super::write_worker_status_snapshot_payload(&path, br#"{"completed":false}"#)
+            .expect_err("status payload writes must use no-follow open semantics");
+
+        assert!(
+            error
+                .to_string()
+                .contains("failed to open SOURCEBOT_WORKER_STATUS_PATH without following symlinks"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("target should remain readable"),
+            "existing operator-owned status"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
     }
 
     #[test]
