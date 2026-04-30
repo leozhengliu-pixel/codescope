@@ -5,34 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 10180bcef669782d5c83769dbe9911c7e19d27c2
+  head: 90902212f7ea37114827f46fae17f2f811891b77
 last_completed_task:
-  id: task103_106_108_commit_worker_batch
-  title: Preserve separator-bearing commit metadata and bound local-sync preflight errors
+  id: task103_108_ui_worker_batch
+  title: Render copied commit diff files and fail closed on padded worker numeric env
   status: done
   summary: >-
-    Integrated two disjoint implementation-worker closures from clean worktrees
-    rather than manufacturing a state-only or docs-only slice. Task 103 local
-    commit list/detail parsing now preserves user-controlled commit subjects and
-    bodies that contain the prior internal field/record separator characters by
-    parsing Git pretty output with NUL-delimited fields. Task 106/108 local
-    repository-sync preflight failures now bound oversized operator-visible
-    stdout/stderr details before persistence while preserving the stable
-    fail-closed prefix. A third Task 102 search/index worker could not start
-    because the delegate provider reported no available accounts, so no search
-    changes were integrated from that scope in this batch. Practical replacement
-    remains incomplete: this closure hardens commit metadata fidelity and worker
-    failure observability, but does not claim production indexing lifecycle
-    parity, provider fetch/import/reindex, full worker supervision/retry, OIDC
-    parity, MCP session/client parity, or final Sourcebot replacement readiness.
+    Integrated two real disjoint closures from this accelerated controller run
+    rather than producing a docs-only or state-only micro-slice. Task 103 now
+    renders copied commit-diff files in the repository commit detail UI with a
+    stable copied badge and old-path-to-new-path display instead of crashing on
+    an unrecognized `copied` change type. Task 108 now rejects empty or
+    surrounding-whitespace worker numeric runtime configuration for
+    `SOURCEBOT_WORKER_MAX_TICKS` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS` before
+    execution, documenting the fail-closed operator contract. The Task 102
+    search/index worker and the initial Task 103 worker both hit delegate
+    provider exhaustion; the Task 103 worktree nevertheless contained coherent
+    carry-over UI changes that the controller verified, fixed, committed, and
+    integrated. Practical replacement remains incomplete: this batch improves
+    commit UI coverage and worker config safety but does not claim production
+    indexing lifecycle parity, real provider fetch/import/reindex, full worker
+    scheduling/supervision/retry, OIDC parity, MCP session/client parity, or
+    final Sourcebot replacement readiness.
   tests:
-    - 'worker Task 103 RED: cargo test -p sourcebot-api local_commit_store_preserves_commit_messages_with_internal_field_separators failed with 1 main-bin test because separator-bearing commit metadata produced an unexpected field count'
-    - 'main Task 103 focused/broader: cargo test -p sourcebot-api local_commit_store_preserves_commit_messages_with_internal_field_separators -- --nocapture passed with 0 lib tests plus 1 main-bin test; local_commit_store passed with 16 main-bin tests; repo_commit passed with 15 main-bin tests'
-    - 'worker Task 106/108 RED: cargo test -p sourcebot-worker local_repository_sync_preflight_failure_detail_is_bounded -- --nocapture failed before the fix because oversized preflight stderr was persisted without truncation'
-    - 'main Task 106/108 focused/broader: cargo test -p sourcebot-worker local_repository_sync_preflight_failure_detail_is_bounded -- --nocapture passed with 1 lib test; local_repository_sync_ passed with 12 lib tests; run_repository_sync_claim_tick passed with 20 lib tests'
-    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 0 findings'
-    - 'independent integration review: approved origin/master..HEAD with no security, logic, docs-claim, or verification blockers after scope-aware review; unrelated full API SQLx/PostgreSQL suite was not required because no database code changed'
-  commit: 10180bcef669782d5c83769dbe9911c7e19d27c2
+    - 'Task 103 carry-over RED: cd web && npm test -- --run src/App.test.tsx -t "commit detail" failed with 1 failed / 188 skipped because copied diff files hit diffTypeBadgeStyle palette[changeType] undefined'
+    - 'Task 103 main focused: cd web && npm test -- --run src/App.test.tsx -t "commit details" passed with 1 test / 188 skipped'
+    - 'Task 103 main broader/build: cd web && npm test -- --run src/App.test.tsx -t "commit|diff" passed with 9 tests / 180 skipped; npm run build passed'
+    - 'Task 108 main focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_numeric_env_fails_closed -- --test-threads=1 passed with 0 lib tests, 2 main tests, and zero-test integration targets'
+    - 'Task 108 main broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker -- --test-threads=1 passed with 88 lib tests, 17 main tests, 5+3+4+3+6 integration tests, and 0 doc tests'
+    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 59 added lines and 0 findings'
+    - 'independent integration review: approved origin/master..HEAD with no security concerns, logic errors, docs-claim issues, or verification gaps'
+  commit: 90902212f7ea37114827f46fae17f2f811891b77
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,19 +45,61 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run integrated two real bounded gaps across commit
-    metadata parsing and worker local-sync preflight error bounding, while the
-    attempted Task 102 worker failed to start because no delegate accounts were
-    available and produced no coherent worktree changes. Practical replacement
-    remains incomplete. Remaining blockers still include production-shaped
-    indexing lifecycle/status and failure recovery, relevance and pagination
-    behavior at scale beyond bounded helpers, fuller branch/ref management and
+    worktree is clean. This run integrated two real bounded closures across
+    commit diff UI coverage and worker numeric configuration safety after the
+    Task 102 search/index worker failed to produce changes because the delegate
+    provider exhausted available accounts. Practical replacement remains
+    incomplete. Remaining blockers still include production-shaped indexing
+    lifecycle/status and failure recovery, relevance and pagination behavior at
+    scale beyond bounded helpers, fuller branch/ref management and
     revision-switching UX, broader provider fetch/import/reindex, worker
     scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
     admin/org flows, deeper MCP client/session interoperability beyond the
     HTTP/API bridge, operator runbook/deploy evidence, and the other release
     blockers in this roadmap.
 history:
+  - id: task103_108_ui_worker_batch
+    status: done
+    summary: >-
+      Integrated two disjoint closures from clean/controlled worktrees after
+      disk preflight rather than producing paperwork-only progress. Task 103
+      added copied commit-diff UI handling and a regression after the carry-over
+      test exposed the previous runtime crash on `copied` change types. Task 108
+      made empty and surrounding-whitespace worker numeric runtime environment
+      values fail closed with explicit operator errors and synchronized the
+      worker runtime acceptance wording. The Task 102 search/index worker
+      returned provider-exhaustion/no-account failures before creating a useful
+      commit, so that scope was not merged and remains the live current task.
+    commit: 90902212f7ea37114827f46fae17f2f811891b77
+    tests:
+      - 'worker commits: Task 103 carry-over committed as d9fa0f431c793b3d16b8d66accd35d465270a71b and cherry-picked as badeed426eecb0faedf02a54dac8d483db5fd33d; Task 108 worker commit 66bbea7004867e90789ad8b45c4787b3c2b6f5ba cherry-picked as 90902212f7ea37114827f46fae17f2f811891b77'
+      - 'Task 103 focused/main: copied commit diff UI regression passed with 1 test / 188 skipped; broader commit|diff selector passed with 9 tests / 180 skipped; frontend build passed'
+      - 'Task 108 focused/main: worker_numeric_env_fails_closed passed with 0 lib tests, 2 main tests, and zero-test integration targets; full sourcebot-worker suite passed with 88 lib, 17 main, 5+3+4+3+6 integration, and 0 doc tests'
+      - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 59 added lines and 0 findings'
+      - 'independent review: scope-aware review approved origin/master..HEAD with no security concerns, logic errors, docs-claim issues, or verification gaps'
+    review: >-
+      Independent integration review inspected the exact main-worktree diff
+      origin/master..HEAD after the two cherry-picks and approved it. The review
+      checked copied commit-diff UI typing/rendering/styling, worker numeric env
+      parsing behavior, bounded worker-runtime docs claims, changed-file scope,
+      and verification adequacy, and found no blocking security, logic,
+      documentation-claim, or verification issues.
+    workers: >-
+      Launched three implementation workers because disk usage was safe at 55%
+      and sourcebot-worktrees was 15M after worktree creation. The Task 102
+      search/index worker used
+      /opt/data/projects/sourcebot-worktrees/task102-search-status-20260430095417
+      but exhausted delegate/provider accounts before producing worktree changes
+      or a commit. The Task 103 browse/commit worker used
+      /opt/data/projects/sourcebot-worktrees/task103-browse-commit-20260430095417;
+      delegate execution exhausted accounts after leaving coherent copied-diff UI
+      changes, so the controller verified the RED failure, fixed the missing
+      copied badge palette, committed d9fa0f431c793b3d16b8d66accd35d465270a71b,
+      and integrated it as badeed426eecb0faedf02a54dac8d483db5fd33d. The Task 108 worker used
+      /opt/data/projects/sourcebot-worktrees/task108-worker-ops-20260430095417
+      and produced commit 66bbea7004867e90789ad8b45c4787b3c2b6f5ba, integrated as
+      90902212f7ea37114827f46fae17f2f811891b77. All three worktrees were removed/pruned after integration or
+      no-change confirmation.
   - id: task103_106_108_commit_worker_batch
     status: done
     summary: >-
