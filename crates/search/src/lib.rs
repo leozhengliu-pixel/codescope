@@ -1191,22 +1191,26 @@ fn wildcard_path_matches_from(
 }
 
 fn path_matches_language(normalized_path: &str, language: &str) -> bool {
-    let Some(extension) = language_to_extension(language) else {
-        return false;
-    };
-    normalized_path.ends_with(extension)
+    language_to_extensions(language).is_some_and(|extensions| {
+        extensions
+            .iter()
+            .any(|extension| normalized_path.ends_with(extension))
+    })
 }
 
-fn language_to_extension(language: &str) -> Option<&'static str> {
+fn language_to_extensions(language: &str) -> Option<&'static [&'static str]> {
     match language {
-        "rust" | "rs" => Some(".rs"),
-        "tsx" => Some(".tsx"),
-        "typescript" | "ts" => Some(".ts"),
-        "javascript" | "js" => Some(".js"),
-        "jsx" => Some(".jsx"),
-        "python" | "py" => Some(".py"),
-        "markdown" | "md" => Some(".md"),
-        "go" => Some(".go"),
+        "rust" | "rs" => Some(&[".rs"]),
+        "tsx" => Some(&[".tsx"]),
+        "typescript" | "ts" => Some(&[".ts"]),
+        "javascript" | "js" => Some(&[".js"]),
+        "jsx" => Some(&[".jsx"]),
+        "python" | "py" => Some(&[".py"]),
+        "markdown" | "md" => Some(&[".md"]),
+        "go" => Some(&[".go"]),
+        "json" => Some(&[".json"]),
+        "yaml" | "yml" => Some(&[".yaml", ".yml"]),
+        "toml" => Some(&[".toml"]),
         _ => None,
     }
 }
@@ -1903,6 +1907,9 @@ mod tests {
             "export function build_router_client() {}\n",
         )
         .unwrap();
+        fs::write(root.join("config.json"), "{\"search_marker\": true}\n").unwrap();
+        fs::write(root.join("settings.yaml"), "search_marker: true\n").unwrap();
+        fs::write(root.join("Cargo.toml"), "search_marker = true\n").unwrap();
         let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
 
         let response = store
@@ -1940,6 +1947,23 @@ mod tests {
             .unwrap();
         assert_eq!(ts_alias_response.results.len(), 1);
         assert_eq!(ts_alias_response.results[0].path, "src/client.ts");
+
+        for (language, expected_path) in [
+            ("json", "config.json"),
+            ("yaml", "settings.yaml"),
+            ("yml", "settings.yaml"),
+            ("toml", "Cargo.toml"),
+        ] {
+            let response = store
+                .search(&format!("lang:{language} search_marker"), Some("repo_test"))
+                .unwrap();
+            assert_eq!(
+                response.results.len(),
+                1,
+                "lang:{language} should match common config/source file extensions"
+            );
+            assert_eq!(response.results[0].path, expected_path);
+        }
 
         let unknown_language_response = store
             .search("lang:python build_router", Some("repo_test"))
