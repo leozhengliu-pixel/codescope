@@ -6509,7 +6509,9 @@ async fn search_repository_contents(
             .collect::<HashSet<_>>();
         let mut fallback_repo_ids = visible_repo_ids
             .iter()
-            .filter(|repo_id| primary_search_failed || !repos_with_primary_results.contains(repo_id.as_str()))
+            .filter(|repo_id| {
+                primary_search_failed || !repos_with_primary_results.contains(repo_id.as_str())
+            })
             .cloned()
             .collect::<Vec<_>>();
         fallback_repo_ids.sort();
@@ -30923,7 +30925,8 @@ mod tests {
         .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
         .unwrap();
 
-        let organization_state_path = unique_test_path("search-unscoped-partial-primary-local-sync-orgs");
+        let organization_state_path =
+            unique_test_path("search-unscoped-partial-primary-local-sync-orgs");
         let local_session_state_path =
             unique_test_path("search-unscoped-partial-primary-local-sync-sessions");
         let user_id = "user_unscoped_partial_primary_local_sync";
