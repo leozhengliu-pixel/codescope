@@ -5,30 +5,28 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7b59f22e3c926c964af7f54be328ddaf70583b61
+  head: df9ea2cddc16384f2502bc799ca22a7f9a1589c5
 last_completed_task:
-  id: task102_malformed_requested_search_artifact_failclosed
-  title: Fail closed on malformed requested-repo local-sync search artifacts
+  id: task103_bounded_repo_ref_picker
+  title: Add bounded repo-detail advertised ref picker
   status: done
   summary: >-
-    Closed a Task 102 search/indexing runtime hardening slice: requested-repo
-    `/api/v1/search?repo_id=...` now treats present malformed, non-regular,
-    or error-status local-sync `search-index.json` artifacts as request-wide
-    fail-closed `500` responses even when the primary startup search store
-    returned a successful empty result. This prevents a corrupt persisted
-    artifact from being silently converted into an empty success while
-    preserving the existing successful-empty behavior when no local-sync
-    artifact/snapshot is available. Practical replacement remains incomplete;
-    this advances artifact-backed search correctness without claiming
-    production indexing lifecycle, provider sync, supervision, or full search
-    parity.
+    Closed a Task 103 browse/navigation UX slice: the repository detail refs
+    panel now includes a bounded read-only picker populated from the existing
+    authenticated refs response, and selecting an advertised branch or tag
+    updates the existing route revision so browse/blob and commit panels reload
+    at that revision. This is a real user-visible revision-switching closure,
+    not a docs/state-only slice; it does not claim full branch management,
+    provider fetch/import/reindex, durable indexing, or complete repository
+    navigation parity.
   tests:
-    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture failed before the fix with 1 main-bin test asserting 200 vs expected 500'
-    - 'focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture passed in main repo with 0 lib tests plus 1 main-bin test and 489 filtered out'
-    - 'broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed in main repo with 0 lib tests plus 27 main-bin tests and 463 filtered out'
-    - 'integrator: cargo fmt --check, git diff --check HEAD~1..HEAD, git diff --check, and added-lines security scan over HEAD~1..HEAD passed'
-    - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; suggested only a future explicit absent-artifact empty-primary regression'
-  commit: 7b59f22e3c926c964af7f54be328ddaf70583b61
+    - 'worker: produced commit 91a0c121b4bb09c2d789dd4a58337ece26f54e0f in /opt/data/projects/sourcebot-worktrees/task103-ref-picker-ui but could not run Vitest/Vite there because node_modules was intentionally absent in the worktree'
+    - 'focused: cd web && npm test -- --run src/App.test.tsx -t "selects an advertised branch or tag" passed in main repo with 1 test and 187 skipped'
+    - 'broader: cd web && npm test -- --run src/App.test.tsx -t "repository branch and tag|advertised branch or tag|revision controls" passed in main repo with 3 tests and 185 skipped'
+    - 'build: cd web && npm run build passed'
+    - 'integrator: git diff --check HEAD~1..HEAD and added-lines security scan over HEAD~1..HEAD passed'
+    - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; suggestions were limited to future duplicate-name disambiguation and copy clarity'
+  commit: df9ea2cddc16384f2502bc799ca22a7f9a1589c5
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -38,19 +36,56 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed one Task 102 artifact-backed search
-    correctness gap by making requested-repo search fail closed on present
-    malformed/non-regular/error-status local-sync search-index artifacts instead
-    of returning an empty success after a primary empty result. Practical
-    replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, a fuller branch/ref
-    picker and revision-switching UX beyond backend remote-ref summaries, broader
-    provider fetch/import/reindex, worker scheduling and supervision with broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
-    interoperability beyond the HTTP/API bridge, operator runbook/deploy evidence,
-    and the other release blockers in this roadmap.
+    worktree is clean. This run pivoted to one adjacent Task 103 user-visible
+    closure because the attempted remaining Task 102 malformed-artifact search
+    scope was already implemented and covered by existing tests; the repository
+    detail page now has a bounded advertised branch/tag picker wired to route
+    revision reloads. Practical replacement remains incomplete. Remaining
+    blockers still include production-shaped indexing lifecycle/status and
+    failure recovery, relevance and pagination behavior at scale beyond bounded
+    helpers, fuller branch/ref management and revision-switching UX beyond this
+    bounded picker, broader provider fetch/import/reindex, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
+    deeper MCP client/session interoperability beyond the HTTP/API bridge,
+    operator runbook/deploy evidence, and the other release blockers in this
+    roadmap.
 history:
+  - id: task103_bounded_repo_ref_picker
+    status: done
+    summary: >-
+      Closed one Task 103 user-visible repository navigation gap: the repository
+      detail refs panel now lets users select an advertised branch or tag from
+      the authenticated refs API and reuses the existing route revision contract
+      to reload browse/blob and commit panels at that revision. The controller
+      first launched a Task 102 search-artifact worker, but that worker proved
+      the candidate malformed-artifact search-context/unscoped scope was already
+      implemented and tested, so the run pivoted to this adjacent shippable
+      browse/navigation closure rather than manufacturing a redundant docs-only
+      slice.
+    commit: df9ea2cddc16384f2502bc799ca22a7f9a1589c5
+    tests:
+      - 'worker evidence: task102-search-context-artifact worktree stayed clean after proving requested, unscoped, and search-context local-sync malformed-artifact behavior already had focused/broader green coverage'
+      - 'worker commit: task103-ref-picker-ui produced 91a0c121b4bb09c2d789dd4a58337ece26f54e0f, cherry-picked into master as df9ea2cddc16384f2502bc799ca22a7f9a1589c5'
+      - 'focused: cd web && npm test -- --run src/App.test.tsx -t "selects an advertised branch or tag" passed with 1 test and 187 skipped'
+      - 'broader: cd web && npm test -- --run src/App.test.tsx -t "repository branch and tag|advertised branch or tag|revision controls" passed with 3 tests and 185 skipped'
+      - 'build: cd web && npm run build passed'
+      - 'integrator: git diff --check HEAD~1..HEAD and added-lines security scan over HEAD~1..HEAD passed'
+      - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; noted only non-blocking future duplicate-name disambiguation/copy clarity suggestions'
+    review: >-
+      Independent review approved the bounded ref picker and found no blocking
+      security or logic issues. It checked React-escaped rendered refs,
+      URLSearchParams/hash routing, existing API reload behavior, and bounded
+      documentation language, and confirmed the change does not introduce XSS,
+      authz, path, shell, stale-state, or docs-overclaim blockers.
+    workers: >-
+      Launched two implementation workers rather than three to preserve disk and
+      avoid redundant scopes. The Task 102 worker returned clean evidence that
+      the proposed malformed-artifact search-context/unscoped scope was already
+      closed. The Task 103 worker used
+      /opt/data/projects/sourcebot-worktrees/task103-ref-picker-ui with no local
+      target/node_modules buildup and produced commit
+      91a0c121b4bb09c2d789dd4a58337ece26f54e0f, cherry-picked into master as
+      df9ea2cddc16384f2502bc799ca22a7f9a1589c5; both worker worktrees were removed after integration.
   - id: task102_malformed_requested_search_artifact_failclosed
     status: done
     summary: >-
