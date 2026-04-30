@@ -6443,7 +6443,7 @@ async fn search_repository_contents(
 
     if let Some(repo_id) = requested_repo_id {
         if response.results.is_empty() {
-            if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
+            match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
                 search_mode,
@@ -6452,7 +6452,11 @@ async fn search_repository_contents(
             )
             .await?
             {
-                response = snapshot_response;
+                LocalSyncSearchFallback::Searchable(snapshot_response)
+                | LocalSyncSearchFallback::FailClosed(snapshot_response) => {
+                    response = snapshot_response;
+                }
+                LocalSyncSearchFallback::Unavailable => {}
             }
         }
     } else if response.results.is_empty() {
@@ -6460,7 +6464,7 @@ async fn search_repository_contents(
         fallback_repo_ids.sort();
 
         for repo_id in fallback_repo_ids {
-            if let Some(mut snapshot_response) = search_latest_local_sync_snapshot_for_repo(
+            match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
                 search_mode,
@@ -6469,7 +6473,19 @@ async fn search_repository_contents(
             )
             .await?
             {
-                response.results.append(&mut snapshot_response.results);
+                LocalSyncSearchFallback::Searchable(mut snapshot_response) => {
+                    response.results.append(&mut snapshot_response.results);
+                }
+                LocalSyncSearchFallback::FailClosed(_) => {
+                    response = SearchResponse::unpaginated_with_mode(
+                        trimmed_query.to_string(),
+                        search_mode,
+                        None,
+                        Vec::new(),
+                    );
+                    break;
+                }
+                LocalSyncSearchFallback::Unavailable => {}
             }
         }
     }
@@ -6550,13 +6566,19 @@ fn apply_search_pagination(
     };
 }
 
+enum LocalSyncSearchFallback {
+    Unavailable,
+    Searchable(SearchResponse),
+    FailClosed(SearchResponse),
+}
+
 async fn search_latest_local_sync_snapshot_for_repo(
     state: &AppState,
     query: &str,
     mode: SearchMode,
     user_id: &str,
     repo_id: &str,
-) -> Result<Option<SearchResponse>, StatusCode> {
+) -> Result<LocalSyncSearchFallback, StatusCode> {
     let organization_state = state
         .organization_store
         .organization_state()
@@ -6565,38 +6587,48 @@ async fn search_latest_local_sync_snapshot_for_repo(
     let authorized_organization_ids =
         authorized_organization_ids_for_repo(&organization_state, user_id, repo_id);
     if authorized_organization_ids.is_empty() {
-        return Ok(None);
+        return Ok(LocalSyncSearchFallback::Unavailable);
     }
     let Some(snapshot) =
         latest_local_sync_snapshot(&organization_state, repo_id, &authorized_organization_ids)
     else {
-        return Ok(None);
+        return Ok(LocalSyncSearchFallback::Unavailable);
     };
 
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
+                return Ok(LocalSyncSearchFallback::FailClosed(
+                    empty_local_sync_search_response(query, mode, repo_id),
+                ));
             }
             let search = match LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             ) {
                 Ok(search) => search,
-                Err(_) => return Ok(Some(empty_local_sync_search_response(query, mode, repo_id))),
+                Err(_) => {
+                    return Ok(LocalSyncSearchFallback::FailClosed(
+                        empty_local_sync_search_response(query, mode, repo_id),
+                    ))
+                }
             };
             let Some(index_status) = search
                 .repository_index_status(repo_id)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             else {
-                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
+                return Ok(LocalSyncSearchFallback::FailClosed(
+                    empty_local_sync_search_response(query, mode, repo_id),
+                ));
             };
             if index_status.status == RepositoryIndexState::Error {
-                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
+                return Ok(LocalSyncSearchFallback::FailClosed(
+                    empty_local_sync_search_response(query, mode, repo_id),
+                ));
             }
             return search
                 .search_with_mode(query, Some(repo_id), mode)
-                .map(Some)
+                .map(LocalSyncSearchFallback::Searchable)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -6604,14 +6636,14 @@ async fn search_latest_local_sync_snapshot_for_repo(
     }
 
     if !local_sync_legacy_snapshot_dir_is_usable(&snapshot.path)? {
-        return Ok(None);
+        return Ok(LocalSyncSearchFallback::Unavailable);
     }
 
     let snapshot_search =
         LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot.path)]));
     snapshot_search
         .search_with_mode(query, Some(repo_id), mode)
-        .map(Some)
+        .map(LocalSyncSearchFallback::Searchable)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -30769,7 +30801,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unscoped_search_fails_closed_for_malformed_local_sync_artifact_in_any_visible_repo() {
+    async fn unscoped_search_fails_closed_without_partial_success_for_malformed_local_sync_artifact_in_any_visible_repo(
+    ) {
         let bad_repo_root = unique_test_path("search-unscoped-bad-artifact-repo-root");
         let good_repo_root = unique_test_path("search-unscoped-good-artifact-repo-root");
         let bad_job_root = bad_repo_root
@@ -30900,17 +30933,9 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let payload: SearchResponse = read_json(response).await;
         assert_eq!(payload.repo_id.as_deref(), None);
-        assert_eq!(payload.results.len(), 1);
-        assert_eq!(payload.results[0].repo_id, "repo_good");
-        assert!(payload.results[0]
-            .line
-            .contains("good_artifact_marker_survives_bad_neighbor"));
         assert!(
-            payload
-                .results
-                .iter()
-                .all(|result| result.repo_id != "repo_bad"),
-            "malformed local-sync artifacts must fail closed per repo without poisoning other visible fallback repos"
+            payload.results.is_empty(),
+            "a present malformed local-sync artifact in any visible unscoped fallback repo must fail closed without returning partial results from later visible repos"
         );
 
         fs::remove_file(organization_state_path).unwrap();
