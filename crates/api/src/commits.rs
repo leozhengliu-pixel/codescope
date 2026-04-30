@@ -327,6 +327,7 @@ impl CommitStore for LocalCommitStore {
                 "for-each-ref",
                 "--format=%(refname)%09%(objectname)%09%(objecttype)",
                 "refs/heads",
+                "refs/remotes",
                 "refs/tags",
             ],
         )?;
@@ -341,6 +342,11 @@ impl CommitStore for LocalCommitStore {
             }
             let refname = parts[0];
             let (kind, name) = if let Some(name) = refname.strip_prefix("refs/heads/") {
+                (RefKind::Branch, name)
+            } else if let Some(name) = refname.strip_prefix("refs/remotes/") {
+                if name.ends_with("/HEAD") {
+                    continue;
+                }
                 (RefKind::Branch, name)
             } else if let Some(name) = refname.strip_prefix("refs/tags/") {
                 (RefKind::Tag, name)
@@ -1099,6 +1105,66 @@ mod tests {
                 && reference.target == base_revision
                 && !reference.is_default
         }));
+
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_commit_store_lists_remote_tracking_branch_refs() {
+        let repo_root = create_temp_git_repo("remote-ref-list");
+        write_text_file(&repo_root.join("demo.txt"), "base\n");
+        git_in(&repo_root, &["add", "demo.txt"]);
+        git_in(&repo_root, &["commit", "-m", "base"]);
+        let main_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        git_in(
+            &repo_root,
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        );
+
+        git_in(&repo_root, &["checkout", "-b", "feature/remote-ref-list"]);
+        write_text_file(&repo_root.join("demo.txt"), "feature\n");
+        git_in(&repo_root, &["commit", "-am", "feature"]);
+        let feature_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        git_in(
+            &repo_root,
+            &[
+                "update-ref",
+                "refs/remotes/origin/feature/remote-ref-list",
+                "HEAD",
+            ],
+        );
+        git_in(
+            &repo_root,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
+        );
+
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let refs = store.list_refs("repo_temp").unwrap().unwrap();
+
+        assert!(refs.refs.iter().any(|reference| {
+            reference.name == "origin/main"
+                && reference.kind == RefKind::Branch
+                && reference.target == main_revision
+        }));
+        assert!(refs.refs.iter().any(|reference| {
+            reference.name == "origin/feature/remote-ref-list"
+                && reference.kind == RefKind::Branch
+                && reference.target == feature_revision
+        }));
+        assert!(
+            refs.refs
+                .iter()
+                .all(|reference| reference.name != "origin/HEAD"),
+            "symbolic remote HEAD should not be exposed as a selectable branch"
+        );
 
         fs::remove_dir_all(repo_root).unwrap();
     }
