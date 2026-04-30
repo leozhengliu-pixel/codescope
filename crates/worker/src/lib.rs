@@ -297,7 +297,12 @@ fn run_generic_git_repository_sync_execution(
         return Err(generic_git_failure_detail("git ls-remote --heads", &output));
     }
 
-    let advertised_head = parse_git_ls_remote_heads(&output.stdout, head_revision.as_deref())?.ok_or_else(|| {
+    let preferred_head_revision = if head_symref_execution.is_some() {
+        None
+    } else {
+        head_revision.as_deref()
+    };
+    let advertised_head = parse_git_ls_remote_heads(&output.stdout, preferred_head_revision)?.ok_or_else(|| {
         format!(
             "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised no valid branch refs"
         )
@@ -333,6 +338,7 @@ fn parse_git_ls_remote_heads(
 ) -> Result<Option<GenericGitRepositorySyncExecution>, String> {
     let mut first_valid_head = None;
     let mut preferred_head = None;
+    let mut preferred_head_match_count = 0;
     let mut advertised_branches = HashMap::new();
     for line in String::from_utf8_lossy(stdout).lines() {
         if line.is_empty() {
@@ -373,9 +379,15 @@ fn parse_git_ls_remote_heads(
             branch: branch.to_owned(),
         };
         if preferred_revision == Some(revision) {
+            preferred_head_match_count += 1;
             preferred_head.get_or_insert(execution.clone());
         }
         first_valid_head.get_or_insert(execution);
+    }
+    if preferred_head_match_count > 1 {
+        return Err(format!(
+            "{GENERIC_GIT_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: git ls-remote --heads advertised ambiguous HEAD revision branch refs"
+        ));
     }
     Ok(preferred_head.or(first_valid_head))
 }
@@ -3811,6 +3823,46 @@ mod tests {
         assert_eq!(
             execution.revision,
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-ambiguous-head-revision-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\tHEAD\\n'\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/main\\n'\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/release\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "ambiguous Generic Git HEAD revision without symref must fail closed instead of choosing branch={}, revision={}",
+                execution.branch, execution.revision
+            ),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised ambiguous HEAD revision branch refs"
         );
 
         fs::remove_dir_all(fake_git_dir).unwrap();
