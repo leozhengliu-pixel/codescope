@@ -69,6 +69,9 @@ async fn main() -> anyhow::Result<()> {
     let mut last_work_item_id: Option<String> = None;
     let mut last_work_item_status: Option<String> = None;
     let mut last_work_item_error: Option<String> = None;
+    let mut last_work_item_queued_at: Option<String> = None;
+    let mut last_work_item_started_at: Option<String> = None;
+    let mut last_work_item_finished_at: Option<String> = None;
     let mut last_work_item_synced_revision: Option<String> = None;
     let mut last_work_item_synced_branch: Option<String> = None;
     let mut last_work_item_synced_content_file_count: Option<i64> = None;
@@ -80,6 +83,9 @@ async fn main() -> anyhow::Result<()> {
             0,
             0,
             &last_outcome,
+            None,
+            None,
+            None,
             None,
             None,
             None,
@@ -106,6 +112,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = Some(run.id.clone());
                 last_work_item_status = Some(format!("{:?}", run.status));
                 last_work_item_error = None;
+                last_work_item_queued_at = None;
+                last_work_item_started_at = None;
+                last_work_item_finished_at = None;
                 last_work_item_synced_revision = None;
                 last_work_item_synced_branch = None;
                 last_work_item_synced_content_file_count = None;
@@ -121,6 +130,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = Some(job.id.clone());
                 last_work_item_status = Some(format!("{:?}", job.status));
                 last_work_item_error = job.error.as_deref().map(sanitize_worker_status_error);
+                last_work_item_queued_at = Some(job.queued_at.clone());
+                last_work_item_started_at = job.started_at.clone();
+                last_work_item_finished_at = job.finished_at.clone();
                 let (synced_revision, synced_branch, synced_content_file_count) =
                     successful_repository_sync_metadata(&job);
                 last_work_item_synced_revision = synced_revision.map(str::to_string);
@@ -145,6 +157,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id = None;
                 last_work_item_status = None;
                 last_work_item_error = None;
+                last_work_item_queued_at = None;
+                last_work_item_started_at = None;
+                last_work_item_finished_at = None;
                 last_work_item_synced_revision = None;
                 last_work_item_synced_branch = None;
                 last_work_item_synced_content_file_count = None;
@@ -165,6 +180,9 @@ async fn main() -> anyhow::Result<()> {
                 last_work_item_id.as_deref(),
                 last_work_item_status.as_deref(),
                 last_work_item_error.as_deref(),
+                last_work_item_queued_at.as_deref(),
+                last_work_item_started_at.as_deref(),
+                last_work_item_finished_at.as_deref(),
                 last_work_item_synced_revision.as_deref(),
                 last_work_item_synced_branch.as_deref(),
                 last_work_item_synced_content_file_count,
@@ -187,6 +205,9 @@ async fn main() -> anyhow::Result<()> {
             last_work_item_id.as_deref(),
             last_work_item_status.as_deref(),
             last_work_item_error.as_deref(),
+            last_work_item_queued_at.as_deref(),
+            last_work_item_started_at.as_deref(),
+            last_work_item_finished_at.as_deref(),
             last_work_item_synced_revision.as_deref(),
             last_work_item_synced_branch.as_deref(),
             last_work_item_synced_content_file_count,
@@ -302,6 +323,9 @@ fn write_worker_status_snapshot(
     last_work_item_id: Option<&str>,
     last_work_item_status: Option<&str>,
     last_work_item_error: Option<&str>,
+    last_work_item_queued_at: Option<&str>,
+    last_work_item_started_at: Option<&str>,
+    last_work_item_finished_at: Option<&str>,
     last_work_item_synced_revision: Option<&str>,
     last_work_item_synced_branch: Option<&str>,
     last_work_item_synced_content_file_count: Option<i64>,
@@ -327,6 +351,9 @@ fn write_worker_status_snapshot(
         "last_work_item_id": last_work_item_id,
         "last_work_item_status": last_work_item_status,
         "last_work_item_error": last_work_item_error,
+        "last_work_item_queued_at": last_work_item_queued_at,
+        "last_work_item_started_at": last_work_item_started_at,
+        "last_work_item_finished_at": last_work_item_finished_at,
         "last_work_item_synced_revision": last_work_item_synced_revision,
         "last_work_item_synced_branch": last_work_item_synced_branch,
         "last_work_item_synced_content_file_count": last_work_item_synced_content_file_count,
@@ -698,6 +725,9 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
+            None,
             false,
         )
         .expect_err("status snapshot writes must not follow symlink targets");
@@ -770,6 +800,9 @@ mod tests {
             Some("sync_job_1"),
             Some("Succeeded"),
             None,
+            Some("2026-04-26T10:01:00Z"),
+            Some("2026-04-26T10:02:00Z"),
+            Some("2026-04-26T10:03:00Z"),
             Some("abc123"),
             Some("main"),
             Some(7),
@@ -783,6 +816,12 @@ mod tests {
         .expect("status snapshot should be JSON");
         let _ = std::fs::remove_file(&path);
 
+        assert_eq!(payload["last_work_item_queued_at"], "2026-04-26T10:01:00Z");
+        assert_eq!(payload["last_work_item_started_at"], "2026-04-26T10:02:00Z");
+        assert_eq!(
+            payload["last_work_item_finished_at"],
+            "2026-04-26T10:03:00Z"
+        );
         assert_eq!(payload["last_work_item_synced_revision"], "abc123");
         assert_eq!(payload["last_work_item_synced_branch"], "main");
         assert_eq!(payload["last_work_item_synced_content_file_count"], 7);

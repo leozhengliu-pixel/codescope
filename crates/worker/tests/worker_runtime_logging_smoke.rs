@@ -408,6 +408,15 @@ async fn worker_binary_status_snapshot_includes_failed_repository_sync_error_det
         status["last_work_item_error"],
         "repository sync stub execution configured to fail"
     );
+    assert_eq!(status["last_work_item_queued_at"], "2026-04-26T10:01:00Z");
+    assert!(
+        status["last_work_item_started_at"].as_str().is_some(),
+        "status snapshot should expose the claimed repository-sync start timestamp: {status}"
+    );
+    assert!(
+        status["last_work_item_finished_at"].as_str().is_some(),
+        "status snapshot should expose the terminal repository-sync finish timestamp: {status}"
+    );
 
     fs::remove_file(path).unwrap();
     fs::remove_file(status_path).unwrap();
