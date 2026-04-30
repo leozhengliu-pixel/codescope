@@ -6771,18 +6771,24 @@ fn latest_local_sync_snapshot(
 }
 
 fn local_sync_artifact_path_component(component: &str) -> String {
-    let sanitized = component
-        .chars()
-        .map(|character| match character {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => character,
-            _ => '_',
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "_".to_owned()
-    } else {
-        sanitized
+    if component.is_empty() {
+        return "_".to_owned();
     }
+
+    let mut encoded = String::new();
+    for byte in component.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' => {
+                encoded.push(byte as char);
+            }
+            _ => {
+                encoded.push('_');
+                encoded.push_str(&format!("{byte:02x}"));
+                encoded.push('_');
+            }
+        }
+    }
+    encoded
 }
 
 async fn create_ask_completion(
@@ -30392,6 +30398,158 @@ mod tests {
             !error.contains(artifact_path.to_string_lossy().as_ref()),
             "malformed artifact status must not expose absolute artifact paths: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn search_latest_local_sync_artifact_uses_non_colliding_job_path_components() {
+        let repo_root = unique_test_path("search-local-sync-job-path-collision-repo-root");
+        let stale_job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_latest");
+        let latest_job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_2f_latest");
+        let stale_snapshot_root = stale_job_root.join("snapshot");
+        let latest_snapshot_root = latest_job_root.join("snapshot");
+        fs::create_dir_all(stale_snapshot_root.join("src")).unwrap();
+        fs::create_dir_all(latest_snapshot_root.join("src")).unwrap();
+        fs::write(
+            stale_snapshot_root.join("src").join("lib.rs"),
+            "pub fn stale_collision_marker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            latest_snapshot_root.join("src").join("lib.rs"),
+            "pub fn non_colliding_latest_job_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            stale_snapshot_root.clone(),
+        )]))
+        .write_index_artifact(
+            "repo_local_import",
+            &stale_job_root.join("search-index.json"),
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            latest_snapshot_root.clone(),
+        )]))
+        .write_index_artifact(
+            "repo_local_import",
+            &latest_job_root.join("search-index.json"),
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-local-sync-job-path-collision-orgs");
+        let local_session_state_path =
+            unique_test_path("search-local-sync-job-path-collision-sessions");
+        let user_id = "user_local_sync_job_path_collision";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:08:00Z".into(),
+                started_at: Some("2026-04-21T00:08:01Z".into()),
+                finished_at: Some("2026-04-21T00:08:02Z".into()),
+                error: None,
+                synced_revision: Some("old123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job/latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("new456".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let latest_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=non_colliding_latest_job_marker&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(latest_response.status(), StatusCode::OK);
+        let latest_payload: SearchResponse = read_json(latest_response).await;
+        assert_eq!(latest_payload.results.len(), 1);
+        assert!(latest_payload.results[0]
+            .line
+            .contains("non_colliding_latest_job_marker"));
+
+        let stale_response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=stale_collision_marker&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale_response.status(), StatusCode::OK);
+        let stale_payload: SearchResponse = read_json(stale_response).await;
+        assert!(
+            stale_payload.results.is_empty(),
+            "latest local-sync lookup must not fall back to a colliding stale job artifact path"
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
     }
 
     #[tokio::test]
