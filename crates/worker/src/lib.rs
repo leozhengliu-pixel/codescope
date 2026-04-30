@@ -63,6 +63,8 @@ pub async fn run_worker_tick(
     review_agent_stub_outcome: StubReviewAgentRunExecutionOutcome,
     repository_sync_stub_outcome: StubRepositorySyncJobExecutionOutcome,
 ) -> Result<Option<WorkerTickOutcome>> {
+    run_repository_sync_maintenance_tick(store).await?;
+
     if let Some(run) = run_review_agent_tick(store, review_agent_stub_outcome).await? {
         return Ok(Some(WorkerTickOutcome::ReviewAgentRun(run)));
     }
@@ -90,9 +92,7 @@ pub async fn run_repository_sync_claim_tick(
     store: &dyn OrganizationStore,
     stub_outcome: StubRepositorySyncJobExecutionOutcome,
 ) -> Result<Option<RepositorySyncJob>> {
-    let now = current_timestamp();
-    recover_stale_running_repository_sync_jobs(store, &now).await?;
-    requeue_old_repository_sync_lease_failures(store, &now).await?;
+    run_repository_sync_maintenance_tick(store).await?;
     let started_at = current_timestamp();
     let execute = match stub_outcome {
         StubRepositorySyncJobExecutionOutcome::Succeeded => {
@@ -106,6 +106,13 @@ pub async fn run_repository_sync_claim_tick(
     store
         .claim_and_complete_next_repository_sync_job(&started_at, execute)
         .await
+}
+
+async fn run_repository_sync_maintenance_tick(store: &dyn OrganizationStore) -> Result<()> {
+    let now = current_timestamp();
+    recover_stale_running_repository_sync_jobs(store, &now).await?;
+    requeue_old_repository_sync_lease_failures(store, &now).await?;
+    Ok(())
 }
 
 pub fn execute_claimed_repository_sync_job_stub(job: RepositorySyncJob) -> RepositorySyncJob {
@@ -2353,6 +2360,64 @@ mod tests {
             RepositorySyncJobStatus::Queued
         );
         assert_eq!(persisted.repository_sync_jobs[0].started_at, None);
+    }
+
+    #[tokio::test]
+    async fn run_worker_tick_recovers_stale_repository_sync_jobs_even_when_review_work_is_claimed()
+    {
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            review_agent_runs: vec![review_agent_run(
+                "run_queued_oldest",
+                ReviewAgentRunStatus::Queued,
+                "2026-04-25T00:10:05Z",
+            )],
+            repository_sync_jobs: vec![{
+                let mut job = repository_sync_job(
+                    "sync_job_stale_running",
+                    RepositorySyncJobStatus::Running,
+                    "2026-04-26T09:00:00Z",
+                );
+                job.started_at = Some("2026-04-26T09:05:00Z".into());
+                job
+            }],
+            ..OrganizationState::default()
+        });
+
+        let outcome = run_worker_tick(
+            &store,
+            StubReviewAgentRunExecutionOutcome::Completed,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            matches!(outcome, Some(WorkerTickOutcome::ReviewAgentRun(ref run)) if run.id == "run_queued_oldest"),
+            "review work should keep its existing scheduling priority: {outcome:?}"
+        );
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(
+            persisted.review_agent_runs[0].status,
+            ReviewAgentRunStatus::Completed
+        );
+        let stale_job = persisted
+            .repository_sync_jobs
+            .iter()
+            .find(|job| job.id == "sync_job_stale_running")
+            .expect("stale running job should remain in history");
+        assert_eq!(
+            stale_job.status,
+            RepositorySyncJobStatus::Failed,
+            "stale repository sync leases must not remain hidden behind review-agent backlog: {stale_job:?}"
+        );
+        assert!(
+            stale_job
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .starts_with(REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX),
+            "stale recovery should persist operator-visible failure detail: {stale_job:?}"
+        );
     }
 
     #[test]
