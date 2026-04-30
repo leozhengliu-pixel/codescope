@@ -176,11 +176,10 @@ pub fn execute_claimed_repository_sync_job_stub_at(
             finished_at,
             None,
         ),
-        StubRepositorySyncJobExecutionOutcome::Failed => complete_repository_sync_job(
+        StubRepositorySyncJobExecutionOutcome::Failed => complete_failed_repository_sync_job(
             &job,
-            RepositorySyncJobStatus::Failed,
             finished_at,
-            Some(REPOSITORY_SYNC_STUB_FAILURE_ERROR.to_string()),
+            REPOSITORY_SYNC_STUB_FAILURE_ERROR.to_string(),
         ),
     }
 }
@@ -227,12 +226,7 @@ fn complete_generic_git_repository_sync_job_with_git_command_if_applicable(
             completed_job.synced_content_file_count = None;
             Some(completed_job)
         }
-        Err(error) => Some(complete_repository_sync_job(
-            job,
-            RepositorySyncJobStatus::Failed,
-            finished_at,
-            Some(error),
-        )),
+        Err(error) => Some(complete_failed_repository_sync_job(job, finished_at, error)),
     }
 }
 
@@ -1116,6 +1110,7 @@ fn fail_malformed_queued_repository_sync_jobs_in_state(
             "{REPOSITORY_SYNC_MALFORMED_QUEUED_AT_PREFIX}: invalid queued_at {:?} at {now}",
             job.queued_at
         ));
+        clear_repository_sync_metadata(job);
         changed = true;
     }
     changed
@@ -1233,6 +1228,7 @@ fn fail_stale_running_repository_sync_jobs(state: &mut OrganizationState, now: &
         job.error = Some(format!(
             "{REPOSITORY_SYNC_STALE_RUNNING_RECOVERY_PREFIX} at {finished_at}"
         ));
+        clear_repository_sync_metadata(job);
         changed = true;
     }
     changed
@@ -1251,6 +1247,7 @@ fn mark_malformed_running_repository_sync_job_failed(
     job.error = Some(format!(
         "{REPOSITORY_SYNC_MALFORMED_RUNNING_LEASE_PREFIX}: {detail} at {finished_at}"
     ));
+    clear_repository_sync_metadata(job);
 }
 
 fn local_repository_sync_manifest_path(repo_path: &str, job: &RepositorySyncJob) -> PathBuf {
@@ -1569,12 +1566,28 @@ fn fail_local_repository_sync_job(
         format!("{LOCAL_REPOSITORY_SYNC_PREFLIGHT_FAILURE_PREFIX}: {detail}")
     };
 
-    complete_repository_sync_job(
+    complete_failed_repository_sync_job(job, finished_at, error)
+}
+
+fn complete_failed_repository_sync_job(
+    job: &RepositorySyncJob,
+    finished_at: &str,
+    error: String,
+) -> RepositorySyncJob {
+    let mut job = complete_repository_sync_job(
         job,
         RepositorySyncJobStatus::Failed,
         finished_at,
         Some(error),
-    )
+    );
+    clear_repository_sync_metadata(&mut job);
+    job
+}
+
+fn clear_repository_sync_metadata(job: &mut RepositorySyncJob) {
+    job.synced_revision = None;
+    job.synced_branch = None;
+    job.synced_content_file_count = None;
 }
 
 fn validate_non_blank_repository_sync_config_value(
@@ -2603,6 +2616,40 @@ mod tests {
         assert_eq!(
             stubbed_job.error.as_deref(),
             Some("repository sync stub execution configured to fail")
+        );
+    }
+
+    #[test]
+    fn failed_repository_sync_job_clears_stale_synced_metadata() {
+        let mut claimed_job = repository_sync_job(
+            "sync_job_claimed_with_stale_metadata",
+            RepositorySyncJobStatus::Running,
+            "2026-04-26T10:01:00Z",
+        );
+        claimed_job.started_at = Some("2026-04-26T10:03:00Z".into());
+        claimed_job.synced_revision = Some("0123456789abcdef0123456789abcdef01234567".into());
+        claimed_job.synced_branch = Some("main".into());
+        claimed_job.synced_content_file_count = Some(42);
+
+        let stubbed_job = execute_claimed_repository_sync_job_stub_at(
+            &OrganizationState::default(),
+            claimed_job,
+            StubRepositorySyncJobExecutionOutcome::Failed,
+            "2026-04-26T10:04:00Z",
+        );
+
+        assert_eq!(stubbed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            stubbed_job.synced_revision, None,
+            "failed syncs must not retain stale revision metadata"
+        );
+        assert_eq!(
+            stubbed_job.synced_branch, None,
+            "failed syncs must not retain stale branch metadata"
+        );
+        assert_eq!(
+            stubbed_job.synced_content_file_count, None,
+            "failed syncs must not retain stale content counts"
         );
     }
 
