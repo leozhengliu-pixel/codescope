@@ -6840,6 +6840,10 @@ struct LocalSyncSnapshot {
     revision: String,
 }
 
+fn is_valid_local_sync_snapshot_revision(revision: &str) -> bool {
+    !revision.trim().is_empty() && !revision.chars().any(char::is_control)
+}
+
 fn latest_local_sync_snapshot(
     organization_state: &OrganizationState,
     repo_id: &str,
@@ -6852,7 +6856,10 @@ fn latest_local_sync_snapshot(
             job.repository_id == repo_id
                 && authorized_organization_ids.contains(&job.organization_id)
                 && job.status == RepositorySyncJobStatus::Succeeded
-                && job.synced_revision.is_some()
+                && job
+                    .synced_revision
+                    .as_deref()
+                    .is_some_and(is_valid_local_sync_snapshot_revision)
         })
         .max_by(|left, right| {
             left.finished_at
@@ -7329,6 +7336,44 @@ mod tests {
             map_browse_error_to_status(anyhow::anyhow!("blob exceeds 8388608 byte response limit"));
 
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata() {
+        let mut organization_state = OrganizationState::default();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: "/tmp/sourcebot-local-sync-repo".into(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_blank_revision".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:03:00Z".into(),
+                started_at: Some("2026-04-21T00:03:01Z".into()),
+                finished_at: Some("2026-04-21T00:03:02Z".into()),
+                error: None,
+                synced_revision: Some("   ".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+
+        let authorized_organization_ids = HashSet::from(["org_acme".to_string()]);
+
+        assert!(latest_local_sync_snapshot(
+            &organization_state,
+            "repo_local",
+            &authorized_organization_ids,
+        )
+        .is_none());
     }
 
     #[test]
