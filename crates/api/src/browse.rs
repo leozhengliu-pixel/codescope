@@ -869,11 +869,11 @@ fn run_git_list_files_at_revision(
     let output = bounded_git_output(repo_root, &["ls-tree", "-rz", "--name-only", revision])?;
 
     if output.status.success() {
-        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
-        let files = stdout
-            .split('\0')
+        let files = output
+            .stdout
+            .split(|byte| *byte == b'\0')
             .filter(|path| !path.is_empty())
-            .map(ToOwned::to_owned)
+            .filter_map(|path| std::str::from_utf8(path).ok().map(ToOwned::to_owned))
             .collect();
         return Ok(Some(files));
     }
@@ -1786,6 +1786,45 @@ mod tests {
                 line_number: 1,
                 line: "pub fn generated_reference() { /* newline_path_symbol */ }".into(),
             }]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_browse_store_skips_non_utf8_paths_during_revision_reference_scan() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-non-utf8-reference-scan",
+            "hello world\n",
+            "pub fn visible_reference() { /* non_utf8_scan_symbol */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        let non_utf8_name = std::ffi::OsString::from_vec(b"invalid-\xff.rs".to_vec());
+        fs::write(
+            root.join("src").join(non_utf8_name),
+            "pub fn hidden_reference() { /* non_utf8_scan_symbol */ }\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "non_utf8_scan_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            references,
+            vec![ReferenceMatch {
+                path: "src/main.rs".into(),
+                line_number: 1,
+                line: "pub fn visible_reference() { /* non_utf8_scan_symbol */ }".into(),
+            }],
+            "non-UTF-8 source paths should fail closed without aborting references for valid paths"
         );
 
         fs::remove_dir_all(root).unwrap();

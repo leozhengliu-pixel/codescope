@@ -29,7 +29,7 @@
 - Multiple definitions should surface an ordered candidate list.
 - Stale indexes should show degraded/stale status instead of silently mixing revisions.
 - Generated files may be excluded from navigation indexes based on policy.
-- Revision reference scans preserve Git paths containing embedded newlines by consuming NUL-delimited tree output before loading candidate source files.
+- Revision reference scans preserve Git paths containing embedded newlines by consuming NUL-delimited tree output before loading candidate source files, and non-UTF-8 Git paths fail closed for that path without aborting references from other valid UTF-8 source files in the same revision.
 
 ## Black-box examples
 - Clicking a function symbol in a Rust or TypeScript file opens definition candidates.
