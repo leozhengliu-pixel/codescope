@@ -6501,8 +6501,17 @@ async fn search_repository_contents(
                 }
             }
         }
-    } else if primary_search_failed || response.results.is_empty() {
-        let mut fallback_repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
+    } else {
+        let repos_with_primary_results = response
+            .results
+            .iter()
+            .map(|result| result.repo_id.as_str())
+            .collect::<HashSet<_>>();
+        let mut fallback_repo_ids = visible_repo_ids
+            .iter()
+            .filter(|repo_id| primary_search_failed || !repos_with_primary_results.contains(repo_id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
         fallback_repo_ids.sort();
         let mut searched_local_sync_snapshot = false;
 
@@ -30856,6 +30865,146 @@ mod tests {
         }
     }
 
+    struct PartialPrimarySearchStore;
+
+    impl SearchStore for PartialPrimarySearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            let results = match repo_id {
+                Some("repo_primary") => vec![sourcebot_search::SearchResult {
+                    repo_id: "repo_primary".to_string(),
+                    path: "src/primary.rs".to_string(),
+                    line_number: 1,
+                    line: "pub fn mixed_primary_and_local_sync_marker_primary() {}".to_string(),
+                }],
+                Some(_) | None => Vec::new(),
+            };
+
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                mode,
+                repo_id.map(ToOwned::to_owned),
+                results,
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn unscoped_search_aggregates_local_sync_fallback_for_repos_missing_primary_hits() {
+        let repo_root = unique_test_path("search-unscoped-partial-primary-local-sync-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn mixed_primary_and_local_sync_marker_local() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-unscoped-partial-primary-local-sync-orgs");
+        let local_session_state_path =
+            unique_test_path("search-unscoped-partial-primary-local-sync-sessions");
+        let user_id = "user_unscoped_partial_primary_local_sync";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_primary", "repo_local_import"],
+        );
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(PartialPrimarySearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=mixed_primary_and_local_sync_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, None);
+        assert_eq!(payload.pagination.total_count, 2);
+        assert_eq!(payload.results.len(), 2);
+        assert_eq!(payload.results[0].repo_id, "repo_local_import");
+        assert!(payload.results[0]
+            .line
+            .contains("mixed_primary_and_local_sync_marker_local"));
+        assert_eq!(payload.results[1].repo_id, "repo_primary");
+        assert!(payload.results[1]
+            .line
+            .contains("mixed_primary_and_local_sync_marker_primary"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
     #[tokio::test]
     async fn unscoped_search_primary_error_without_local_sync_artifact_fails_closed() {
         let organization_state_path =
@@ -32246,7 +32395,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unscoped_search_does_not_merge_local_sync_artifact_when_primary_search_has_matches() {
+    async fn unscoped_search_merges_local_sync_artifact_for_repo_without_primary_matches() {
         let primary_root = unique_test_path("search-no-merge-primary-repo-root");
         let snapshot_repo_root = unique_test_path("search-no-merge-snapshot-repo-root");
         let snapshot_job_root = snapshot_repo_root
@@ -32346,14 +32495,18 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let payload: SearchResponse = read_json(response).await;
         assert_eq!(payload.repo_id, None);
-        assert_eq!(payload.results.len(), 1);
-        assert_eq!(payload.pagination.total_count, 1);
-        assert_eq!(payload.results[0].repo_id, "repo_primary");
-        assert!(payload.results[0].line.contains("no_merge_marker_primary"));
-        assert!(!payload
+        assert_eq!(payload.results.len(), 2);
+        assert_eq!(payload.pagination.total_count, 2);
+        assert!(payload
             .results
             .iter()
-            .any(|result| result.line.contains("no_merge_marker_snapshot")));
+            .any(|result| result.repo_id == "repo_primary"
+                && result.line.contains("no_merge_marker_primary")));
+        assert!(payload
+            .results
+            .iter()
+            .any(|result| result.repo_id == "repo_snapshot"
+                && result.line.contains("no_merge_marker_snapshot")));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -32362,7 +32515,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_does_not_merge_snapshot_for_missing_primary_repo_when_primary_has_matches() {
+    async fn search_merges_snapshot_for_missing_primary_repo_when_primary_has_matches() {
         let primary_root = unique_test_path("search-mixed-primary-repo-root");
         let snapshot_repo_root = unique_test_path("search-mixed-snapshot-repo-root");
         let snapshot_job_root = snapshot_repo_root
@@ -32462,14 +32615,14 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let payload: SearchResponse = read_json(response).await;
         assert_eq!(payload.repo_id, None);
-        assert_eq!(payload.results.len(), 1);
-        assert_eq!(payload.pagination.total_count, 1);
+        assert_eq!(payload.results.len(), 2);
+        assert_eq!(payload.pagination.total_count, 2);
         assert!(payload
             .results
             .iter()
             .any(|result| result.repo_id == "repo_primary"
                 && result.line.contains("mixed_visible_marker_primary")));
-        assert!(!payload
+        assert!(payload
             .results
             .iter()
             .any(|result| result.repo_id == "repo_snapshot"
@@ -32482,7 +32635,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_keeps_primary_results_without_merging_local_sync_artifacts() {
+    async fn search_keeps_primary_results_while_merging_missing_repo_local_sync_artifacts() {
         let primary_root = unique_test_path("search-ordered-primary-repo-root");
         let snapshot_repo_root = unique_test_path("search-ordered-snapshot-repo-root");
         let snapshot_job_root = snapshot_repo_root
@@ -32588,8 +32741,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             repo_order,
-            vec!["repo_z_primary"],
-            "unscoped local-sync artifact fallback must not merge into non-empty primary search results"
+            vec!["repo_a_snapshot", "repo_z_primary"],
+            "unscoped search should keep deterministic ordering while filling repos missing primary hits from local-sync artifacts"
         );
 
         fs::remove_file(organization_state_path).unwrap();
