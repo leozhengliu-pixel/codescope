@@ -433,6 +433,34 @@ mod tests {
     }
 
     #[test]
+    fn worker_numeric_env_fails_closed_when_configured_with_surrounding_whitespace() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SOURCEBOT_WORKER_MAX_TICKS", " 3 ");
+        let error = worker_max_ticks_from_env()
+            .expect_err("numeric runtime configuration with whitespace must fail closed");
+        std::env::remove_var("SOURCEBOT_WORKER_MAX_TICKS");
+
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_MAX_TICKS must not include surrounding whitespace"
+        );
+    }
+
+    #[test]
+    fn worker_numeric_env_fails_closed_when_configured_empty() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SOURCEBOT_WORKER_IDLE_SLEEP_MS", "");
+        let error = worker_idle_sleep_from_env()
+            .expect_err("empty numeric runtime configuration must fail closed");
+        std::env::remove_var("SOURCEBOT_WORKER_IDLE_SLEEP_MS");
+
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_IDLE_SLEEP_MS must not be empty when set"
+        );
+    }
+
+    #[test]
     fn worker_status_path_fails_closed_when_configured_with_surrounding_whitespace() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var(
@@ -788,9 +816,18 @@ fn parse_positive_u64_env(name: &str, default: u64) -> anyhow::Result<u64> {
 
 fn parse_u64_env(name: &str, default: u64) -> anyhow::Result<u64> {
     match env::var(name) {
-        Ok(value) => value
-            .parse::<u64>()
-            .map_err(|_| anyhow::anyhow!("{name} must be an unsigned integer")),
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("{name} must not be empty when set");
+            }
+            if value != trimmed {
+                anyhow::bail!("{name} must not include surrounding whitespace");
+            }
+            value
+                .parse::<u64>()
+                .map_err(|_| anyhow::anyhow!("{name} must be an unsigned integer"))
+        }
         Err(env::VarError::NotPresent) => Ok(default),
         Err(env::VarError::NotUnicode(_)) => anyhow::bail!("{name} must be valid unicode"),
     }
