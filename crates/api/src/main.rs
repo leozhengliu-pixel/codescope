@@ -1153,6 +1153,9 @@ async fn get_mcp_manifest(
     headers: HeaderMap,
 ) -> Result<Json<sourcebot_mcp::ServerManifest>, StatusCode> {
     let _ = search_request_context(&state, &headers).await?;
+    if !accepts_json_response(&headers) {
+        return Err(StatusCode::NOT_ACCEPTABLE);
+    }
     Ok(Json(sourcebot_mcp::server_manifest()))
 }
 
@@ -1161,6 +1164,9 @@ async fn list_mcp_tools(
     headers: HeaderMap,
 ) -> Result<Json<Vec<sourcebot_mcp::McpToolDefinition>>, StatusCode> {
     let _ = search_request_context(&state, &headers).await?;
+    if !accepts_json_response(&headers) {
+        return Err(StatusCode::NOT_ACCEPTABLE);
+    }
     Ok(Json(mcp_http_tool_definitions()))
 }
 
@@ -1246,6 +1252,9 @@ async fn call_mcp_tool(
     Json(mut request): Json<sourcebot_mcp::McpToolCallRequest>,
 ) -> Result<Json<sourcebot_mcp::McpToolCallResponse>, StatusCode> {
     let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
+    if !accepts_json_response(&headers) {
+        return Err(StatusCode::NOT_ACCEPTABLE);
+    }
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
     let response =
@@ -9062,6 +9071,70 @@ mod tests {
             "repo_sourcebot_rewrite"
         );
         assert_eq!(call["result"]["content"][0]["type"], "text");
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_http_surfaces_reject_unacceptable_accept_headers() {
+        let organization_state_path = unique_test_path("mcp-http-accept-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-http-accept-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-http-accept-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+        let authorization = bootstrap_and_login(&app).await;
+
+        for uri in ["/api/v1/mcp/manifest", "/api/v1/mcp/tools"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::GET)
+                        .uri(uri)
+                        .header(header::AUTHORIZATION, &authorization)
+                        .header(header::ACCEPT, "text/html")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::ACCEPT, "text/html")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "name": "list_repos",
+                            "arguments": {}
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
 
         fs::remove_file(organization_state_path).unwrap();
     }
