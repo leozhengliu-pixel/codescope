@@ -6721,10 +6721,6 @@ fn latest_local_sync_snapshot(
     repo_id: &str,
     authorized_organization_ids: &HashSet<String>,
 ) -> Option<LocalSyncSnapshot> {
-    if authorized_organization_ids.len() != 1 {
-        return None;
-    }
-
     let latest_successful_job = organization_state
         .repository_sync_jobs
         .iter()
@@ -30787,6 +30783,119 @@ mod tests {
             payload.error.as_deref(),
             Some("primary startup index failed")
         );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_index_status_uses_local_sync_artifact_for_multi_org_visibility() {
+        let repo_root = unique_test_path("index-status-multi-org-local-sync-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn multi_org_index_status_artifact_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path = unique_test_path("index-status-multi-org-local-sync-orgs");
+        let local_session_state_path =
+            unique_test_path("index-status-multi-org-local-sync-sessions");
+        let user_id = "user_multi_org_local_sync_index_status";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.organizations.push(Organization {
+            id: "org_beta".into(),
+            slug: "beta".into(),
+            name: "Beta".into(),
+        });
+        organization_state.memberships.push(OrganizationMembership {
+            organization_id: "org_beta".into(),
+            user_id: user_id.into(),
+            role: OrganizationRole::Viewer,
+            joined_at: "2026-04-21T00:00:30Z".into(),
+        });
+        organization_state
+            .repo_permissions
+            .push(RepositoryPermissionBinding {
+                organization_id: "org_beta".into(),
+                repository_id: "repo_local_import".into(),
+                synced_at: "2026-04-21T00:06:30Z".into(),
+            });
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatus = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.status, RepositoryIndexState::Indexed);
+        assert_eq!(payload.indexed_file_count, 1);
+        assert_eq!(payload.indexed_line_count, 1);
+        assert_eq!(payload.error, None);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
