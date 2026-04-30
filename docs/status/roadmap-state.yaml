@@ -5,37 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e04cdf326a42cdda993c72d0736a9a26f9d41c3e
+  head: b87f0ec4d37c44902035b85a5d1f9d4d77aa8669
 last_completed_task:
-  id: task102_task103_task105_parallel_hardening
-  title: Search artifact line validation, code-nav fallback scope, and OAuth redirect fail-closed hardening
+  id: task102_task103_task108_parallel_queue_and_artifact_hardening
+  title: Search artifact path validation, JVM code-nav references, and repository-sync malformed queued timestamp recovery
   status: done
   summary: >-
-    Closed a three-worker implementation-backed batch across search/index runtime,
-    browse/code-navigation, and auth/admin rather than producing paperwork-only
-    progress. Persisted local-sync search-index artifacts now reject embedded line
-    separators in stored line content before loading, so forged multi-line matches
-    cannot be imported from an artifact. Local-sync code-navigation reference
-    fallback now preserves the primary text-reference source-file extension scope
-    instead of widening into docs or arbitrary text files. OAuth client creation now
-    rejects unsafe non-HTTP(S) redirect URI schemes before persistence. Reporting
-    docs were updated with bounded language: these are hardening closures, not full
-    production indexing, tree-sitter code navigation, complete OAuth/token flows, or
-    a practical Sourcebot replacement release claim.
+    Closed a carry-over accelerated implementation batch rather than launching new
+    workers over an already-ahead dirty tail. Persisted local-sync search-index
+    artifacts now reject control/line-separator path values while preserving valid
+    tabbed Git paths, local-sync code-navigation reference fallback scans JVM
+    source extensions without widening into arbitrary docs/text, and worker
+    repository-sync maintenance marks malformed queued_at rows failed before
+    claiming the next valid queued job. Reporting docs were synchronized with the
+    bounded worker/runtime claim. Practical replacement remains incomplete: this
+    is hardening for local-sync/runtime fallback behavior, not production
+    indexing, broad provider fetch/import/reindex, daemon supervision, broad
+    retry/backoff, or a full Sourcebot replacement certification.
   tests:
-    - 'baseline: started from e068e9be11aa7f7bf0292eff60c1a3162a6c140c on master with a clean main worktree, origin/master in sync, /opt/data at 56% used, and sourcebot-worktrees at 4.0K before dispatch / 15M after creating three worktrees'
-    - 'search worker: /opt/data/projects/sourcebot-worktrees/search-runtime-20260430142049 commit 07dfd9c4550a5caa744a6988181b6afd58ba8d6f cherry-picked as dfb6f799128c850388df1bad5f8340e34d4ffedd; RED regression initially failed because a persisted search-index artifact with embedded LF/CR line content loaded instead of failing closed'
-    - 'browse/code-nav worker: /opt/data/projects/sourcebot-worktrees/browse-runtime-20260430142049 commit 77df6551a5c2626ea44e8a0202ef98a40333945d cherry-picked as e27532bf0f69a352295a665d481f29be6ca1abc3; RED regression initially failed because local-sync reference fallback returned README.md docs text outside the source-file scan scope'
-    - 'auth/admin worker: /opt/data/projects/sourcebot-worktrees/auth-admin-20260430142049 commit 354c4e2221f130327d337afda5af7d127dc55772 cherry-picked as 7cd181f4f332a848f1a9b14706cc676b29e8bd9b; RED regression initially failed because javascript: redirect URIs were accepted with 201 Created instead of 400 Bad Request and no persistence'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_embedded_line_separators -- --nocapture passed with 1 test / 62 filtered'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture passed with 0 lib tests and 1 main-bin test / 501 filtered'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_oauth_clients_create_rejects_unsafe_redirect_uri_scheme_without_persisting -- --nocapture passed with 0 lib tests and 1 main-bin test / 501 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search passed with 63 unit tests and 0 doctests'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api --bin sourcebot-api code_nav -- --nocapture passed with 3 main-bin tests / 499 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_oauth_clients -- --nocapture after repo-local PostgreSQL preflight ran 10 main-bin tests / 492 filtered with 9 passing and 1 existing PostgreSQL audit-count failure in auth_oauth_clients_use_postgres_metadata_when_database_url_is_configured; the focused new rejection and auth_oauth_clients_create selector passed, and this is recorded as a remaining test-isolation/PG audit visibility blocker rather than product evidence for the new slice'
-    - 'integrator checks: cargo fmt --check, git diff --check e068e9be11aa7f7bf0292eff60c1a3162a6c140c..HEAD, added-lines security scan over that range, and independent code/docs truthfulness review passed with no blocking findings'
-    - 'cleanup: removed all three worker worktrees, ran git worktree prune, and confirmed /opt/data/projects/sourcebot-worktrees returned to 4.0K'
-  commit: e04cdf326a42cdda993c72d0736a9a26f9d41c3e
+    - 'baseline: started from 1f6f1d3358b4a64dd38a25cf29401a3972041885 on master with four commits ahead of origin/master and dirty docs/reporting carry-over; /opt/data was 58% used and sourcebot-worktrees was 15M before cleanup'
+    - 'carry-over mapping: origin/master..HEAD contained search artifact control-character path validation, JVM code-nav source scanning, malformed queued_at worker recovery, and tabbed artifact path preservation commits; dirty docs matched the worker malformed queued timestamp evidence tail'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_control_character_paths -- --nocapture passed with 1 test / 63 filtered; the same regression includes the valid tabbed-path load assertion'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api code_nav_fallback_reference_scan_scope_includes_jvm_source_files -- --nocapture passed with 0 lib tests and 1 main-bin test / 502 filtered'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_malformed_queued_at_before_claiming_next -- --nocapture passed with 1 lib test / 90 filtered plus zero-test non-lib targets'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search passed with 64 unit tests and 0 doctests'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api code_nav -- --nocapture passed with 0 lib tests and 4 main-bin tests / 499 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 91 lib tests, 19 bin tests, 21 smoke/integration tests, and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, added-lines security scan over origin/master..HEAD plus dirty docs, and independent code/docs truthfulness review passed with no blocking findings'
+    - 'cleanup: removed browse-runtime-20260430151038, search-runtime-20260430151041, and worker-runtime-20260430151039 worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K'
+  commit: b87f0ec4d37c44902035b85a5d1f9d4d77aa8669
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -45,19 +43,69 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure, or take an adjacent disjoint Task 103/105/106/107/108 release blocker
     when it is higher value and can be closed with real implementation. This run
-    deliberately merged three implementation-backed hardening closures rather than
-    another paperwork fragment: persisted local-sync search-index line separator
-    validation, source-scoped local-sync code-navigation reference fallback, and
-    fail-closed OAuth client redirect-scheme validation. Practical replacement
-    remains incomplete. Remaining blockers include a real production indexing
-    lifecycle and status pipeline beyond bounded local-sync artifacts, relevance
-    and pagination behavior at scale, fuller branch/ref management and
-    revision-switching UX, broader provider fetch/import/reindex, worker scheduling
-    and supervision with broad retry/backoff, OIDC/SSO login/callback/linking and
-    complete OAuth authorization/token/revocation flows, richer admin/org flows,
-    deeper MCP client/session interoperability beyond the HTTP/API bridge, operator
-    runbook/deploy evidence, and the other release blockers in this roadmap.
+    closed already-produced carry-over commits instead of starting more workers:
+    search artifact path safety, JVM source reference fallback, and malformed
+    queued repository-sync timestamp recovery. Practical replacement remains
+    incomplete. Remaining blockers include a real production indexing lifecycle
+    and status pipeline beyond bounded local-sync artifacts, relevance and
+    pagination behavior at scale, fuller branch/ref management and revision UX,
+    broader provider fetch/import/reindex execution, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO login/callback/linking and
+    complete OAuth flows, richer admin/org flows, deeper MCP client/session
+    interoperability, operator runbook/deploy evidence, and the other release
+    blockers in this roadmap.
 history:
+  - id: task102_task103_task108_parallel_queue_and_artifact_hardening
+    status: done
+    summary: >-
+      Closed a dirty carry-over implementation batch rather than launching new
+      workers over already-integrated commits. Search-index artifact loading now
+      fails closed for control/line-separator path values while preserving valid
+      tabbed Git paths, code-navigation reference fallback includes JVM source
+      files only, and worker repository-sync maintenance fails malformed queued_at
+      rows before the next valid queued claim. The claim remains bounded and does
+      not certify practical Sourcebot replacement readiness.
+    commit: b87f0ec4d37c44902035b85a5d1f9d4d77aa8669
+    component_commits:
+      - 71a70b3f9fc3ea0b0d62f3d0fd5df573fbb1f7dd
+      - 12f66172764a1c2c674b55c53f2eb972f5398020
+      - b232d353cb9f7832ff590ace7fd902365bb29331
+      - 1f6f1d3358b4a64dd38a25cf29401a3972041885
+      - b87f0ec4d37c44902035b85a5d1f9d4d77aa8669
+    tests:
+      - 'baseline: 1f6f1d3358b4a64dd38a25cf29401a3972041885, master ahead 4 with dirty docs carry-over, /opt/data 58% used, sourcebot-worktrees 15M before cleanup'
+      - 'focused/main: sourcebot-search local_search_store_rejects_persisted_index_artifact_control_character_paths passed with 1 test / 63 filtered and includes valid tabbed-path preservation'
+      - 'focused/main: sourcebot-api code_nav_fallback_reference_scan_scope_includes_jvm_source_files passed with 0 lib tests and 1 main-bin test / 502 filtered'
+      - 'focused/main: sourcebot-worker run_repository_sync_claim_tick_fails_malformed_queued_at_before_claiming_next passed with 1 lib test / 90 filtered plus zero-test non-lib targets'
+      - 'broader/main: sourcebot-search package passed with 64 unit tests and 0 doctests; sourcebot-api code_nav passed with 0 lib tests and 4 main-bin tests / 499 filtered; sourcebot-worker passed with 91 lib tests, 19 bin tests, 21 smoke/integration tests, and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, added-lines security scan, independent code/docs truthfulness review passed'
+      - 'cleanup: removed all three stale worker worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-20260430151041
+        worker_commit: 7632ff0ebbd37c135d75f081d4dcf203130562e5
+        integrated_commit: 71a70b3f9fc3ea0b0d62f3d0fd5df573fbb1f7dd
+        result: merged
+      - scope: Browse/Code Navigation
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-runtime-20260430151038
+        worker_commit: 7c7bba131f80ae2e505fe0c882d64f2658e90d0e
+        integrated_commit: 12f66172764a1c2c674b55c53f2eb972f5398020
+        result: merged
+      - scope: Worker/Provider runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-runtime-20260430151039
+        worker_commit: 5907c8445423b8a877a825f9e1f41dd73882dfba
+        integrated_commit: b232d353cb9f7832ff590ace7fd902365bb29331
+        result: merged
+      - scope: Search/Index follow-up hardening
+        worktree: /opt/data/projects/sourcebot-rewrite
+        worker_commit: null
+        integrated_commit: 1f6f1d3358b4a64dd38a25cf29401a3972041885
+        result: merged
+      - scope: Integrator reporting tail
+        worktree: /opt/data/projects/sourcebot-rewrite
+        worker_commit: null
+        integrated_commit: b87f0ec4d37c44902035b85a5d1f9d4d77aa8669
+        result: merged
   - id: task102_task103_task105_parallel_hardening
     status: done
     summary: >-
