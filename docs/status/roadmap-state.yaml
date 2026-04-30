@@ -5,46 +5,49 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 7b019b90947e467f89431f727acc16a217af2591
+  head: 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
 last_completed_task:
-  id: task102_exclude_path_search
-  title: API-visible exclude-path filtering for local/index-artifact search
+  id: task102_include_path_search
+  title: API-visible include-path filtering for local/index-artifact search
   status: done
   summary: >-
     Closed an implementation-backed Task 102 search/index closure by adding repeated
-    `exclude_path` query parameter support to `/api/v1/search` and the local/index-artifact
-    search contract. Exclusion values are trimmed, blank values are ignored, and non-empty
-    values are matched case-insensitively as repo-relative path substrings before pagination
-    and `total_count` computation, giving users and API callers a bounded way to suppress
-    generated/vendor path families without claiming glob/gitignore policy, production
-    indexing, relevance-at-scale, streaming, recovery, or full practical replacement parity.
+    `include_path` query parameter support to `/api/v1/search` and the local/index-artifact
+    search contract. Inclusion values are trimmed, blank values are ignored, and non-empty
+    values are matched case-insensitively as repo-relative path substrings before exclusion,
+    pagination, and `total_count` computation, giving users and API callers a bounded way
+    to narrow search results to selected path families without claiming glob/gitignore
+    policy, production indexing, relevance-at-scale, streaming, recovery, or full practical
+    replacement parity.
   tests:
-    - 'worker RED: sourcebot-search exclude_path failed on missing SearchOptions.exclude_paths before implementation'
-    - 'worker RED: sourcebot-api search_exclude_path caught missing SearchOptions propagation and repeated-query parsing before implementation'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search exclude_path -- --nocapture (1 passed, 66 filtered)'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_exclude_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 510 filtered)'
+    - 'worker RED: sourcebot-search include_path failed on missing SearchOptions.include_paths before implementation'
+    - 'worker RED: sourcebot-api search_include_path returned total_count 3 instead of 2 before handler propagation'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search include_path -- --nocapture (1 passed, 67 filtered)'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_include_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 511 filtered)'
+    - 'integrator broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search -- --nocapture (68 passed)'
+    - 'integrator broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests / 68 filtered; main 53 passed / 459 filtered)'
     - 'cargo fmt --check'
     - 'git diff --check HEAD~1..HEAD'
     - 'git diff --check'
-    - 'added-lines security scan over HEAD~1..HEAD: 0 findings'
+    - 'added-lines security scan over HEAD~1 diff: 0 findings'
     - 'cleanup: removed worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
   review: >-
-    Independent review of the integrated diff passed with no security or logic issues. The
-    reviewer re-ran the focused exclude_path tests and confirmed auth/scope gates are
-    preserved, repeated raw-query parsing avoids response-shape drift, local-sync fallback
-    carries SearchOptions, pagination/total_count remain post-filter, and docs claims stay
-    bounded; non-blocking follow-ups include optional value/count bounds and extra parser
-    edge-case tests.
-  commit: 7b019b90947e467f89431f727acc16a217af2591
+    Independent review of the integrated diff and coupled docs/report/final-audit wording
+    passed with no blocking security, logic, or truthfulness issues. The reviewer confirmed
+    repeated include_path values are URL-decoded, trimmed, blank-filtered, propagated through
+    SearchOptions, enforced by the local/index-artifact store before exclude/pagination/counting,
+    do not widen auth scope or change response shape, preserve exclude_path behavior, and keep
+    release claims bounded to substring convenience filtering.
+  commit: 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 from the practical replacement blocker roadmap. This run added
-    repeated API-visible `exclude_path` controls for bounded local/index-artifact search
-    result suppression, following prior mode, case-sensitivity, language/path-filter,
+    Continue Task 102 from the practical replacement blocker roadmap. Recent runs added
+    repeated API-visible `exclude_path` and `include_path` controls for bounded local/index-artifact
+    search result suppression/narrowing, following prior mode, case-sensitivity, language/path-filter,
     deterministic ordering, pagination, and local-sync artifact fallback work. Production
     search/indexing remains a major blocker: remaining work still includes a real indexing
     pipeline beyond startup/local-sync artifacts, cross-branch/index availability semantics,
@@ -53,6 +56,38 @@ current_task:
     final fail-closed release audit evidence. Prefer the next closure with implementation-backed
     search/index runtime capability over docs-only paperwork.
 history:
+  - id: task102_include_path_search
+    status: done
+    summary: >-
+      Closed a bounded implementation-backed Task 102 search contract slice rather than
+      a docs-only or state-only micro-slice. A worker added repeated `include_path` query
+      parameter support through the search crate and `/api/v1/search`; the integrator
+      cherry-picked it into master, synchronized README/search acceptance/parity-gap/final-audit
+      wording, reran focused and broader verification, obtained independent review, and
+      cleaned the worker worktree. Inclusions are trimmed, non-empty, case-insensitive
+      path-substring filters applied before exclusion/pagination/counting for local/index-artifact
+      search, useful for narrowing result sets to selected path families while remaining
+      below production search indexing, policy, streaming, recovery, or practical replacement readiness.
+    commit: 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
+    component_commits:
+      - 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
+    tests:
+      - 'worker RED: sourcebot-search include_path failed on missing SearchOptions.include_paths before implementation'
+      - 'worker RED: sourcebot-api search_include_path returned total_count 3 instead of 2 before handler propagation'
+      - 'integrator: cargo test -p sourcebot-search include_path -- --nocapture (1 passed, 67 filtered)'
+      - 'integrator: cargo test -p sourcebot-api search_include_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 511 filtered)'
+      - 'integrator broader: cargo test -p sourcebot-search -- --nocapture (68 passed)'
+      - 'integrator broader: cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests / 68 filtered; main 53 passed / 459 filtered)'
+      - 'cargo fmt --check'
+      - 'git diff --check HEAD~1..HEAD'
+      - 'git diff --check'
+      - 'added-lines security scan over HEAD~1 diff: 0 findings'
+      - 'cleanup: removed worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    review: >-
+      Independent review passed after the docs/report/final-audit sync. It found no blocking
+      security, logic, auth-scope, pagination/counting, exclude_path-preservation, or overclaim
+      issues; non-blocking notes only called out that generic SearchStore implementations must
+      honor SearchOptions and that acceptance covers include-before-exclude ordering explicitly.
   - id: task102_exclude_path_search
     status: done
     summary: >-
