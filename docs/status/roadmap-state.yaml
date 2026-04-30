@@ -5,35 +5,44 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
+  head: 3f644af341da1a69c9b3fd10f303cb75af8fc21b
 last_completed_task:
-  id: task107_mcp_http_tool_call_auth_ordering
-  title: Authenticate MCP direct HTTP tool calls before negotiation/body validation
+  id: task102_task103_task108_parallel_runtime_closeout
+  title: Per-repo local-sync search fallback, detached default refs, and manifest publish fail-closed hardening
   status: done
   summary: >-
-    Closed a bounded MCP/Ops release-blocker hardening slice. The direct HTTP
-    MCP tool-call bridge now authenticates requests before Accept negotiation,
-    Content-Type validation, or JSON body parsing, so unauthenticated malformed
-    tool-call requests fail closed as authentication failures instead of leaking
-    media-negotiation/body-validation differences. JSON-RPC endpoint semantics
-    remain separate and unchanged, and the claim stays limited to the existing
-    authenticated HTTP/API bridge rather than full MCP protocol/session/client
-    parity. Two other proposed parallel worker scopes did not produce usable
-    commits because the model/provider returned account-exhaustion failures; no
-    search/provider changes were merged from those worktrees.
+    Closed a three-worker implementation batch across search/index runtime,
+    browse/commit navigation, and provider/worker runtime without producing a
+    docs-only or state-only slice. Unscoped and search-context queries now keep
+    primary startup-index hits while filling missing visible repositories from
+    authorized local-sync search-index artifacts, with malformed artifacts still
+    failing closed. Detached local-sync commit views now infer the default branch
+    from refs/remotes/origin/HEAD without exposing the symbolic ref as a selectable
+    branch. Local repository sync now writes the required search-index artifact
+    before publishing manifest.txt, so failed artifact persistence cannot leave a
+    manifest that implies a complete local-sync artifact set. Practical replacement
+    remains incomplete: this is bounded runtime hardening, not production indexing,
+    full provider fetch/import/reindex, broad worker supervision/retry parity, or
+    a final parity claim.
   tests:
-    - 'baseline: started from df7b0836309d67be165cf8ba2076f82d9be8ee31 on master with clean main worktree, origin/master in sync, /opt/data at 55% used, sourcebot-worktrees at 4.0K before dispatch and 15M after creating three worktrees'
-    - 'MCP worker: /opt/data/projects/sourcebot-worktrees/ops-mcp-20260430131232 commit 03abc095c762393d6f5c957df1b8312877bb677c cherry-picked as da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4'
-    - 'failed worker scope: search-unscoped-20260430131232 hit HTTP 503 provider/account exhaustion before producing a commit or dirty diff; nothing merged'
-    - 'failed worker scope: provider-generic-20260430131232 hit HTTP 503 provider/account exhaustion after read-only inspection before producing a commit or dirty diff; nothing merged'
-    - 'RED evidence from MCP worker: mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction initially failed because unauthenticated POST /api/v1/mcp/tools/call with text/plain body and unacceptable Accept returned 415 instead of 401'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction -- --nocapture passed with 0 lib tests and 1 main-bin test / 498 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http -- --nocapture passed with 0 lib tests and 6 main-bin tests / 493 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 0 lib tests and 14 main-bin tests / 485 filtered'
-    - 'crate/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-mcp -- --nocapture passed with 9 tests and 0 doctests'
-    - 'integrator checks: cargo fmt --check, git diff --check HEAD~1..HEAD, and added-lines security scan over HEAD~1..HEAD passed with 0 findings'
-    - 'independent review: approved da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4 over HEAD~1..HEAD with no security concerns, logic errors, or docs-claim issues; noted only that a future stricter requirement could authenticate before Bytes body buffering'
-  commit: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
+    - 'baseline: started from 72488b1785d61965a454b4e2144e476e0e9caed0 on master with a clean main worktree, origin/master in sync, /opt/data at 56% used, and sourcebot-worktrees at 4.0K before dispatch / 15M after creating three worktrees'
+    - 'search worker: /opt/data/projects/sourcebot-worktrees/search-index-20260430133911 commit 987c4c52951ac8265989b5029c5e0f6d0845ef87 cherry-picked as d6a19f69653402e4cc6f1745e7b56ee4ce36009d; RED regression initially failed because unscoped search returned only the primary repo hit instead of also aggregating the local-sync artifact result for a visible repo missing primary hits'
+    - 'browse worker: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430133911 commit a6bf84176b676083f7d3a475a088f8d22046a58c cherry-picked as fa02957ee242ab3e966ba20a481d9efdf5360beb; RED regression initially failed because detached local-sync refs did not mark origin/main as default from origin/HEAD'
+    - 'worker-runtime worker: /opt/data/projects/sourcebot-worktrees/worker-runtime-20260430133911 commit 96f413c1b4eb18b3035dfeba4d10048d6ddf8829 cherry-picked as a47458337b253fc4df50fbbb31548b2a413f60b6; RED regression initially failed because manifest.txt was published before search-index artifact persistence failed'
+    - 'integrator formatting tail: 3f644af341da1a69c9b3fd10f303cb75af8fc21b ran cargo fmt on the integrated search fallback change after cargo fmt --check reported formatting drift'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_aggregates_local_sync_fallback_for_repos_missing_primary_hits -- --nocapture passed with 0 lib tests and 1 main-bin test / 500 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_ -- --nocapture passed with 0 lib tests and 6 main-bin tests / 495 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api index_status -- --nocapture passed with 0 lib tests and 8 main-bin tests / 493 filtered'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_commit_store_marks_remote_head_default_when_detached -- --nocapture passed with 0 lib tests and 1 main-bin test / 500 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api commits:: -- --nocapture passed with 0 lib tests and 23 main-bin tests / 478 filtered'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker run_repository_sync_claim_tick_fails_without_manifest_when_search_index_artifact_cannot_persist -- --nocapture passed with 1 lib test / 89 filtered plus zero-test non-lib targets'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker local_repository_sync --lib -- --nocapture passed with 13 lib tests / 77 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker local_git --lib -- --nocapture passed with 5 lib tests / 85 filtered'
+    - 'broad/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 49 main-bin tests / 452 filtered'
+    - 'broad/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker -- --nocapture passed with 90 lib tests, 19 main-bin tests, 5 explicit completed stub smoke tests, 3 invalid stub smoke tests, 4 no-queued idle smoke tests, 3 repository-sync claim smoke tests, 6 worker runtime logging smoke tests, and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check 72488b1785d61965a454b4e2144e476e0e9caed0..HEAD, and added-lines security scan over that range passed with 0 findings'
+    - 'independent review: first review approved the three worker commits with no blocking issues; a second Claude review approved the post-format range and confirmed 3f644af was cargo-fmt-only with no semantic changes'
+  commit: 3f644af341da1a69c9b3fd10f303cb75af8fc21b
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -41,20 +50,70 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 with the next meaningful production search/indexing runtime
-    closure, or take an adjacent disjoint Task 103/105/106/107/108 release
-    blocker when it is higher value and can be closed with real implementation.
-    This run shipped a bounded Task 107 MCP HTTP/API auth-ordering closure from
-    the successful worker while two proposed search/provider workers failed at
-    the model/provider account layer before producing mergeable commits.
-    Practical replacement remains incomplete. Remaining blockers include a real
-    production indexing lifecycle and status pipeline beyond bounded local-sync
-    artifacts, relevance and pagination behavior at scale, fuller branch/ref
-    management and revision-switching UX, broader provider fetch/import/reindex,
-    worker scheduling and supervision with broad retry/backoff, OIDC/SSO and
-    richer admin/org flows, deeper MCP client/session interoperability beyond
-    the HTTP/API bridge, operator runbook/deploy evidence, and the other release
-    blockers in this roadmap.
+    closure, or take an adjacent disjoint Task 103/105/106/107/108 release blocker
+    when it is higher value and can be closed with real implementation. This run
+    deliberately merged three implementation-backed closures rather than another
+    paperwork fragment: per-repo local-sync artifact aggregation for visible repos
+    missing primary hits, detached remote default-ref discovery for local-sync
+    commit views, and fail-closed local-sync manifest publication after required
+    search-index artifact persistence. Practical replacement remains incomplete.
+    Remaining blockers include a real production indexing lifecycle and status
+    pipeline beyond bounded local-sync artifacts, relevance and pagination behavior
+    at scale, fuller branch/ref management and revision-switching UX, broader
+    provider fetch/import/reindex, worker scheduling and supervision with broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability beyond the HTTP/API bridge, operator runbook/deploy evidence,
+    and the other release blockers in this roadmap.
 history:
+  - id: task102_task103_task108_parallel_runtime_closeout
+    status: done
+    summary: >-
+      Closed a real implementation-backed accelerated batch rather than a docs-only
+      or state-only update. Search now aggregates authorized local-sync artifacts
+      per visible repository missing primary hits, commit ref discovery marks the
+      origin/HEAD target as default for detached local-sync snapshots, and worker
+      local-sync publishing now fails closed before manifest.txt when required
+      search-index artifact persistence fails. The claim remains bounded and does
+      not certify practical Sourcebot replacement readiness.
+    commit: 3f644af341da1a69c9b3fd10f303cb75af8fc21b
+    component_commits:
+      - d6a19f69653402e4cc6f1745e7b56ee4ce36009d
+      - fa02957ee242ab3e966ba20a481d9efdf5360beb
+      - a47458337b253fc4df50fbbb31548b2a413f60b6
+      - 3f644af341da1a69c9b3fd10f303cb75af8fc21b
+    tests:
+      - 'baseline: started from 72488b1785d61965a454b4e2144e476e0e9caed0 on master with clean main worktree, origin/master in sync, /opt/data at 56% used, sourcebot-worktrees at 4.0K before dispatch and 15M after creating three worktrees'
+      - 'search worker: 987c4c52951ac8265989b5029c5e0f6d0845ef87 cherry-picked as d6a19f69653402e4cc6f1745e7b56ee4ce36009d; RED regression failed before implementation because only one primary result was returned where two per-repo aggregated results were expected'
+      - 'browse worker: a6bf84176b676083f7d3a475a088f8d22046a58c cherry-picked as fa02957ee242ab3e966ba20a481d9efdf5360beb; RED regression failed before implementation because origin/main was not marked default for a detached local-sync repo with origin/HEAD'
+      - 'worker-runtime worker: 96f413c1b4eb18b3035dfeba4d10048d6ddf8829 cherry-picked as a47458337b253fc4df50fbbb31548b2a413f60b6; RED regression failed before implementation because manifest.txt was published when search-index artifact persistence failed'
+      - 'integrator formatting tail: 3f644af341da1a69c9b3fd10f303cb75af8fc21b'
+      - 'focused/main: sourcebot-api unscoped_search_aggregates_local_sync_fallback_for_repos_missing_primary_hits passed with 0 lib tests and 1 main-bin test / 500 filtered'
+      - 'broader/main: sourcebot-api unscoped_search_ passed with 0 lib tests and 6 main-bin tests / 495 filtered; index_status passed with 0 lib tests and 8 main-bin tests / 493 filtered; search_ passed with 0 lib tests and 49 main-bin tests / 452 filtered'
+      - 'focused/main: sourcebot-api local_commit_store_marks_remote_head_default_when_detached passed with 0 lib tests and 1 main-bin test / 500 filtered; commits:: passed with 0 lib tests and 23 main-bin tests / 478 filtered'
+      - 'focused/main: sourcebot-worker run_repository_sync_claim_tick_fails_without_manifest_when_search_index_artifact_cannot_persist passed with 1 lib test / 89 filtered plus zero-test non-lib targets; local_repository_sync --lib passed with 13 tests / 77 filtered; local_git --lib passed with 5 tests / 85 filtered'
+      - 'broad/main: sourcebot-worker package passed with 90 lib tests, 19 main-bin tests, 21 integration smoke tests across five smoke binaries, and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check 72488b1785d61965a454b4e2144e476e0e9caed0..HEAD, added-lines security scan, and independent review passed'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-index-20260430133911
+        worker_commit: 987c4c52951ac8265989b5029c5e0f6d0845ef87
+        integrated_commit: d6a19f69653402e4cc6f1745e7b56ee4ce36009d
+        result: merged
+      - scope: Browse/Code Navigation
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430133911
+        worker_commit: a6bf84176b676083f7d3a475a088f8d22046a58c
+        integrated_commit: fa02957ee242ab3e966ba20a481d9efdf5360beb
+        result: merged
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-runtime-20260430133911
+        worker_commit: 96f413c1b4eb18b3035dfeba4d10048d6ddf8829
+        integrated_commit: a47458337b253fc4df50fbbb31548b2a413f60b6
+        result: merged
+      - scope: Integrator formatting tail
+        worktree: /opt/data/projects/sourcebot-rewrite
+        worker_commit: null
+        integrated_commit: 3f644af341da1a69c9b3fd10f303cb75af8fc21b
+        result: merged
   - id: task107_mcp_http_tool_call_auth_ordering
     status: done
     summary: >-
