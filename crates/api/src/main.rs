@@ -6729,6 +6729,9 @@ fn latest_local_sync_snapshot(
     if matching_connections.next().is_some() {
         return None;
     }
+    if connection.kind != ConnectionKind::Local {
+        return None;
+    }
     let Some(ConnectionConfig::Local { repo_path }) = connection.config.as_ref() else {
         return None;
     };
@@ -29007,6 +29010,48 @@ mod tests {
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(acme_repo_root).unwrap();
         fs::remove_dir_all(hidden_repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_sync_snapshot_requires_local_connection_kind() {
+        let mut organization_state = OrganizationState::default();
+        organization_state.organizations.push(Organization {
+            id: "org_acme".into(),
+            slug: "acme".into(),
+            name: "Acme".into(),
+        });
+        organization_state.connections.push(Connection {
+            id: "conn_mismatched".into(),
+            name: "Mismatched".into(),
+            kind: ConnectionKind::GitHub,
+            config: Some(ConnectionConfig::Local {
+                repo_path: "/tmp/sourcebot-mismatched-local-config".into(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_mismatched_success".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_mismatched".into(),
+                connection_id: "conn_mismatched".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("deadbeef".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        let authorized_organization_ids = HashSet::from(["org_acme".to_string()]);
+
+        assert!(latest_local_sync_snapshot(
+            &organization_state,
+            "repo_mismatched",
+            &authorized_organization_ids
+        )
+        .is_none());
     }
 
     #[tokio::test]
