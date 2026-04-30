@@ -5910,8 +5910,11 @@ fn encode_query_value(value: &str) -> String {
 }
 
 fn map_browse_error_to_status(error: anyhow::Error) -> StatusCode {
-    if error.to_string().contains("invalid relative path") {
+    let message = error.to_string();
+    if message.contains("invalid relative path") {
         StatusCode::BAD_REQUEST
+    } else if message.contains("blob exceeds") {
+        StatusCode::PAYLOAD_TOO_LARGE
     } else {
         StatusCode::NOT_FOUND
     }
@@ -7164,6 +7167,14 @@ mod tests {
         path: String,
         line_number: usize,
         line: String,
+    }
+
+    #[test]
+    fn repo_blob_maps_oversized_blob_errors_to_payload_too_large() {
+        let status =
+            map_browse_error_to_status(anyhow::anyhow!("blob exceeds 8388608 byte response limit"));
+
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[test]
