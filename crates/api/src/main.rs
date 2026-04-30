@@ -1391,31 +1391,40 @@ fn is_json_content_type(headers: &HeaderMap) -> bool {
 }
 
 fn accepts_json_response(headers: &HeaderMap) -> bool {
-    let Some(accept) = headers
-        .get(header::ACCEPT)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return true;
-    };
-
+    let mut saw_accept_header = false;
     let mut exact_json_quality: Option<f32> = None;
     let mut application_wildcard_quality: Option<f32> = None;
     let mut any_wildcard_quality: Option<f32> = None;
 
-    for item in accept.split(',') {
-        let mut parts = item.split(';').map(str::trim);
-        let media_type = parts.next().unwrap_or_default();
-        let quality = accept_quality(parts);
-        if media_type.eq_ignore_ascii_case("application/json") {
-            exact_json_quality =
-                Some(exact_json_quality.map_or(quality, |current| current.max(quality)));
-        } else if media_type.eq_ignore_ascii_case("application/*") {
-            application_wildcard_quality =
-                Some(application_wildcard_quality.map_or(quality, |current| current.max(quality)));
-        } else if media_type == "*/*" {
-            any_wildcard_quality =
-                Some(any_wildcard_quality.map_or(quality, |current| current.max(quality)));
+    for accept_value in headers.get_all(header::ACCEPT).iter() {
+        saw_accept_header = true;
+        let Ok(accept) = accept_value.to_str() else {
+            return false;
+        };
+
+        for item in accept.split(',') {
+            let mut parts = item.split(';').map(str::trim);
+            let media_type = parts.next().unwrap_or_default();
+            let quality = match accept_quality(parts) {
+                Ok(quality) => quality,
+                Err(()) => return false,
+            };
+            if media_type.eq_ignore_ascii_case("application/json") {
+                exact_json_quality =
+                    Some(exact_json_quality.map_or(quality, |current| current.max(quality)));
+            } else if media_type.eq_ignore_ascii_case("application/*") {
+                application_wildcard_quality = Some(
+                    application_wildcard_quality.map_or(quality, |current| current.max(quality)),
+                );
+            } else if media_type == "*/*" {
+                any_wildcard_quality =
+                    Some(any_wildcard_quality.map_or(quality, |current| current.max(quality)));
+            }
         }
+    }
+
+    if !saw_accept_header {
+        return true;
     }
 
     exact_json_quality
@@ -1425,23 +1434,47 @@ fn accepts_json_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-fn accept_quality<'a>(parts: impl Iterator<Item = &'a str>) -> f32 {
+fn accept_quality<'a>(parts: impl Iterator<Item = &'a str>) -> Result<f32, ()> {
+    let mut quality = None;
     for part in parts {
-        let Some((name, value)) = part.split_once('=') else {
+        let trimmed_part = part.trim();
+        if trimmed_part.eq_ignore_ascii_case("q") {
+            return Err(());
+        }
+        let Some((name, value)) = trimmed_part.split_once('=') else {
             continue;
         };
         if name.trim().eq_ignore_ascii_case("q") {
-            let Ok(quality) = value.trim().parse::<f32>() else {
-                return 0.0;
-            };
-            return if (0.0..=1.0).contains(&quality) {
-                quality
-            } else {
-                0.0
-            };
+            let parsed_quality = parse_accept_quality_value(value.trim()).ok_or(())?;
+            if quality.is_none() {
+                quality = Some(parsed_quality);
+            }
         }
     }
-    1.0
+    Ok(quality.unwrap_or(1.0))
+}
+
+fn parse_accept_quality_value(value: &str) -> Option<f32> {
+    if value == "0" {
+        return Some(0.0);
+    }
+    if value == "1" {
+        return Some(1.0);
+    }
+
+    let (whole, fractional) = value.split_once('.')?;
+    if fractional.is_empty() || fractional.len() > 3 {
+        return None;
+    }
+    if !fractional.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+
+    match whole {
+        "0" => value.parse::<f32>().ok(),
+        "1" if fractional.bytes().all(|byte| byte == b'0') => Some(1.0),
+        _ => None,
+    }
 }
 
 fn is_json_rpc_id(id: &serde_json::Value) -> bool {
@@ -7184,7 +7217,7 @@ mod tests {
     };
     use async_trait::async_trait;
     use axum::body::{to_bytes, Body};
-    use axum::http::{Method, Request, StatusCode};
+    use axum::http::{HeaderValue, Method, Request, StatusCode};
     use serde::{Deserialize, Serialize};
     use sourcebot_core::{
         AskThreadStore, BootstrapStore, CatalogStore, ImportRepositoryResult, OrganizationStore,
@@ -9158,10 +9191,45 @@ mod tests {
 
     #[test]
     fn mcp_accept_negotiation_rejects_malformed_quality_values() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::ACCEPT, "application/json;q=bogus".parse().unwrap());
+        for accept in [
+            "application/json;q=bogus",
+            "application/json;q=1e0",
+            "application/json;q=.5",
+            "application/json;q=0.1234",
+            "application/json;q=01",
+            "application/json;q=+0.5",
+            "application/json;q",
+            "application/json;q=1;q=bogus",
+            "application/json;q=1;q",
+            "text/html;q=bogus, application/json",
+            "text/html;q=1e0, */*;q=1",
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, accept.parse().unwrap());
 
-        assert!(!accepts_json_response(&headers));
+            assert!(
+                !accepts_json_response(&headers),
+                "Accept header {accept:?} should fail closed"
+            );
+        }
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            HeaderValue::from_bytes(b"application/json;q=\xff").unwrap(),
+        );
+        assert!(
+            !accepts_json_response(&headers),
+            "non-UTF-8 Accept header should fail closed"
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "application/json".parse().unwrap());
+        headers.append(header::ACCEPT, "text/html;q=bogus".parse().unwrap());
+        assert!(
+            !accepts_json_response(&headers),
+            "malformed duplicate Accept header should fail closed"
+        );
     }
 
     #[tokio::test]
