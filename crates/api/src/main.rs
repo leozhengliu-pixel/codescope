@@ -1431,7 +1431,14 @@ fn accept_quality<'a>(parts: impl Iterator<Item = &'a str>) -> f32 {
             continue;
         };
         if name.trim().eq_ignore_ascii_case("q") {
-            return value.trim().parse::<f32>().unwrap_or(1.0);
+            let Ok(quality) = value.trim().parse::<f32>() else {
+                return 0.0;
+            };
+            return if (0.0..=1.0).contains(&quality) {
+                quality
+            } else {
+                0.0
+            };
         }
     }
     1.0
@@ -9149,6 +9156,14 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
     }
 
+    #[test]
+    fn mcp_accept_negotiation_rejects_malformed_quality_values() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "application/json;q=bogus".parse().unwrap());
+
+        assert!(!accepts_json_response(&headers));
+    }
+
     #[tokio::test]
     async fn mcp_http_surfaces_reject_unacceptable_accept_headers() {
         let organization_state_path = unique_test_path("mcp-http-accept-organizations");
@@ -9170,45 +9185,55 @@ mod tests {
         let app = test_app_with_config(config);
         let authorization = bootstrap_and_login(&app).await;
 
-        for uri in ["/api/v1/mcp/manifest", "/api/v1/mcp/tools"] {
+        for accept in ["text/html", "application/json;q=bogus"] {
+            for uri in ["/api/v1/mcp/manifest", "/api/v1/mcp/tools"] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::GET)
+                            .uri(uri)
+                            .header(header::AUTHORIZATION, &authorization)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+
+                assert_eq!(
+                    response.status(),
+                    StatusCode::NOT_ACCEPTABLE,
+                    "Accept header {accept:?} should fail closed for {uri}"
+                );
+            }
+
             let response = app
                 .clone()
                 .oneshot(
                     Request::builder()
-                        .method(Method::GET)
-                        .uri(uri)
+                        .method(Method::POST)
+                        .uri("/api/v1/mcp/tools/call")
                         .header(header::AUTHORIZATION, &authorization)
-                        .header(header::ACCEPT, "text/html")
-                        .body(Body::empty())
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header(header::ACCEPT, accept)
+                        .body(Body::from(
+                            serde_json::json!({
+                                "name": "list_repos",
+                                "arguments": {}
+                            })
+                            .to_string(),
+                        ))
                         .unwrap(),
                 )
                 .await
                 .unwrap();
-
-            assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_ACCEPTABLE,
+                "Accept header {accept:?} should fail closed for tool calls"
+            );
         }
-
-        let response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/v1/mcp/tools/call")
-                    .header(header::AUTHORIZATION, &authorization)
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header(header::ACCEPT, "text/html")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "name": "list_repos",
-                            "arguments": {}
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
 
         fs::remove_file(organization_state_path).unwrap();
     }
