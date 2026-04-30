@@ -6137,6 +6137,13 @@ async fn local_sync_commit_store_for_repo(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     let authorized_organization_ids =
         authorized_organization_ids_for_repo(&organization_state, &user_id, repo_id);
+    if local_sync_commit_fallback_has_ambiguous_org_repo_binding(
+        &organization_state,
+        repo_id,
+        &authorized_organization_ids,
+    ) {
+        return Ok(None);
+    }
     let Some(snapshot) =
         latest_local_sync_snapshot(&organization_state, repo_id, &authorized_organization_ids)
     else {
@@ -6148,6 +6155,24 @@ async fn local_sync_commit_store_for_repo(
         snapshot.repo_root,
         snapshot.revision,
     )))
+}
+
+fn local_sync_commit_fallback_has_ambiguous_org_repo_binding(
+    organization_state: &OrganizationState,
+    repo_id: &str,
+    authorized_organization_ids: &HashSet<String>,
+) -> bool {
+    let authorized_repo_organization_ids = organization_state
+        .repo_permissions
+        .iter()
+        .filter(|binding| {
+            binding.repository_id == repo_id
+                && authorized_organization_ids.contains(&binding.organization_id)
+        })
+        .map(|binding| binding.organization_id.as_str())
+        .collect::<HashSet<_>>();
+
+    authorized_repo_organization_ids.len() != 1
 }
 
 async fn visible_repo_ids_for_user_id(
@@ -29339,6 +29364,16 @@ mod tests {
     async fn repo_commits_local_sync_fallback_fails_closed_for_duplicate_org_repo_bindings() {
         let acme_repo_root = unique_test_path("commits-local-sync-acme-duplicate-repo");
         create_local_git_repository(&acme_repo_root);
+        let acme_revision = LocalCommitStore::new(HashMap::from([(
+            "repo_shared".to_string(),
+            acme_repo_root.clone(),
+        )]))
+        .list_commits("repo_shared", 1, 0, None)
+        .unwrap()
+        .unwrap()
+        .commits[0]
+            .id
+            .clone();
         let hidden_repo_root = unique_test_path("commits-local-sync-hidden-duplicate-repo");
         create_local_git_repository(&hidden_repo_root);
         assert!(Command::new("git")
@@ -29353,6 +29388,16 @@ mod tests {
             .status()
             .unwrap()
             .success());
+        let hidden_revision = LocalCommitStore::new(HashMap::from([(
+            "repo_shared".to_string(),
+            hidden_repo_root.clone(),
+        )]))
+        .list_commits("repo_shared", 1, 0, None)
+        .unwrap()
+        .unwrap()
+        .commits[0]
+            .id
+            .clone();
 
         let organization_state_path =
             unique_test_path("commits-local-sync-duplicate-org-repo-orgs");
@@ -29409,7 +29454,7 @@ mod tests {
                 started_at: Some("2026-04-21T00:10:01Z".into()),
                 finished_at: Some("2026-04-21T00:10:02Z".into()),
                 error: None,
-                synced_revision: Some("acme-revision".into()),
+                synced_revision: Some(acme_revision.clone()),
                 synced_branch: Some("main".into()),
                 synced_content_file_count: Some(1),
             },
@@ -29423,7 +29468,7 @@ mod tests {
                 started_at: Some("2026-04-21T00:11:01Z".into()),
                 finished_at: Some("2026-04-21T00:11:02Z".into()),
                 error: None,
-                synced_revision: Some("hidden-revision".into()),
+                synced_revision: Some(hidden_revision.clone()),
                 synced_branch: Some("main".into()),
                 synced_content_file_count: Some(1),
             },
