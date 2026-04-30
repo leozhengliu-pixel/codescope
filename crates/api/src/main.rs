@@ -6528,9 +6528,9 @@ fn search_visible_authorized_repositories(
             .search
             .search_with_mode(query, Some(repo_id), mode)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        response
-            .results
-            .retain(|result| visible_repo_ids.contains(&result.repo_id));
+        response.results.retain(|result| {
+            result.repo_id == repo_id && visible_repo_ids.contains(&result.repo_id)
+        });
         return Ok(response);
     }
 
@@ -30138,6 +30138,97 @@ mod tests {
             .all(|result| result.repo_id == "repo_sourcebot_rewrite"));
         assert_eq!(payload.results[0].line_number, 1);
         assert_eq!(payload.results[1].line_number, 2);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    struct CrossRepoRequestedSearchStore;
+
+    impl SearchStore for CrossRepoRequestedSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            let results = match repo_id {
+                Some("repo_sourcebot_rewrite") => vec![
+                    sourcebot_search::SearchResult {
+                        repo_id: "repo_other_visible".to_string(),
+                        path: "other.rs".to_string(),
+                        line_number: 1,
+                        line: "requested_scope_marker leaked from another visible repo".to_string(),
+                    },
+                    sourcebot_search::SearchResult {
+                        repo_id: "repo_sourcebot_rewrite".to_string(),
+                        path: "requested.rs".to_string(),
+                        line_number: 2,
+                        line: "requested_scope_marker requested repo".to_string(),
+                    },
+                ],
+                Some("repo_other_visible") => Vec::new(),
+                Some(_) | None => Vec::new(),
+            };
+
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                mode,
+                repo_id.map(ToOwned::to_owned),
+                results,
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn requested_repo_search_filters_backend_results_to_requested_repo_not_only_visibility() {
+        let organization_state_path = unique_test_path("search-requested-repo-boundary-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite", "repo_other_visible"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-requested-repo-boundary-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path(
+                    "search-requested-repo-boundary-sessions",
+                )
+                .display()
+                .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(CrossRepoRequestedSearchStore),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=requested_scope_marker&repo_id=repo_sourcebot_rewrite")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_sourcebot_rewrite"));
+        assert_eq!(payload.pagination.total_count, 1);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_sourcebot_rewrite");
+        assert_eq!(payload.results[0].path, "requested.rs");
 
         fs::remove_file(organization_state_path).unwrap();
     }
