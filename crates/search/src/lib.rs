@@ -884,6 +884,14 @@ fn validate_persisted_index_artifact(
                 artifact_path.display()
             );
         }
+        if indexed_line.line.contains(['\n', '\r']) {
+            anyhow::bail!(
+                "line separator in search index artifact line content for '{}:{}' in {}: persisted indexes must store one runtime line per entry",
+                indexed_line.path,
+                indexed_line.line_number,
+                artifact_path.display()
+            );
+        }
         if indexed_line.line_number == 0 {
             anyhow::bail!(
                 "invalid search index artifact line number 0 for '{}' in {}",
@@ -2881,6 +2889,47 @@ mod tests {
                 .contains("binary search index artifact line content"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_embedded_line_separators() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+
+        for separator_line in [
+            "build_router first line\nforged second line",
+            "build_router first line\rforged carriage line",
+        ] {
+            let mut separator_artifact_json = artifact_json.clone();
+            separator_artifact_json["indexed_lines"][0]["line"] =
+                serde_json::Value::String(separator_line.to_string());
+            fs::write(
+                &artifact_path,
+                serde_json::to_vec(&separator_artifact_json).unwrap(),
+            )
+            .unwrap();
+
+            let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+                Ok(_) => panic!(
+                    "persisted index artifact lines with embedded separators must fail closed"
+                ),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("line separator in search index artifact line content"),
+                "unexpected error for {separator_line:?}: {error:#}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
