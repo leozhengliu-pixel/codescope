@@ -6415,7 +6415,7 @@ async fn search_repository_contents(
     )?;
 
     if let Some(repo_id) = requested_repo_id {
-        if response.results.is_empty() && !search_store_has_usable_primary_index(&state, repo_id)? {
+        if response.results.is_empty() {
             if let Some(snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
@@ -6429,19 +6429,10 @@ async fn search_repository_contents(
             }
         }
     } else if response.results.is_empty() {
-        let mut repo_ids_missing_primary_index = visible_repo_ids
-            .iter()
-            .filter_map(
-                |repo_id| match search_store_has_usable_primary_index(&state, repo_id) {
-                    Ok(true) => None,
-                    Ok(false) => Some(Ok(repo_id.clone())),
-                    Err(error) => Some(Err(error)),
-                },
-            )
-            .collect::<Result<Vec<_>, _>>()?;
-        repo_ids_missing_primary_index.sort();
+        let mut fallback_repo_ids = visible_repo_ids.iter().cloned().collect::<Vec<_>>();
+        fallback_repo_ids.sort();
 
-        for repo_id in repo_ids_missing_primary_index {
+        for repo_id in fallback_repo_ids {
             if let Some(mut snapshot_response) = search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
@@ -6509,17 +6500,6 @@ fn search_visible_authorized_repositories(
         None,
         results,
     ))
-}
-
-fn search_store_has_usable_primary_index(
-    state: &AppState,
-    repo_id: &str,
-) -> Result<bool, StatusCode> {
-    state
-        .search
-        .repository_index_status(repo_id)
-        .map(|status| status.is_some_and(|status| status.status != RepositoryIndexState::Error))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 fn apply_search_pagination(
@@ -30869,6 +30849,121 @@ mod tests {
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(bad_repo_root).unwrap();
         fs::remove_dir_all(good_repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale() {
+        let primary_root = unique_test_path("search-stale-primary-repo-root");
+        let snapshot_repo_root = unique_test_path("search-stale-snapshot-repo-root");
+        let snapshot_job_root = snapshot_repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_stale")
+            .join("job_stale_latest");
+        let snapshot_root = snapshot_job_root.join("snapshot");
+        fs::create_dir_all(primary_root.join("src")).unwrap();
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            primary_root.join("src").join("lib.rs"),
+            "pub fn primary_stale_does_not_match_query() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn stale_primary_artifact_fallback_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_stale".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_stale", &snapshot_job_root.join("search-index.json"))
+        .unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn stale_primary_mutated_snapshot_must_not_be_used() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-stale-primary-orgs");
+        let local_session_state_path = unique_test_path("search-stale-primary-sessions");
+        let user_id = "user_stale_primary_search";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_stale"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_stale".into(),
+            name: "Stale local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: snapshot_repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_stale_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_stale".into(),
+                connection_id: "conn_stale".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:07:00Z".into(),
+                started_at: Some("2026-04-21T00:07:01Z".into()),
+                finished_at: Some("2026-04-21T00:07:02Z".into()),
+                error: None,
+                synced_revision: Some("stale-primary-revision".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_stale".to_string(),
+                primary_root.clone(),
+            )]))),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=stale_primary_artifact_fallback_marker")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.pagination.total_count, 1);
+        assert_eq!(payload.results[0].repo_id, "repo_stale");
+        assert!(payload.results[0]
+            .line
+            .contains("stale_primary_artifact_fallback_marker"));
+        assert!(!payload.results[0]
+            .line
+            .contains("stale_primary_mutated_snapshot_must_not_be_used"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(primary_root).unwrap();
+        fs::remove_dir_all(snapshot_repo_root).unwrap();
     }
 
     #[tokio::test]
