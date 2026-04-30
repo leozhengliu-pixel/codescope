@@ -5,37 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 90902212f7ea37114827f46fae17f2f811891b77
+  head: aa57d89f3f856c56f3c3080847e8c06e018223c4
 last_completed_task:
-  id: task103_108_ui_worker_batch
-  title: Render copied commit diff files and fail closed on padded worker numeric env
+  id: task102_unscoped_primary_error_artifact_fallback
+  title: Fail closed and recover unscoped search from local-sync artifacts on primary runtime errors
   status: done
   summary: >-
-    Integrated two real disjoint closures from this accelerated controller run
-    rather than producing a docs-only or state-only micro-slice. Task 103 now
-    renders copied commit-diff files in the repository commit detail UI with a
-    stable copied badge and old-path-to-new-path display instead of crashing on
-    an unrecognized `copied` change type. Task 108 now rejects empty or
-    surrounding-whitespace worker numeric runtime configuration for
-    `SOURCEBOT_WORKER_MAX_TICKS` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS` before
-    execution, documenting the fail-closed operator contract. The Task 102
-    search/index worker and the initial Task 103 worker both hit delegate
-    provider exhaustion; the Task 103 worktree nevertheless contained coherent
-    carry-over UI changes that the controller verified, fixed, committed, and
-    integrated. Practical replacement remains incomplete: this batch improves
-    commit UI coverage and worker config safety but does not claim production
-    indexing lifecycle parity, real provider fetch/import/reindex, full worker
-    scheduling/supervision/retry, OIDC parity, MCP session/client parity, or
-    final Sourcebot replacement readiness.
+    Closed one Task 102 production search/indexing runtime gap with a real API
+    behavior change rather than a docs-only or state-only slice. Unscoped
+    /api/v1/search now uses the same caller-authorized visible-repository local
+    sync search-index artifact fallback when the primary search runtime errors,
+    so a bounded local-sync artifact can preserve search availability during a
+    startup/runtime index outage. The fallback remains fail-closed: no fallback,
+    malformed/non-regular artifacts, and mixed visible-repository partial
+    fallback all return 500 instead of silently presenting incomplete results.
+    Practical replacement remains incomplete; this does not claim production
+    background indexing lifecycle parity, relevance at scale, provider fetch/import/reindex,
+    worker scheduling/supervision/retry parity, OIDC parity, MCP session/client
+    parity, or final Sourcebot replacement readiness.
   tests:
-    - 'Task 103 carry-over RED: cd web && npm test -- --run src/App.test.tsx -t "commit detail" failed with 1 failed / 188 skipped because copied diff files hit diffTypeBadgeStyle palette[changeType] undefined'
-    - 'Task 103 main focused: cd web && npm test -- --run src/App.test.tsx -t "commit details" passed with 1 test / 188 skipped'
-    - 'Task 103 main broader/build: cd web && npm test -- --run src/App.test.tsx -t "commit|diff" passed with 9 tests / 180 skipped; npm run build passed'
-    - 'Task 108 main focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_numeric_env_fails_closed -- --test-threads=1 passed with 0 lib tests, 2 main tests, and zero-test integration targets'
-    - 'Task 108 main broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker -- --test-threads=1 passed with 88 lib tests, 17 main tests, 5+3+4+3+6 integration tests, and 0 doc tests'
-    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 59 added lines and 0 findings'
-    - 'independent integration review: approved origin/master..HEAD with no security concerns, logic errors, docs-claim issues, or verification gaps'
-  commit: 90902212f7ea37114827f46fae17f2f811891b77
+    - 'worker RED/GREEN: task102 worker commit e8667ac783aaa8baf2936bbb92af7141af5c9f25 first failed then passed unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors; cherry-picked and review-hardened in main as aa57d89f3f856c56f3c3080847e8c06e018223c4'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors -- --nocapture passed with 0 lib tests and 1 main-bin test / 491 filtered'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_primary_error_without_local_sync_artifact_fails_closed -- --nocapture passed with 0 lib tests and 1 main-bin test / 492 filtered'
+    - 'review-fix focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_primary_error_fails_closed_when_any_visible_repo_lacks_local_sync_artifact -- --nocapture passed with 0 lib tests and 1 main-bin test / 493 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_ -- --nocapture passed with 0 lib tests and 5 main-bin tests / 489 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_artifact -- --nocapture passed with 0 lib tests and 11 main-bin tests / 483 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 47 main-bin tests / 447 filtered'
+    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 238 added lines and 0 findings'
+    - 'independent integration review: initial review found a mixed visible-repository partial-success blocker; after the fail-closed fix and regression, re-review approved with no security concerns, logic errors, docs-claim issues, or verification gaps'
+  commit: aa57d89f3f856c56f3c3080847e8c06e018223c4
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -45,19 +43,56 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run integrated two real bounded closures across
-    commit diff UI coverage and worker numeric configuration safety after the
-    Task 102 search/index worker failed to produce changes because the delegate
-    provider exhausted available accounts. Practical replacement remains
-    incomplete. Remaining blockers still include production-shaped indexing
-    lifecycle/status and failure recovery, relevance and pagination behavior at
-    scale beyond bounded helpers, fuller branch/ref management and
-    revision-switching UX, broader provider fetch/import/reindex, worker
-    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, deeper MCP client/session interoperability beyond the
-    HTTP/API bridge, operator runbook/deploy evidence, and the other release
-    blockers in this roadmap.
+    worktree is clean. This run closed one unscoped search runtime-outage fallback
+    surface by using caller-authorized local-sync search-index artifacts only
+    when every visible fallback candidate is usable, otherwise failing closed.
+    Practical replacement remains incomplete. Remaining blockers still include
+    production-shaped indexing lifecycle/status and failure recovery beyond
+    bounded local-sync artifacts, relevance and pagination behavior at scale,
+    fuller branch/ref management and revision-switching UX, broader provider
+    fetch/import/reindex, worker scheduling and supervision with broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability beyond the HTTP/API bridge, operator runbook/deploy evidence,
+    and the other release blockers in this roadmap.
 history:
+  - id: task102_unscoped_primary_error_artifact_fallback
+    status: done
+    summary: >-
+      Closed one Task 102 API/runtime search closure from an implementation
+      worker plus controller review-hardening rather than producing paperwork-only
+      progress. Unscoped search now falls back to caller-visible local-sync
+      search-index artifacts when the primary search runtime errors, and it fails
+      closed for no fallback, malformed artifacts, or mixed visible-repository
+      partial fallback so users do not receive silently incomplete results.
+    commit: aa57d89f3f856c56f3c3080847e8c06e018223c4
+    tests:
+      - 'worker commit: task102 worker commit e8667ac783aaa8baf2936bbb92af7141af5c9f25 was cherry-picked and amended in main as aa57d89f3f856c56f3c3080847e8c06e018223c4; task103 and task108 workers failed immediately with provider/account exhaustion and produced no worktree changes or commits'
+      - 'focused: unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors passed with 0 lib tests and 1 main-bin test / 491 filtered'
+      - 'focused: unscoped_search_primary_error_without_local_sync_artifact_fails_closed passed with 0 lib tests and 1 main-bin test / 492 filtered'
+      - 'review-fix focused: unscoped_primary_error_fails_closed_when_any_visible_repo_lacks_local_sync_artifact passed with 0 lib tests and 1 main-bin test / 493 filtered'
+      - 'broader: unscoped_search_ passed with 0 lib tests and 5 main-bin tests / 489 filtered; local_sync_artifact passed with 0 lib tests and 11 main-bin tests / 483 filtered; search_ passed with 0 lib tests and 47 main-bin tests / 447 filtered'
+      - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 238 added lines and 0 findings'
+      - 'independent review: first re-review caught hidden partial-success risk; final review approved after fail-closed mixed-repo regression with no remaining blockers'
+    review: >-
+      Independent review first approved the basic primary-error fallback but noted
+      no-fallback coverage gaps; after that regression was added, re-review found
+      a real hidden partial-success blocker when only some visible repos had
+      artifacts. The controller fixed the unscoped primary-error path to return
+      500 on any unavailable visible fallback candidate, added the mixed-repo
+      regression, reran focused/broader tests, and final independent re-review
+      approved the exact origin/master..HEAD range with no security, logic,
+      docs-claim, or verification-gap findings.
+    workers: >-
+      Launched three implementation worktrees because disk usage was safe at 55%
+      and sourcebot-worktrees was 15M after creation. The Task 102 worker used
+      /opt/data/projects/sourcebot-worktrees/task102-search-artifact-unscoped-20260430102002
+      and produced commit e8667ac783aaa8baf2936bbb92af7141af5c9f25. The Task 103
+      and Task 108 workers used
+      /opt/data/projects/sourcebot-worktrees/task103-browse-binary-20260430102002
+      and /opt/data/projects/sourcebot-worktrees/task108-worker-status-20260430102002,
+      but both failed immediately with delegate/provider account exhaustion and
+      left no changes or commits. All three worktrees were removed/pruned after
+      integration, no-change confirmation, or failure confirmation.
   - id: task103_108_ui_worker_batch
     status: done
     summary: >-
