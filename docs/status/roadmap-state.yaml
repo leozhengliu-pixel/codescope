@@ -5,39 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 42db623032aa67d5426d965c3cd605782718827b
+  head: b6904297250784880b01a989485f2670c0c7bb82
 last_completed_task:
-  id: task102_task103_task108_parallel_runtime_status_hardening
-  title: Search fallback, local-sync snapshot, and worker-status runtime hardening
+  id: task103_task108_parallel_revision_status_hardening
+  title: Local-sync revision safety and worker-status redaction hardening
   status: done
   summary: >-
-    Closed a three-worker implementation batch across disjoint practical-replacement
-    blocker domains. Requested-repo search now preserves a healthy primary indexed
-    no-hit response instead of broadening it with stale local-sync artifact fallback;
-    local-sync snapshot fallback now ignores successful jobs with blank synced_revision
-    metadata before browse/code-navigation/commit fallback context can build invalid
-    revision links; and worker status snapshots expose repository-sync queued,
-    started, and finished lifecycle timestamps for supervisor/operator triage. These
-    are real runtime hardening closures for Task 102, Task 103, and Task 108, but
-    they remain bounded and do not certify production search/indexing, full
-    repository-navigation parity, real provider fetch/import/reindex, worker
-    supervision, or practical Sourcebot replacement readiness.
+    Closed two implementation-backed runtime hardening closures from the accelerated
+    batch while failing the Search/Index worker closed on provider-account exhaustion
+    instead of inventing progress. Local-sync snapshot fallback now rejects successful
+    jobs whose synced_revision carries unsafe Git revision/pathspec/reflog/control
+    syntax before browse/code-navigation/commit fallback contexts can trust it, and
+    worker supervisor status now preserves the stable malformed queued timestamp
+    category while redacting volatile timestamp/input details. These are bounded
+    Task 103 and Task 108 hardening closures; they do not certify production
+    search/indexing, full repository navigation parity, worker supervision/retry
+    parity, provider fetch/import/reindex, or practical Sourcebot replacement
+    readiness.
   tests:
-    - 'baseline: started from live master 42789bb89b16be8790a2e887d405d08935380284 clean and in sync with origin/master; /opt/data was 63% used and sourcebot-worktrees was 4.0K before this run'
+    - 'baseline: started from live master 0d51c46e13782ccac497a72213fcb9e91ccdf183 clean and in sync with origin/master; /opt/data was 71% used and sourcebot-worktrees was 4.0K before worker dispatch'
     - 'disk/worktree guard: created exactly three implementation worktrees under /opt/data/projects/sourcebot-worktrees; pre-integration occupancy was 15M, below the 8G guardrail'
-    - 'search RED/worker: requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits initially failed because stale local-sync artifact results were returned for a healthy primary no-hit requested search'
-    - 'search focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api --bin sourcebot-api requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits -- --nocapture passed with 1 main-bin test / 506 filtered'
-    - 'search broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search -- --nocapture passed with 0 lib tests and 6 main-bin tests / 501 filtered'
-    - 'browse RED/worker: local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata initially failed because latest_local_sync_snapshot accepted blank synced_revision metadata'
-    - 'browse focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api --bin sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata -- --nocapture passed with 1 main-bin test / 506 filtered'
-    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot -- --nocapture passed with 0 lib tests and 8 main-bin tests / 499 filtered'
-    - 'worker RED/worker: worker_binary_status_snapshot_includes_failed_repository_sync_error_detail initially failed because lifecycle timestamp fields were absent from the status snapshot JSON'
-    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_failed_repository_sync_error_detail -- --nocapture passed with 1 smoke test / 5 filtered'
-    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --nocapture passed with 0 lib tests / 91 filtered, 1 main-bin test / 18 filtered, and zero-test integration targets as expected'
-    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 91 lib tests, 19 main-bin tests, 21 integration/smoke tests, and 0 doctests'
-    - 'integrator checks: cargo fmt --check, git diff --check HEAD~3..HEAD, git diff --check, added-lines security scan over HEAD~3..HEAD, and independent code/docs truthfulness review passed with no blocking findings'
-    - 'cleanup: removed search-runtime-20260430180900, browse-nav-20260430180900, and worker-runtime-20260430180900 worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K with /opt/data at 70% used'
-  commit: 42db623032aa67d5426d965c3cd605782718827b
+    - 'search worker: autopilot/search-runtime-20260430190030 failed with provider/account exhaustion (HTTP 503 no available accounts) after read-only exploration and produced no mergeable commit; the worktree was left at base HEAD and later removed'
+    - 'browse RED/worker: local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata initially failed because unsafe HEAD:README.md synced_revision metadata was accepted'
+    - 'browse focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata -- --nocapture passed with 0 lib tests / 68 filtered and 1 main-bin test / 507 filtered'
+    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot -- --nocapture passed with 0 lib tests / 68 filtered and 9 main-bin tests / 499 filtered'
+    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits_local_sync -- --nocapture passed with 0 lib tests / 68 filtered and 2 main-bin tests / 506 filtered'
+    - 'worker RED/worker: malformed_queued_timestamp initially failed because malformed queued timestamp status errors were collapsed to a generic redacted repository-sync failure'
+    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker malformed_queued_timestamp -- --nocapture passed with 1 main-bin test / 19 filtered plus expected zero-test targets'
+    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 91 lib tests, 20 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, added-lines security scan over HEAD~2..HEAD, and independent code/docs truthfulness review passed with no blocking findings'
+  commit: b6904297250784880b01a989485f2670c0c7bb82
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -45,18 +42,54 @@ current_task:
   status: pending
   summary: >-
     Continue the blocker-focused practical replacement roadmap from the highest-value
-    remaining implementation-backed slice. This run advanced Task 102 search
-    fallback precedence, Task 103 local-sync snapshot revision fail-closed behavior,
-    and Task 108 worker status observability, but the release audit still cannot
-    certify practical Sourcebot replacement. Remaining blockers include production
-    search/indexing pipelines beyond bounded startup/local-sync artifacts, relevance
-    and pagination at scale, fuller branch/ref and repository-navigation UX, broader
-    provider fetch/import/reindex execution, worker scheduling/supervision/retry and
-    backoff, OIDC/SSO login/callback/linking, richer admin/org flows, MCP client/session
+    remaining implementation-backed slice. This run advanced adjacent Task 103 and
+    Task 108 hardening while the Task 102 Search/Index worker failed closed due to
+    provider/account exhaustion before producing a mergeable commit, so production
+    search/indexing remains the preferred next target. Remaining blockers include
+    production search/indexing pipelines beyond bounded startup/local-sync artifacts,
+    relevance and pagination at scale, fuller branch/ref and repository-navigation
+    UX, broader provider fetch/import/reindex execution, worker scheduling/supervision/retry
+    and backoff, OIDC/SSO login/callback/linking, richer admin/org flows, MCP client/session
     interoperability, operator runbook/deploy evidence, and the final fail-closed
     release audit. Prefer the next closure with real user/operator capability over
     docs-only paperwork.
 history:
+  - id: task103_task108_parallel_revision_status_hardening
+    status: done
+    summary: >-
+      Closed two implementation-backed hardening slices from an accelerated batch
+      rather than a paperwork micro-slice. Local-sync snapshot fallback now rejects
+      unsafe Git revision/pathspec/reflog/control syntax in synced_revision metadata,
+      and worker status redaction preserves the malformed queued timestamp category
+      without leaking volatile details. The Search/Index worker failed closed on
+      provider-account exhaustion with no mergeable commit, so Task 102 remains the
+      next preferred product/runtime target.
+    commit: b6904297250784880b01a989485f2670c0c7bb82
+    component_commits:
+      - 29fe8517f17de4eda54ffd48e883bf8f1f74b577
+      - b6904297250784880b01a989485f2670c0c7bb82
+    tests:
+      - 'baseline: live master 0d51c46e13782ccac497a72213fcb9e91ccdf183 was clean and in sync with origin/master; /opt/data 71% used; sourcebot-worktrees 4.0K'
+      - 'search worker failed closed with HTTP 503 provider/account exhaustion and produced no mergeable commit'
+      - 'browse focused/main: local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata passed with 1 main-bin test / 507 filtered; broader local_sync_snapshot passed with 9 main-bin tests / 499 filtered; repo_commits_local_sync passed with 2 main-bin tests / 506 filtered'
+      - 'worker focused/main: malformed_queued_timestamp passed with 1 main-bin test / 19 filtered; full cargo test -p sourcebot-worker passed with 91 lib tests, 20 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, added-lines security scan, and independent review passed'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-20260430190030
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-mergeable-commit
+      - scope: Browse/Code Navigation
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-nav-20260430190030
+        worker_commit: 6b7e3a13484c16dd366dad53f245d59a22bdf5b9
+        integrated_commit: 29fe8517f17de4eda54ffd48e883bf8f1f74b577
+        result: merged
+      - scope: Worker/Provider runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-runtime-20260430190030
+        worker_commit: 5a30dc2f4a12417b947f236e6c3c130fe7182e7d
+        integrated_commit: b6904297250784880b01a989485f2670c0c7bb82
+        result: merged
   - id: task102_task103_task108_parallel_runtime_status_hardening
     status: done
     summary: >-
