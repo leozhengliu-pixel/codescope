@@ -262,9 +262,11 @@ type CommitResponse = {
   commit: CommitDetail;
 };
 
+type CommitDiffChangeType = 'added' | 'modified' | 'deleted' | 'renamed' | 'copied';
+
 type CommitDiffFile = {
   path: string;
-  change_type: 'added' | 'modified' | 'deleted' | 'renamed';
+  change_type: CommitDiffChangeType;
   old_path: string | null;
   additions: number;
   deletions: number;
@@ -3206,7 +3208,7 @@ function CommitsPanel({ repoId, revision }: { repoId: string; revision: string |
                       <div key={`${file.path}:${index}`} style={diffFileCardStyle}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                           <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
-                            {file.change_type === 'renamed' && file.old_path ? `${file.old_path} → ${file.path}` : file.path}
+                            {(file.change_type === 'renamed' || file.change_type === 'copied') && file.old_path ? `${file.old_path} → ${file.path}` : file.path}
                           </div>
                           <span style={diffTypeBadgeStyle(file.change_type)}>{file.change_type}</span>
                           <span style={diffStatAdditionsStyle}>+{file.additions}</span>
@@ -6854,6 +6856,7 @@ function diffTypeBadgeStyle(changeType: CommitDiffFile['change_type']): CSSPrope
     modified: { background: '#ddf4ff', color: '#0969da' },
     deleted: { background: '#ffebe9', color: '#cf222e' },
     renamed: { background: '#fff8c5', color: '#9a6700' },
+    copied: { background: '#fbefff', color: '#8250df' },
   };
 
   return {

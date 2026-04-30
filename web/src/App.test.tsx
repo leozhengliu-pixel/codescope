@@ -2710,6 +2710,15 @@ describe('App', () => {
               patch_truncated: false,
             },
             {
+              path: 'docs/CopiedGuide.md',
+              change_type: 'copied',
+              old_path: 'docs/Guide.md',
+              additions: 0,
+              deletions: 0,
+              patch: 'similarity index 100%\ncopy from docs/Guide.md\ncopy to docs/CopiedGuide.md',
+              patch_truncated: false,
+            },
+            {
               path: 'web/src/LargeGenerated.ts',
               change_type: 'modified',
               old_path: null,
@@ -2746,6 +2755,9 @@ describe('App', () => {
     expect(screen.getByText('+12')).toBeInTheDocument();
     expect(screen.getByText('-3')).toBeInTheDocument();
     expect(screen.getByText('web/src/OldName.tsx → web/src/NewName.tsx')).toBeInTheDocument();
+    expect(screen.getByText('docs/Guide.md → docs/CopiedGuide.md')).toBeInTheDocument();
+    expect(screen.getByText('copied')).toBeInTheDocument();
+    expect(screen.getByText(/copy to docs\/CopiedGuide\.md/)).toBeInTheDocument();
     expect(screen.getByText('web/src/LargeGenerated.ts')).toBeInTheDocument();
     expect(screen.getByText('Patch truncated for display. Open this commit locally to inspect the full diff.')).toBeInTheDocument();
     expect(screen.queryByText('[Sourcebot diff truncated: patch exceeds 64 KiB]')).not.toBeInTheDocument();
