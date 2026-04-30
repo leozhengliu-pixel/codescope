@@ -5,54 +5,97 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 0894c95e2ba174df5ade64bbbd8472c7ccce5cd0
+  head: 42db623032aa67d5426d965c3cd605782718827b
 last_completed_task:
-  id: task103_task106_commit_fallback_org_binding_hardening
-  title: Local sync commit-history fallback organization-binding hardening
+  id: task102_task103_task108_parallel_runtime_status_hardening
+  title: Search fallback, local-sync snapshot, and worker-status runtime hardening
   status: done
   summary: >-
-    Closed the live carry-over worker commit instead of launching another
-    parallel batch. Requested-repo local-sync commit-history fallback now fails
-    closed when the repository id has zero or multiple authorized organization
-    permission bindings, preventing the API from choosing an arbitrary local
-    sync snapshot across ambiguous org/repo bindings. The regression uses real
-    Git commit ids for the visible and hidden sync jobs, and focused plus
-    route-family tests prove the bounded commit fallback remains auth-scoped.
-    This advances repository navigation/provider-runtime hardening but does not
-    provide production provider fetch/import/reindex, durable background
-    indexing, worker supervision, or practical replacement certification.
+    Closed a three-worker implementation batch across disjoint practical-replacement
+    blocker domains. Requested-repo search now preserves a healthy primary indexed
+    no-hit response instead of broadening it with stale local-sync artifact fallback;
+    local-sync snapshot fallback now ignores successful jobs with blank synced_revision
+    metadata before browse/code-navigation/commit fallback context can build invalid
+    revision links; and worker status snapshots expose repository-sync queued,
+    started, and finished lifecycle timestamps for supervisor/operator triage. These
+    are real runtime hardening closures for Task 102, Task 103, and Task 108, but
+    they remain bounded and do not certify production search/indexing, full
+    repository-navigation parity, real provider fetch/import/reindex, worker
+    supervision, or practical Sourcebot replacement readiness.
   tests:
-    - 'baseline: started from live master 4ca693462d76a7a80bb1457cc85815b82a7c1f99 clean and in sync with origin/master; /opt/data was 67% used and sourcebot-worktrees was 15M with one active ahead worker branch plus two empty worker branches'
-    - 'carry-over mapping: /opt/data/projects/sourcebot-worktrees/browse-commit-20260430171645 had commit 9af4434c02db43ff3362ba9c5cd0e8ff7c83addb ahead of master touching crates/api/src/main.rs for local-sync commit fallback org binding; search-unscoped-20260430171645 and worker-genericgit-20260430171645 had no diffs'
-    - 'focused/worker-worktree: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits_local_sync_fallback_fails_closed_for_duplicate_org_repo_bindings -- --nocapture passed with 0 lib tests and 1 main-bin test / 504 filtered before cherry-pick'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits_local_sync_fallback_fails_closed_for_duplicate_org_repo_bindings -- --nocapture passed with 0 lib tests and 1 main-bin test / 504 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commit -- --nocapture passed with 0 lib tests and 15 main-bin tests / 490 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests and 33 main-bin tests / 472 filtered'
-    - 'integrator checks: cargo fmt --check, git diff --check HEAD~1..HEAD, git diff --check, added-lines security scan over HEAD~1..HEAD, and independent code/docs truthfulness review passed with no blocking findings'
-    - 'cleanup: removed browse-commit-20260430171645, search-unscoped-20260430171645, and worker-genericgit-20260430171645 worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K'
-  commit: 0894c95e2ba174df5ade64bbbd8472c7ccce5cd0
+    - 'baseline: started from live master 42789bb89b16be8790a2e887d405d08935380284 clean and in sync with origin/master; /opt/data was 63% used and sourcebot-worktrees was 4.0K before this run'
+    - 'disk/worktree guard: created exactly three implementation worktrees under /opt/data/projects/sourcebot-worktrees; pre-integration occupancy was 15M, below the 8G guardrail'
+    - 'search RED/worker: requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits initially failed because stale local-sync artifact results were returned for a healthy primary no-hit requested search'
+    - 'search focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api --bin sourcebot-api requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits -- --nocapture passed with 1 main-bin test / 506 filtered'
+    - 'search broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search -- --nocapture passed with 0 lib tests and 6 main-bin tests / 501 filtered'
+    - 'browse RED/worker: local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata initially failed because latest_local_sync_snapshot accepted blank synced_revision metadata'
+    - 'browse focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api --bin sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata -- --nocapture passed with 1 main-bin test / 506 filtered'
+    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot -- --nocapture passed with 0 lib tests and 8 main-bin tests / 499 filtered'
+    - 'worker RED/worker: worker_binary_status_snapshot_includes_failed_repository_sync_error_detail initially failed because lifecycle timestamp fields were absent from the status snapshot JSON'
+    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker --test worker_runtime_logging_smoke worker_binary_status_snapshot_includes_failed_repository_sync_error_detail -- --nocapture passed with 1 smoke test / 5 filtered'
+    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_snapshot_includes_repository_sync_terminal_metadata_fields -- --nocapture passed with 0 lib tests / 91 filtered, 1 main-bin test / 18 filtered, and zero-test integration targets as expected'
+    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 91 lib tests, 19 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check HEAD~3..HEAD, git diff --check, added-lines security scan over HEAD~3..HEAD, and independent code/docs truthfulness review passed with no blocking findings'
+    - 'cleanup: removed search-runtime-20260430180900, browse-nav-20260430180900, and worker-runtime-20260430180900 worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K with /opt/data at 70% used'
+  commit: 42db623032aa67d5426d965c3cd605782718827b
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue with the next highest-value implementation-backed practical
-    replacement blocker. The latest run deliberately closed an already-produced
-    Task 103/106 carry-over worker commit instead of launching fresh workers:
-    local-sync commit-history fallback now fails closed for ambiguous
-    authorized organization/repository bindings. Return to Task 102 production
-    search/indexing runtime parity when a meaningful search/index lifecycle
-    slice is available, or take an adjacent disjoint Task 103/105/106/107/108
-    release blocker when it is higher value and can be closed with real
-    implementation. Remaining blockers include real production indexing and
-    status pipelines beyond bounded local-sync artifacts, relevance/pagination
-    at scale, fuller branch/ref and repository-navigation UX, broader provider
-    fetch/import/reindex execution, worker scheduling/supervision/retry/backoff,
-    OIDC/SSO login/callback/linking, richer admin/org flows, MCP client/session
+    Continue the blocker-focused practical replacement roadmap from the highest-value
+    remaining implementation-backed slice. This run advanced Task 102 search
+    fallback precedence, Task 103 local-sync snapshot revision fail-closed behavior,
+    and Task 108 worker status observability, but the release audit still cannot
+    certify practical Sourcebot replacement. Remaining blockers include production
+    search/indexing pipelines beyond bounded startup/local-sync artifacts, relevance
+    and pagination at scale, fuller branch/ref and repository-navigation UX, broader
+    provider fetch/import/reindex execution, worker scheduling/supervision/retry and
+    backoff, OIDC/SSO login/callback/linking, richer admin/org flows, MCP client/session
     interoperability, operator runbook/deploy evidence, and the final fail-closed
-    release audit.
+    release audit. Prefer the next closure with real user/operator capability over
+    docs-only paperwork.
 history:
+  - id: task102_task103_task108_parallel_runtime_status_hardening
+    status: done
+    summary: >-
+      Closed a three-worker implementation-backed runtime hardening batch rather
+      than a micro-slice. Requested-repo search now respects healthy primary indexed
+      no-hit results instead of using stale local-sync artifacts; local-sync snapshot
+      fallback fails closed for blank successful-job synced_revision metadata; and
+      worker status snapshots expose repository-sync queued/started/finished timestamps
+      for supervisor/operator triage. Claims remain bounded and do not certify
+      practical replacement readiness.
+    commit: 42db623032aa67d5426d965c3cd605782718827b
+    component_commits:
+      - e5f23bf502163bc7b91b7e802bc013bf569ec02c
+      - fccb378cf889884bc5e53af4f047b72f49ed7a19
+      - 42db623032aa67d5426d965c3cd605782718827b
+    tests:
+      - 'baseline: live master 42789bb89b16be8790a2e887d405d08935380284 was clean and in sync with origin/master; /opt/data 63% used; sourcebot-worktrees 4.0K'
+      - 'search focused/main: requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits passed with 1 main-bin test / 506 filtered; broader requested_search passed with 0 lib tests and 6 main-bin tests / 501 filtered'
+      - 'browse focused/main: local_sync_snapshot_ignores_successful_jobs_with_blank_revision_metadata passed with 1 main-bin test / 506 filtered; broader local_sync_snapshot passed with 0 lib tests and 8 main-bin tests / 499 filtered'
+      - 'worker focused/main: worker_binary_status_snapshot_includes_failed_repository_sync_error_detail passed with 1 smoke test / 5 filtered; worker_status_snapshot_includes_repository_sync_terminal_metadata_fields passed with 1 main-bin test / 18 filtered plus expected zero-test targets'
+      - 'worker broader/main: cargo test -p sourcebot-worker passed with 91 lib tests, 19 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check HEAD~3..HEAD, git diff --check, added-lines security scan, and independent review passed'
+      - 'cleanup: removed all three worker worktrees, ran git worktree prune, and confirmed sourcebot-worktrees at 4.0K with /opt/data at 70% used'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-20260430180900
+        worker_commit: 2f4cdba3428511996ffdcc444fc2e2dc04696ac4
+        integrated_commit: e5f23bf502163bc7b91b7e802bc013bf569ec02c
+        result: merged
+      - scope: Browse/Code Navigation
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-nav-20260430180900
+        worker_commit: 0f63a6f94018aea609f0682d2c9c274880b32c8b
+        integrated_commit: fccb378cf889884bc5e53af4f047b72f49ed7a19
+        result: merged
+      - scope: Worker/Provider runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-runtime-20260430180900
+        worker_commit: bb16ecd55ace707b122c1356b407ef1b9a86843d
+        integrated_commit: 42db623032aa67d5426d965c3cd605782718827b
+        result: merged
   - id: task103_task106_commit_fallback_org_binding_hardening
     status: done
     summary: >-
