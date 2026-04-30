@@ -5,36 +5,36 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b6904297250784880b01a989485f2670c0c7bb82
+  head: da4e5d37a749c155de4208de4355fa822d1f5409
 last_completed_task:
-  id: task103_task108_parallel_revision_status_hardening
-  title: Local-sync revision safety and worker-status redaction hardening
+  id: task106_task107_parallel_failure_metadata_mcp_protocol
+  title: Repository-sync failure metadata cleanup and MCP initialize protocol hardening
   status: done
   summary: >-
-    Closed two implementation-backed runtime hardening closures from the accelerated
-    batch while failing the Search/Index worker closed on provider-account exhaustion
-    instead of inventing progress. Local-sync snapshot fallback now rejects successful
-    jobs whose synced_revision carries unsafe Git revision/pathspec/reflog/control
-    syntax before browse/code-navigation/commit fallback contexts can trust it, and
-    worker supervisor status now preserves the stable malformed queued timestamp
-    category while redacting volatile timestamp/input details. These are bounded
-    Task 103 and Task 108 hardening closures; they do not certify production
-    search/indexing, full repository navigation parity, worker supervision/retry
-    parity, provider fetch/import/reindex, or practical Sourcebot replacement
-    readiness.
+    Closed two implementation-backed provider/runtime and MCP protocol hardening
+    closures from the accelerated batch while failing the Task 102 Search/Index
+    worker closed on provider-account exhaustion before any mergeable commit. Failed
+    repository-sync terminal rows now clear stale success-only revision/branch/content-count
+    metadata before persistence, and authenticated MCP JSON-RPC initialize now rejects
+    unsupported protocolVersion values with -32602 instead of silently completing
+    the handshake. The acceptance and final-audit wording were synchronized with
+    these bounded claims; this does not certify production search/indexing,
+    real provider fetch/import/reindex, full MCP session/client interoperability,
+    or practical Sourcebot replacement readiness.
   tests:
-    - 'baseline: started from live master 0d51c46e13782ccac497a72213fcb9e91ccdf183 clean and in sync with origin/master; /opt/data was 71% used and sourcebot-worktrees was 4.0K before worker dispatch'
-    - 'disk/worktree guard: created exactly three implementation worktrees under /opt/data/projects/sourcebot-worktrees; pre-integration occupancy was 15M, below the 8G guardrail'
-    - 'search worker: autopilot/search-runtime-20260430190030 failed with provider/account exhaustion (HTTP 503 no available accounts) after read-only exploration and produced no mergeable commit; the worktree was left at base HEAD and later removed'
-    - 'browse RED/worker: local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata initially failed because unsafe HEAD:README.md synced_revision metadata was accepted'
-    - 'browse focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_unsafe_revision_metadata -- --nocapture passed with 0 lib tests / 68 filtered and 1 main-bin test / 507 filtered'
-    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_snapshot -- --nocapture passed with 0 lib tests / 68 filtered and 9 main-bin tests / 499 filtered'
-    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits_local_sync -- --nocapture passed with 0 lib tests / 68 filtered and 2 main-bin tests / 506 filtered'
-    - 'worker RED/worker: malformed_queued_timestamp initially failed because malformed queued timestamp status errors were collapsed to a generic redacted repository-sync failure'
-    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker malformed_queued_timestamp -- --nocapture passed with 1 main-bin test / 19 filtered plus expected zero-test targets'
-    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 91 lib tests, 20 main-bin tests, 21 integration/smoke tests, and 0 doctests'
-    - 'integrator checks: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, added-lines security scan over HEAD~2..HEAD, and independent code/docs truthfulness review passed with no blocking findings'
-  commit: b6904297250784880b01a989485f2670c0c7bb82
+    - 'baseline: started from live master d7fcc9e7e2d2df5ec33fb4145a42a70181f5dfac clean, in sync with origin/master, /opt/data at 60% used, and sourcebot-worktrees at 4.0K before worker dispatch'
+    - 'disk/worktree guard: created exactly three implementation worktrees under /opt/data/projects/sourcebot-worktrees; pre-cleanup occupancy was 15M, below the 8G guardrail'
+    - 'search worker: autopilot/search-index-202604301923 failed with provider/account exhaustion (HTTP 503 no available accounts) after read-only exploration and produced no mergeable commit'
+    - 'worker RED/worker: failed_repository_sync_job_clears_stale_synced_metadata initially failed because a failed sync job retained stale synced_revision metadata'
+    - 'worker focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker failed_repository_sync_job_clears_stale_synced_metadata -- --nocapture passed with 1 lib test / 91 filtered plus expected zero-test targets'
+    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker repository_sync -- --nocapture passed with 41 lib tests / 51 filtered, 1 main-bin test / 19 filtered, 3 repository-sync smoke tests, and 3 worker-runtime logging smoke tests'
+    - 'worker full/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 92 lib tests, 20 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+    - 'mcp RED/worker: mcp_json_rpc_initialize_rejects_unsupported_protocol_version initially failed because unsupported protocolVersion produced a null error instead of -32602'
+    - 'mcp focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_json_rpc_initialize_rejects_unsupported_protocol_version -- --nocapture passed with 1 main-bin test / 508 filtered plus expected zero-test lib target'
+    - 'mcp broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 15 main-bin tests / 494 filtered plus expected zero-test lib target; cargo test -p sourcebot-mcp passed with 9 lib tests and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, docs raw grep checks, added-lines security scan over d7fcc9e7e2d2df5ec33fb4145a42a70181f5dfac..HEAD, and independent integration/docs review passed with no blocking findings'
+    - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only the main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
+  commit: da4e5d37a749c155de4208de4355fa822d1f5409
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,18 +42,57 @@ current_task:
   status: pending
   summary: >-
     Continue the blocker-focused practical replacement roadmap from the highest-value
-    remaining implementation-backed slice. This run advanced adjacent Task 103 and
-    Task 108 hardening while the Task 102 Search/Index worker failed closed due to
-    provider/account exhaustion before producing a mergeable commit, so production
-    search/indexing remains the preferred next target. Remaining blockers include
-    production search/indexing pipelines beyond bounded startup/local-sync artifacts,
-    relevance and pagination at scale, fuller branch/ref and repository-navigation
+    remaining implementation-backed slice. This run advanced adjacent Task 106 and
+    Task 107 hardening while the Task 102 Search/Index worker again failed closed
+    due to provider/account exhaustion before producing a mergeable commit, so
+    production search/indexing remains the preferred next target. Remaining blockers
+    include production search/indexing pipelines beyond bounded startup/local-sync
+    artifacts, relevance and pagination at scale, fuller branch/ref and repository-navigation
     UX, broader provider fetch/import/reindex execution, worker scheduling/supervision/retry
-    and backoff, OIDC/SSO login/callback/linking, richer admin/org flows, MCP client/session
-    interoperability, operator runbook/deploy evidence, and the final fail-closed
-    release audit. Prefer the next closure with real user/operator capability over
-    docs-only paperwork.
+    and backoff beyond bounded local baselines, OIDC/SSO login/callback/linking,
+    richer admin/org flows, MCP client/session interoperability beyond the API bridge,
+    operator runbook/deploy evidence, and the final fail-closed release audit. Prefer
+    the next closure with real user/operator capability over docs-only paperwork.
 history:
+  - id: task106_task107_parallel_failure_metadata_mcp_protocol
+    status: done
+    summary: >-
+      Closed two implementation-backed hardening slices from an accelerated batch
+      rather than a paperwork micro-slice. Failed repository-sync terminal rows
+      now clear stale success-only revision/branch/content-count metadata before
+      persistence, and MCP JSON-RPC initialize rejects unsupported protocolVersion
+      values with a protocol-level invalid-params error. The Search/Index worker
+      failed closed on provider-account exhaustion with no mergeable commit, so
+      Task 102 remains the next preferred product/runtime target.
+    commit: da4e5d37a749c155de4208de4355fa822d1f5409
+    component_commits:
+      - c7602869104216f7ab16ebed9ae179aaa8ea6fc1
+      - 58a8208fe7a6eafbbbbe39dda6f5e32bb0b1f7f5
+      - da4e5d37a749c155de4208de4355fa822d1f5409
+    tests:
+      - 'baseline: live master d7fcc9e7e2d2df5ec33fb4145a42a70181f5dfac was clean and in sync with origin/master; /opt/data 60% used; sourcebot-worktrees 4.0K'
+      - 'search worker failed closed with HTTP 503 provider/account exhaustion and produced no mergeable commit'
+      - 'worker focused/main: failed_repository_sync_job_clears_stale_synced_metadata passed with 1 lib test / 91 filtered plus expected zero-test targets; broader repository_sync passed with 41 lib tests / 51 filtered, 1 main-bin test / 19 filtered, 3 repository-sync smoke tests, and 3 worker-runtime logging smoke tests'
+      - 'worker full/main: cargo test -p sourcebot-worker passed with 92 lib tests, 20 main-bin tests, 21 integration/smoke tests, and 0 doctests'
+      - 'mcp focused/main: mcp_json_rpc_initialize_rejects_unsupported_protocol_version passed with 1 main-bin test / 508 filtered; broader mcp_json_rpc passed with 15 main-bin tests / 494 filtered; sourcebot-mcp passed with 9 lib tests and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, docs raw grep checks, added-lines security scan, and independent review passed'
+      - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only the main worktree remains, sourcebot-worktrees is 4.0K, and /opt/data is 60% used'
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-index-202604301923
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-mergeable-commit
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/provider-sync-202604301923
+        worker_commit: 3f5a76b117fff25e255ad9b415cf6a2334ccd46d
+        integrated_commit: c7602869104216f7ab16ebed9ae179aaa8ea6fc1
+        result: merged
+      - scope: MCP/Ops interoperability
+        worktree: /opt/data/projects/sourcebot-worktrees/mcp-ops-202604301923
+        worker_commit: 2e4fe697ef1dfcd0026cec5015c302267bb51fe8
+        integrated_commit: 58a8208fe7a6eafbbbbe39dda6f5e32bb0b1f7f5
+        result: merged
   - id: task103_task108_parallel_revision_status_hardening
     status: done
     summary: >-
