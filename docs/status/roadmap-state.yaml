@@ -5,45 +5,41 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 245df549c462452367fac14034f2081eb683871e
+  head: 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
 last_completed_task:
-  id: task102_103_108_artifact_revision_utf8_guards
-  title: Fail closed on error search artifacts, unsafe commit revisions, and non-UTF-8 local-sync paths
+  id: task102_103_106_search_refs_generic_git_hardening
+  title: Stale-index artifact search, bounded repository refs, and Generic Git HEAD-name hardening
   status: done
   summary: >-
-    Integrated three disjoint implementation-worker closures as one meaningful
-    practical-replacement hardening batch rather than a paperwork slice. Search
-    requests now fail closed when the latest caller-authorized local-sync
-    search-index artifact is valid but reports an error status, while
-    index-status still exposes the operator-visible error. Commit list/detail/diff
-    revision selectors now reject Git revision-expression and metacharacter
-    syntax before invocation so fallback commit reads cannot widen to parent,
-    reflog, range, or path-expression selectors. Local repository sync now
-    rejects non-UTF-8 tracked path bytes from NUL-delimited `git ls-tree` output
-    before manifest, snapshot, or search-index artifact creation. Practical
-    replacement remains incomplete and still fails closed on production indexing
-    lifecycle/recovery, real provider fetch/import/reindex, broad retry/backoff
-    and supervision, identity/provider flows, deeper MCP client/session
+    Integrated three disjoint implementation-backed closures as one practical
+    replacement hardening batch rather than a docs/state-only slice. Search now
+    consults caller-visible local-sync search-index artifacts when the primary
+    startup search response is empty even if a visible repository has stale or
+    error primary index-status, while still preserving primary-match precedence.
+    Repository navigation now exposes authenticated bounded branch/tag ref
+    summaries from the visible commit store through GET
+    /api/v1/repos/{repo_id}/refs. Generic Git metadata probing now rejects
+    ambiguous refs/heads/HEAD branch-name advertisements before persisting
+    terminal remote metadata. Practical replacement remains incomplete and still
+    fails closed on production indexing lifecycle/recovery, frontend branch
+    picker parity, real provider fetch/import/reindex, broad retry/backoff and
+    supervision, identity/provider flows, deeper MCP client/session
     interoperability, and production operator deployment evidence.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because search returned 200 for an error-status artifact'
-    - 'controller focused: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 470 filtered out'
-    - 'controller broader: cargo test -p sourcebot-search index_artifact -- --nocapture passed with 28 tests and 33 filtered out'
-    - 'worker RED: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture failed before implementation with 0 passed, 1 failed, 477 filtered out because HEAD~1/HEAD^1 revision selectors were accepted'
-    - 'controller focused: cargo test -p sourcebot-api local_commit_store_returns_none_for_unknown_repo_or_commit -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 477 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 19 main-bin tests and 459 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api browse::tests -- --nocapture passed with one zero-test lib target plus 40 main-bin tests and 438 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api code_nav -- --nocapture passed with one zero-test lib target plus 3 main-bin tests and 475 filtered out'
-    - 'worker RED: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture failed before implementation with 0 passed, 1 failed, 83 filtered out because non-UTF-8 tracked paths were lossy-decoded into later Git/snapshot logic'
-    - 'controller focused: cargo test -p sourcebot-worker local_repository_sync_non_utf8 -- --nocapture passed with 1 lib test, 83 filtered out, and zero-test nonmatching targets'
-    - 'controller broader: cargo test -p sourcebot-worker repository_sync passed with 35 lib tests, 1 main-bin test, 3 repository_sync_claim_smoke tests, and 3 worker_runtime_logging_smoke tests'
-    - 'controller broader: cargo test -p sourcebot-worker passed with 84 lib tests, 8 main-bin tests, 21 integration smoke tests, and 0 doctests'
+    - 'worker RED: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture failed before implementation because unscoped search skipped local-sync artifact fallback when a visible repo had primary index-status rows but zero primary matches'
+    - 'controller focused: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 472 filtered out'
+    - 'worker RED: cargo test -p sourcebot-api commits::tests::local_commit_store_lists_branch_and_tag_refs failed before implementation because RefKind and CommitStore::list_refs did not exist'
+    - 'controller focused: cargo test -p sourcebot-api local_commit_store_lists_branch_and_tag_refs -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
+    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 20 main-bin tests and 460 filtered out'
+    - 'worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture failed before implementation because refs/heads/HEAD could be treated as a branch name'
+    - 'controller focused: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture passed with 1 lib test, 84 filtered out, and zero-test nonmatching targets'
+    - 'controller broader: cargo test -p sourcebot-worker generic_git_ls_remote_heads -- --nocapture passed with 5 lib tests, 80 filtered out, and zero-test nonmatching targets'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD passed'
-    - 'controller: added-lines security scan over 15fa82e215f7c5b18082c62d051c8003cdcb5146..HEAD found no findings'
-    - 'independent integration review approved the integrated range with no blocking security, logic, auth/scope, path/revision safety, fail-closed, or docs-claim issues'
-  commit: 245df549c462452367fac14034f2081eb683871e
+    - 'controller: git diff --check HEAD~3..HEAD passed before docs and git diff --check passed after docs'
+    - 'controller: added-lines security scan over HEAD~3..HEAD found no findings'
+    - 'independent integration review approved the committed range plus docs diff with no blocking auth/scope, path/revision safety, fail-closed, security, or docs-claim issues'
+  commit: 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -54,19 +50,63 @@ current_task:
     runtime closure while the accelerated controller may also take adjacent
     high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
     the main worktree is clean. This batch closed three real hardening gaps:
-    error-status local-sync search-index artifacts now fail closed for search
-    while staying visible through index-status, commit fallback revision
-    selectors reject Git revision-expression/metacharacter syntax before
-    invocation, and local-sync artifact creation rejects non-UTF-8 tracked path
-    bytes before manifest/snapshot/search-index persistence. Practical
-    replacement remains incomplete. Remaining blockers still include
+    unscoped/context search can use newer caller-visible local-sync artifacts
+    when primary search is empty despite stale/error primary index-status,
+    repository navigation exposes bounded authenticated branch/tag ref summaries
+    without claiming full frontend branch-picker parity, and Generic Git remote
+    metadata parsing rejects ambiguous refs/heads/HEAD branch-name advertisements.
+    Practical replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, branch and index
-    availability, broader provider fetch/import/reindex, worker scheduling and
-    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
-    deeper MCP client/session interoperability, operator runbook/deploy evidence,
-    and the other release blockers in this roadmap.
+    and pagination behavior at scale beyond bounded helpers, branch/ref picker UX
+    and deeper navigation polish, broader provider fetch/import/reindex, worker
+    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
+    admin/org flows, deeper MCP client/session interoperability, operator
+    runbook/deploy evidence, and the other release blockers in this roadmap.
 history:
+  - id: task102_103_106_search_refs_generic_git_hardening
+    status: done
+    summary: >-
+      Integrated three implementation-backed closures rather than a docs-only
+      micro-slice: stale/error primary index-status can no longer suppress newer
+      visible local-sync search artifact results when primary search is empty,
+      visible repositories now expose bounded branch/tag ref summaries through
+      the commit store and /refs API route, and Generic Git remote metadata
+      rejects ambiguous refs/heads/HEAD branch-name advertisements.
+    commit: 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
+    component_commits:
+      - f5f1086ceb0fadcd59f0afc9105f5076da594050
+      - e7e9a6ab8a711d26121684ade880e9a5425d7041
+      - 8a330e4629af0e8375cdec342eba3de7400f04a8
+      - 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
+    tests:
+      - 'worker RED: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture failed before implementation because unscoped search skipped local-sync artifact fallback when a visible repo had primary index-status rows but zero primary matches'
+      - 'controller focused: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 472 filtered out'
+      - 'worker RED: cargo test -p sourcebot-api commits::tests::local_commit_store_lists_branch_and_tag_refs failed before implementation because RefKind and CommitStore::list_refs did not exist'
+      - 'controller focused: cargo test -p sourcebot-api local_commit_store_lists_branch_and_tag_refs -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
+      - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 20 main-bin tests and 460 filtered out'
+      - 'worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture failed before implementation because refs/heads/HEAD could be treated as a branch name'
+      - 'controller focused: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture passed with 1 lib test, 84 filtered out, and zero-test nonmatching targets'
+      - 'controller broader: cargo test -p sourcebot-worker generic_git_ls_remote_heads -- --nocapture passed with 5 lib tests, 80 filtered out, and zero-test nonmatching targets'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check HEAD~3..HEAD passed before docs and git diff --check passed after docs'
+      - 'controller: added-lines security scan over HEAD~3..HEAD found no findings'
+      - 'independent integration review approved the committed range plus docs diff with no blocking auth/scope, path/revision safety, fail-closed, security, or docs-claim issues'
+    review: >-
+      Independent integration review inspected the committed range from
+      7aae647e4e008514c4c1402cfe732e732ff695fc through the code and docs
+      closure plus the then-dirty acceptance/report docs diff. It approved with
+      no blocking issues after checking /refs auth scope, bounded Git invocation,
+      hidden commit filtering, search fallback primary-precedence and artifact
+      fail-closed semantics, Generic Git ambiguous HEAD-name rejection, security,
+      and bounded documentation claims.
+    workers: >-
+      Search/index worker commit a4393688527675747655fa73f87fbc2177de81af was
+      cherry-picked/integrated on master as f5f1086ceb0fadcd59f0afc9105f5076da594050. Browse/commit worker
+      commit dfa51fb16482ffac9b3ca084d970afb32d74ba3b was cherry-picked/integrated
+      on master as e7e9a6ab8a711d26121684ade880e9a5425d7041. Provider/worker commit
+      26d62d82eb17da6a5e90826e5060010b9da9ac0d was cherry-picked/integrated on
+      master as 8a330e4629af0e8375cdec342eba3de7400f04a8. Coupled docs were committed as 50bbe393332676a5b6f7fc725a9ef7a967fc14f9.
   - id: task102_103_108_artifact_revision_utf8_guards
     status: done
     summary: >-
