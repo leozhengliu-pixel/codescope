@@ -1614,8 +1614,16 @@ fn validate_local_repository_sync_repo_path(repo_path: &str) -> Result<(), Strin
         );
     }
 
-    if !Path::new(repo_path).is_absolute() {
+    let path = Path::new(repo_path);
+    if !path.is_absolute() {
         return Err("local repository repo_path must be absolute".to_owned());
+    }
+
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err("local repository repo_path must not be a symlink".to_owned());
     }
 
     Ok(())
@@ -3262,6 +3270,52 @@ mod tests {
         assert_eq!(
             failed_job.error.as_deref(),
             Some("local repository sync preflight failed: local repository repo_path must be absolute")
+        );
+    }
+
+    #[test]
+    fn local_repository_sync_symlink_repo_path_fails_closed_before_spawning_git() {
+        let target_dir = std::env::temp_dir().join(format!(
+            "sourcebot-local-sync-symlink-target-{}",
+            std::process::id()
+        ));
+        let symlink_path = std::env::temp_dir().join(format!(
+            "sourcebot-local-sync-symlink-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&symlink_path);
+        let _ = fs::remove_dir_all(&target_dir);
+        fs::create_dir(&target_dir).expect("local sync symlink target fixture should be created");
+        std::os::unix::fs::symlink(&target_dir, &symlink_path)
+            .expect("local sync repo_path symlink fixture should be created");
+
+        let state = OrganizationState {
+            connections: vec![local_connection(symlink_path.to_string_lossy().as_ref())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_symlink_path",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            Duration::from_millis(50),
+        )
+        .expect("symlink local repo_path should terminally fail the job before git is spawned");
+
+        let _ = fs::remove_file(&symlink_path);
+        let _ = fs::remove_dir_all(&target_dir);
+
+        assert_eq!(failed_job.id, "sync_job_local_symlink_path");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: local repository repo_path must not be a symlink")
         );
     }
 
