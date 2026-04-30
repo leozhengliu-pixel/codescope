@@ -777,8 +777,8 @@ fn run_local_repository_sync_execution(
         timeout,
         output_limit_bytes,
     )?;
-    write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
     write_local_repository_sync_search_index(repo_path, job)?;
+    write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
     tracing::info!(
         repo_path = %repo_path,
         head = %head,
@@ -5562,6 +5562,87 @@ mod tests {
             .unwrap()
             .results
             .is_empty());
+
+        let persisted = store.organization_state().await.unwrap();
+        assert_eq!(persisted.repository_sync_jobs[0], completed_job);
+
+        fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_repository_sync_claim_tick_fails_without_manifest_when_search_index_artifact_cannot_persist(
+    ) {
+        let repo_path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-local-git-index-artifact-blocked-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&repo_path).unwrap();
+        Command::new("git")
+            .arg("init")
+            .arg(&repo_path)
+            .output()
+            .expect("git init should run");
+        fs::write(repo_path.join("README.md"), "local repo sync fixture\n").unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["add", "README.md"])
+            .output()
+            .expect("git add should run");
+        Command::new("git")
+            .arg("-C")
+            .arg(&repo_path)
+            .args(["-c", "user.email=worker@example.test"])
+            .args(["-c", "user.name=Worker Test"])
+            .args(["commit", "-m", "index artifact blocked fixture"])
+            .output()
+            .expect("git commit should run");
+
+        let job = local_repository_sync_job(
+            "sync_job_local_index_artifact_blocked",
+            RepositorySyncJobStatus::Queued,
+            "2026-04-26T10:00:45Z",
+        );
+        let manifest_path = local_repository_sync_manifest_path(
+            repo_path.to_str().expect("temp repo path should be UTF-8"),
+            &job,
+        );
+        let job_dir = manifest_path
+            .parent()
+            .expect("manifest path should have a job directory");
+        fs::create_dir_all(job_dir.join("search-index.json")).unwrap();
+
+        let store = InMemoryOrganizationStore::new(OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![job],
+            ..OrganizationState::default()
+        });
+
+        let completed_job = run_repository_sync_claim_tick(
+            &store,
+            StubRepositorySyncJobExecutionOutcome::Succeeded,
+        )
+        .await
+        .unwrap()
+        .expect("queued local repository sync job should be terminally recorded");
+
+        assert_eq!(completed_job.id, "sync_job_local_index_artifact_blocked");
+        assert_eq!(completed_job.status, RepositorySyncJobStatus::Failed);
+        let error = completed_job
+            .error
+            .as_deref()
+            .expect("search artifact persistence failure should be surfaced");
+        assert!(
+            error.contains("failed to persist local search index artifact"),
+            "unexpected local sync artifact failure detail: {error}"
+        );
+        assert!(
+            !manifest_path.exists(),
+            "failed local sync must not publish a manifest before all required artifacts exist"
+        );
 
         let persisted = store.organization_state().await.unwrap();
         assert_eq!(persisted.repository_sync_jobs[0], completed_job);
