@@ -5,52 +5,103 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
+  head: 83a36e006267630c89be173038ea87d23243c2e9
 last_completed_task:
-  id: task103_refs_ui_visibility
-  title: Repository detail branch/tag summary visibility
+  id: task102_106_search_artifact_generic_git_failclosed
+  title: Search artifact and Generic Git metadata fail-closed hardening
   status: done
   summary: >-
-    Shipped a bounded user-visible repository-navigation closure rather than a
-    docs/state-only update: the repository detail UI now fetches authenticated
-    GET /api/v1/repos/{repo_id}/refs, validates the response repo id, and renders
-    branch/tag summary visibility with short target revisions and loading, empty,
-    and error states. Acceptance, parity-gap, and final-audit wording now keep
-    the claim deliberately partial: this is summary visibility, not full branch
-    picker, revision-switching UX, provider fetch/import/reindex, or practical
-    replacement parity.
+    Integrated two implementation-backed practical-replacement hardening closures
+    rather than a state-only or docs-only micro-slice: malformed/non-regular/error
+    local-sync search-index artifacts no longer poison requested or unscoped search
+    fallback with request-wide 500s or mutable snapshot rewalks, and Generic Git
+    metadata sync now fails closed when a direct HEAD revision maps to multiple
+    branch refs without a HEAD symref. Coupled README, repository-operations,
+    generic-local-git, and final-audit wording keep both claims bounded; practical
+    replacement remains incomplete.
   tests:
-    - 'worker RED: npm test -- App.test.tsx -t "branch and tag summaries" failed before implementation with missing "Branches and tags" heading (1 failed, 186 skipped)'
-    - 'worker GREEN: npm test -- App.test.tsx -t "branch and tag summaries" passed in the isolated refs UI worktree with 1 passed and 186 skipped before controller integration'
-    - 'worker broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed in the isolated refs UI worktree with 11 passed and 176 skipped before controller integration'
-    - 'controller focused: npm test -- App.test.tsx -t "branch and tag summaries" passed with 1 passed and 186 skipped after cherry-pick and async assertion hardening'
-    - 'controller broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed with 9 passed and 178 skipped after integration'
-    - 'controller frontend build: npm run build passed in web/'
+    - 'worker search RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture failed before implementation with 2 failed and 1 passed main-bin tests because malformed artifacts returned request-wide 500s'
+    - 'worker search GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture passed with 3 matched main-bin tests before integration'
+    - 'worker search broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_search -- --nocapture passed with 8 matched main-bin tests, and cargo test -p sourcebot-api search_ -- --nocapture passed with 41 matched main-bin tests before integration'
+    - 'worker runtime RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref failed before implementation with 1 failed lib test'
+    - 'worker runtime GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref passed with 1 matched lib test before integration'
+    - 'worker runtime broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git passed with 40 matched lib tests, and cargo test -p sourcebot-worker passed before integration'
+    - 'controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture passed with 0 lib tests plus 3 main-bin tests and 477 filtered out after cherry-pick'
+    - 'controller local-sync broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_search -- --nocapture passed with 0 lib tests plus 8 main-bin tests and 472 filtered out after cherry-pick'
+    - 'controller search broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 41 main-bin tests and 439 filtered out after cherry-pick'
+    - 'controller worker focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref -- --nocapture passed with 1 lib test plus zero-test nonmatching targets after cherry-pick'
+    - 'controller worker broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git -- --nocapture passed with 40 lib tests plus zero-test nonmatching targets after cherry-pick'
+    - 'controller: cargo fmt --check passed'
     - 'controller: git diff --check passed'
-    - 'controller: added-lines security scan over b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e found no findings'
-    - 'independent review approved b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e with no blocking security, logic, async, auth-scope, unrelated-change, or docs-claim issues'
-  commit: bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
+    - 'controller: added-lines security scan over HEAD~2..HEAD plus dirty docs found no findings'
+    - 'independent review initially found one docs-truthfulness blocker in repository-operations index-status wording; after patching, targeted re-review approved with no blocking issues'
+  commit: 83a36e006267630c89be173038ea87d23243c2e9
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 with the next meaningful production search/indexing
-    runtime closure while the accelerated controller may also take adjacent
-    high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
-    the main worktree is clean. This run intentionally chose an adjacent Task
-    103 frontend closure because the backend /refs route had already landed but
-    the repository detail UI still lacked user-visible branch/tag summary
-    visibility. Practical replacement remains incomplete. Remaining blockers
-    still include production-shaped indexing lifecycle/status and failure
-    recovery, relevance and pagination behavior at scale beyond bounded helpers,
-    a full branch/ref picker and revision-switching UX beyond summary
-    visibility, broader provider fetch/import/reindex, worker scheduling and
-    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
-    deeper MCP client/session interoperability, operator runbook/deploy
-    evidence, and the other release blockers in this roadmap.
+    Continue Task 102 with the next meaningful production search/indexing runtime
+    closure while the accelerated controller may also take adjacent high-value
+    Task 103/105/106/107/108 blockers when scopes are disjoint and the main
+    worktree is clean. This run integrated two adjacent hardening closures for
+    local-sync search artifact failure behavior and Generic Git HEAD metadata
+    ambiguity, while one browse/code-navigation worker failed before producing a
+    mergeable closure because its provider account became unavailable. Practical
+    replacement remains incomplete. Remaining blockers still include production-
+    shaped indexing lifecycle/status and failure recovery, relevance and
+    pagination behavior at scale beyond bounded helpers, a full branch/ref picker
+    and revision-switching UX beyond summary visibility, broader provider
+    fetch/import/reindex, worker scheduling and supervision with broad retry/
+    backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability, operator runbook/deploy evidence, and the other release
+    blockers in this roadmap.
 history:
+  - id: task102_106_search_artifact_generic_git_failclosed
+    status: done
+    summary: >-
+      Closed two real fail-closed runtime surfaces in one accelerated batch: local-sync
+      search-index artifact failures now remain scoped/empty for search fallback without
+      rewalking mutable snapshots or returning request-wide 500s, while Generic Git
+      direct HEAD metadata now fails closed when multiple branch refs share the same
+      revision and no HEAD symref disambiguates the current branch.
+    commit: 83a36e006267630c89be173038ea87d23243c2e9
+    component_commits:
+      - 9e878b93cfe6cfbb94db846464be5b84065c5935
+      - 7aaf967a86312a562a455e53625f31913b1daaa8
+      - 83a36e006267630c89be173038ea87d23243c2e9
+    tests:
+      - 'worker search RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture failed before implementation with 2 failed and 1 passed main-bin tests because malformed artifacts returned request-wide 500s'
+      - 'worker search GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture passed with 3 matched main-bin tests before integration'
+      - 'worker search broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_search -- --nocapture passed with 8 matched main-bin tests, and cargo test -p sourcebot-api search_ -- --nocapture passed with 41 matched main-bin tests before integration'
+      - 'worker runtime RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref failed before implementation with 1 failed lib test'
+      - 'worker runtime GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref passed with 1 matched lib test before integration'
+      - 'worker runtime broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git passed with 40 matched lib tests, and cargo test -p sourcebot-worker passed before integration'
+      - 'controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api malformed_local_sync -- --nocapture passed with 0 lib tests plus 3 main-bin tests and 477 filtered out after cherry-pick'
+      - 'controller local-sync broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_search -- --nocapture passed with 0 lib tests plus 8 main-bin tests and 472 filtered out after cherry-pick'
+      - 'controller search broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 41 main-bin tests and 439 filtered out after cherry-pick'
+      - 'controller worker focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git_sync_fails_closed_when_head_revision_matches_multiple_heads_without_symref -- --nocapture passed with 1 lib test plus zero-test nonmatching targets after cherry-pick'
+      - 'controller worker broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker generic_git -- --nocapture passed with 40 lib tests plus zero-test nonmatching targets after cherry-pick'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check passed'
+      - 'controller: added-lines security scan over HEAD~2..HEAD plus dirty docs found no findings'
+      - 'independent review initially found one docs-truthfulness blocker in repository-operations index-status wording; after patching, targeted re-review approved with no blocking issues'
+    review: >-
+      Independent review inspected the committed implementation range plus docs diff,
+      approved the search and Generic Git code paths, and initially blocked only on an
+      over-broad repository-operations docs phrase for index-status malformed-artifact
+      behavior. After the docs were patched to say index-status returns an error status
+      with zero counts and bounded/redacted reason rather than empty fallback, targeted
+      re-review approved with no blocking issues.
+    workers: >-
+      Three implementation workers were launched after disk and worktree preflight:
+      search-worker produced commit 926593677195af1b8732f9fbf80487960af370a8,
+      cherry-picked on master as 9e878b93cfe6cfbb94db846464be5b84065c5935; worker-runtime produced commit
+      4e3f1e5ca8137b5c1de89fa4d6233f31c39cb388, cherry-picked on master as
+      7aaf967a86312a562a455e53625f31913b1daaa8; browse-worker failed with provider/account exhaustion before producing
+      a commit and was not merged. All worker worktrees were scheduled for cleanup in
+      this closure.
   - id: task103_refs_ui_visibility
     status: done
     summary: >-
