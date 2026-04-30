@@ -5,35 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: aa57d89f3f856c56f3c3080847e8c06e018223c4
+  head: cc9c5edbe90d004792919a5a9418c6dea5ba591c
 last_completed_task:
-  id: task102_unscoped_primary_error_artifact_fallback
-  title: Fail closed and recover unscoped search from local-sync artifacts on primary runtime errors
+  id: task103_task108_parallel_codenav_worker_status_hardening
+  title: Skip non-UTF-8 revision reference paths and reject control-character worker status paths
   status: done
   summary: >-
-    Closed one Task 102 production search/indexing runtime gap with a real API
-    behavior change rather than a docs-only or state-only slice. Unscoped
-    /api/v1/search now uses the same caller-authorized visible-repository local
-    sync search-index artifact fallback when the primary search runtime errors,
-    so a bounded local-sync artifact can preserve search availability during a
-    startup/runtime index outage. The fallback remains fail-closed: no fallback,
-    malformed/non-regular artifacts, and mixed visible-repository partial
-    fallback all return 500 instead of silently presenting incomplete results.
-    Practical replacement remains incomplete; this does not claim production
-    background indexing lifecycle parity, relevance at scale, provider fetch/import/reindex,
-    worker scheduling/supervision/retry parity, OIDC parity, MCP session/client
-    parity, or final Sourcebot replacement readiness.
+    Closed two disjoint practical-replacement blocker surfaces from the
+    accelerated controller batch with real code, regressions, docs, and
+    independent review rather than state-only progress. The Task 103
+    browse/code-navigation closure now parses revision file lists as
+    NUL-delimited bytes and skips non-UTF-8 path entries during reference scans,
+    so one invalid Git path no longer aborts otherwise valid references from the
+    same revision. The Task 108 worker/operator closure now rejects
+    SOURCEBOT_WORKER_STATUS_PATH values containing control characters before
+    startup/status writes, preventing newline-delimited or otherwise ambiguous
+    local supervisor status paths from being silently accepted. The search/index
+    worker hit a provider/account failure before a usable commit; the provider/sync
+    worker left a coherent worker-status RED test carry-over, so the controller
+    inspected the worktree, completed that regression, integrated only scoped
+    commits, and then removed/pruned stale worktrees. Practical replacement
+    remains incomplete: this does not claim production indexing lifecycle parity,
+    full code-navigation language/index
+    parity, worker supervision/scheduling/retry parity, provider fetch/import/reindex,
+    OIDC/SSO, MCP client/session parity, or final Sourcebot replacement readiness.
   tests:
-    - 'worker RED/GREEN: task102 worker commit e8667ac783aaa8baf2936bbb92af7141af5c9f25 first failed then passed unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors; cherry-picked and review-hardened in main as aa57d89f3f856c56f3c3080847e8c06e018223c4'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_search_errors -- --nocapture passed with 0 lib tests and 1 main-bin test / 491 filtered'
-    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_primary_error_without_local_sync_artifact_fails_closed -- --nocapture passed with 0 lib tests and 1 main-bin test / 492 filtered'
-    - 'review-fix focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_primary_error_fails_closed_when_any_visible_repo_lacks_local_sync_artifact -- --nocapture passed with 0 lib tests and 1 main-bin test / 493 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_ -- --nocapture passed with 0 lib tests and 5 main-bin tests / 489 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync_artifact -- --nocapture passed with 0 lib tests and 11 main-bin tests / 483 filtered'
-    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 47 main-bin tests / 447 filtered'
-    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 238 added lines and 0 findings'
-    - 'independent integration review: initial review found a mixed visible-repository partial-success blocker; after the fail-closed fix and regression, re-review approved with no security concerns, logic errors, docs-claim issues, or verification gaps'
-  commit: aa57d89f3f856c56f3c3080847e8c06e018223c4
+    - 'baseline: started from 9d70129185054d119dec43bcc5a9468c9ad13ec6 on master with clean main worktree, /opt/data at 55% used, sourcebot-worktrees at 4.0K before dispatch'
+    - 'browse worker RED: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430110416 commit 9bd812f7b7f6baf125e1bc4018a6361a2ba3522c first failed local_browse_store_skips_non_utf8_paths_during_revision_reference_scan with git output was not utf-8'
+    - 'browse integrated: cherry-picked as 1e1dd6353c8559319267a20a667578040a50b274; focused/main CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_browse_store_skips_non_utf8_paths_during_revision_reference_scan -- --nocapture passed with 0 lib tests and 1 main-bin test / 494 filtered'
+    - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_browse_store_ -- --nocapture passed with 0 lib tests and 32 main-bin tests / 463 filtered'
+    - 'code-nav broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api references_ -- --nocapture passed with 0 lib tests and 15 main-bin tests / 480 filtered'
+    - 'worker RED: /opt/data/projects/sourcebot-worktrees/worker-sync-20260430110415 failed worker_status_path_fails_closed_when_configured_with_control_characters before implementation because control-character status paths returned Some("/tmp\nstatus.json")'
+    - 'worker integrated: completed and cherry-picked/amended as cc9c5edbe90d004792919a5a9418c6dea5ba591c; focused/main CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_configured_with_control_characters -- --nocapture passed with 0 lib tests, 1 main-bin test, and zero-test integration targets'
+    - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_ -- --nocapture passed with 0 lib tests, 6 main-bin tests, and zero-test integration targets'
+    - 'integrator: cargo fmt --check, git diff --check 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD, git diff --check, and added-lines security scan over 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD passed with 68 added lines and 0 findings'
+    - 'independent integration review: approved 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD with no security concerns, logic errors, docs-claim issues, or verification gaps'
+  commit: cc9c5edbe90d004792919a5a9418c6dea5ba591c
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -43,18 +50,63 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed one unscoped search runtime-outage fallback
-    surface by using caller-authorized local-sync search-index artifacts only
-    when every visible fallback candidate is usable, otherwise failing closed.
-    Practical replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery beyond
-    bounded local-sync artifacts, relevance and pagination behavior at scale,
-    fuller branch/ref management and revision-switching UX, broader provider
-    fetch/import/reindex, worker scheduling and supervision with broad
+    worktree is clean. This run landed a disjoint Task 103/Task 108 batch because
+    the browse/code-navigation worker produced a scoped code-nav hardening commit
+    and the provider/sync worker left a coherent RED regression that the
+    controller could safely close; the search/index worker failed before a usable
+    commit. Practical replacement remains incomplete. Remaining blockers still
+    include production-shaped indexing lifecycle/status and failure recovery
+    beyond bounded local-sync artifacts, relevance and pagination behavior at
+    scale, fuller branch/ref management and revision-switching UX, broader
+    provider fetch/import/reindex, worker scheduling and supervision with broad
     retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
     interoperability beyond the HTTP/API bridge, operator runbook/deploy evidence,
     and the other release blockers in this roadmap.
 history:
+  - id: task103_task108_parallel_codenav_worker_status_hardening
+    status: done
+    summary: >-
+      Closed two disjoint practical-replacement blocker surfaces in one
+      accelerated-controller batch. Browse/code-navigation now skips non-UTF-8
+      Git path entries during revision reference scans instead of failing an
+      otherwise valid references request, and worker runtime startup now fails
+      closed on control-character SOURCEBOT_WORKER_STATUS_PATH values before
+      local supervisor status writes. The search/index worker failed at the
+      provider/account layer before a usable commit; the provider/sync worker
+      left a coherent RED carry-over that the controller completed, and stale
+      worktrees were removed/pruned instead of preserving implicit state. The closure is
+      bounded and does not claim full practical Sourcebot replacement readiness.
+    commit: cc9c5edbe90d004792919a5a9418c6dea5ba591c
+    component_commits:
+      - 1e1dd6353c8559319267a20a667578040a50b274
+      - cc9c5edbe90d004792919a5a9418c6dea5ba591c
+    tests:
+      - 'baseline: started from 9d70129185054d119dec43bcc5a9468c9ad13ec6 on master with clean main worktree, /opt/data at 55% used, sourcebot-worktrees at 4.0K before dispatch'
+      - 'browse worker RED: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430110416 commit 9bd812f7b7f6baf125e1bc4018a6361a2ba3522c first failed local_browse_store_skips_non_utf8_paths_during_revision_reference_scan with git output was not utf-8'
+      - 'browse integrated: cherry-picked as 1e1dd6353c8559319267a20a667578040a50b274; focused/main CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_browse_store_skips_non_utf8_paths_during_revision_reference_scan -- --nocapture passed with 0 lib tests and 1 main-bin test / 494 filtered'
+      - 'browse broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_browse_store_ -- --nocapture passed with 0 lib tests and 32 main-bin tests / 463 filtered'
+      - 'code-nav broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api references_ -- --nocapture passed with 0 lib tests and 15 main-bin tests / 480 filtered'
+      - 'worker RED: /opt/data/projects/sourcebot-worktrees/worker-sync-20260430110415 failed worker_status_path_fails_closed_when_configured_with_control_characters before implementation because control-character status paths returned Some("/tmp\nstatus.json")'
+      - 'worker integrated: completed and cherry-picked/amended as cc9c5edbe90d004792919a5a9418c6dea5ba591c; focused/main CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_configured_with_control_characters -- --nocapture passed with 0 lib tests, 1 main-bin test, and zero-test integration targets'
+      - 'worker broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_ -- --nocapture passed with 0 lib tests, 6 main-bin tests, and zero-test integration targets'
+      - 'integrator: cargo fmt --check, git diff --check 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD, git diff --check, and added-lines security scan over 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD passed with 68 added lines and 0 findings'
+      - 'independent integration review: approved 9d70129185054d119dec43bcc5a9468c9ad13ec6..HEAD with no security concerns, logic errors, docs-claim issues, or verification gaps'
+    workers:
+      - scope: browse/code-nav
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430110416
+        worker_commit: 9bd812f7b7f6baf125e1bc4018a6361a2ba3522c
+        integrated_commit: 1e1dd6353c8559319267a20a667578040a50b274
+        result: merged
+      - scope: worker/sync runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-sync-20260430110415
+        worker_commit: 9d92fb24366a928ad665a1700d1281b6b6d5ccb9
+        integrated_commit: cc9c5edbe90d004792919a5a9418c6dea5ba591c
+        result: merged_after_controller_completed_coherent_red_carry_over
+      - scope: search/index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-index-20260430110415
+        worker_commit: null
+        integrated_commit: null
+        result: not_merged_provider_account_failure_before_usable_commit
   - id: task102_unscoped_primary_error_artifact_fallback
     status: done
     summary: >-
