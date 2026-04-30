@@ -5,38 +5,37 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 584eb953a74fac1dc5e0566396d2909dbe055744
+  head: 7b019b90947e467f89431f727acc16a217af2591
 last_completed_task:
-  id: task102_case_sensitive_search
-  title: API-visible case-sensitive search for local/index-artifact search
+  id: task102_exclude_path_search
+  title: API-visible exclude-path filtering for local/index-artifact search
   status: done
   summary: >-
-    Closed an implementation-backed Task 102 search/index closure by adding a bounded
-    `case_sensitive=true` API/search option for local/index-artifact search. The
-    shipped default remains case-insensitive, while boolean, literal, and regex local
-    search can now request exact-case matching; boolean grammar such as `OR`, `path:`,
-    and `lang:` remains case-insensitive so exact-case matching does not turn query
-    syntax into a surprising filter miss. This advances the proven search contract but
-    remains a bounded local/index-artifact baseline, not production indexing,
-    relevance/pagination-at-scale, streaming search, stale/degraded recovery, or full
-    practical replacement parity.
+    Closed an implementation-backed Task 102 search/index closure by adding repeated
+    `exclude_path` query parameter support to `/api/v1/search` and the local/index-artifact
+    search contract. Exclusion values are trimmed, blank values are ignored, and non-empty
+    values are matched case-insensitively as repo-relative path substrings before pagination
+    and `total_count` computation, giving users and API callers a bounded way to suppress
+    generated/vendor path families without claiming glob/gitignore policy, production
+    indexing, relevance-at-scale, streaming, recovery, or full practical replacement parity.
   tests:
-    - 'worker RED/GREEN: sourcebot-search case_sensitive initially failed on missing SearchOptions/search_with_options, then passed with 1 test / 65 filtered after implementation'
-    - 'worker RED/GREEN: sourcebot-api search_case_sensitive initially returned 4 total results instead of 2 before API propagation, then passed with lib 0 tests / 68 filtered and main 1 test / 509 filtered'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search case_sensitive -- --nocapture (1 passed, 65 filtered)'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_case_sensitive -- --nocapture (lib 0 tests, main 1 passed, 509 filtered)'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search local_search_store_supports_explicit_literal_and_regex_modes -- --nocapture (1 passed, 65 filtered)'
+    - 'worker RED: sourcebot-search exclude_path failed on missing SearchOptions.exclude_paths before implementation'
+    - 'worker RED: sourcebot-api search_exclude_path caught missing SearchOptions propagation and repeated-query parsing before implementation'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search exclude_path -- --nocapture (1 passed, 66 filtered)'
+    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_exclude_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 510 filtered)'
     - 'cargo fmt --check'
     - 'git diff --check HEAD~1..HEAD'
+    - 'git diff --check'
     - 'added-lines security scan over HEAD~1..HEAD: 0 findings'
+    - 'cleanup: removed worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
   review: >-
-    Independent review of the worker diff initially failed closed on case-sensitive
-    boolean grammar/filter syntax drift and mutually-recursive SearchStore defaults.
-    The integrator fixed both by keeping `OR`/`path:`/`lang:` grammar case-insensitive,
-    normalizing language filters, adding mixed-case grammar regression coverage, and
-    making `search_with_mode` the required trait method while `search_with_options`
-    defaults to it. Independent re-review then passed with no security or logic issues.
-  commit: 584eb953a74fac1dc5e0566396d2909dbe055744
+    Independent review of the integrated diff passed with no security or logic issues. The
+    reviewer re-ran the focused exclude_path tests and confirmed auth/scope gates are
+    preserved, repeated raw-query parsing avoids response-shape drift, local-sync fallback
+    carries SearchOptions, pagination/total_count remain post-filter, and docs claims stay
+    bounded; non-blocking follow-ups include optional value/count bounds and extra parser
+    edge-case tests.
+  commit: 7b019b90947e467f89431f727acc16a217af2591
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -44,17 +43,51 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap. This run added
-    API-visible exact-case search control for the local/index-artifact search contract,
-    on top of existing bounded boolean/literal/regex modes, path/language filters,
-    deterministic ordering, pagination, and local-sync artifact fallback surfaces.
-    Production search/indexing remains a major blocker: remaining work still includes
-    a real indexing pipeline beyond startup/local-sync artifacts, cross-branch/index
-    availability semantics, relevance and pagination guarantees at scale, richer
-    filter grammar and validation, streaming search behavior, stale/degraded index
-    status and recovery, and final fail-closed release audit evidence. Prefer the next
-    closure with implementation-backed search/index runtime capability over docs-only
-    paperwork.
+    repeated API-visible `exclude_path` controls for bounded local/index-artifact search
+    result suppression, following prior mode, case-sensitivity, language/path-filter,
+    deterministic ordering, pagination, and local-sync artifact fallback work. Production
+    search/indexing remains a major blocker: remaining work still includes a real indexing
+    pipeline beyond startup/local-sync artifacts, cross-branch/index availability semantics,
+    relevance and pagination guarantees at scale, richer filter validation and policy
+    controls, streaming search behavior, stale/degraded index status and recovery, and
+    final fail-closed release audit evidence. Prefer the next closure with implementation-backed
+    search/index runtime capability over docs-only paperwork.
 history:
+  - id: task102_exclude_path_search
+    status: done
+    summary: >-
+      Closed a bounded implementation-backed Task 102 search contract slice rather than
+      a docs-only or state-only micro-slice. A worker added repeated `exclude_path` query
+      parameter support through the search crate and `/api/v1/search`; the integrator
+      cherry-picked it into master, reran focused verification, and obtained independent
+      review. Exclusions are trimmed, non-empty, case-insensitive path-substring filters
+      applied before pagination/counting for local/index-artifact search, useful for
+      suppressing generated/vendor path families while remaining below production search
+      indexing, policy, streaming, recovery, or practical replacement readiness.
+    commit: 7b019b90947e467f89431f727acc16a217af2591
+    component_commits:
+      - 7b019b90947e467f89431f727acc16a217af2591
+    tests:
+      - 'worker RED: sourcebot-search exclude_path failed on missing SearchOptions.exclude_paths before implementation'
+      - 'worker RED: sourcebot-api search_exclude_path caught missing SearchOptions propagation and repeated-query parsing before implementation'
+      - 'integrator: cargo test -p sourcebot-search exclude_path -- --nocapture (1 passed, 66 filtered)'
+      - 'integrator: cargo test -p sourcebot-api search_exclude_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 510 filtered)'
+      - 'cargo fmt --check'
+      - 'git diff --check HEAD~1..HEAD'
+      - 'git diff --check'
+      - 'added-lines security scan over HEAD~1..HEAD: 0 findings'
+      - 'cleanup: removed worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    review: >-
+      Independent review passed with no security or logic issues after inspecting the
+      integrated diff in /opt/data/projects/sourcebot-rewrite and rerunning the focused
+      tests. Reviewer confirmed auth/scope preservation, repeated query parsing, local-sync
+      fallback option propagation, post-filter pagination/counting, and bounded docs claims.
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-exclude-paths-20260430211414
+        worker_commit: e6cc516cfd3bcc99fcdb1f9048a4e861e336ba55
+        integrated_commit: 7b019b90947e467f89431f727acc16a217af2591
+        result: merged
   - id: task102_case_sensitive_search
     status: done
     summary: >-
