@@ -216,7 +216,22 @@ fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
             if trimmed.is_empty() {
                 anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must not be empty when set");
             }
-            Ok(Some(PathBuf::from(trimmed)))
+            let path = PathBuf::from(trimmed);
+            if path.is_dir() {
+                anyhow::bail!(
+                    "SOURCEBOT_WORKER_STATUS_PATH must point to a file, not directory: {}",
+                    path.display()
+                );
+            }
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() && parent.exists() && !parent.is_dir() {
+                    anyhow::bail!(
+                        "SOURCEBOT_WORKER_STATUS_PATH parent must be a directory when it exists: {}",
+                        parent.display()
+                    );
+                }
+            }
+            Ok(Some(path))
         }
         Err(env::VarError::NotPresent) => Ok(None),
         Err(env::VarError::NotUnicode(_)) => {
@@ -357,6 +372,58 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "SOURCEBOT_WORKER_IDLE_SLEEP_MS must be less than or equal to 3600000"
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_target_is_directory() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-dir-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir(&path).expect("status path fixture directory should be created");
+        std::env::set_var("SOURCEBOT_WORKER_STATUS_PATH", &path);
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("directory status target should fail before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        let _ = std::fs::remove_dir_all(&path);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH must point to a file, not directory: {}",
+                path.display()
+            )
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_existing_parent_is_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let parent = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-parent-file-{}",
+            std::process::id()
+        ));
+        let path = parent.join("status.json");
+        let _ = std::fs::remove_file(&parent);
+        std::fs::write(&parent, "not a directory")
+            .expect("status path parent file fixture should be created");
+        std::env::set_var("SOURCEBOT_WORKER_STATUS_PATH", &path);
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("file parent status target should fail before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        let _ = std::fs::remove_file(&parent);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH parent must be a directory when it exists: {}",
+                parent.display()
+            )
         );
     }
 
