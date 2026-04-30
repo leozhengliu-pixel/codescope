@@ -955,7 +955,9 @@ fn validate_persisted_index_artifact(
 
 fn is_safe_persisted_index_path(path: &str) -> bool {
     if path.is_empty()
-        || path.chars().any(char::is_control)
+        || path
+            .chars()
+            .any(|ch| ch != '\t' && (ch.is_control() || ch == '\u{2028}' || ch == '\u{2029}'))
         || path.contains('\\')
         || path.contains("//")
         || path.ends_with('/')
@@ -2665,6 +2667,8 @@ mod tests {
         for unsafe_path in [
             "src/forged\npath.rs",
             "src/forged\rpath.rs",
+            "src/forged\u{2028}path.rs",
+            "src/forged\u{2029}path.rs",
             "src/forged\u{7f}path.rs",
         ] {
             let mut unsafe_artifact_json = artifact_json.clone();
@@ -2689,6 +2693,17 @@ mod tests {
                 "unexpected error for {unsafe_path:?}: {error:#}"
             );
         }
+
+        let mut tabbed_artifact_json = artifact_json.clone();
+        tabbed_artifact_json["indexed_lines"][0]["path"] =
+            serde_json::Value::String("README\tfixture.md".to_string());
+        fs::write(
+            &artifact_path,
+            serde_json::to_vec(&tabbed_artifact_json).unwrap(),
+        )
+        .unwrap();
+        LocalSearchStore::from_index_artifact("repo_test", &artifact_path)
+            .expect("tabbed tracked paths should remain loadable");
 
         fs::remove_dir_all(root).unwrap();
     }
