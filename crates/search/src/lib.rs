@@ -753,6 +753,13 @@ fn validate_persisted_index_artifact(
         );
     }
 
+    if expected_repo_id.trim().is_empty() || artifact.index_status.repo_id.trim().is_empty() {
+        anyhow::bail!(
+            "blank search index artifact repo_id in {}: persisted indexes must be scoped to a non-empty repository id",
+            artifact_path.display()
+        );
+    }
+
     if artifact.index_status.repo_id != expected_repo_id {
         anyhow::bail!(
             "search index artifact repo_id mismatch in {}: expected '{}', found '{}'",
@@ -3248,6 +3255,42 @@ mod tests {
                 .contains("unsupported search index artifact schema version"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_blank_repo_ids() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+
+        for blank_repo_id in ["", "   "] {
+            let mut blank_repo_artifact_json = artifact_json.clone();
+            blank_repo_artifact_json["index_status"]["repo_id"] =
+                serde_json::Value::String(blank_repo_id.to_string());
+            fs::write(
+                &artifact_path,
+                serde_json::to_vec(&blank_repo_artifact_json).unwrap(),
+            )
+            .unwrap();
+
+            let error = match LocalSearchStore::from_index_artifact(blank_repo_id, &artifact_path) {
+                Ok(_) => panic!("persisted index blank repo_id {blank_repo_id:?} must fail closed"),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("blank search index artifact repo_id"),
+                "unexpected error for {blank_repo_id:?}: {error:#}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
