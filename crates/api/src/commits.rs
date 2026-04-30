@@ -786,6 +786,14 @@ fn validate_diff_path<'a>(path: &'a str, label: &str) -> Result<&'a str> {
             "unsafe git diff {label}: control-character path {path:?}"
         ));
     }
+    if path
+        .split('/')
+        .any(|segment| segment.is_empty() || segment == ".")
+    {
+        return Err(anyhow!(
+            "unsafe git diff {label}: non-normalized path {path:?}"
+        ));
+    }
 
     let parsed = Path::new(path);
     if parsed.is_absolute() {
@@ -1099,6 +1107,18 @@ mod tests {
         assert_eq!(response.commit.author_name, "Hermes Agent");
         assert_eq!(response.commit.id.len(), 40);
         assert!(response.commit.authored_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn commit_diff_path_validation_rejects_non_normalized_segments() {
+        assert!(validate_diff_path("src/lib.rs", "path").is_ok());
+
+        for path in [".", "./src/lib.rs", "src/./lib.rs", "src//lib.rs"] {
+            assert!(
+                validate_diff_path(path, "path").is_err(),
+                "expected {path:?} to be rejected as a non-normalized diff path"
+            );
+        }
     }
 
     #[test]
