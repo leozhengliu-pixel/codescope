@@ -5,29 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: e95d59a303c0134d10358ae69da0ff78ea5fdfbf
+  head: 694183dc6a90afc17654dafc2fdf5eb4463da217
 last_completed_task:
-  id: task102_unscoped_search_artifact_failclosed
-  title: Unscoped/search-context local-sync search artifact fail-closed hardening
+  id: task102_index_status_primary_precedence
+  title: Preserve primary index-status errors over local-sync fallback
   status: done
   summary: >-
-    Closed a real Task 102 search/index runtime hardening slice: authenticated
-    unscoped and saved-context `/api/v1/search` local-sync artifact fallback now
-    fails closed request-wide with 500 when any caller-visible fallback candidate
-    has a malformed, non-regular, or error-status `search-index.json`, instead
-    of returning a misleading empty 200 or partial success from later visible
-    repositories. Requested-repo empty-primary fallback remains bounded to empty
-    results, and requested-repo primary-error fallback still returns 500 unless a
-    valid caller-authorized artifact can answer.
+    Closed a bounded Task 102 search/index runtime correctness slice: the
+    authenticated `/api/v1/repos/{repo_id}/index-status` endpoint now preserves
+    any present startup search-store status, including `error`, instead of
+    masking an active primary indexing failure with an older local-sync
+    `search-index.json` artifact. Local-sync artifact/snapshot fallback remains
+    available only when the startup search store has no status for that visible
+    repository, while `/api/v1/search` local-sync fallback semantics are left
+    unchanged.
   tests:
-    - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw 200 OK before the fail-closed implementation'
-    - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
+    - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw Indexed before the primary-precedence implementation'
+    - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
+    - 'controller broader index-status: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 480 filtered out'
     - 'controller broader local-sync: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
-    - 'controller broader search family: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 45 main-bin tests and 441 filtered out'
     - 'controller: cargo fmt --check and git diff --check passed'
-    - 'controller: added-lines security scan over crates/api/src/main.rs and specs/acceptance/generic-local-git.md found no findings'
-    - 'independent review: approved the scoped diff with no security or logic blockers; noted optional future explicit search-context malformed-artifact coverage'
-  commit: e95d59a303c0134d10358ae69da0ff78ea5fdfbf
+    - 'controller: raw docs wording checks passed for repository-operations, generic-local-git, parity-gap, and final-audit wording'
+    - 'controller: added-lines security scan over the scoped diff found no findings'
+    - 'independent review: approved primary-status precedence, auth/scope boundaries, unchanged search fallback semantics, and docs truthfulness with no security or logic blockers'
+  commit: 694183dc6a90afc17654dafc2fdf5eb4463da217
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -37,9 +38,8 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run hardened unscoped/search-context local-sync
-    search artifact fallback so malformed, non-regular, or error-status artifacts
-    cannot be masked as empty 200s or partial success across other visible repos.
+    worktree is clean. This run preserved primary index-status error visibility
+    so local-sync fallback cannot hide an active startup indexing failure.
     Practical replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale beyond bounded helpers, a full branch/ref
@@ -49,6 +49,39 @@ current_task:
     interoperability, operator runbook/deploy evidence, and the other release
     blockers in this roadmap.
 history:
+  - id: task102_index_status_primary_precedence
+    status: done
+    summary: >-
+      Closed a bounded Task 102 index-status precedence slice: present startup
+      search-store index status is now authoritative for
+      `/api/v1/repos/{repo_id}/index-status`, including startup `error`, and
+      local-sync artifact/snapshot fallback only applies when startup status is
+      absent for that visible repository.
+    commit: 694183dc6a90afc17654dafc2fdf5eb4463da217
+    tests:
+      - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw Indexed before the primary-precedence implementation'
+      - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
+      - 'controller broader index-status: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 480 filtered out'
+      - 'controller broader local-sync: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
+      - 'controller: cargo fmt --check and git diff --check passed'
+      - 'controller: raw docs wording checks passed for repository-operations, generic-local-git, parity-gap, and final-audit wording'
+      - 'controller: added-lines security scan over the scoped diff found no findings'
+      - 'independent review: approved primary-status precedence, auth/scope boundaries, unchanged search fallback semantics, and docs truthfulness with no security or logic blockers'
+    review: >-
+      Independent review confirmed that `/api/v1/repos/{repo_id}/index-status`
+      still enforces repository visibility before status lookup, preserves any
+      present primary search-store status unchanged, enters local-sync fallback
+      only for absent startup status under the existing authenticated
+      organization/repository boundary, and leaves `/api/v1/search` fallback
+      behavior untouched. Review found no security, auth/scope, or docs-claim
+      blockers.
+    workers: >-
+      No parallel implementation worktrees were launched because the main
+      worktree was clean, disk usage was healthy, and the live Task 102 blocker
+      exposed one narrow but release-critical index-status correctness defect in
+      the current code. Spawning additional workers would have increased
+      integration and disk risk without improving this smallest meaningful
+      closure.
   - id: task102_unscoped_search_artifact_failclosed
     status: done
     summary: >-
