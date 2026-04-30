@@ -6570,7 +6570,12 @@ async fn search_repository_contents(
     };
 
     if let Some(repo_id) = requested_repo_id {
-        if primary_search_failed || response.results.is_empty() {
+        if should_search_local_sync_fallback_for_repo(
+            &state,
+            repo_id,
+            primary_search_failed,
+            response.results.is_empty(),
+        )? {
             match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
@@ -6641,6 +6646,26 @@ async fn search_repository_contents(
     sort_search_results_by_repo_path_line(&mut response.results);
     apply_search_pagination(&mut response, search_limit, search_offset);
     Ok(Json(response))
+}
+
+fn should_search_local_sync_fallback_for_repo(
+    state: &AppState,
+    repo_id: &str,
+    primary_search_failed: bool,
+    primary_repo_missing_hits: bool,
+) -> Result<bool, StatusCode> {
+    if primary_search_failed {
+        return Ok(true);
+    }
+    if !primary_repo_missing_hits {
+        return Ok(false);
+    }
+
+    match state.search.repository_index_status(repo_id) {
+        Ok(Some(index_status)) if index_status.status == RepositoryIndexState::Indexed => Ok(false),
+        Ok(Some(_)) | Ok(None) => Ok(true),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 fn sort_search_results_by_repo_path_line(results: &mut [sourcebot_search::SearchResult]) {
@@ -31044,6 +31069,38 @@ mod tests {
         fs::remove_dir_all(repo_root).unwrap();
     }
 
+    struct HealthyPrimaryNoHitSearchStore;
+
+    impl SearchStore for HealthyPrimaryNoHitSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                mode,
+                repo_id.map(ToOwned::to_owned),
+                Vec::new(),
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(Some(RepositoryIndexStatus {
+                repo_id: repo_id.to_string(),
+                status: RepositoryIndexState::Indexed,
+                indexed_file_count: 1,
+                indexed_line_count: 1,
+                skipped_file_count: 0,
+                error: None,
+            }))
+        }
+    }
+
     struct FailedPrimaryIndexSearchStore;
 
     impl SearchStore for FailedPrimaryIndexSearchStore {
@@ -31365,6 +31422,104 @@ mod tests {
         assert!(payload.results[0]
             .line
             .contains("unscoped_primary_runtime_error_artifact_fallback_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn requested_search_does_not_use_local_sync_artifact_when_primary_index_is_healthy_without_hits(
+    ) {
+        let repo_root = unique_test_path("search-healthy-primary-no-hit-no-fallback-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        let snapshot_root = job_root.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("src")).unwrap();
+        fs::write(
+            snapshot_root.join("src").join("lib.rs"),
+            "pub fn healthy_primary_should_not_use_stale_local_sync_marker() {}\n",
+        )
+        .unwrap();
+        LocalSearchStore::new(HashMap::from([(
+            "repo_local_import".to_string(),
+            snapshot_root.clone(),
+        )]))
+        .write_index_artifact("repo_local_import", &job_root.join("search-index.json"))
+        .unwrap();
+
+        let organization_state_path =
+            unique_test_path("search-healthy-primary-no-hit-no-fallback-orgs");
+        let local_session_state_path =
+            unique_test_path("search-healthy-primary-no-hit-no-fallback-sessions");
+        let user_id = "user_healthy_primary_no_hit_no_fallback";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(HealthyPrimaryNoHitSearchStore),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=healthy_primary_should_not_use_stale_local_sync_marker&repo_id=repo_local_import")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert!(
+            payload.results.is_empty(),
+            "healthy primary indexes should not be broadened by stale local-sync artifacts after a legitimate no-hit search"
+        );
+        assert_eq!(payload.pagination.total_count, 0);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
