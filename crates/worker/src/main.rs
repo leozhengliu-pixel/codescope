@@ -256,7 +256,12 @@ fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
             if trimmed.is_empty() {
                 anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must not be empty when set");
             }
-            let path = PathBuf::from(trimmed);
+            if value != trimmed {
+                anyhow::bail!(
+                    "SOURCEBOT_WORKER_STATUS_PATH must not include surrounding whitespace"
+                );
+            }
+            let path = PathBuf::from(value);
             validate_worker_status_path(&path)?;
             Ok(Some(path))
         }
@@ -399,6 +404,24 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "SOURCEBOT_WORKER_IDLE_SLEEP_MS must be less than or equal to 3600000"
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_configured_with_surrounding_whitespace() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var(
+            "SOURCEBOT_WORKER_STATUS_PATH",
+            " /tmp/sourcebot-worker-status.json ",
+        );
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("surrounding whitespace should fail closed before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_STATUS_PATH must not include surrounding whitespace"
         );
     }
 
