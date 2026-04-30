@@ -30,6 +30,7 @@ pub trait CommitStore: Send + Sync {
         offset: usize,
         revision: Option<&str>,
     ) -> Result<Option<CommitListResponse>>;
+    fn list_refs(&self, repo_id: &str) -> Result<Option<RefListResponse>>;
     fn get_commit(&self, repo_id: &str, commit_id: &str) -> Result<Option<CommitDetailResponse>>;
     fn get_commit_diff(&self, repo_id: &str, commit_id: &str)
         -> Result<Option<CommitDiffResponse>>;
@@ -68,6 +69,36 @@ pub struct CommitListResponse {
     pub repo_id: String,
     pub commits: Vec<CommitSummary>,
     pub page_info: CommitPageInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RefKind {
+    Branch,
+    Tag,
+}
+
+impl RefKind {
+    fn sort_key(&self) -> u8 {
+        match self {
+            RefKind::Branch => 0,
+            RefKind::Tag => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefSummary {
+    pub name: String,
+    pub target: String,
+    pub kind: RefKind,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RefListResponse {
+    pub repo_id: String,
+    pub refs: Vec<RefSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -281,6 +312,66 @@ impl CommitStore for LocalCommitStore {
                 has_next_page,
                 next_offset,
             },
+        }))
+    }
+
+    fn list_refs(&self, repo_id: &str) -> Result<Option<RefListResponse>> {
+        let Some(repo_root) = self.repo_root(repo_id) else {
+            return Ok(None);
+        };
+
+        let default_branch = current_branch_name(repo_root)?;
+        let output = run_git(
+            repo_root,
+            &[
+                "for-each-ref",
+                "--format=%(refname)%09%(objectname)%09%(objecttype)",
+                "refs/heads",
+                "refs/tags",
+            ],
+        )?;
+        let mut refs = Vec::new();
+        for record in output.lines().filter(|record| !record.is_empty()) {
+            let parts = record.split('\t').collect::<Vec<_>>();
+            if parts.len() != 3 {
+                anyhow::bail!(
+                    "unexpected git ref output: expected 3 fields, got {}",
+                    parts.len()
+                );
+            }
+            let refname = parts[0];
+            let (kind, name) = if let Some(name) = refname.strip_prefix("refs/heads/") {
+                (RefKind::Branch, name)
+            } else if let Some(name) = refname.strip_prefix("refs/tags/") {
+                (RefKind::Tag, name)
+            } else {
+                continue;
+            };
+            let Some(target) = resolve_single_commit(repo_root, refname)? else {
+                continue;
+            };
+            if !self.commit_is_visible_in_snapshot(repo_id, repo_root, &target)? {
+                continue;
+            }
+            refs.push(RefSummary {
+                is_default: kind == RefKind::Branch && default_branch.as_deref() == Some(name),
+                name: name.to_string(),
+                target,
+                kind,
+            });
+        }
+        refs.sort_by(|left, right| {
+            left.kind
+                .sort_key()
+                .cmp(&right.kind.sort_key())
+                .then_with(|| (!left.is_default).cmp(&(!right.is_default)))
+                .then_with(|| left.name.cmp(&right.name))
+                .then_with(|| left.target.cmp(&right.target))
+        });
+
+        Ok(Some(RefListResponse {
+            repo_id: repo_id.to_string(),
+            refs,
         }))
     }
 
@@ -707,6 +798,25 @@ fn run_git_allow_not_found(repo_root: &PathBuf, args: &[&str]) -> Result<Option<
     Err(git_command_error(repo_root, args, &output))
 }
 
+fn current_branch_name(repo_root: &PathBuf) -> Result<Option<String>> {
+    let output = bounded_git_output(repo_root, &["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+    if output.status.success() {
+        let branch = String::from_utf8(output.stdout)
+            .context("git output was not utf-8")?
+            .trim()
+            .to_string();
+        return Ok((!branch.is_empty()).then_some(branch));
+    }
+    match output.status.code() {
+        Some(1) => Ok(None),
+        _ => Err(git_command_error(
+            repo_root,
+            &["symbolic-ref", "--quiet", "--short", "HEAD"],
+            &output,
+        )),
+    }
+}
+
 fn resolve_single_commit(repo_root: &PathBuf, commit_id: &str) -> Result<Option<String>> {
     if !is_safe_revision_selector(commit_id) {
         return Ok(None);
@@ -954,6 +1064,43 @@ mod tests {
         assert_eq!(response.commit.author_name, "Hermes Agent");
         assert_eq!(response.commit.id.len(), 40);
         assert!(response.commit.authored_at.ends_with('Z'));
+    }
+
+    #[test]
+    fn local_commit_store_lists_branch_and_tag_refs() {
+        let repo_root = create_temp_git_repo("ref-list");
+        write_text_file(&repo_root.join("demo.txt"), "base\n");
+        git_in(&repo_root, &["add", "demo.txt"]);
+        git_in(&repo_root, &["commit", "-m", "base"]);
+        let base_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+        git_in(&repo_root, &["tag", "v1.0.0"]);
+        git_in(&repo_root, &["checkout", "-b", "feature/ref-list"]);
+        write_text_file(&repo_root.join("demo.txt"), "feature\n");
+        git_in(&repo_root, &["commit", "-am", "feature"]);
+        let feature_revision = git_stdout_trimmed(&repo_root, &["rev-parse", "HEAD"]);
+
+        let store = LocalCommitStore::new(HashMap::from([(
+            "repo_temp".to_string(),
+            repo_root.clone(),
+        )]));
+
+        let refs = store.list_refs("repo_temp").unwrap().unwrap();
+
+        assert_eq!(refs.repo_id, "repo_temp");
+        assert!(refs.refs.iter().any(|reference| {
+            reference.name == "feature/ref-list"
+                && reference.kind == RefKind::Branch
+                && reference.target == feature_revision
+                && reference.is_default
+        }));
+        assert!(refs.refs.iter().any(|reference| {
+            reference.name == "v1.0.0"
+                && reference.kind == RefKind::Tag
+                && reference.target == base_revision
+                && !reference.is_default
+        }));
+
+        fs::remove_dir_all(repo_root).unwrap();
     }
 
     #[test]

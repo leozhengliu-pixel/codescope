@@ -33,7 +33,7 @@ use browse::{
 };
 use commits::{
     build_commit_store, CommitDetailResponse, CommitDiffResponse, CommitListResponse, CommitStore,
-    DynCommitStore, LocalCommitStore,
+    DynCommitStore, LocalCommitStore, RefListResponse,
 };
 use serde::{Deserialize, Serialize};
 use sourcebot_config::{AppConfig, PublicAppConfig};
@@ -360,6 +360,7 @@ fn build_router(
             "/api/v1/repos/{repo_id}/commits",
             get(list_repository_commits),
         )
+        .route("/api/v1/repos/{repo_id}/refs", get(list_repository_refs))
         .route(
             "/api/v1/repos/{repo_id}/commits/{commit_id}",
             get(get_repository_commit),
@@ -5941,6 +5942,32 @@ async fn list_repository_commits(
     };
 
     Ok(Json(commits))
+}
+
+async fn list_repository_refs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(repo_id): Path<String>,
+) -> Result<Json<RefListResponse>, StatusCode> {
+    ensure_repo_visible_for_request(&state, &headers, &repo_id).await?;
+
+    let refs = if let Some(refs) = state
+        .commits
+        .list_refs(&repo_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        refs
+    } else if let Some(store) = local_sync_commit_store_for_repo(&state, &headers, &repo_id).await?
+    {
+        store
+            .list_refs(&repo_id)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?
+    } else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    Ok(Json(refs))
 }
 
 async fn get_repository_commit(
