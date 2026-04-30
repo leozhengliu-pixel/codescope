@@ -561,7 +561,7 @@ impl BrowseStore for LocalBrowseStore {
             }
 
             for (index, line) in blob_content.content.lines().enumerate() {
-                if line.contains(symbol) {
+                if line_contains_symbol_reference(line, symbol) {
                     matches.push(ReferenceMatch {
                         path: path.clone(),
                         line_number: index + 1,
@@ -673,6 +673,19 @@ fn supports_text_reference_scan(path: &str) -> bool {
                 | "kts",
         )
     )
+}
+
+fn line_contains_symbol_reference(line: &str, symbol: &str) -> bool {
+    line.match_indices(symbol).any(|(start, matched)| {
+        let end = start + matched.len();
+        let before = line[..start].chars().next_back();
+        let after = line[end..].chars().next();
+        !before.is_some_and(is_identifier_char) && !after.is_some_and(is_identifier_char)
+    })
+}
+
+fn is_identifier_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 fn path_contains_skipped_directory(path: &str) -> bool {
@@ -2046,6 +2059,44 @@ mod tests {
         assert!(references
             .iter()
             .all(|reference| !reference.path.starts_with("node_modules/")));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_revision_references_require_identifier_boundaries() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-reference-boundaries",
+            "hello world\n",
+            "fn main() { let exact_symbol = exact_symbol; let inexact_symbol_suffix = 1; }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        fs::create_dir_all(root.join("src").join("nested")).unwrap();
+        fs::write(
+            root.join("src").join("nested").join("lib.rs"),
+            "fn helper() { let prefix_exact_symbol = 1; let exact_symbol2 = 2; }\n",
+        )
+        .unwrap();
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "exact_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            references,
+            vec![ReferenceMatch {
+                path: "src/main.rs".into(),
+                line_number: 1,
+                line:
+                    "fn main() { let exact_symbol = exact_symbol; let inexact_symbol_suffix = 1; }"
+                        .into(),
+            }],
+            "text reference fallback should not return substring-only identifier matches"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

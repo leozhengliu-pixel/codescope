@@ -5822,7 +5822,10 @@ async fn get_repository_references(
                     .ok_or(StatusCode::NOT_FOUND)?
                     .matches
                     .into_iter()
-                    .filter(|hit| supports_code_nav_text_reference_scan(&hit.path))
+                    .filter(|hit| {
+                        supports_code_nav_text_reference_scan(&hit.path)
+                            && line_contains_code_nav_symbol_reference(&hit.line, symbol)
+                    })
                     .map(|hit| ReferenceMatch {
                         path: hit.path,
                         line_number: hit.line_number,
@@ -5893,6 +5896,20 @@ fn supports_code_nav_text_reference_scan(path: &str) -> bool {
                 | "kts"
         )
     )
+}
+
+fn line_contains_code_nav_symbol_reference(line: &str, symbol: &str) -> bool {
+    line.match_indices(symbol).any(|(start, matched)| {
+        let end = start + matched.len();
+        let before = line[..start].chars().next_back();
+        let after = line[end..].chars().next();
+        !before.is_some_and(is_code_nav_identifier_char)
+            && !after.is_some_and(is_code_nav_identifier_char)
+    })
+}
+
+fn is_code_nav_identifier_char(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
 }
 
 fn build_definitions_response(
@@ -34624,6 +34641,11 @@ mod tests {
         )
         .unwrap();
         fs::write(
+            snapshot_root.join("src").join("substring.rs"),
+            "fn only_substrings() { let prefix_local_sync_code_nav_marker = 1; let local_sync_code_nav_marker_suffix = 2; }\n",
+        )
+        .unwrap();
+        fs::write(
             snapshot_root.join("README.md"),
             "docs mention local_sync_code_nav_marker but are outside code-nav fallback scope\n",
         )
@@ -34820,6 +34842,10 @@ mod tests {
         assert!(
             references.iter().all(|reference| reference.path != "README.md"),
             "local-sync code-nav fallback must keep primary code-nav's source-file scan scope: {references:?}"
+        );
+        assert!(
+            references.iter().all(|reference| reference.path != "src/substring.rs"),
+            "local-sync code-nav fallback must reject substring-only identifier matches: {references:?}"
         );
 
         #[cfg(unix)]
