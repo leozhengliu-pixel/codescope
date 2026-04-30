@@ -63,7 +63,36 @@ pub trait SearchStore: Send + Sync {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResponse> {
-        let mut response = self.search_with_mode(query, repo_id, mode)?;
+        self.search_page_with_options(
+            query,
+            repo_id,
+            SearchOptions {
+                mode,
+                ..SearchOptions::default()
+            },
+            limit,
+            offset,
+        )
+    }
+
+    fn search_with_options(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        options: SearchOptions,
+    ) -> Result<SearchResponse> {
+        self.search_with_mode(query, repo_id, options.mode)
+    }
+
+    fn search_page_with_options(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        options: SearchOptions,
+        limit: usize,
+        offset: usize,
+    ) -> Result<SearchResponse> {
+        let mut response = self.search_with_options(query, repo_id, options)?;
         apply_search_pagination(&mut response, limit, offset);
         Ok(response)
     }
@@ -82,6 +111,21 @@ pub enum SearchMode {
 impl Default for SearchMode {
     fn default() -> Self {
         Self::Boolean
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchOptions {
+    pub mode: SearchMode,
+    pub case_sensitive: bool,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            mode: SearchMode::Boolean,
+            case_sensitive: false,
+        }
     }
 }
 
@@ -996,9 +1040,25 @@ impl SearchStore for LocalSearchStore {
         repo_id: Option<&str>,
         mode: SearchMode,
     ) -> Result<SearchResponse> {
+        self.search_with_options(
+            query,
+            repo_id,
+            SearchOptions {
+                mode,
+                ..SearchOptions::default()
+            },
+        )
+    }
+
+    fn search_with_options(
+        &self,
+        query: &str,
+        repo_id: Option<&str>,
+        options: SearchOptions,
+    ) -> Result<SearchResponse> {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim);
-        let matcher = QueryMatcher::from_query(query, mode);
+        let matcher = QueryMatcher::from_query(query, options);
 
         let mut repos: Vec<&String> = match requested_repo_id {
             Some(repo_id) if !repo_id.is_empty() => self
@@ -1019,7 +1079,7 @@ impl SearchStore for LocalSearchStore {
 
         Ok(SearchResponse::unpaginated_with_mode(
             query.to_string(),
-            mode,
+            options.mode,
             requested_repo_id.map(ToOwned::to_owned),
             results,
         ))
@@ -1031,25 +1091,53 @@ impl SearchStore for LocalSearchStore {
 }
 
 enum QueryMatcher {
-    Boolean(ParsedQuery),
-    Literal(String),
+    Boolean {
+        parsed_query: ParsedQuery,
+        case_sensitive: bool,
+    },
+    Literal {
+        literal: String,
+        case_sensitive: bool,
+    },
     Regex(Option<Regex>),
 }
 
 impl QueryMatcher {
-    fn from_query(query: &str, mode: SearchMode) -> Self {
-        match mode {
+    fn from_query(query: &str, options: SearchOptions) -> Self {
+        match options.mode {
             SearchMode::Boolean if query.len() <= MAX_BOOLEAN_QUERY_BYTES => {
-                Self::Boolean(parse_query(&query.to_lowercase()))
+                let query = if options.case_sensitive {
+                    query.to_string()
+                } else {
+                    query.to_lowercase()
+                };
+                Self::Boolean {
+                    parsed_query: parse_query(&query),
+                    case_sensitive: options.case_sensitive,
+                }
             }
-            SearchMode::Boolean => Self::Boolean(ParsedQuery {
-                invalid_filter: true,
-                ..ParsedQuery::default()
-            }),
+            SearchMode::Boolean => Self::Boolean {
+                parsed_query: ParsedQuery {
+                    invalid_filter: true,
+                    ..ParsedQuery::default()
+                },
+                case_sensitive: options.case_sensitive,
+            },
             SearchMode::Literal if query.len() <= MAX_LITERAL_QUERY_BYTES => {
-                Self::Literal(query.to_lowercase())
+                let literal = if options.case_sensitive {
+                    query.to_string()
+                } else {
+                    query.to_lowercase()
+                };
+                Self::Literal {
+                    literal,
+                    case_sensitive: options.case_sensitive,
+                }
             }
-            SearchMode::Literal => Self::Literal(String::new()),
+            SearchMode::Literal => Self::Literal {
+                literal: String::new(),
+                case_sensitive: options.case_sensitive,
+            },
             SearchMode::Regex => {
                 if query.is_empty() || query.len() > MAX_REGEX_QUERY_BYTES {
                     return Self::Regex(None);
@@ -1057,7 +1145,7 @@ impl QueryMatcher {
 
                 Self::Regex(
                     RegexBuilder::new(query)
-                        .case_insensitive(true)
+                        .case_insensitive(!options.case_sensitive)
                         .size_limit(MAX_REGEX_COMPILED_SIZE_BYTES)
                         .build()
                         .ok(),
@@ -1068,29 +1156,49 @@ impl QueryMatcher {
 }
 
 fn indexed_line_matches_query(indexed_line: &IndexedLine, matcher: &QueryMatcher) -> bool {
-    let normalized_line = indexed_line.line.to_lowercase();
-
     match matcher {
-        QueryMatcher::Boolean(parsed_query) => {
+        QueryMatcher::Boolean {
+            parsed_query,
+            case_sensitive,
+        } => {
             if parsed_query.invalid_filter || parsed_query.line_term_groups.is_empty() {
                 return false;
             }
-            let normalized_path = indexed_line.path.to_lowercase();
+            let line = if *case_sensitive {
+                indexed_line.line.as_str().into()
+            } else {
+                indexed_line.line.to_lowercase()
+            };
+            let path = if *case_sensitive {
+                indexed_line.path.as_str().into()
+            } else {
+                indexed_line.path.to_lowercase()
+            };
             parsed_query
                 .line_term_groups
                 .iter()
-                .any(|group| group.iter().all(|term| normalized_line.contains(term)))
+                .any(|group| group.iter().all(|term| line.contains(term)))
                 && parsed_query
                     .path_filters
                     .iter()
-                    .all(|filter| path_matches_filter(&normalized_path, filter))
+                    .all(|filter| path_matches_filter(&path, filter))
                 && parsed_query
                     .language_filters
                     .iter()
-                    .all(|language| path_matches_language(&normalized_path, language))
+                    .all(|language| path_matches_language(&path, language))
         }
-        QueryMatcher::Literal(literal) => {
-            !literal.is_empty() && normalized_line.contains(literal.as_str())
+        QueryMatcher::Literal {
+            literal,
+            case_sensitive,
+        } => {
+            if literal.is_empty() {
+                return false;
+            }
+            if *case_sensitive {
+                indexed_line.line.contains(literal.as_str())
+            } else {
+                indexed_line.line.to_lowercase().contains(literal.as_str())
+            }
         }
         QueryMatcher::Regex(Some(regex)) => regex.is_match(&indexed_line.line),
         QueryMatcher::Regex(None) => false,
@@ -1101,7 +1209,7 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
     let mut parsed = ParsedQuery::default();
     let mut current_line_terms = Vec::new();
     for term in parse_query_terms(normalized_query) {
-        if !term.quoted && term.value == "or" {
+        if !term.quoted && term.value.eq_ignore_ascii_case("or") {
             if current_line_terms.is_empty() {
                 parsed.invalid_filter = true;
             } else {
@@ -1112,7 +1220,7 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
         }
 
         if !term.quoted {
-            if let Some(path_filter) = term.value.strip_prefix("path:") {
+            if let Some(path_filter) = strip_ascii_prefix(&term.value, "path:") {
                 let path_filter = path_filter.trim();
                 if path_filter.is_empty() || path_filter.len() > MAX_PATH_FILTER_BYTES {
                     parsed.invalid_filter = true;
@@ -1121,13 +1229,14 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
                 }
                 continue;
             }
-            if let Some(language_filter) = term.value.strip_prefix("lang:") {
-                if language_filter.trim().is_empty() {
+            if let Some(language_filter) = strip_ascii_prefix(&term.value, "lang:") {
+                let language_filter = language_filter.trim();
+                if language_filter.is_empty() {
                     parsed.invalid_filter = true;
                 } else {
                     parsed
                         .language_filters
-                        .push(language_filter.trim().to_string());
+                        .push(language_filter.to_ascii_lowercase());
                 }
                 continue;
             }
@@ -1142,6 +1251,13 @@ fn parse_query(normalized_query: &str) -> ParsedQuery {
         parsed.line_term_groups.push(current_line_terms);
     }
     parsed
+}
+
+fn strip_ascii_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .filter(|candidate| candidate.eq_ignore_ascii_case(prefix))
+        .and_then(|_| value.get(prefix.len()..))
 }
 
 fn path_matches_filter(normalized_path: &str, filter: &str) -> bool {
@@ -1697,6 +1813,79 @@ mod tests {
             .results
             .iter()
             .any(|result| result.path == "README.md" && result.line_number == 1));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_can_match_queries_case_sensitively() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-case-sensitive",
+            "CaseMarker appears here\ncasemarker appears here too\n",
+            "fn uses_CaseMarker() {}\nfn uses_casemarker() {}\n",
+            "target/generated.txt",
+        );
+        let root = fixture.root;
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        let default_response = store.search("CaseMarker", Some("repo_test")).unwrap();
+        assert_eq!(default_response.results.len(), 4);
+
+        let sensitive_response = store
+            .search_with_options(
+                "CaseMarker",
+                Some("repo_test"),
+                SearchOptions {
+                    case_sensitive: true,
+                    ..SearchOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(sensitive_response.query, "CaseMarker");
+        assert_eq!(sensitive_response.mode, SearchMode::Boolean);
+        assert_eq!(sensitive_response.results.len(), 2);
+        assert!(sensitive_response
+            .results
+            .iter()
+            .all(|result| result.line.contains("CaseMarker")));
+        assert!(sensitive_response
+            .results
+            .iter()
+            .all(|result| !result.line.contains("casemarker")));
+
+        let sensitive_or_response = store
+            .search_with_options(
+                "CaseMarker OR absent_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    case_sensitive: true,
+                    ..SearchOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(sensitive_or_response.results.len(), 2);
+        assert!(sensitive_or_response
+            .results
+            .iter()
+            .all(|result| result.line.contains("CaseMarker")));
+
+        let sensitive_filter_response = store
+            .search_with_options(
+                "Lang:Rust PATH:src CaseMarker",
+                Some("repo_test"),
+                SearchOptions {
+                    case_sensitive: true,
+                    ..SearchOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(sensitive_filter_response.results.len(), 1);
+        assert_eq!(sensitive_filter_response.results[0].path, "src/main.rs");
+        assert_eq!(
+            sensitive_filter_response.results[0].line,
+            "fn uses_CaseMarker() {}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

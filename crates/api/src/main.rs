@@ -52,7 +52,8 @@ use sourcebot_models::{
 };
 use sourcebot_search::{
     build_search_store, extract_symbols, DynSearchStore, LocalSearchStore, RepositoryIndexState,
-    RepositoryIndexStatus, SearchMode, SearchPagination, SearchResponse, SearchStore, SymbolKind,
+    RepositoryIndexStatus, SearchMode, SearchOptions, SearchPagination, SearchResponse,
+    SearchStore, SymbolKind,
 };
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read};
@@ -530,6 +531,8 @@ struct SearchQuery {
     mode: Option<SearchMode>,
     limit: Option<usize>,
     offset: Option<usize>,
+    #[serde(default)]
+    case_sensitive: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -6581,11 +6584,16 @@ async fn search_repository_contents(
         }
     }
 
+    let search_options = SearchOptions {
+        mode: search_mode,
+        case_sensitive: query.case_sensitive,
+    };
+
     let primary_search_response = search_visible_authorized_repositories(
         &state,
         trimmed_query,
         requested_repo_id,
-        search_mode,
+        search_options,
         &visible_repo_ids,
     );
     let primary_search_failed = primary_search_response.is_err();
@@ -6609,7 +6617,7 @@ async fn search_repository_contents(
             match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
-                search_mode,
+                search_options,
                 &user_id,
                 repo_id,
             )
@@ -6648,7 +6656,7 @@ async fn search_repository_contents(
             match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
-                search_mode,
+                search_options,
                 &user_id,
                 &repo_id,
             )
@@ -6711,13 +6719,13 @@ fn search_visible_authorized_repositories(
     state: &AppState,
     query: &str,
     requested_repo_id: Option<&str>,
-    mode: SearchMode,
+    options: SearchOptions,
     visible_repo_ids: &HashSet<String>,
 ) -> Result<sourcebot_search::SearchResponse, StatusCode> {
     if let Some(repo_id) = requested_repo_id {
         let mut response = state
             .search
-            .search_with_mode(query, Some(repo_id), mode)
+            .search_with_options(query, Some(repo_id), options)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         response.results.retain(|result| {
             result.repo_id == repo_id && visible_repo_ids.contains(&result.repo_id)
@@ -6732,7 +6740,7 @@ fn search_visible_authorized_repositories(
     for repo_id in repo_ids {
         let mut response = state
             .search
-            .search_with_mode(query, Some(&repo_id), mode)
+            .search_with_options(query, Some(&repo_id), options)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         response.results.retain(|result| {
             result.repo_id == repo_id && visible_repo_ids.contains(&result.repo_id)
@@ -6742,7 +6750,7 @@ fn search_visible_authorized_repositories(
 
     Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
         query.to_string(),
-        mode,
+        options.mode,
         None,
         results,
     ))
@@ -6778,7 +6786,7 @@ enum LocalSyncSearchFallback {
 async fn search_latest_local_sync_snapshot_for_repo(
     state: &AppState,
     query: &str,
-    mode: SearchMode,
+    options: SearchOptions,
     user_id: &str,
     repo_id: &str,
 ) -> Result<LocalSyncSearchFallback, StatusCode> {
@@ -6820,7 +6828,7 @@ async fn search_latest_local_sync_snapshot_for_repo(
                 return Ok(LocalSyncSearchFallback::FailClosed);
             }
             return search
-                .search_with_mode(query, Some(repo_id), mode)
+                .search_with_options(query, Some(repo_id), options)
                 .map(LocalSyncSearchFallback::Searchable)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -6835,7 +6843,7 @@ async fn search_latest_local_sync_snapshot_for_repo(
     let snapshot_search =
         LocalSearchStore::new(HashMap::from([(repo_id.to_string(), snapshot.path)]));
     snapshot_search
-        .search_with_mode(query, Some(repo_id), mode)
+        .search_with_options(query, Some(repo_id), options)
         .map(LocalSyncSearchFallback::Searchable)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -30465,6 +30473,78 @@ mod tests {
         assert_eq!(payload.results[0].repo_id, "repo_sourcebot_rewrite");
         assert_eq!(payload.results[0].path, "src/lib.rs");
         assert!(payload.results[0].line.contains("tokenized_query_marker"));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_case_sensitive_query_parameter_excludes_case_mismatches() {
+        let search_root = unique_test_path("search-case-sensitive-query-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn uses_CaseMarker() {}\npub fn uses_casemarker() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            search_root.join("README.md"),
+            "CaseMarker appears here\ncasemarker appears here too\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-case-sensitive-query-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-case-sensitive-query-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-case-sensitive-query-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=CaseMarker&repo_id=repo_sourcebot_rewrite&case_sensitive=true&limit=10&offset=0")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.query, "CaseMarker");
+        assert_eq!(payload.mode, "boolean");
+        assert_eq!(payload.pagination.limit, 10);
+        assert_eq!(payload.pagination.offset, 0);
+        assert_eq!(payload.pagination.total_count, 2);
+        assert!(!payload.pagination.has_more);
+        assert_eq!(payload.results.len(), 2);
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| result.line.contains("CaseMarker")));
+        assert!(payload
+            .results
+            .iter()
+            .all(|result| !result.line.contains("casemarker")));
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
