@@ -1208,6 +1208,7 @@ fn language_to_extensions(language: &str) -> Option<&'static [&'static str]> {
         "python" | "py" => Some(&[".py"]),
         "markdown" | "md" => Some(&[".md"]),
         "go" => Some(&[".go"]),
+        "java" => Some(&[".java"]),
         "json" => Some(&[".json"]),
         "yaml" | "yml" => Some(&[".yaml", ".yml"]),
         "toml" => Some(&[".toml"]),
@@ -1910,6 +1911,11 @@ mod tests {
         fs::write(root.join("config.json"), "{\"search_marker\": true}\n").unwrap();
         fs::write(root.join("settings.yaml"), "search_marker: true\n").unwrap();
         fs::write(root.join("Cargo.toml"), "search_marker = true\n").unwrap();
+        fs::write(
+            root.join("src").join("Service.java"),
+            "class SearchMarkerService { void search_marker() {} }\n",
+        )
+        .unwrap();
         let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
 
         let response = store
@@ -1953,6 +1959,7 @@ mod tests {
             ("yaml", "settings.yaml"),
             ("yml", "settings.yaml"),
             ("toml", "Cargo.toml"),
+            ("java", "src/Service.java"),
         ] {
             let response = store
                 .search(&format!("lang:{language} search_marker"), Some("repo_test"))
