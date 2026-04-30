@@ -6517,13 +6517,7 @@ async fn search_repository_contents(
                     response.results.append(&mut snapshot_response.results);
                 }
                 LocalSyncSearchFallback::FailClosed(_) => {
-                    response = SearchResponse::unpaginated_with_mode(
-                        trimmed_query.to_string(),
-                        search_mode,
-                        None,
-                        Vec::new(),
-                    );
-                    break;
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
                 LocalSyncSearchFallback::Unavailable => {}
             }
@@ -31455,13 +31449,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload: SearchResponse = read_json(response).await;
-        assert_eq!(payload.repo_id.as_deref(), None);
-        assert!(
-            payload.results.is_empty(),
-            "a present malformed local-sync artifact in any visible unscoped fallback repo must fail closed without returning partial results from later visible repos"
-        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
