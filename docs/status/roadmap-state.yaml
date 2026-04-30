@@ -5,31 +5,33 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: ffb93cfed635bd42382c5ed8c75c2783cf78d44e
+  head: 77782e8d6838a9e7deb619b811ef0fe372a0d40d
 last_completed_task:
-  id: task103_108_browse_worker_failclosed_batch
-  title: Browse oversized-blob status and worker status-path fail-closed hardening
+  id: task102_107_search_index_mcp_batch
+  title: Search/index multi-org fallback and MCP HTTP content negotiation hardening
   status: done
   summary: >-
     Closed two disjoint implementation-backed practical-replacement blockers in
-    one accelerated controller batch: requested repository blob reads now map
-    oversized blob/storage errors to explicit 413 Payload Too Large after the
-    existing repository-visibility gate instead of collapsing them into 404, and
-    the worker now rejects SOURCEBOT_WORKER_STATUS_PATH values with surrounding
-    whitespace before constructing or writing a supervisor status artifact. The
-    batch advances Task 103 large-file browse UX correctness and Task 108
-    operator-runtime configuration safety while keeping both claims bounded.
+    one accelerated controller batch: Task 102 index-status local-sync artifact
+    fallback now remains eligible when a caller can see the same repository
+    through multiple authorized organizations while still filtering by the
+    caller-authorized organization/repository boundary, and Task 107 MCP HTTP/API
+    JSON surfaces now reject unacceptable Accept headers with 406 Not Acceptable
+    after authentication instead of silently returning JSON to incompatible
+    clients. A third Provider/Worker implementation worker failed before
+    producing a mergeable closure because the delegated provider returned HTTP
+    503/no available accounts, so that scope remains open.
   tests:
-    - 'worker RED/GREEN: Task 103 worktree commit 6ec7bf6b8562e55cca7956c3365074f985052e25 added repo_blob_maps_oversized_blob_errors_to_payload_too_large; RED observed 404 before implementation, GREEN passed with 0 lib tests plus 1 main-bin test and 486 filtered out'
-    - 'integrator focused Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_blob_maps_oversized_blob_errors_to_payload_too_large -- --nocapture passed with 0 lib tests plus 1 main-bin test and 486 filtered out'
-    - 'integrator broader Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_blob -- --nocapture passed with 0 lib tests plus 12 main-bin tests and 475 filtered out'
-    - 'worker RED/GREEN: Task 108 worktree commit 3400259c37ea17af261ac4bb147f821c8530e05c added worker_status_path_fails_closed_when_configured_with_surrounding_whitespace; RED observed the worker accepted and trimmed the whitespace-padded status path, GREEN passed after fail-closed validation'
-    - 'integrator focused Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_configured_with_surrounding_whitespace -- --nocapture passed with 0 lib tests plus 1 main-bin test and zero matched integration targets'
-    - 'integrator broader Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 86 lib tests, 13 bin tests, and 5/3/4/3/6 integration-smoke tests'
+    - 'worker RED/GREEN Task 102: commit 16a6a02e7089652782d50ea7d5a3278618dc44af added repository_index_status_uses_local_sync_artifact_for_multi_org_visibility; RED observed 404 before implementation and GREEN passed with 0 lib tests plus 1 main-bin test and 487 filtered out in the worker worktree'
+    - 'integrator focused Task 102: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_uses_local_sync_artifact_for_multi_org_visibility -- --nocapture passed with 0 lib tests plus 1 main-bin test and 488 filtered out'
+    - 'integrator broader Task 102: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status -- --nocapture passed with 0 lib tests plus 7 main-bin tests and 482 filtered out'
+    - 'worker RED/GREEN Task 107: commit 4a420e6f119ed7f8a91b4f8e74b47b3c80b86a9b added mcp_http_surfaces_reject_unacceptable_accept_headers; RED observed manifest returned 200 instead of 406 and GREEN passed with 1 matched main-bin test and 487 filtered out in the worker worktree'
+    - 'integrator focused Task 107: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http_surfaces_reject_unacceptable_accept_headers -- --nocapture passed with 0 lib tests plus 1 main-bin test and 488 filtered out'
+    - 'integrator broader Task 107: cargo test -p sourcebot-api mcp_http passed with 0 lib tests plus 5 main-bin tests and 484 filtered out; cargo test -p sourcebot-api mcp_json_rpc passed with 0 lib tests plus 14 main-bin tests and 475 filtered out; cargo test -p sourcebot-mcp passed with 9 lib tests and 0 doctests'
     - 'integrator: cargo fmt --check, git diff --check HEAD~2..HEAD, and git diff --check passed'
     - 'integrator: added-lines security scan over HEAD~2..HEAD found no findings'
-    - 'independent review: approved HEAD~2..HEAD with no security concerns, logic errors, or docs/claim gaps; suggestions were typed browse errors and optional explicit worker status-path docs'
-  commit: ffb93cfed635bd42382c5ed8c75c2783cf78d44e
+    - 'independent review: approved HEAD~2..HEAD with no security concerns, logic errors, or docs/claim gaps; suggestions were extra Accept negotiation edge cases and optional media-type documentation'
+  commit: 77782e8d6838a9e7deb619b811ef0fe372a0d40d
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -39,18 +41,55 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This accelerated run merged two verified adjacent closures
-    from Task 103 and Task 108, while the Task 102 search worker failed before
-    producing changes because the delegated provider returned HTTP 503/no
+    worktree is clean. This accelerated run merged a Task 102 multi-organization
+    local-sync index-status fallback fix plus a Task 107 MCP HTTP content
+    negotiation hardening closure; the Task 106/108 provider-worker scope failed
+    before producing a mergeable change because delegation hit HTTP 503/no
     available accounts. Practical replacement remains incomplete. Remaining
     blockers still include production-shaped indexing lifecycle/status and
     failure recovery, relevance and pagination behavior at scale beyond bounded
     helpers, a full branch/ref picker and revision-switching UX beyond summary
     visibility, broader provider fetch/import/reindex, worker scheduling and
     supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
-    deeper MCP client/session interoperability, operator runbook/deploy evidence,
-    and the other release blockers in this roadmap.
+    deeper MCP client/session interoperability beyond the HTTP/API bridge,
+    operator runbook/deploy evidence, and the other release blockers in this
+    roadmap.
 history:
+  - id: task102_107_search_index_mcp_batch
+    status: done
+    summary: >-
+      Closed an accelerated, disjoint implementation batch rather than a
+      paperwork slice: Task 102 index-status fallback now handles callers with
+      multiple authorized organizations for the same repository without dropping
+      valid local-sync artifact evidence, and Task 107 MCP HTTP manifest/tools
+      surfaces now fail closed on incompatible Accept headers while preserving
+      the existing authenticated JSON-RPC path.
+    commit: 77782e8d6838a9e7deb619b811ef0fe372a0d40d
+    tests:
+      - 'worker Task 102 RED/GREEN: repository_index_status_uses_local_sync_artifact_for_multi_org_visibility failed with 404 before implementation and passed after filtering latest local-sync fallback candidates by the caller-authorized organization set'
+      - 'integrator Task 102 focused/broader: repository_index_status_uses_local_sync_artifact_for_multi_org_visibility passed with 0 lib tests plus 1 main-bin test; repository_index_status passed with 0 lib tests plus 7 main-bin tests'
+      - 'worker Task 107 RED/GREEN: mcp_http_surfaces_reject_unacceptable_accept_headers failed with manifest returning 200 before implementation and passed after JSON Accept negotiation was applied to the MCP HTTP surfaces'
+      - 'integrator Task 107 focused/broader: mcp_http_surfaces_reject_unacceptable_accept_headers passed with 0 lib tests plus 1 main-bin test; mcp_http passed with 5 main-bin tests; mcp_json_rpc passed with 14 main-bin tests; sourcebot-mcp passed with 9 lib tests and 0 doctests'
+      - 'integrator: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, and added-lines security scan over HEAD~2..HEAD passed'
+      - 'independent review: approved HEAD~2..HEAD with no security, logic, auth/scope, content-negotiation, or docs/claim blockers'
+    review: >-
+      Independent review inspected the integrated range and confirmed the
+      multi-org local-sync index-status fallback preserves the existing
+      repository visibility gate, filters fallback candidates by the
+      caller-authorized organization ids before choosing the latest successful
+      sync job, and does not widen beyond the authorized organization/repository
+      boundary. Review also confirmed MCP manifest, tools-list, and tools-call
+      handlers authenticate before Accept negotiation, reject incompatible JSON
+      response negotiation with 406, preserve existing JSON-RPC handling, and
+      keep docs claims bounded to the shipped HTTP/API bridge.
+    workers: >-
+      Three implementation worktrees were launched after disk preflight. The
+      Task 102 search/index worker committed 16a6a02e7089652782d50ea7d5a3278618dc44af, cherry-picked onto
+      master as 804d4d975479beee5006c96c01badb62c2dcfcf4. The Task 107 MCP/Ops worker committed 4a420e6f119ed7f8a91b4f8e74b47b3c80b86a9b,
+      cherry-picked onto master as 77782e8d6838a9e7deb619b811ef0fe372a0d40d. The Task 106/108 provider-worker
+      failed before producing a mergeable closure because the delegated provider
+      returned HTTP 503/no available accounts; its worktree had no committed
+      changes and was cleaned. All worktrees were removed/pruned during close-out.
   - id: task103_108_browse_worker_failclosed_batch
     status: done
     summary: >-
