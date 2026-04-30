@@ -955,6 +955,7 @@ fn validate_persisted_index_artifact(
 
 fn is_safe_persisted_index_path(path: &str) -> bool {
     if path.is_empty()
+        || path.chars().any(char::is_control)
         || path.contains('\\')
         || path.contains("//")
         || path.ends_with('/')
@@ -2646,6 +2647,48 @@ mod tests {
                 .contains("unsafe search index artifact path"),
             "unexpected error: {error:#}"
         );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_control_character_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+
+        for unsafe_path in [
+            "src/forged\npath.rs",
+            "src/forged\rpath.rs",
+            "src/forged\u{7f}path.rs",
+        ] {
+            let mut unsafe_artifact_json = artifact_json.clone();
+            unsafe_artifact_json["indexed_lines"][0]["path"] =
+                serde_json::Value::String(unsafe_path.to_string());
+            fs::write(
+                &artifact_path,
+                serde_json::to_vec(&unsafe_artifact_json).unwrap(),
+            )
+            .unwrap();
+
+            let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+                Ok(_) => panic!(
+                    "persisted index path with control character {unsafe_path:?} must fail closed"
+                ),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsafe search index artifact path"),
+                "unexpected error for {unsafe_path:?}: {error:#}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
