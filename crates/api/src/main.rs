@@ -6588,6 +6588,7 @@ async fn search_repository_contents(
     let search_options = SearchOptions {
         mode: search_mode,
         case_sensitive: query.case_sensitive,
+        include_paths: parse_include_path_query_values(raw_query.as_deref()),
         exclude_paths: parse_exclude_path_query_values(raw_query.as_deref()),
     };
 
@@ -6717,13 +6718,21 @@ fn sort_search_results_by_repo_path_line(results: &mut [sourcebot_search::Search
     });
 }
 
+fn parse_include_path_query_values(raw_query: Option<&str>) -> Vec<String> {
+    parse_repeated_path_query_values(raw_query, "include_path")
+}
+
 fn parse_exclude_path_query_values(raw_query: Option<&str>) -> Vec<String> {
+    parse_repeated_path_query_values(raw_query, "exclude_path")
+}
+
+fn parse_repeated_path_query_values(raw_query: Option<&str>, parameter_name: &str) -> Vec<String> {
     let Some(raw_query) = raw_query else {
         return Vec::new();
     };
 
     form_urlencoded::parse(raw_query.as_bytes())
-        .filter_map(|(key, value)| (key == "exclude_path").then_some(value))
+        .filter_map(|(key, value)| (key == parameter_name).then_some(value))
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect()
@@ -30895,6 +30904,137 @@ mod tests {
                 .map(|result| result.path.as_str())
                 .collect::<Vec<_>>(),
             vec!["src/lib.rs"]
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    struct ApiIncludePathSearchStore;
+
+    impl SearchStore for ApiIncludePathSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            self.search_with_options(
+                query,
+                repo_id,
+                SearchOptions {
+                    mode,
+                    ..SearchOptions::default()
+                },
+            )
+        }
+
+        fn search_with_options(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            options: SearchOptions,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            let repo_id = repo_id.unwrap_or("repo_sourcebot_rewrite");
+            let include_paths = options
+                .include_paths
+                .iter()
+                .map(|path| path.trim().to_lowercase())
+                .filter(|path| !path.is_empty())
+                .collect::<Vec<_>>();
+            let mut results = vec![
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "dist/generated.rs".to_string(),
+                    line_number: 1,
+                    line: "api_include_path_marker dist".to_string(),
+                },
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "docs/guide.md".to_string(),
+                    line_number: 1,
+                    line: "api_include_path_marker docs".to_string(),
+                },
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "src/lib.rs".to_string(),
+                    line_number: 1,
+                    line: "api_include_path_marker src".to_string(),
+                },
+            ];
+            if !include_paths.is_empty() {
+                results.retain(|result| {
+                    let path = result.path.to_lowercase();
+                    include_paths.iter().any(|include| path.contains(include))
+                });
+            }
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                options.mode,
+                Some(repo_id.to_string()),
+                results,
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(Some(RepositoryIndexStatus {
+                repo_id: "repo_sourcebot_rewrite".to_string(),
+                status: RepositoryIndexState::Indexed,
+                indexed_file_count: 3,
+                indexed_line_count: 3,
+                skipped_file_count: 0,
+                error: None,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn search_include_path_query_filters_results_and_total_count() {
+        let organization_state_path = unique_test_path("search-include-path-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-include-path-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-include-path-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(ApiIncludePathSearchStore),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=api_include_path_marker&repo_id=repo_sourcebot_rewrite&include_path=src&include_path=docs&include_path=%20&limit=1")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.pagination.total_count, 2);
+        assert!(payload.pagination.has_more);
+        assert_eq!(
+            payload
+                .results
+                .iter()
+                .map(|result| result.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["docs/guide.md"]
         );
 
         fs::remove_file(organization_state_path).unwrap();
