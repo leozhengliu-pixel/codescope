@@ -5,27 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 085ba6fda1a37fb419827a4e13f6d2c5f983554d
+  head: 8ad7aa698a12e9c6cea48e6ee363175b68014fa7
 last_completed_task:
-  id: task102_requested_repo_search_scope
-  title: Requested-repo search result scope hardening
+  id: task102_search_context_create_scope
+  title: Saved search-context creation scope hardening
   status: done
   summary: >-
-    Closed a bounded Task 102 search/authz leak risk rather than a paperwork
-    slice: explicit /api/v1/search?repo_id=... requests now discard backend or
-    fallback rows whose result repo_id differs from the requested repository, even
-    when those other repositories are otherwise visible to the caller. This keeps
-    requested-repo result rows and pagination counts scoped to the requested repo
-    while preserving the existing hidden/unknown/blank repo_id fail-closed
-    behavior.
+    Closed a real Task 102 saved-search-context contract gap rather than a
+    paperwork slice: authenticated POST /api/v1/auth/search-contexts now
+    canonicalizes submitted repository scopes, filters them to repositories
+    visible to the caller, rejects empty/blank/invisible effective scopes with
+    400 before persistence, and stores only the visible canonical repository
+    ids. This keeps saved search contexts non-empty and prevents stale or hidden
+    repository ids from being persisted by the creation surface.
   tests:
-    - 'worker/controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_repo_search_filters_backend_results_to_requested_repo_not_only_visibility -- --nocapture passed with 0 lib tests plus 1 main-bin test and 482 filtered out'
-    - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 42 main-bin tests and 441 filtered out'
+    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture failed before implementation with 201 Created instead of 400 Bad Request'
+    - 'worker GREEN: focused rejection selector passed with 0 lib tests plus 1 main-bin test; adjacent create/filter selector passed with 0 lib tests plus 1 main-bin test; broader auth_search_contexts selector passed with 0 lib tests plus 6 main-bin tests'
+    - 'controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
+    - 'controller adjacent: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
+    - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 478 filtered out'
     - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check passed'
+    - 'controller: git diff --check HEAD~1..HEAD passed'
     - 'controller: added-lines security scan over HEAD~1..HEAD found no findings'
-    - 'independent review: approved HEAD~1..HEAD with no security, logic, or docs-truthfulness blockers'
-  commit: 085ba6fda1a37fb419827a4e13f6d2c5f983554d
+    - 'independent review: approved HEAD~1..HEAD with no security or logic blockers; non-blocking suggestion was an endpoint-level canonical ordering/duplicate assertion'
+  commit: 8ad7aa698a12e9c6cea48e6ee363175b68014fa7
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -35,11 +38,10 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed the requested-repo search result-scope
-    hardening gap by ensuring explicit repo_id searches cannot surface results
-    from a different visible repository returned by a buggy primary search store
-    or fallback source, and docs now lock that bounded contract. Practical
-    replacement remains incomplete. Remaining blockers still include
+    worktree is clean. This run closed the saved search-context creation-scope
+    hardening gap by making the creation endpoint enforce the already-documented
+    non-empty, caller-visible repository-scope contract before persistence.
+    Practical replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale beyond bounded helpers, a full branch/ref
     picker and revision-switching UX beyond summary visibility, broader provider
@@ -48,6 +50,38 @@ current_task:
     interoperability, operator runbook/deploy evidence, and the other release
     blockers in this roadmap.
 history:
+  - id: task102_search_context_create_scope
+    status: done
+    summary: >-
+      Closed a real Task 102 saved-search-context behavior slice: creating a
+      saved context now trims/deduplicates submitted scope through the shared
+      canonicalizer, intersects it with the caller's current visible repos,
+      rejects empty effective scopes, and persists only visible canonical repo ids.
+    commit: 8ad7aa698a12e9c6cea48e6ee363175b68014fa7
+    tests:
+      - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture failed before implementation with 201 Created instead of 400 Bad Request'
+      - 'worker GREEN: focused rejection selector passed with 0 lib tests plus 1 main-bin test; adjacent create/filter selector passed with 0 lib tests plus 1 main-bin test; broader auth_search_contexts selector passed with 0 lib tests plus 6 main-bin tests'
+      - 'controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_rejects_empty_or_invisible_repo_scope -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
+      - 'controller adjacent: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts_post_creates_context_for_current_user_and_hides_stale_repo_ids -- --nocapture passed with 0 lib tests plus 1 main-bin test and 483 filtered out'
+      - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api auth_search_contexts -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 478 filtered out'
+      - 'controller: cargo fmt --check passed'
+      - 'controller: git diff --check HEAD~1..HEAD passed'
+      - 'controller: added-lines security scan over HEAD~1..HEAD found no findings'
+      - 'independent review: approved HEAD~1..HEAD with no security or logic blockers; non-blocking suggestion was an endpoint-level canonical ordering/duplicate assertion'
+    review: >-
+      Independent review inspected HEAD~1..HEAD and adjacent saved-search-context
+      creation/list/search behavior, confirmed the endpoint rejects empty effective
+      scopes before persistence and no longer stores hidden/stale repo ids, and
+      found no security, authorization, logic, or docs-truthfulness blockers.
+    workers: >-
+      One implementation worker was launched in worktree
+      /opt/data/projects/sourcebot-worktrees/hermes-task102-search-context-create-scope-1777524028
+      on branch hermes-task102-search-context-create-scope-1777524028. It produced
+      worker commit 5897e207480adf284dfa972c41eea1fce8d0c38a, which was
+      cherry-picked onto master as 8ad7aa698a12e9c6cea48e6ee363175b68014fa7. No other implementation workers were
+      launched because the active Task 102 search-context scope was small enough
+      to close as one meaningful implementation-backed slice and parallelizing
+      adjacent domains would have increased integration/disk risk.
   - id: task102_requested_repo_search_scope
     status: done
     summary: >-
