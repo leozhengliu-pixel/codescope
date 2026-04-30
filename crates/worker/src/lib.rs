@@ -1626,6 +1626,16 @@ fn validate_local_repository_sync_repo_path(repo_path: &str) -> Result<(), Strin
         return Err("local repository repo_path must not be a symlink".to_owned());
     }
 
+    if path.ancestors().skip(1).any(|ancestor| {
+        fs::symlink_metadata(ancestor)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false)
+    }) {
+        return Err(
+            "local repository repo_path must not include symlink parent components".to_owned(),
+        );
+    }
+
     Ok(())
 }
 
@@ -3316,6 +3326,52 @@ mod tests {
         assert_eq!(
             failed_job.error.as_deref(),
             Some("local repository sync preflight failed: local repository repo_path must not be a symlink")
+        );
+    }
+
+    #[test]
+    fn local_repository_sync_repo_path_with_symlink_parent_fails_closed_before_spawning_git() {
+        let target_parent = unique_test_path("local-sync-symlink-parent-target");
+        let symlink_parent = unique_test_path("local-sync-symlink-parent-link");
+        let repo_dir_name = "repo";
+        let repo_path = symlink_parent.join(repo_dir_name);
+        let target_repo_path = target_parent.join(repo_dir_name);
+        let _ = fs::remove_file(&symlink_parent);
+        let _ = fs::remove_dir_all(&target_parent);
+        fs::create_dir_all(&target_repo_path)
+            .expect("local sync parent symlink target fixture should be created");
+        std::os::unix::fs::symlink(&target_parent, &symlink_parent)
+            .expect("local sync repo_path parent symlink fixture should be created");
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.to_string_lossy().as_ref())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_symlink_parent_path",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            OsStr::new("/definitely/missing/sourcebot-test-git"),
+            Duration::from_millis(50),
+        )
+        .expect(
+            "local repo_path with a symlink parent should terminally fail before git is spawned",
+        );
+
+        let _ = fs::remove_file(&symlink_parent);
+        let _ = fs::remove_dir_all(&target_parent);
+
+        assert_eq!(failed_job.id, "sync_job_local_symlink_parent_path");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: local repository repo_path must not include symlink parent components")
         );
     }
 
