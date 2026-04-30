@@ -83,6 +83,7 @@ struct AppState {
 const DEFAULT_ASK_USER_ID: &str = "local_user";
 const LOCAL_BOOTSTRAP_ADMIN_USER_ID: &str = "local_user_bootstrap_admin";
 const MAX_CODE_NAV_REFERENCE_RESULTS: usize = 1_000;
+const MAX_CODE_NAV_SYMBOL_BYTES: usize = 256;
 static NEXT_ASK_ENTITY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Serialize)]
@@ -5644,12 +5645,7 @@ async fn get_repository_definitions(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let symbol = query
-        .symbol
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let symbol = parse_code_nav_symbol_query(query.symbol.as_deref())?;
     ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
     let requested_revision = parse_optional_revision_query(&query.revision)?;
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
@@ -5748,12 +5744,7 @@ async fn get_repository_references(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(StatusCode::BAD_REQUEST)?;
-    let symbol = query
-        .symbol
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or(StatusCode::BAD_REQUEST)?;
+    let symbol = parse_code_nav_symbol_query(query.symbol.as_deref())?;
     ensure_repo_visible_for_code_nav_request(&state, &headers, &repo_id).await?;
     let requested_revision = parse_optional_revision_query(&query.revision)?;
     let effective_revision = requested_revision.as_deref().unwrap_or("HEAD");
@@ -5859,6 +5850,19 @@ async fn get_repository_references(
     };
 
     Ok(Json(response))
+}
+
+fn parse_code_nav_symbol_query(symbol: Option<&str>) -> Result<&str, StatusCode> {
+    let symbol = symbol
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    if symbol.len() > MAX_CODE_NAV_SYMBOL_BYTES || symbol.chars().any(char::is_control) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    Ok(symbol)
 }
 
 fn code_nav_symbol_extraction(
@@ -7571,6 +7575,25 @@ mod tests {
         assert!(
             !supports_code_nav_text_reference_scan("README.md"),
             "local-sync code-nav fallback must remain scoped to source files"
+        );
+    }
+
+    #[test]
+    fn code_nav_symbol_query_validation_fails_closed_for_unbounded_or_control_symbols() {
+        assert_eq!(
+            parse_code_nav_symbol_query(Some(&"s".repeat(MAX_CODE_NAV_SYMBOL_BYTES + 1))),
+            Err(StatusCode::BAD_REQUEST),
+            "code-nav symbol queries above the bounded budget must not reach fallback grep scans"
+        );
+        assert_eq!(
+            parse_code_nav_symbol_query(Some("symbol\nnext")),
+            Err(StatusCode::BAD_REQUEST),
+            "control-character code-nav symbols must fail closed before browse/code-nav lookup"
+        );
+        assert_eq!(
+            parse_code_nav_symbol_query(Some("  safe_symbol  ")),
+            Ok("safe_symbol"),
+            "valid symbols should still be trimmed and accepted"
         );
     }
 
