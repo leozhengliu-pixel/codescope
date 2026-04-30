@@ -6480,7 +6480,15 @@ async fn local_sync_snapshot_index_status_for_repo(
             };
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(error) => {
+            return Ok(Some(malformed_search_index_artifact_status(
+                repo_id,
+                &snapshot.search_index_artifact_path,
+                anyhow::anyhow!(
+                    "failed to read local-sync search index artifact metadata: {error}"
+                ),
+            )));
+        }
     }
     if !local_sync_legacy_snapshot_dir_is_usable(&snapshot.path)? {
         return Ok(None);
@@ -34128,6 +34136,103 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repository_index_status_local_sync_unreadable_artifact_path_reports_error_status() {
+        let repo_root = unique_test_path("index-status-local-unreadable-artifact-path-repo-root");
+        let job_root = repo_root
+            .join(".sourcebot")
+            .join("local-sync")
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        fs::create_dir_all(job_root.parent().unwrap()).unwrap();
+        fs::write(&job_root, "not a directory\n").unwrap();
+
+        let organization_state_path =
+            unique_test_path("index-status-local-unreadable-artifact-orgs");
+        let local_session_state_path =
+            unique_test_path("index-status-local-unreadable-artifact-sessions");
+        let user_id = "user_local_unreadable_artifact_status";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local connection".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:10:00Z".into(),
+                started_at: Some("2026-04-21T00:10:01Z".into()),
+                finished_at: Some("2026-04-21T00:10:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatusResponse = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.status, "error");
+        assert_eq!(payload.indexed_file_count, 0);
+        assert_eq!(payload.indexed_line_count, 0);
+        assert_eq!(payload.skipped_file_count, 0);
+        let error = payload.error.expect("error status includes a reason");
+        assert!(
+            error.starts_with("malformed local-sync search index artifact: "),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("failed to read local-sync search index artifact metadata")
+                || error.contains("not a directory"),
+            "unexpected error: {error}"
+        );
+        assert!(!error.contains(repo_root.to_string_lossy().as_ref()));
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_file(job_root).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
     }
 
