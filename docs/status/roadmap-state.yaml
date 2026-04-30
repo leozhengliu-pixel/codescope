@@ -5,28 +5,29 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: fef89034c97a3a2ef11924fd6dea6aa9c6830bc3
+  head: e95d59a303c0134d10358ae69da0ff78ea5fdfbf
 last_completed_task:
-  id: task102_requested_search_primary_error_fallback
-  title: Requested-repo primary search error local-sync fallback
+  id: task102_unscoped_search_artifact_failclosed
+  title: Unscoped/search-context local-sync search artifact fail-closed hardening
   status: done
   summary: >-
-    Closed a real Task 102 search/index runtime resilience slice rather than a
-    paperwork update: authenticated requested-repository `/api/v1/search` now may
-    answer a primary search-store outage from the latest valid caller-authorized
-    local-sync `search-index.json` artifact for that same requested repository.
-    The path remains fail-closed: unscoped/context search primary outages still
-    return 500, and requested-repo primary outages return 500 when no valid
-    authorized artifact is available or when the artifact is malformed,
-    non-regular, or marked error instead of silently returning an empty 200.
+    Closed a real Task 102 search/index runtime hardening slice: authenticated
+    unscoped and saved-context `/api/v1/search` local-sync artifact fallback now
+    fails closed request-wide with 500 when any caller-visible fallback candidate
+    has a malformed, non-regular, or error-status `search-index.json`, instead
+    of returning a misleading empty 200 or partial success from later visible
+    repositories. Requested-repo empty-primary fallback remains bounded to empty
+    results, and requested-repo primary-error fallback still returns 500 unless a
+    valid caller-authorized artifact can answer.
   tests:
-    - 'worker/controller focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out after fixing the reviewer-found malformed-artifact masking bug'
-    - 'controller broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
-    - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check HEAD~1..HEAD and git diff --check passed'
-    - 'controller: added-lines security scan over HEAD~1..HEAD found no findings'
-    - 'independent review: initial review blocked masking malformed artifacts during primary outage; final re-review approved HEAD~1..HEAD with no security, logic, or docs-truthfulness blockers'
-  commit: fef89034c97a3a2ef11924fd6dea6aa9c6830bc3
+    - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw 200 OK before the fail-closed implementation'
+    - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
+    - 'controller broader local-sync: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
+    - 'controller broader search family: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 45 main-bin tests and 441 filtered out'
+    - 'controller: cargo fmt --check and git diff --check passed'
+    - 'controller: added-lines security scan over crates/api/src/main.rs and specs/acceptance/generic-local-git.md found no findings'
+    - 'independent review: approved the scoped diff with no security or logic blockers; noted optional future explicit search-context malformed-artifact coverage'
+  commit: e95d59a303c0134d10358ae69da0ff78ea5fdfbf
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -36,19 +37,50 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed a requested-repo search runtime resilience
-    gap by allowing a valid caller-authorized local-sync search artifact to answer
-    a primary requested-repo search-store outage without widening scope, while
-    keeping unscoped/context primary outages and malformed/unavailable artifacts
-    fail-closed. Practical replacement remains incomplete. Remaining blockers
-    still include production-shaped indexing lifecycle/status and failure recovery,
-    relevance and pagination behavior at scale beyond bounded helpers, a full
-    branch/ref picker and revision-switching UX beyond summary visibility,
-    broader provider fetch/import/reindex, worker scheduling and supervision with
-    broad retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP
-    client/session interoperability, operator runbook/deploy evidence, and the
-    other release blockers in this roadmap.
+    worktree is clean. This run hardened unscoped/search-context local-sync
+    search artifact fallback so malformed, non-regular, or error-status artifacts
+    cannot be masked as empty 200s or partial success across other visible repos.
+    Practical replacement remains incomplete. Remaining blockers still include
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale beyond bounded helpers, a full branch/ref
+    picker and revision-switching UX beyond summary visibility, broader provider
+    fetch/import/reindex, worker scheduling and supervision with broad
+    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
+    interoperability, operator runbook/deploy evidence, and the other release
+    blockers in this roadmap.
 history:
+  - id: task102_unscoped_search_artifact_failclosed
+    status: done
+    summary: >-
+      Closed a bounded Task 102 unscoped/search-context search resilience slice:
+      when `/api/v1/search` has no primary startup results and consults
+      caller-visible local-sync search artifacts, any malformed, non-regular, or
+      explicit error-status artifact now fails the request closed with 500 instead
+      of returning an empty success or partial results from other visible repos.
+    commit: e95d59a303c0134d10358ae69da0ff78ea5fdfbf
+    tests:
+      - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw 200 OK before the fail-closed implementation'
+      - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api unscoped_search_fails_closed_without_partial_success -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
+      - 'controller broader local-sync: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
+      - 'controller broader search family: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests plus 45 main-bin tests and 441 filtered out'
+      - 'controller: cargo fmt --check and git diff --check passed'
+      - 'controller: added-lines security scan over crates/api/src/main.rs and specs/acceptance/generic-local-git.md found no findings'
+      - 'independent review: approved the scoped diff with no security or logic blockers; noted optional future explicit search-context malformed-artifact coverage'
+    review: >-
+      Independent review confirmed that the change is narrowly scoped to the
+      unscoped/search-context fallback loop, preserves requested-repo semantics,
+      keeps fallback iteration bounded by `visible_repo_ids` and the existing
+      search-context narrowing, and keeps per-repo local-sync lookup behind the
+      authorized organization and local-connection checks. Review found no
+      security, auth/scope, or docs-truthfulness blockers.
+    workers: >-
+      No parallel implementation worktrees were launched this run because the
+      clean main worktree exposed a single small, high-value fail-closed hardening
+      gap in the already-adjacent Task 102 local-sync search fallback path; using
+      extra workers would have increased disk and integration risk without adding
+      independent release-parity closure. The controller implemented and verified
+      the slice locally, and /opt/data/projects/sourcebot-worktrees remained at
+      4.0K.
   - id: task102_requested_search_primary_error_fallback
     status: done
     summary: >-
