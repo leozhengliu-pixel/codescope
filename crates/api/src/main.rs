@@ -6576,21 +6576,23 @@ async fn search_latest_local_sync_snapshot_for_repo(
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
             }
-            let search = LocalSearchStore::from_index_artifact(
+            let search = match LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
-            )
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            ) {
+                Ok(search) => search,
+                Err(_) => return Ok(Some(empty_local_sync_search_response(query, mode, repo_id))),
+            };
             let Some(index_status) = search
                 .repository_index_status(repo_id)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             else {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
             };
             if index_status.status == RepositoryIndexState::Error {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(Some(empty_local_sync_search_response(query, mode, repo_id)));
             }
             return search
                 .search_with_mode(query, Some(repo_id), mode)
@@ -6611,6 +6613,19 @@ async fn search_latest_local_sync_snapshot_for_repo(
         .search_with_mode(query, Some(repo_id), mode)
         .map(Some)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn empty_local_sync_search_response(
+    query: &str,
+    mode: SearchMode,
+    repo_id: &str,
+) -> SearchResponse {
+    SearchResponse::unpaginated_with_mode(
+        query.to_string(),
+        mode,
+        Some(repo_id.to_string()),
+        Vec::new(),
+    )
 }
 
 fn authorized_organization_ids_for_repo(
@@ -30433,7 +30448,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert!(
+            payload.results.is_empty(),
+            "local-sync error-status artifacts should fail closed to no requested-repo results without falling back to mutable snapshots"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -30734,7 +30755,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
+        assert!(
+            payload.results.is_empty(),
+            "malformed local-sync search artifacts should fail closed to no requested-repo results without falling back to mutable snapshots"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -30870,7 +30897,21 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.repo_id.as_deref(), None);
+        assert_eq!(payload.results.len(), 1);
+        assert_eq!(payload.results[0].repo_id, "repo_good");
+        assert!(payload.results[0]
+            .line
+            .contains("good_artifact_marker_survives_bad_neighbor"));
+        assert!(
+            payload
+                .results
+                .iter()
+                .all(|result| result.repo_id != "repo_bad"),
+            "malformed local-sync artifacts must fail closed per repo without poisoning other visible fallback repos"
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
