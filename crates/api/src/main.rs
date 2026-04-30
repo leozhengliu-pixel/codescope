@@ -5745,6 +5745,7 @@ async fn get_repository_references(
                     .ok_or(StatusCode::NOT_FOUND)?
                     .matches
                     .into_iter()
+                    .filter(|hit| supports_code_nav_text_reference_scan(&hit.path))
                     .map(|hit| ReferenceMatch {
                         path: hit.path,
                         line_number: hit.line_number,
@@ -5792,6 +5793,15 @@ fn code_nav_symbol_extraction(
     }
 
     extract_symbols(path, &blob.content)
+}
+
+fn supports_code_nav_text_reference_scan(path: &str) -> bool {
+    matches!(
+        std::path::Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str()),
+        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" | "py" | "go")
+    )
 }
 
 fn build_definitions_response(
@@ -33598,6 +33608,11 @@ mod tests {
             "pub fn local_sync_code_nav_marker() {}\nfn caller() { local_sync_code_nav_marker(); }\n",
         )
         .unwrap();
+        fs::write(
+            snapshot_root.join("README.md"),
+            "docs mention local_sync_code_nav_marker but are outside code-nav fallback scope\n",
+        )
+        .unwrap();
         #[cfg(unix)]
         let outside_symlink_target = {
             let target = unique_test_path("code-nav-local-snapshot-outside-secret");
@@ -33787,6 +33802,10 @@ mod tests {
                 && reference.line.contains("caller")
                 && reference.browse_url.contains("revision=abc123#L2")
         }));
+        assert!(
+            references.iter().all(|reference| reference.path != "README.md"),
+            "local-sync code-nav fallback must keep primary code-nav's source-file scan scope: {references:?}"
+        );
 
         #[cfg(unix)]
         {
