@@ -5,30 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 694183dc6a90afc17654dafc2fdf5eb4463da217
+  head: ffb93cfed635bd42382c5ed8c75c2783cf78d44e
 last_completed_task:
-  id: task102_index_status_primary_precedence
-  title: Preserve primary index-status errors over local-sync fallback
+  id: task103_108_browse_worker_failclosed_batch
+  title: Browse oversized-blob status and worker status-path fail-closed hardening
   status: done
   summary: >-
-    Closed a bounded Task 102 search/index runtime correctness slice: the
-    authenticated `/api/v1/repos/{repo_id}/index-status` endpoint now preserves
-    any present startup search-store status, including `error`, instead of
-    masking an active primary indexing failure with an older local-sync
-    `search-index.json` artifact. Local-sync artifact/snapshot fallback remains
-    available only when the startup search store has no status for that visible
-    repository, while `/api/v1/search` local-sync fallback semantics are left
-    unchanged.
+    Closed two disjoint implementation-backed practical-replacement blockers in
+    one accelerated controller batch: requested repository blob reads now map
+    oversized blob/storage errors to explicit 413 Payload Too Large after the
+    existing repository-visibility gate instead of collapsing them into 404, and
+    the worker now rejects SOURCEBOT_WORKER_STATUS_PATH values with surrounding
+    whitespace before constructing or writing a supervisor status artifact. The
+    batch advances Task 103 large-file browse UX correctness and Task 108
+    operator-runtime configuration safety while keeping both claims bounded.
   tests:
-    - 'controller RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture failed with 0 lib tests plus 1 main-bin test; assertion saw Indexed before the primary-precedence implementation'
-    - 'controller focused GREEN: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status_preserves_primary_error -- --nocapture passed with 0 lib tests plus 1 main-bin test and 485 filtered out'
-    - 'controller broader index-status: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repository_index_status -- --nocapture passed with 0 lib tests plus 6 main-bin tests and 480 filtered out'
-    - 'controller broader local-sync: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests plus 26 main-bin tests and 460 filtered out'
-    - 'controller: cargo fmt --check and git diff --check passed'
-    - 'controller: raw docs wording checks passed for repository-operations, generic-local-git, parity-gap, and final-audit wording'
-    - 'controller: added-lines security scan over the scoped diff found no findings'
-    - 'independent review: approved primary-status precedence, auth/scope boundaries, unchanged search fallback semantics, and docs truthfulness with no security or logic blockers'
-  commit: 694183dc6a90afc17654dafc2fdf5eb4463da217
+    - 'worker RED/GREEN: Task 103 worktree commit 6ec7bf6b8562e55cca7956c3365074f985052e25 added repo_blob_maps_oversized_blob_errors_to_payload_too_large; RED observed 404 before implementation, GREEN passed with 0 lib tests plus 1 main-bin test and 486 filtered out'
+    - 'integrator focused Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_blob_maps_oversized_blob_errors_to_payload_too_large -- --nocapture passed with 0 lib tests plus 1 main-bin test and 486 filtered out'
+    - 'integrator broader Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_blob -- --nocapture passed with 0 lib tests plus 12 main-bin tests and 475 filtered out'
+    - 'worker RED/GREEN: Task 108 worktree commit 3400259c37ea17af261ac4bb147f821c8530e05c added worker_status_path_fails_closed_when_configured_with_surrounding_whitespace; RED observed the worker accepted and trimmed the whitespace-padded status path, GREEN passed after fail-closed validation'
+    - 'integrator focused Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker worker_status_path_fails_closed_when_configured_with_surrounding_whitespace -- --nocapture passed with 0 lib tests plus 1 main-bin test and zero matched integration targets'
+    - 'integrator broader Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker passed with 86 lib tests, 13 bin tests, and 5/3/4/3/6 integration-smoke tests'
+    - 'integrator: cargo fmt --check, git diff --check HEAD~2..HEAD, and git diff --check passed'
+    - 'integrator: added-lines security scan over HEAD~2..HEAD found no findings'
+    - 'independent review: approved HEAD~2..HEAD with no security concerns, logic errors, or docs/claim gaps; suggestions were typed browse errors and optional explicit worker status-path docs'
+  commit: ffb93cfed635bd42382c5ed8c75c2783cf78d44e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -38,17 +39,51 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run preserved primary index-status error visibility
-    so local-sync fallback cannot hide an active startup indexing failure.
-    Practical replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, a full branch/ref
-    picker and revision-switching UX beyond summary visibility, broader provider
-    fetch/import/reindex, worker scheduling and supervision with broad
-    retry/backoff, OIDC/SSO and richer admin/org flows, deeper MCP client/session
-    interoperability, operator runbook/deploy evidence, and the other release
-    blockers in this roadmap.
+    worktree is clean. This accelerated run merged two verified adjacent closures
+    from Task 103 and Task 108, while the Task 102 search worker failed before
+    producing changes because the delegated provider returned HTTP 503/no
+    available accounts. Practical replacement remains incomplete. Remaining
+    blockers still include production-shaped indexing lifecycle/status and
+    failure recovery, relevance and pagination behavior at scale beyond bounded
+    helpers, a full branch/ref picker and revision-switching UX beyond summary
+    visibility, broader provider fetch/import/reindex, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
+    deeper MCP client/session interoperability, operator runbook/deploy evidence,
+    and the other release blockers in this roadmap.
 history:
+  - id: task103_108_browse_worker_failclosed_batch
+    status: done
+    summary: >-
+      Closed an accelerated, disjoint implementation batch rather than a
+      paperwork slice: Task 103 oversized requested-blob backend errors now
+      return 413 Payload Too Large after auth/visibility checks, and Task 108
+      worker status artifact configuration rejects surrounding whitespace so an
+      operator-provided path cannot be silently rewritten before status writes.
+    commit: ffb93cfed635bd42382c5ed8c75c2783cf78d44e
+    tests:
+      - 'worker Task 103 RED/GREEN: repo_blob_maps_oversized_blob_errors_to_payload_too_large failed with 404 before implementation and passed after the 413 mapping'
+      - 'integrator Task 103 focused/broader: repo_blob_maps_oversized_blob_errors_to_payload_too_large passed with 0 lib tests plus 1 main-bin test; repo_blob passed with 0 lib tests plus 12 main-bin tests'
+      - 'worker Task 108 RED/GREEN: worker_status_path_fails_closed_when_configured_with_surrounding_whitespace failed before validation and passed after rejecting surrounding whitespace'
+      - 'integrator Task 108 focused/broader: worker_status_path_fails_closed_when_configured_with_surrounding_whitespace passed with 0 lib tests plus 1 main-bin test; cargo test -p sourcebot-worker passed with 86 lib tests, 13 bin tests, and 21 integration-smoke tests across the worker smoke files'
+      - 'integrator: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, and added-lines security scan over HEAD~2..HEAD passed'
+      - 'independent review: approved HEAD~2..HEAD with no security, logic, auth/scope, path-safety, or docs/claim blockers'
+    review: >-
+      Independent review inspected the integrated range and confirmed the browse
+      mapping is reached only after existing repository visibility checks,
+      preserves invalid-path 400 and default not-found behavior, and narrows
+      oversized storage failures to an explicit large-payload status. Review also
+      confirmed worker status-path whitespace rejection happens before PathBuf
+      construction or status writes and preserves existing fail-closed empty,
+      non-Unicode, directory, symlink, and parent-file protections.
+    workers: >-
+      Three implementation worktrees were launched after disk preflight. The
+      Task 103 browse worker committed 6ec7bf6b8562e55cca7956c3365074f985052e25,
+      cherry-picked onto master as a869bf833a1a06447508862f5923a65a54ec280d. The Task 108 worker committed
+      3400259c37ea17af261ac4bb147f821c8530e05c, cherry-picked onto master as
+      ffb93cfed635bd42382c5ed8c75c2783cf78d44e. The Task 102 search worker failed before producing changes because
+      the delegated provider returned HTTP 503/no available accounts; its
+      worktree had no diff and was cleaned. All worktrees were removed/pruned
+      during close-out.
   - id: task102_index_status_primary_precedence
     status: done
     summary: >-
