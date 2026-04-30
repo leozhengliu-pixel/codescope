@@ -14,7 +14,7 @@
 
 ## Expected behavior
 1. A supported language returns one or more symbol definitions with file path and range. The current bounded extractor supports top-level Rust plus TypeScript/JavaScript declarations for functions, classes, interfaces, type aliases, enums, and constants.
-2. References lookup returns a deduplicated, navigable list of usages; the bounded text-reference scanner covers Rust, TypeScript/JavaScript source extensions (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`), Python (`.py`), and Go (`.go`) files, and revision-backed scans skip common generated/dependency directories (`.git`, `target`, `node_modules`, `dist`) before loading candidate blobs. Blank reference symbols fail closed as an empty result set rather than matching every source line.
+2. References lookup returns a deduplicated, navigable list of usages; the bounded text-reference scanner covers Rust, TypeScript/JavaScript source extensions (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`), Python (`.py`), Go (`.go`), and JVM source files (`.java`, `.kt`, `.kts`), and revision-backed scans skip common generated/dependency directories (`.git`, `target`, `node_modules`, `dist`) before loading candidate blobs. Blank reference symbols fail closed as an empty result set rather than matching every source line.
 3. Navigation requests are revision-aware and stable for a given indexed revision.
 4. Unsupported languages fail gracefully with a capability message instead of a server error.
 5. Symbol results link back to browseable source locations using the effective source revision; generated links percent-encode repository identifiers plus path/revision values before embedding them in URLs.

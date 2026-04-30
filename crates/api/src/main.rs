@@ -5803,7 +5803,21 @@ fn supports_code_nav_text_reference_scan(path: &str) -> bool {
         std::path::Path::new(path)
             .extension()
             .and_then(|extension| extension.to_str()),
-        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" | "py" | "go")
+        Some(
+            "rs" | "ts"
+                | "tsx"
+                | "js"
+                | "jsx"
+                | "mts"
+                | "cts"
+                | "mjs"
+                | "cjs"
+                | "py"
+                | "go"
+                | "java"
+                | "kt"
+                | "kts"
+        )
     )
 }
 
@@ -7253,6 +7267,21 @@ mod tests {
         };
         assert_eq!(capability, "binary_blob");
         assert!(definitions.is_empty());
+    }
+
+    #[test]
+    fn code_nav_fallback_reference_scan_scope_includes_jvm_source_files() {
+        for path in ["src/Handler.java", "src/Handler.kt", "src/Handler.kts"] {
+            assert!(
+                supports_code_nav_text_reference_scan(path),
+                "local-sync code-nav fallback should scan JVM source file {path}"
+            );
+        }
+
+        assert!(
+            !supports_code_nav_text_reference_scan("README.md"),
+            "local-sync code-nav fallback must remain scoped to source files"
+        );
     }
 
     #[derive(Debug, Deserialize, Serialize)]

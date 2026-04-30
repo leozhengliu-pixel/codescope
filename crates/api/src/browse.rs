@@ -657,7 +657,21 @@ fn supports_text_reference_scan(path: &str) -> bool {
         Path::new(path)
             .extension()
             .and_then(|extension| extension.to_str()),
-        Some("rs" | "ts" | "tsx" | "js" | "jsx" | "mts" | "cts" | "mjs" | "cjs" | "py" | "go",)
+        Some(
+            "rs" | "ts"
+                | "tsx"
+                | "js"
+                | "jsx"
+                | "mts"
+                | "cts"
+                | "mjs"
+                | "cjs"
+                | "py"
+                | "go"
+                | "java"
+                | "kt"
+                | "kts",
+        )
     )
 }
 
@@ -1934,9 +1948,9 @@ mod tests {
     }
 
     #[test]
-    fn local_browse_store_finds_text_references_in_python_and_go_revision_files() {
+    fn local_browse_store_finds_text_references_in_python_go_and_jvm_revision_files() {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
-            "browse-revision-python-go-references",
+            "browse-revision-python-go-jvm-references",
             "hello world\n",
             "fn main() {}\n",
             "target/generated.rs",
@@ -1951,6 +1965,16 @@ mod tests {
         fs::write(
             root.join("service").join("handler.go"),
             "package service\n\nfunc UseNavigationSymbol() string { return navigation_symbol }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("service").join("Handler.java"),
+            "class Handler { String marker() { return navigation_symbol; } }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("service").join("Handler.kt"),
+            "fun marker() = navigation_symbol\n",
         )
         .unwrap();
         initialize_git_repo(&root);
@@ -1969,6 +1993,16 @@ mod tests {
         assert!(references.iter().any(|reference| {
             reference.path == "service/handler.go"
                 && reference.line_number == 3
+                && reference.line.contains("navigation_symbol")
+        }));
+        assert!(references.iter().any(|reference| {
+            reference.path == "service/Handler.java"
+                && reference.line_number == 1
+                && reference.line.contains("navigation_symbol")
+        }));
+        assert!(references.iter().any(|reference| {
+            reference.path == "service/Handler.kt"
+                && reference.line_number == 1
                 && reference.line.contains("navigation_symbol")
         }));
 
