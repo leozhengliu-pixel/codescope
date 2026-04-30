@@ -6213,17 +6213,6 @@ async fn get_repository_index_status(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Some(status) = primary_status {
-        if status.status != RepositoryIndexState::Error {
-            return Ok(Json(status));
-        }
-
-        let (user_id, _) = search_request_context(&state, &headers).await?;
-        if let Some(local_sync_status) =
-            local_sync_snapshot_index_status_for_repo(&state, &user_id, &repo_id).await?
-        {
-            return Ok(Json(local_sync_status));
-        }
-
         return Ok(Json(status));
     }
 
@@ -30696,9 +30685,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn repository_index_status_falls_back_to_local_sync_artifact_when_primary_status_is_error(
-    ) {
-        let repo_root = unique_test_path("index-status-primary-error-fallback-repo-root");
+    async fn repository_index_status_preserves_primary_error_instead_of_local_sync_fallback() {
+        let repo_root = unique_test_path("index-status-primary-error-precedence-repo-root");
         let job_root = repo_root
             .join(".sourcebot")
             .join("local-sync")
@@ -30781,10 +30769,13 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let payload: RepositoryIndexStatus = read_json(response).await;
         assert_eq!(payload.repo_id, "repo_local_import");
-        assert_eq!(payload.status, RepositoryIndexState::Indexed);
-        assert_eq!(payload.indexed_file_count, 1);
-        assert_eq!(payload.indexed_line_count, 1);
-        assert_eq!(payload.error, None);
+        assert_eq!(payload.status, RepositoryIndexState::Error);
+        assert_eq!(payload.indexed_file_count, 0);
+        assert_eq!(payload.indexed_line_count, 0);
+        assert_eq!(
+            payload.error.as_deref(),
+            Some("primary startup index failed")
+        );
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
