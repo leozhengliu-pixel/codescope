@@ -5,28 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: df9ea2cddc16384f2502bc799ca22a7f9a1589c5
+  head: 8b115d535236255393256e9bf48f44c56adbdcf4
 last_completed_task:
-  id: task103_bounded_repo_ref_picker
-  title: Add bounded repo-detail advertised ref picker
+  id: task102_103_108_runtime_closure_batch
+  title: Close bounded search language, ref picker, and worker maintenance runtime gaps
   status: done
   summary: >-
-    Closed a Task 103 browse/navigation UX slice: the repository detail refs
-    panel now includes a bounded read-only picker populated from the existing
-    authenticated refs response, and selecting an advertised branch or tag
-    updates the existing route revision so browse/blob and commit panels reload
-    at that revision. This is a real user-visible revision-switching closure,
-    not a docs/state-only slice; it does not claim full branch management,
-    provider fetch/import/reindex, durable indexing, or complete repository
-    navigation parity.
+    Closed an accelerated three-scope practical-replacement batch with real
+    implementation, tests, docs where coupled, review, and integration: Task 102
+    local/index-artifact search now recognizes TypeScript language filters
+    without broadening line/path semantics; Task 103 repository navigation now
+    disambiguates duplicate advertised branch/tag names with qualified refs so
+    route updates remain deterministic; and Task 108 worker ticks now run
+    repository-sync stale-lease/replay maintenance before review-agent claims so
+    stale repository-sync jobs cannot stay hidden behind review backlog. This is
+    a bounded product/operator closure, not a state-only or docs-only slice; it
+    still does not claim production indexing lifecycle parity, full branch/ref
+    management, provider fetch/import/reindex, daemonized worker supervision,
+    broad retry/backoff, or practical Sourcebot replacement parity.
   tests:
-    - 'worker: produced commit 91a0c121b4bb09c2d789dd4a58337ece26f54e0f in /opt/data/projects/sourcebot-worktrees/task103-ref-picker-ui but could not run Vitest/Vite there because node_modules was intentionally absent in the worktree'
-    - 'focused: cd web && npm test -- --run src/App.test.tsx -t "selects an advertised branch or tag" passed in main repo with 1 test and 187 skipped'
-    - 'broader: cd web && npm test -- --run src/App.test.tsx -t "repository branch and tag|advertised branch or tag|revision controls" passed in main repo with 3 tests and 185 skipped'
-    - 'build: cd web && npm run build passed'
-    - 'integrator: git diff --check HEAD~1..HEAD and added-lines security scan over HEAD~1..HEAD passed'
-    - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; suggestions were limited to future duplicate-name disambiguation and copy clarity'
-  commit: df9ea2cddc16384f2502bc799ca22a7f9a1589c5
+    - 'worker Task 102 RED: cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture failed with 1 failing test because lang:typescript returned 0 instead of 1 result'
+    - 'worker Task 102 focused/main: cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture passed with 1 test and 60 filtered; cargo test -p sourcebot-search passed with 61 tests and 0 doctests; cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 45 main-bin tests'
+    - 'worker Task 103 RED/GREEN: added disambiguates duplicate branch and tag names regression; worker worktree could not run Vitest/Vite because node_modules was intentionally absent, then main repo ran cd web && npm test -- --run src/App.test.tsx -t "disambiguates duplicate branch and tag names" with 1 passed and 188 skipped'
+    - 'main Task 103 broader/build: cd web && npm test -- --run src/App.test.tsx -t "advertised branch or tag|duplicate branch and tag|revision controls" passed with 3 tests and 186 skipped; cd web && npm run build passed'
+    - 'worker Task 108 RED: cargo test -p sourcebot-worker run_worker_tick_recovers_stale_repository_sync_jobs_even_when_review_work_is_claimed failed with 1 test because the stale repository-sync job remained Running; GREEN passed with 1 test'
+    - 'main Task 108 broader/full: cargo test -p sourcebot-worker run_worker_tick_ -- --nocapture passed with 2 tests; run_repository_sync_claim_tick_ passed with 20 tests; cargo test -p sourcebot-worker passed with 87 lib, 15 main, and 5+3+4+3+6 integration tests plus 0 doctests'
+    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 191 added lines and 0 findings'
+    - 'independent integration review: approved origin/master..HEAD with no security, logic, docs-claim, or integration blockers'
+  commit: 8b115d535236255393256e9bf48f44c56adbdcf4
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -36,20 +42,56 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run pivoted to one adjacent Task 103 user-visible
-    closure because the attempted remaining Task 102 malformed-artifact search
-    scope was already implemented and covered by existing tests; the repository
-    detail page now has a bounded advertised branch/tag picker wired to route
-    revision reloads. Practical replacement remains incomplete. Remaining
-    blockers still include production-shaped indexing lifecycle/status and
-    failure recovery, relevance and pagination behavior at scale beyond bounded
-    helpers, fuller branch/ref management and revision-switching UX beyond this
-    bounded picker, broader provider fetch/import/reindex, worker scheduling and
+    worktree is clean. This run closed three real bounded gaps across search,
+    repository navigation, and worker runtime maintenance, but practical
+    replacement remains incomplete. Remaining blockers still include
+    production-shaped indexing lifecycle/status and failure recovery, relevance
+    and pagination behavior at scale beyond bounded helpers, fuller branch/ref
+    management and revision-switching UX beyond qualified duplicate ref picker
+    routing, broader provider fetch/import/reindex, worker scheduling and
     supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
     deeper MCP client/session interoperability beyond the HTTP/API bridge,
     operator runbook/deploy evidence, and the other release blockers in this
     roadmap.
 history:
+  - id: task102_103_108_runtime_closure_batch
+    status: done
+    summary: >-
+      Integrated three disjoint worker closures from clean worktrees rather than
+      producing paperwork-only progress. Task 102 added TypeScript language
+      filter support to local/index-artifact search with focused and broader
+      search evidence; Task 103 made duplicate advertised branch/tag selection
+      deterministic in the repository detail picker with main-repo Vitest/build
+      evidence; and Task 108 made worker ticks run repository-sync stale-lease
+      and auto-replay maintenance before review-agent claims while preserving
+      review-agent priority for actual execution. The batch advances real
+      user/operator behavior while keeping all release claims bounded.
+    commit: 8b115d535236255393256e9bf48f44c56adbdcf4
+    tests:
+      - 'worker commits: Task 102 14006d1fe2992e5cd557ade53b1a0be98e0bf637 cherry-picked as 985b56a136853f8ff053cae4e081b56929399454; Task 103 e40f5ac06380a3bd337ce785dcc09a5fd67a6c51 cherry-picked as 35e74a5b24c3cab2d9da515bd9eec7f0bd57a1ab; Task 108 ec63c024c0e9bafbf8bde48928a0ca7615e5d851 cherry-picked as 8b115d535236255393256e9bf48f44c56adbdcf4'
+      - 'Task 102 focused/main: cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture passed with 1 test and 60 filtered; cargo test -p sourcebot-search passed with 61 tests; cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 45 main-bin tests'
+      - 'Task 103 focused/main: cd web && npm test -- --run src/App.test.tsx -t "disambiguates duplicate branch and tag names" passed with 1 test and 188 skipped; broader ref/revision selector passed with 3 tests and 186 skipped; npm run build passed'
+      - 'Task 108 focused/main: stale-maintenance test passed with 1 test; run_worker_tick_ passed with 2 tests; run_repository_sync_claim_tick_ passed with 20 tests; cargo test -p sourcebot-worker passed with 87 lib, 15 main, and 5+3+4+3+6 integration tests'
+      - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 191 added lines and 0 findings'
+      - 'independent review: approved origin/master..HEAD with no security concerns, logic errors, docs-claim issues, or integration blockers'
+    review: >-
+      Independent integration review inspected the exact main-worktree range
+      origin/master..HEAD and approved it. It checked search filter
+      non-broadening, React-escaped duplicate ref picker labels/values and
+      URLSearchParams routing, worker scheduling semantics, changed-file scope,
+      and bounded docs language, and found no blocking security, logic,
+      documentation-claim, or integration issues.
+    workers: >-
+      Launched three implementation workers because disk usage was safe at 54%
+      and sourcebot-worktrees was 4.0K. The Task 102 worker used
+      /opt/data/projects/sourcebot-worktrees/task102-search-runtime-20260430090038
+      and produced commit 14006d1fe2992e5cd557ade53b1a0be98e0bf637; the Task 103
+      worker used /opt/data/projects/sourcebot-worktrees/task103-browse-nav-20260430090036
+      and produced commit e40f5ac06380a3bd337ce785dcc09a5fd67a6c51; the Task 108
+      worker used /opt/data/projects/sourcebot-worktrees/task108-worker-runtime-20260430090036
+      and produced commit ec63c024c0e9bafbf8bde48928a0ca7615e5d851. All three
+      were integrated serially into master, and their worktrees were removed
+      after verification.
   - id: task103_bounded_repo_ref_picker
     status: done
     summary: >-
