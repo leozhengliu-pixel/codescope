@@ -5,40 +5,35 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 6f5233bed6ac995de34e2bbcc02c11a1e42d9b5d
+  head: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
 last_completed_task:
-  id: task102_task103_task108_parallel_path_hardening
-  title: Fail closed on local-sync artifact path aliasing, unsafe browse revisions, and relative local repo paths
+  id: task107_mcp_http_tool_call_auth_ordering
+  title: Authenticate MCP direct HTTP tool calls before negotiation/body validation
   status: done
   summary: >-
-    Closed an accelerated carry-over batch from three implementation worker
-    branches plus an integrator review-fix tail. Task 102 now derives local-sync
-    search/index artifact roots with API/worker-aligned, non-colliding
-    percent-hex path components and gates legacy fallback to unchanged
-    legacy-safe components only, so unsafe organization/repository/job ids such
-    as job/latest cannot alias stale sibling artifacts when the encoded root is
-    absent. Task 103 now rejects unsafe explicit browse/source/code-navigation
-    revision selectors before Git lookup. Task 108 now rejects relative local
-    repository paths before spawning Git while preserving bounded local and
-    Generic Git worker semantics. Practical replacement remains incomplete: this
-    does not claim production indexing lifecycle parity, full browse/code-nav
-    parity, provider fetch/import/reindex, broad worker scheduling/supervision
-    and retry parity, OIDC/SSO, MCP client/session parity, or final Sourcebot
-    replacement readiness.
+    Closed a bounded MCP/Ops release-blocker hardening slice. The direct HTTP
+    MCP tool-call bridge now authenticates requests before Accept negotiation,
+    Content-Type validation, or JSON body parsing, so unauthenticated malformed
+    tool-call requests fail closed as authentication failures instead of leaking
+    media-negotiation/body-validation differences. JSON-RPC endpoint semantics
+    remain separate and unchanged, and the claim stays limited to the existing
+    authenticated HTTP/API bridge rather than full MCP protocol/session/client
+    parity. Two other proposed parallel worker scopes did not produce usable
+    commits because the model/provider returned account-exhaustion failures; no
+    search/provider changes were merged from those worktrees.
   tests:
-    - 'baseline: started from d90d46dae2b8d8b12db0b12cb483154bff364a18 state with main worktree dirty/ahead from carry-over worker commits, master at 0642659b43772ba4943f7ff4b8b4060124977258 before close-out, origin/master behind by 3 commits, /opt/data at 56% used, sourcebot-worktrees at 15M with three clean worker worktrees'
-    - 'search worker integrated: /opt/data/projects/sourcebot-worktrees/search-index-status commit dca95df1cf3112b026cb9055e5cb793f302d0a71 cherry-picked as 6f47ae4ef1bd031ba33209ef1d53f0ce7d5aaf2f to harden local-sync search artifact path lookup'
-    - 'browse worker integrated: /opt/data/projects/sourcebot-worktrees/browse-commit-polish commit aa8bfa1fe55d27b423e82291110155774e6fc415 cherry-picked as 9570c028a1e5ca9a56fdcf834dfcc28a54f7649f to harden browse revision selectors'
-    - 'worker runtime integrated: /opt/data/projects/sourcebot-worktrees/worker-sync-runtime commit 424570085b372ad0daaf2318b02bff00b4688e6c cherry-picked as 0642659b43772ba4943f7ff4b8b4060124977258 to reject relative local repo paths before Git spawn'
-    - 'integrator blocker fix: independent review found legacy local-sync fallback could still alias lossy stale paths when encoded artifacts were absent; commit 6f5233bed6ac995de34e2bbcc02c11a1e42d9b5d changed API/worker encoding to non-colliding percent-hex components, gated legacy fallback to unchanged legacy-safe components, added the absent-encoded-root collision regression, aligned worker tests, and updated bounded docs'
-    - 'focused API: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_latest_local_sync_artifact_uses_non_colliding_job_path_components -- --nocapture passed with 0 lib tests and 1 main-bin test / 497 filtered'
-    - 'broader API: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed with 0 lib tests and 32 main-bin tests / 466 filtered'
-    - 'focused worker: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker local_sync_manifest_path_components_cannot_escape_manifest_root -- --nocapture passed with 1 lib test / 88 filtered plus zero-test non-lib targets'
-    - 'broader worker: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture passed with 20 lib tests / 69 filtered plus zero-test non-lib targets'
-    - 'integrator checks: cargo fmt --check, git diff --check, and added-lines security scan over origin/master..HEAD plus dirty tail passed with 0 findings'
-    - 'independent review: initial Claude review failed closed on legacy fallback path collision; after the integrator fix, re-review approved the committed+dirty diff with no blocking issues'
-    - 'worktree cleanup: removed search-index-status, browse-commit-polish, and worker-sync-runtime; git worktree prune plus git worktree list showed only the main repo and sourcebot-worktrees returned to 4.0K; /opt/data ended at 55% used'
-  commit: 6f5233bed6ac995de34e2bbcc02c11a1e42d9b5d
+    - 'baseline: started from df7b0836309d67be165cf8ba2076f82d9be8ee31 on master with clean main worktree, origin/master in sync, /opt/data at 55% used, sourcebot-worktrees at 4.0K before dispatch and 15M after creating three worktrees'
+    - 'MCP worker: /opt/data/projects/sourcebot-worktrees/ops-mcp-20260430131232 commit 03abc095c762393d6f5c957df1b8312877bb677c cherry-picked as da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4'
+    - 'failed worker scope: search-unscoped-20260430131232 hit HTTP 503 provider/account exhaustion before producing a commit or dirty diff; nothing merged'
+    - 'failed worker scope: provider-generic-20260430131232 hit HTTP 503 provider/account exhaustion after read-only inspection before producing a commit or dirty diff; nothing merged'
+    - 'RED evidence from MCP worker: mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction initially failed because unauthenticated POST /api/v1/mcp/tools/call with text/plain body and unacceptable Accept returned 415 instead of 401'
+    - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction -- --nocapture passed with 0 lib tests and 1 main-bin test / 498 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http -- --nocapture passed with 0 lib tests and 6 main-bin tests / 493 filtered'
+    - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 0 lib tests and 14 main-bin tests / 485 filtered'
+    - 'crate/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-mcp -- --nocapture passed with 9 tests and 0 doctests'
+    - 'integrator checks: cargo fmt --check, git diff --check HEAD~1..HEAD, and added-lines security scan over HEAD~1..HEAD passed with 0 findings'
+    - 'independent review: approved da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4 over HEAD~1..HEAD with no security concerns, logic errors, or docs-claim issues; noted only that a future stricter requirement could authenticate before Bytes body buffering'
+  commit: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -48,18 +43,57 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure, or take an adjacent disjoint Task 103/105/106/107/108 release
     blocker when it is higher value and can be closed with real implementation.
-    This run closed a carry-over implementation batch rather than launching more
-    workers because the main repo already had three clean integrated worker
-    commits plus a dirty docs/code tail. Practical replacement remains
-    incomplete. Remaining blockers include a real production indexing lifecycle
-    and status pipeline beyond bounded local-sync artifacts, relevance and
-    pagination behavior at scale, fuller branch/ref management and
-    revision-switching UX, broader provider fetch/import/reindex, worker
-    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, deeper MCP client/session interoperability beyond the
-    HTTP/API bridge, operator runbook/deploy evidence, and the other release
+    This run shipped a bounded Task 107 MCP HTTP/API auth-ordering closure from
+    the successful worker while two proposed search/provider workers failed at
+    the model/provider account layer before producing mergeable commits.
+    Practical replacement remains incomplete. Remaining blockers include a real
+    production indexing lifecycle and status pipeline beyond bounded local-sync
+    artifacts, relevance and pagination behavior at scale, fuller branch/ref
+    management and revision-switching UX, broader provider fetch/import/reindex,
+    worker scheduling and supervision with broad retry/backoff, OIDC/SSO and
+    richer admin/org flows, deeper MCP client/session interoperability beyond
+    the HTTP/API bridge, operator runbook/deploy evidence, and the other release
     blockers in this roadmap.
 history:
+  - id: task107_mcp_http_tool_call_auth_ordering
+    status: done
+    summary: >-
+      Closed a real MCP/Ops hardening slice rather than a state-only or docs-only
+      update. The direct HTTP MCP tool-call bridge now authenticates before
+      media negotiation, content-type validation, and JSON body parsing, so
+      unauthenticated malformed requests fail closed as authentication failures
+      while JSON-RPC behavior remains unchanged and docs stay bounded to the
+      HTTP/API bridge.
+    commit: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
+    component_commits:
+      - da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
+    tests:
+      - 'baseline: started from df7b0836309d67be165cf8ba2076f82d9be8ee31 on master with clean main worktree, origin/master in sync, /opt/data at 55% used, sourcebot-worktrees at 4.0K before dispatch and 15M after creating three worktrees'
+      - 'MCP worker: /opt/data/projects/sourcebot-worktrees/ops-mcp-20260430131232 commit 03abc095c762393d6f5c957df1b8312877bb677c cherry-picked as da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4'
+      - 'failed worker scope: search-unscoped-20260430131232 hit HTTP 503 provider/account exhaustion before producing a commit or dirty diff; nothing merged'
+      - 'failed worker scope: provider-generic-20260430131232 hit HTTP 503 provider/account exhaustion after read-only inspection before producing a commit or dirty diff; nothing merged'
+      - 'RED evidence from MCP worker: focused test initially failed with unauthenticated malformed direct HTTP tool-call request returning 415 instead of 401'
+      - 'focused/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction -- --nocapture passed with 0 lib tests and 1 main-bin test / 498 filtered'
+      - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_http -- --nocapture passed with 0 lib tests and 6 main-bin tests / 493 filtered'
+      - 'broader/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api mcp_json_rpc -- --nocapture passed with 0 lib tests and 14 main-bin tests / 485 filtered'
+      - 'crate/main: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-mcp -- --nocapture passed with 9 tests and 0 doctests'
+      - 'integrator checks: cargo fmt --check, git diff --check HEAD~1..HEAD, added-lines security scan over HEAD~1..HEAD, and independent integration review passed'
+    workers:
+      - scope: MCP/Ops runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/ops-mcp-20260430131232
+        worker_commit: 03abc095c762393d6f5c957df1b8312877bb677c
+        integrated_commit: da7f5e6338e9db7a4f5f044d7b2babc5eb2de1f4
+        result: merged
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-unscoped-20260430131232
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-diff
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/provider-generic-20260430131232
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-account-exhaustion-no-diff
   - id: task102_task103_task108_parallel_path_hardening
     status: done
     summary: >-
