@@ -5,34 +5,34 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 8b115d535236255393256e9bf48f44c56adbdcf4
+  head: 10180bcef669782d5c83769dbe9911c7e19d27c2
 last_completed_task:
-  id: task102_103_108_runtime_closure_batch
-  title: Close bounded search language, ref picker, and worker maintenance runtime gaps
+  id: task103_106_108_commit_worker_batch
+  title: Preserve separator-bearing commit metadata and bound local-sync preflight errors
   status: done
   summary: >-
-    Closed an accelerated three-scope practical-replacement batch with real
-    implementation, tests, docs where coupled, review, and integration: Task 102
-    local/index-artifact search now recognizes TypeScript language filters
-    without broadening line/path semantics; Task 103 repository navigation now
-    disambiguates duplicate advertised branch/tag names with qualified refs so
-    route updates remain deterministic; and Task 108 worker ticks now run
-    repository-sync stale-lease/replay maintenance before review-agent claims so
-    stale repository-sync jobs cannot stay hidden behind review backlog. This is
-    a bounded product/operator closure, not a state-only or docs-only slice; it
-    still does not claim production indexing lifecycle parity, full branch/ref
-    management, provider fetch/import/reindex, daemonized worker supervision,
-    broad retry/backoff, or practical Sourcebot replacement parity.
+    Integrated two disjoint implementation-worker closures from clean worktrees
+    rather than manufacturing a state-only or docs-only slice. Task 103 local
+    commit list/detail parsing now preserves user-controlled commit subjects and
+    bodies that contain the prior internal field/record separator characters by
+    parsing Git pretty output with NUL-delimited fields. Task 106/108 local
+    repository-sync preflight failures now bound oversized operator-visible
+    stdout/stderr details before persistence while preserving the stable
+    fail-closed prefix. A third Task 102 search/index worker could not start
+    because the delegate provider reported no available accounts, so no search
+    changes were integrated from that scope in this batch. Practical replacement
+    remains incomplete: this closure hardens commit metadata fidelity and worker
+    failure observability, but does not claim production indexing lifecycle
+    parity, provider fetch/import/reindex, full worker supervision/retry, OIDC
+    parity, MCP session/client parity, or final Sourcebot replacement readiness.
   tests:
-    - 'worker Task 102 RED: cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture failed with 1 failing test because lang:typescript returned 0 instead of 1 result'
-    - 'worker Task 102 focused/main: cargo test -p sourcebot-search local_search_store_applies_lang_and_path_filters_without_line_term_broadening -- --nocapture passed with 1 test and 60 filtered; cargo test -p sourcebot-search passed with 61 tests and 0 doctests; cargo test -p sourcebot-api search_ -- --nocapture passed with 0 lib tests and 45 main-bin tests'
-    - 'worker Task 103 RED/GREEN: added disambiguates duplicate branch and tag names regression; worker worktree could not run Vitest/Vite because node_modules was intentionally absent, then main repo ran cd web && npm test -- --run src/App.test.tsx -t "disambiguates duplicate branch and tag names" with 1 passed and 188 skipped'
-    - 'main Task 103 broader/build: cd web && npm test -- --run src/App.test.tsx -t "advertised branch or tag|duplicate branch and tag|revision controls" passed with 3 tests and 186 skipped; cd web && npm run build passed'
-    - 'worker Task 108 RED: cargo test -p sourcebot-worker run_worker_tick_recovers_stale_repository_sync_jobs_even_when_review_work_is_claimed failed with 1 test because the stale repository-sync job remained Running; GREEN passed with 1 test'
-    - 'main Task 108 broader/full: cargo test -p sourcebot-worker run_worker_tick_ -- --nocapture passed with 2 tests; run_repository_sync_claim_tick_ passed with 20 tests; cargo test -p sourcebot-worker passed with 87 lib, 15 main, and 5+3+4+3+6 integration tests plus 0 doctests'
-    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 191 added lines and 0 findings'
-    - 'independent integration review: approved origin/master..HEAD with no security, logic, docs-claim, or integration blockers'
-  commit: 8b115d535236255393256e9bf48f44c56adbdcf4
+    - 'worker Task 103 RED: cargo test -p sourcebot-api local_commit_store_preserves_commit_messages_with_internal_field_separators failed with 1 main-bin test because separator-bearing commit metadata produced an unexpected field count'
+    - 'main Task 103 focused/broader: cargo test -p sourcebot-api local_commit_store_preserves_commit_messages_with_internal_field_separators -- --nocapture passed with 0 lib tests plus 1 main-bin test; local_commit_store passed with 16 main-bin tests; repo_commit passed with 15 main-bin tests'
+    - 'worker Task 106/108 RED: cargo test -p sourcebot-worker local_repository_sync_preflight_failure_detail_is_bounded -- --nocapture failed before the fix because oversized preflight stderr was persisted without truncation'
+    - 'main Task 106/108 focused/broader: cargo test -p sourcebot-worker local_repository_sync_preflight_failure_detail_is_bounded -- --nocapture passed with 1 lib test; local_repository_sync_ passed with 12 lib tests; run_repository_sync_claim_tick passed with 20 lib tests'
+    - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 0 findings'
+    - 'independent integration review: approved origin/master..HEAD with no security, logic, docs-claim, or verification blockers after scope-aware review; unrelated full API SQLx/PostgreSQL suite was not required because no database code changed'
+  commit: 10180bcef669782d5c83769dbe9911c7e19d27c2
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -42,18 +42,56 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This run closed three real bounded gaps across search,
-    repository navigation, and worker runtime maintenance, but practical
-    replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, fuller branch/ref
-    management and revision-switching UX beyond qualified duplicate ref picker
-    routing, broader provider fetch/import/reindex, worker scheduling and
-    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
-    deeper MCP client/session interoperability beyond the HTTP/API bridge,
-    operator runbook/deploy evidence, and the other release blockers in this
-    roadmap.
+    worktree is clean. This run integrated two real bounded gaps across commit
+    metadata parsing and worker local-sync preflight error bounding, while the
+    attempted Task 102 worker failed to start because no delegate accounts were
+    available and produced no coherent worktree changes. Practical replacement
+    remains incomplete. Remaining blockers still include production-shaped
+    indexing lifecycle/status and failure recovery, relevance and pagination
+    behavior at scale beyond bounded helpers, fuller branch/ref management and
+    revision-switching UX, broader provider fetch/import/reindex, worker
+    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
+    admin/org flows, deeper MCP client/session interoperability beyond the
+    HTTP/API bridge, operator runbook/deploy evidence, and the other release
+    blockers in this roadmap.
 history:
+  - id: task103_106_108_commit_worker_batch
+    status: done
+    summary: >-
+      Integrated two disjoint worker closures from clean worktrees after disk
+      preflight rather than producing paperwork-only progress. Task 103 replaced
+      fragile local commit parsing separators with NUL-delimited Git pretty
+      fields and added a regression for commit messages containing the previous
+      separators. Task 106/108 bounded persisted local repository-sync preflight
+      failure detail while preserving the operator-visible fail-closed prefix.
+      The Task 102 search/index worker failed before creating a worktree because
+      the delegate provider had no available accounts, so that scope was not
+      merged and remains the live current task.
+    commit: 10180bcef669782d5c83769dbe9911c7e19d27c2
+    tests:
+      - 'worker commits: Task 103 c288fddd15ef75376a4f20c9981cff0d829234c3 cherry-picked as 613c590fbd0fb265844a4258cf4835bd8ef51f4b; Task 106/108 6bd5bf6de6c333e54837a97cf50b370fb1e8d8d9 cherry-picked as 10180bcef669782d5c83769dbe9911c7e19d27c2'
+      - 'Task 103 focused/main: separator-bearing commit metadata test passed with 0 lib tests plus 1 main-bin test; local_commit_store passed with 16 main-bin tests; repo_commit passed with 15 main-bin tests'
+      - 'Task 106/108 focused/main: preflight failure detail bounds test passed with 1 lib test; local_repository_sync_ passed with 12 lib tests; run_repository_sync_claim_tick passed with 20 lib tests'
+      - 'integrator: cargo fmt --check, git diff --check origin/master..HEAD, git diff --check, and added-lines security scan over origin/master..HEAD passed with 0 findings'
+      - 'independent review: scope-aware review approved origin/master..HEAD with no security concerns, logic errors, docs-claim issues, or verification blockers'
+    review: >-
+      Independent integration review inspected the exact main-worktree diff
+      origin/master..HEAD after the two cherry-picks and approved it. The review
+      checked commit parser correctness, local-sync preflight error bounding,
+      changed-file scope, security patterns, and verification adequacy for the
+      touched non-SQLx code paths, and found no blocking security, logic,
+      documentation-claim, or verification issues.
+    workers: >-
+      Launched three implementation workers because disk usage was safe at 54%
+      and sourcebot-worktrees was 4.0K. The Task 103 worker used
+      /opt/data/projects/sourcebot-worktrees/task103-browse-code-nav-20260430092728
+      and produced commit c288fddd15ef75376a4f20c9981cff0d829234c3; the Task 106/108 worker used
+      /opt/data/projects/sourcebot-worktrees/task106-108-worker-sync-20260430092728
+      and produced commit 6bd5bf6de6c333e54837a97cf50b370fb1e8d8d9. Both were integrated serially into
+      master and then removed after verification. The Task 102 search/index
+      worker failed before creating a useful worktree or commit because the
+      delegate provider returned HTTP 503 / no available accounts; no search
+      changes were integrated from that failed scope.
   - id: task102_103_108_runtime_closure_batch
     status: done
     summary: >-
