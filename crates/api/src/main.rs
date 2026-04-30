@@ -6487,11 +6487,8 @@ async fn search_repository_contents(
                 LocalSyncSearchFallback::Searchable(snapshot_response) => {
                     response = snapshot_response;
                 }
-                LocalSyncSearchFallback::FailClosed(snapshot_response) => {
-                    if primary_search_failed {
-                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                    }
-                    response = snapshot_response;
+                LocalSyncSearchFallback::FailClosed => {
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
                 LocalSyncSearchFallback::Unavailable => {
                     if primary_search_failed {
@@ -6517,7 +6514,7 @@ async fn search_repository_contents(
                 LocalSyncSearchFallback::Searchable(mut snapshot_response) => {
                     response.results.append(&mut snapshot_response.results);
                 }
-                LocalSyncSearchFallback::FailClosed(_) => {
+                LocalSyncSearchFallback::FailClosed => {
                     return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
                 LocalSyncSearchFallback::Unavailable => {}
@@ -6604,7 +6601,7 @@ fn apply_search_pagination(
 enum LocalSyncSearchFallback {
     Unavailable,
     Searchable(SearchResponse),
-    FailClosed(SearchResponse),
+    FailClosed,
 }
 
 async fn search_latest_local_sync_snapshot_for_repo(
@@ -6633,33 +6630,23 @@ async fn search_latest_local_sync_snapshot_for_repo(
     match std::fs::symlink_metadata(&snapshot.search_index_artifact_path) {
         Ok(metadata) => {
             if !metadata.is_file() {
-                return Ok(LocalSyncSearchFallback::FailClosed(
-                    empty_local_sync_search_response(query, mode, repo_id),
-                ));
+                return Ok(LocalSyncSearchFallback::FailClosed);
             }
             let search = match LocalSearchStore::from_index_artifact(
                 repo_id,
                 &snapshot.search_index_artifact_path,
             ) {
                 Ok(search) => search,
-                Err(_) => {
-                    return Ok(LocalSyncSearchFallback::FailClosed(
-                        empty_local_sync_search_response(query, mode, repo_id),
-                    ))
-                }
+                Err(_) => return Ok(LocalSyncSearchFallback::FailClosed),
             };
             let Some(index_status) = search
                 .repository_index_status(repo_id)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             else {
-                return Ok(LocalSyncSearchFallback::FailClosed(
-                    empty_local_sync_search_response(query, mode, repo_id),
-                ));
+                return Ok(LocalSyncSearchFallback::FailClosed);
             };
             if index_status.status == RepositoryIndexState::Error {
-                return Ok(LocalSyncSearchFallback::FailClosed(
-                    empty_local_sync_search_response(query, mode, repo_id),
-                ));
+                return Ok(LocalSyncSearchFallback::FailClosed);
             }
             return search
                 .search_with_mode(query, Some(repo_id), mode)
@@ -6680,19 +6667,6 @@ async fn search_latest_local_sync_snapshot_for_repo(
         .search_with_mode(query, Some(repo_id), mode)
         .map(LocalSyncSearchFallback::Searchable)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-fn empty_local_sync_search_response(
-    query: &str,
-    mode: SearchMode,
-    repo_id: &str,
-) -> SearchResponse {
-    SearchResponse::unpaginated_with_mode(
-        query.to_string(),
-        mode,
-        Some(repo_id.to_string()),
-        Vec::new(),
-    )
 }
 
 fn authorized_organization_ids_for_repo(
@@ -31183,13 +31157,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload: SearchResponse = read_json(response).await;
-        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
-        assert!(
-            payload.results.is_empty(),
-            "local-sync error-status artifacts should fail closed to no requested-repo results without falling back to mutable snapshots"
-        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
@@ -31415,7 +31383,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_fails_closed_for_malformed_local_sync_search_index_artifact() {
+    async fn requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact(
+    ) {
         let repo_root = unique_test_path("search-malformed-artifact-repo-root");
         let job_root = repo_root
             .join(".sourcebot")
@@ -31490,13 +31459,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload: SearchResponse = read_json(response).await;
-        assert_eq!(payload.repo_id.as_deref(), Some("repo_local_import"));
-        assert!(
-            payload.results.is_empty(),
-            "malformed local-sync search artifacts should fail closed to no requested-repo results without falling back to mutable snapshots"
-        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
