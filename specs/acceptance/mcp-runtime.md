@@ -10,7 +10,7 @@ This document defines the currently shipped MCP runtime baseline for the authent
 - Focused API regression coverage around MCP authentication, initialize, tools/list, tools/call, batch handling, and permission-scoped repository visibility.
 
 ## Acceptance scenarios
-1. MCP HTTP endpoints require an authenticated local session and fail closed with `401` when unauthenticated; JSON-producing MCP HTTP/API surfaces reject unacceptable response negotiation with `406` when `Accept` does not allow JSON.
+1. MCP HTTP endpoints require an authenticated local session and fail closed with `401` when unauthenticated; JSON-producing MCP HTTP/API surfaces reject unacceptable response negotiation with `406` when `Accept` does not allow JSON. The direct HTTP tool-call bridge authenticates before response negotiation, media-type checks, or JSON body parsing, so malformed or non-JSON unauthenticated requests do not bypass the auth-first contract.
 2. `initialize` returns the advertised MCP protocol version, server info, and tools capability metadata.
 3. `tools/list` returns the retrieval tool definitions, including the HTTP/API-required `repo_id` argument on repository-content tools.
 4. `tools/call` returns MCP-shaped text content plus structured content for successful retrieval calls, and MCP-shaped `isError: true` results for tool execution errors.

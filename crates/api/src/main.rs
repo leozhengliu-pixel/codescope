@@ -1249,12 +1249,17 @@ fn bind_mcp_json_rpc_active_repo(
 async fn call_mcp_tool(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(mut request): Json<sourcebot_mcp::McpToolCallRequest>,
+    body: Bytes,
 ) -> Result<Json<sourcebot_mcp::McpToolCallResponse>, StatusCode> {
     let (_user_id, visible_repo_ids) = search_request_context(&state, &headers).await?;
     if !accepts_json_response(&headers) {
         return Err(StatusCode::NOT_ACCEPTABLE);
     }
+    if !is_json_content_type(&headers) {
+        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+    let mut request = serde_json::from_slice::<sourcebot_mcp::McpToolCallRequest>(&body)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     let mut visible_repo_ids = visible_repo_ids.into_iter().collect::<Vec<_>>();
     visible_repo_ids.sort();
     let response =
@@ -9151,6 +9156,84 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+
+        fs::remove_file(organization_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_http_tool_call_authenticates_before_content_negotiation_and_body_extraction() {
+        let organization_state_path =
+            unique_test_path("mcp-http-tools-call-auth-first-organizations");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let config = AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            bootstrap_state_path: unique_test_path("mcp-http-tools-call-auth-first-bootstrap")
+                .display()
+                .to_string(),
+            local_session_state_path: unique_test_path("mcp-http-tools-call-auth-first-sessions")
+                .display()
+                .to_string(),
+            ..AppConfig::default()
+        };
+        let app = test_app_with_config(config);
+
+        let unauthenticated_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .header(header::ACCEPT, "text/plain")
+                    .body(Body::from("not json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthenticated_response.status(), StatusCode::UNAUTHORIZED);
+
+        let authorization = bootstrap_and_login(&app).await;
+        let unacceptable_accept_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .header(header::ACCEPT, "text/plain")
+                    .body(Body::from("not json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            unacceptable_accept_response.status(),
+            StatusCode::NOT_ACCEPTABLE
+        );
+
+        let unsupported_media_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/mcp/tools/call")
+                    .header(header::AUTHORIZATION, &authorization)
+                    .header(header::CONTENT_TYPE, "text/plain")
+                    .header(header::ACCEPT, "application/json")
+                    .body(Body::from("not json"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            unsupported_media_response.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
 
         fs::remove_file(organization_state_path).unwrap();
     }
