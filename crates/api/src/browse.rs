@@ -709,7 +709,11 @@ fn resolve_single_commit(repo_root: &PathBuf, revision: &str) -> Result<Option<S
 }
 
 fn is_safe_revision_selector(revision: &str) -> bool {
-    !revision.is_empty() && !revision.chars().any(char::is_control)
+    !revision.is_empty()
+        && !revision.starts_with('-')
+        && !revision.contains("..")
+        && !revision.contains("@{")
+        && !revision.chars().any(char::is_control)
 }
 
 fn run_git_show_blob(
@@ -1379,6 +1383,50 @@ mod tests {
             .find_text_references_at_revision("repo_test", "empty_revision_symbol", "")
             .unwrap()
             .is_none());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_rejects_unsafe_explicit_revision_selectors() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-unsafe-explicit-revision",
+            "hello world\n",
+            "pub fn main() { /* unsafe_revision_symbol */ }\n",
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+
+        for revision in ["HEAD@{0}", "HEAD..HEAD", "-HEAD"] {
+            assert!(
+                store
+                    .get_tree_at_revision("repo_test", "", Some(revision))
+                    .unwrap()
+                    .is_none(),
+                "tree reads must reject unsafe revision selector {revision:?}"
+            );
+            assert!(
+                store
+                    .get_blob_at_revision("repo_test", "README.md", Some(revision))
+                    .unwrap()
+                    .is_none(),
+                "blob reads must reject unsafe revision selector {revision:?}"
+            );
+            assert!(
+                store
+                    .find_text_references_at_revision(
+                        "repo_test",
+                        "unsafe_revision_symbol",
+                        revision
+                    )
+                    .unwrap()
+                    .is_none(),
+                "code-navigation reads must reject unsafe revision selector {revision:?}"
+            );
+        }
 
         fs::remove_dir_all(root).unwrap();
     }
