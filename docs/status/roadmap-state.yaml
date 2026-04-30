@@ -5,29 +5,30 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 5d4158da61b669c31783f2b212fe141f70ae5374
+  head: 7b59f22e3c926c964af7f54be328ddaf70583b61
 last_completed_task:
-  id: task103_108_remote_refs_worker_status_batch
-  title: Remote-tracking ref visibility and worker status snapshot hardening
+  id: task102_malformed_requested_search_artifact_failclosed
+  title: Fail closed on malformed requested-repo local-sync search artifacts
   status: done
   summary: >-
-    Closed the already-landed clean-ahead carry-over batch instead of launching
-    more workers: Task 103 now exposes remote-tracking branch refs in commit/ref
-    summaries while skipping symbolic remote HEAD and preserving existing
-    snapshot/visibility boundaries, and Task 108 worker status snapshots now
-    revalidate the configured status path before writes and open the final target
-    with no-follow semantics so symlink target swaps fail closed. Practical
-    replacement remains incomplete; this advances repository navigation and
-    operator-runtime hardening without claiming full branch-picker, provider
-    sync, supervision, or production readiness parity.
+    Closed a Task 102 search/indexing runtime hardening slice: requested-repo
+    `/api/v1/search?repo_id=...` now treats present malformed, non-regular,
+    or error-status local-sync `search-index.json` artifacts as request-wide
+    fail-closed `500` responses even when the primary startup search store
+    returned a successful empty result. This prevents a corrupt persisted
+    artifact from being silently converted into an empty success while
+    preserving the existing successful-empty behavior when no local-sync
+    artifact/snapshot is available. Practical replacement remains incomplete;
+    this advances artifact-backed search correctness without claiming
+    production indexing lifecycle, provider sync, supervision, or full search
+    parity.
   tests:
-    - 'focused Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_commit_store_lists_remote_tracking_branch_refs -- --nocapture passed with 0 lib tests plus 1 main-bin test and 489 filtered out'
-    - 'broader Task 103: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api repo_commits -- --nocapture passed with 0 lib tests plus 8 main-bin tests and 482 filtered out'
-    - 'focused Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker --bin sourcebot-worker worker_status_snapshot -- --nocapture passed with 3 main-bin tests and 12 filtered out'
-    - 'broader Task 108: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-worker --bin sourcebot-worker worker_status_path -- --nocapture passed with 5 main-bin tests and 10 filtered out'
-    - 'integrator: cargo fmt --check, git diff --check HEAD~2..HEAD, git diff --check, and added-lines security scan over HEAD~2..HEAD passed'
-    - 'independent review: approved origin/master..HEAD with no blocking issues; noted only future dirfd/openat-style hardening for residual parent-directory TOCTOU defense'
-  commit: 5d4158da61b669c31783f2b212fe141f70ae5374
+    - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture failed before the fix with 1 main-bin test asserting 200 vs expected 500'
+    - 'focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture passed in main repo with 0 lib tests plus 1 main-bin test and 489 filtered out'
+    - 'broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed in main repo with 0 lib tests plus 27 main-bin tests and 463 filtered out'
+    - 'integrator: cargo fmt --check, git diff --check HEAD~1..HEAD, git diff --check, and added-lines security scan over HEAD~1..HEAD passed'
+    - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; suggested only a future explicit absent-artifact empty-primary regression'
+  commit: 7b59f22e3c926c964af7f54be328ddaf70583b61
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -37,10 +38,10 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing runtime
     closure while the accelerated controller may also take adjacent high-value
     Task 103/105/106/107/108 blockers when scopes are disjoint and the main
-    worktree is clean. This recovery run did not launch new workers because the
-    main worktree was already clean-ahead by two substantive commits; it verified,
-    reviewed, recorded, and pushed the Task 103 remote-tracking refs closure plus
-    the Task 108 worker status snapshot symlink-hardening closure. Practical
+    worktree is clean. This run closed one Task 102 artifact-backed search
+    correctness gap by making requested-repo search fail closed on present
+    malformed/non-regular/error-status local-sync search-index artifacts instead
+    of returning an empty success after a primary empty result. Practical
     replacement remains incomplete. Remaining blockers still include
     production-shaped indexing lifecycle/status and failure recovery, relevance
     and pagination behavior at scale beyond bounded helpers, a fuller branch/ref
@@ -50,6 +51,37 @@ current_task:
     interoperability beyond the HTTP/API bridge, operator runbook/deploy evidence,
     and the other release blockers in this roadmap.
 history:
+  - id: task102_malformed_requested_search_artifact_failclosed
+    status: done
+    summary: >-
+      Closed one Task 102 artifact-backed search correctness gap: requested-repo
+      `/api/v1/search?repo_id=...` now returns `500` when a present latest
+      local-sync `search-index.json` artifact is malformed, non-regular, or
+      carries an error status, even if the primary startup search store returned
+      a successful empty result. Missing/unavailable artifacts with a successful
+      empty primary response still preserve the existing empty-success behavior.
+      This is a real fail-closed runtime closure, not a docs/state-only slice.
+    commit: 7b59f22e3c926c964af7f54be328ddaf70583b61
+    tests:
+      - 'worker RED: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture failed before the fix with 1 main-bin test asserting 200 vs expected 500'
+      - 'focused: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api requested_search_empty_primary_fails_closed_for_malformed_local_sync_search_index_artifact -- --nocapture passed in main repo with 0 lib tests plus 1 main-bin test and 489 filtered out'
+      - 'broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api local_sync -- --nocapture passed in main repo with 0 lib tests plus 27 main-bin tests and 463 filtered out'
+      - 'integrator: cargo fmt --check, git diff --check HEAD~1..HEAD, git diff --check, and added-lines security scan over HEAD~1..HEAD passed'
+      - 'independent review: approved HEAD~1..HEAD with no blocking security or logic issues; suggested only a future explicit absent-artifact empty-primary regression'
+    review: >-
+      Independent review approved the fail-closed change and found no blocking
+      security or logic issues. It confirmed valid requested-repo artifact
+      fallback remains available, missing/unavailable artifacts preserve the
+      existing primary-error/empty-primary behavior, and unscoped fail-closed
+      handling remains unchanged.
+    workers: >-
+      Launched one implementation worker rather than three to keep the run
+      focused on the live Task 102 state and avoid unnecessary disk expansion;
+      the worker used the dedicated worktree
+      /opt/data/projects/sourcebot-worktrees/task102-malformed-search-artifact
+      with CARGO_TARGET_DIR pointing at the main repo target and produced commit
+      4d6fea1d6433437d26d9539c2941731bc478eca4, cherry-picked into master as
+      7b59f22e3c926c964af7f54be328ddaf70583b61 before worktree cleanup.
   - id: task103_108_remote_refs_worker_status_batch
     status: done
     summary: >-
