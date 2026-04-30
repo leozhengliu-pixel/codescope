@@ -493,6 +493,7 @@ fn is_valid_git_object_id(revision: &str) -> bool {
 fn is_valid_git_branch_name(branch: &str) -> bool {
     !branch.is_empty()
         && branch != "@"
+        && branch != "HEAD"
         && !branch.starts_with('-')
         && !branch.ends_with('.')
         && !branch.ends_with('/')
@@ -3451,6 +3452,46 @@ mod tests {
             Duration::from_secs(5),
         ) {
             Ok(_) => panic!("malformed Generic Git ls-remote --heads output must fail closed"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error,
+            "generic Git repository sync execution failed: git ls-remote --heads advertised malformed ref line"
+        );
+
+        fs::remove_dir_all(fake_git_dir).unwrap();
+    }
+
+    #[test]
+    fn generic_git_ls_remote_heads_head_branch_name_fails_closed() {
+        let fake_git_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-generic-git-head-branch-name-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&fake_git_dir).unwrap();
+        let fake_git_path = fake_git_dir.join("fake-git");
+        fs::write(
+            &fake_git_path,
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = \"ls-remote --symref --\" ]; then\n  exit 0\nfi\nif [ \"$1 $2 $3\" = \"ls-remote --heads --\" ]; then\n  printf 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\trefs/heads/HEAD\\n'\n  exit 0\nfi\nprintf 'unexpected git invocation: %s\\n' \"$*\" >&2\nexit 2\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let error = match run_generic_git_repository_sync_execution(
+            fake_git_path.as_os_str(),
+            "https://example.invalid/acme/repo.git",
+            Duration::from_secs(5),
+        ) {
+            Ok(execution) => panic!(
+                "Generic Git --heads branch named HEAD should fail closed as ambiguous metadata, got revision={} branch={}",
+                execution.revision, execution.branch
+            ),
             Err(error) => error,
         };
 
