@@ -2699,7 +2699,19 @@ function RepositoryRefsPanel({
 
   const branches = refs.filter((ref) => ref.kind === 'branch');
   const tags = refs.filter((ref) => ref.kind === 'tag');
-  const advertisedRevisionNames = refs.map((ref) => ref.name);
+  const duplicateRefNames = new Set(
+    refs
+      .map((ref) => ref.name)
+      .filter((name, index, names) => names.indexOf(name) !== index)
+  );
+  const refRevisionValue = (ref: RefSummary) => {
+    if (!duplicateRefNames.has(ref.name)) {
+      return ref.name;
+    }
+
+    return ref.kind === 'branch' ? `refs/heads/${ref.name}` : `refs/tags/${ref.name}`;
+  };
+  const advertisedRevisionNames = refs.map((ref) => refRevisionValue(ref));
   const selectedAdvertisedRevision = currentRevision && advertisedRevisionNames.includes(currentRevision) ? currentRevision : '';
   const renderRef = (ref: RefSummary) => (
     <li key={`${ref.kind}:${ref.name}:${ref.target ?? ''}`} style={{ display: 'grid', gap: 4 }}>
@@ -2734,11 +2746,16 @@ function RepositoryRefsPanel({
               style={inputStyle}
             >
               <option value="">Select an advertised ref…</option>
-              {refs.map((ref) => (
-                <option key={`${ref.kind}:${ref.name}`} value={ref.name}>
-                  {ref.name} {ref.kind}
-                </option>
-              ))}
+              {refs.map((ref) => {
+                const revisionValue = refRevisionValue(ref);
+                const duplicateLabel = duplicateRefNames.has(ref.name) ? ` (${revisionValue})` : '';
+
+                return (
+                  <option key={`${ref.kind}:${revisionValue}:${ref.target ?? ''}`} value={revisionValue}>
+                    {ref.name} {ref.kind}{duplicateLabel}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>

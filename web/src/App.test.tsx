@@ -1997,6 +1997,83 @@ describe('App', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo-pick/commits?limit=20&revision=v2.0.0');
   });
 
+  it('disambiguates duplicate branch and tag names in the advertised ref picker', async () => {
+    window.location.hash = '#/repos/repo-dupe-ref';
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo-dupe-ref') {
+        return jsonResponse({
+          repository: {
+            id: 'repo-dupe-ref',
+            name: 'duplicate-ref-repo',
+            default_branch: 'main',
+            connection_id: 'conn-dupe-ref',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-dupe-ref',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/index-status') {
+        return jsonResponse({
+          repo_id: 'repo-dupe-ref',
+          status: 'indexed',
+          indexed_file_count: 2,
+          indexed_line_count: 20,
+          skipped_file_count: 0,
+          error: null,
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/refs') {
+        return jsonResponse({
+          repo_id: 'repo-dupe-ref',
+          refs: [
+            { kind: 'branch', name: 'main', target: '1111111111111111111111111111111111111111', is_default: true },
+            { kind: 'branch', name: 'release', target: '2222222222222222222222222222222222222222', is_default: false },
+            { kind: 'tag', name: 'release', target: '3333333333333333333333333333333333333333', is_default: false },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/tree?path=') {
+        return jsonResponse({ repo_id: 'repo-dupe-ref', path: '', entries: [] });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/tree?path=&revision=refs%2Ftags%2Frelease') {
+        return jsonResponse({ repo_id: 'repo-dupe-ref', path: '', entries: [] });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/commits?limit=20') {
+        return jsonResponse({ repo_id: 'repo-dupe-ref', commits: [] });
+      }
+
+      if (url === '/api/v1/repos/repo-dupe-ref/commits?limit=20&revision=refs%2Ftags%2Frelease') {
+        return jsonResponse({ repo_id: 'repo-dupe-ref', commits: [] });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('duplicate-ref-repo')).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'release branch (refs/heads/release)' })).toHaveValue('refs/heads/release');
+    expect(await screen.findByRole('option', { name: 'release tag (refs/tags/release)' })).toHaveValue('refs/tags/release');
+
+    fireEvent.change(screen.getByLabelText('Advertised branch or tag'), { target: { value: 'refs/tags/release' } });
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#/repos/repo-dupe-ref?revision=refs%2Ftags%2Frelease');
+    });
+  });
+
   it('loads repository detail and browses directories and files from the browse api', async () => {
     window.location.hash = '#/repos/repo-42';
 
