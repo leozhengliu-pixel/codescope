@@ -20,7 +20,7 @@ use auth::{
 };
 use axum::{
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post, put},
@@ -6524,6 +6524,7 @@ const MAX_SEARCH_QUERY_BYTES: usize = 1024;
 async fn search_repository_contents(
     State(state): State<AppState>,
     headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
     let (user_id, mut visible_repo_ids) = search_request_context(&state, &headers).await?;
@@ -6587,13 +6588,14 @@ async fn search_repository_contents(
     let search_options = SearchOptions {
         mode: search_mode,
         case_sensitive: query.case_sensitive,
+        exclude_paths: parse_exclude_path_query_values(raw_query.as_deref()),
     };
 
     let primary_search_response = search_visible_authorized_repositories(
         &state,
         trimmed_query,
         requested_repo_id,
-        search_options,
+        search_options.clone(),
         &visible_repo_ids,
     );
     let primary_search_failed = primary_search_response.is_err();
@@ -6617,7 +6619,7 @@ async fn search_repository_contents(
             match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
-                search_options,
+                search_options.clone(),
                 &user_id,
                 repo_id,
             )
@@ -6656,7 +6658,7 @@ async fn search_repository_contents(
             match search_latest_local_sync_snapshot_for_repo(
                 &state,
                 trimmed_query,
-                search_options,
+                search_options.clone(),
                 &user_id,
                 &repo_id,
             )
@@ -6715,6 +6717,18 @@ fn sort_search_results_by_repo_path_line(results: &mut [sourcebot_search::Search
     });
 }
 
+fn parse_exclude_path_query_values(raw_query: Option<&str>) -> Vec<String> {
+    let Some(raw_query) = raw_query else {
+        return Vec::new();
+    };
+
+    form_urlencoded::parse(raw_query.as_bytes())
+        .filter_map(|(key, value)| (key == "exclude_path").then_some(value))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
 fn search_visible_authorized_repositories(
     state: &AppState,
     query: &str,
@@ -6740,7 +6754,7 @@ fn search_visible_authorized_repositories(
     for repo_id in repo_ids {
         let mut response = state
             .search
-            .search_with_options(query, Some(&repo_id), options)
+            .search_with_options(query, Some(&repo_id), options.clone())
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         response.results.retain(|result| {
             result.repo_id == repo_id && visible_repo_ids.contains(&result.repo_id)
@@ -30756,6 +30770,134 @@ mod tests {
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
+    }
+
+    struct ApiExcludePathSearchStore;
+
+    impl SearchStore for ApiExcludePathSearchStore {
+        fn search_with_mode(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            mode: SearchMode,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            self.search_with_options(
+                query,
+                repo_id,
+                SearchOptions {
+                    mode,
+                    ..SearchOptions::default()
+                },
+            )
+        }
+
+        fn search_with_options(
+            &self,
+            query: &str,
+            repo_id: Option<&str>,
+            options: SearchOptions,
+        ) -> anyhow::Result<sourcebot_search::SearchResponse> {
+            let repo_id = repo_id.unwrap_or("repo_sourcebot_rewrite");
+            let exclude_paths = options
+                .exclude_paths
+                .iter()
+                .map(|path| path.trim().to_lowercase())
+                .filter(|path| !path.is_empty())
+                .collect::<Vec<_>>();
+            let mut results = vec![
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "dist/generated.rs".to_string(),
+                    line_number: 1,
+                    line: "api_exclude_path_marker dist".to_string(),
+                },
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "src/lib.rs".to_string(),
+                    line_number: 1,
+                    line: "api_exclude_path_marker src".to_string(),
+                },
+                sourcebot_search::SearchResult {
+                    repo_id: repo_id.to_string(),
+                    path: "vendor/generated.rs".to_string(),
+                    line_number: 1,
+                    line: "api_exclude_path_marker vendor".to_string(),
+                },
+            ];
+            results.retain(|result| {
+                let path = result.path.to_lowercase();
+                !exclude_paths.iter().any(|exclude| path.contains(exclude))
+            });
+            Ok(sourcebot_search::SearchResponse::unpaginated_with_mode(
+                query.to_string(),
+                options.mode,
+                Some(repo_id.to_string()),
+                results,
+            ))
+        }
+
+        fn repository_index_status(
+            &self,
+            _repo_id: &str,
+        ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+            Ok(Some(RepositoryIndexStatus {
+                repo_id: "repo_sourcebot_rewrite".to_string(),
+                status: RepositoryIndexState::Indexed,
+                indexed_file_count: 3,
+                indexed_line_count: 3,
+                skipped_file_count: 0,
+                error: None,
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn search_exclude_path_query_filters_results_and_total_count() {
+        let organization_state_path = unique_test_path("search-exclude-path-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-exclude-path-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-exclude-path-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(ApiExcludePathSearchStore),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/search?q=api_exclude_path_marker&repo_id=repo_sourcebot_rewrite&exclude_path=dist&exclude_path=vendor")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: SearchResponse = read_json(response).await;
+        assert_eq!(payload.pagination.total_count, 1);
+        assert_eq!(
+            payload
+                .results
+                .iter()
+                .map(|result| result.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/lib.rs"]
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
     }
 
     #[tokio::test]

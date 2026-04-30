@@ -114,10 +114,11 @@ impl Default for SearchMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchOptions {
     pub mode: SearchMode,
     pub case_sensitive: bool,
+    pub exclude_paths: Vec<String>,
 }
 
 impl Default for SearchOptions {
@@ -125,6 +126,7 @@ impl Default for SearchOptions {
         Self {
             mode: SearchMode::Boolean,
             case_sensitive: false,
+            exclude_paths: Vec::new(),
         }
     }
 }
@@ -1033,6 +1035,24 @@ fn is_safe_persisted_index_path(path: &str) -> bool {
     saw_component
 }
 
+fn filter_excluded_paths(results: &mut Vec<SearchResult>, exclude_paths: &[String]) {
+    let exclude_paths = exclude_paths
+        .iter()
+        .map(|path| path.trim().to_lowercase())
+        .filter(|path| !path.is_empty())
+        .collect::<Vec<_>>();
+    if exclude_paths.is_empty() {
+        return;
+    }
+
+    results.retain(|result| {
+        let path = result.path.to_lowercase();
+        !exclude_paths
+            .iter()
+            .any(|exclude_path| path.contains(exclude_path))
+    });
+}
+
 impl SearchStore for LocalSearchStore {
     fn search_with_mode(
         &self,
@@ -1058,7 +1078,7 @@ impl SearchStore for LocalSearchStore {
     ) -> Result<SearchResponse> {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim);
-        let matcher = QueryMatcher::from_query(query, options);
+        let matcher = QueryMatcher::from_query(query, options.clone());
 
         let mut repos: Vec<&String> = match requested_repo_id {
             Some(repo_id) if !repo_id.is_empty() => self
@@ -1076,6 +1096,7 @@ impl SearchStore for LocalSearchStore {
         for repo_id in repos {
             results.extend(self.search_repo(repo_id, &matcher));
         }
+        filter_excluded_paths(&mut results, &options.exclude_paths);
 
         Ok(SearchResponse::unpaginated_with_mode(
             query.to_string(),
@@ -1760,6 +1781,85 @@ mod tests {
         );
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exclude_path_filters_results_before_pagination() {
+        let store = LocalSearchStore {
+            repo_roots: HashMap::from([("repo_test".to_string(), PathBuf::new())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: HashMap::from([(
+                "repo_test".to_string(),
+                vec![
+                    IndexedLine {
+                        path: "dist/generated.rs".to_string(),
+                        line_number: 1,
+                        line: "fn exclude_path_marker_dist() {}".to_string(),
+                    },
+                    IndexedLine {
+                        path: "src/lib.rs".to_string(),
+                        line_number: 1,
+                        line: "fn exclude_path_marker_src() {}".to_string(),
+                    },
+                    IndexedLine {
+                        path: "vendor/generated.rs".to_string(),
+                        line_number: 1,
+                        line: "fn exclude_path_marker_vendor() {}".to_string(),
+                    },
+                ],
+            )]),
+            index_statuses: HashMap::from([(
+                "repo_test".to_string(),
+                RepositoryIndexStatus {
+                    repo_id: "repo_test".to_string(),
+                    status: RepositoryIndexState::Indexed,
+                    indexed_file_count: 3,
+                    indexed_line_count: 3,
+                    skipped_file_count: 0,
+                    error: None,
+                },
+            )]),
+        };
+
+        let response = store
+            .search_page_with_options(
+                "exclude_path_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    exclude_paths: vec![" DIST ".to_string(), "".to_string()],
+                    ..SearchOptions::default()
+                },
+                1,
+                0,
+            )
+            .unwrap();
+
+        assert_eq!(response.pagination.total_count, 2);
+        assert!(response.pagination.has_more);
+        assert_eq!(
+            response
+                .results
+                .iter()
+                .map(|result| result.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/lib.rs"]
+        );
+
+        let second_page = store
+            .search_page_with_options(
+                "exclude_path_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    exclude_paths: vec![" DIST ".to_string()],
+                    ..SearchOptions::default()
+                },
+                1,
+                1,
+            )
+            .unwrap();
+        assert_eq!(second_page.pagination.total_count, 2);
+        assert!(!second_page.pagination.has_more);
+        assert_eq!(second_page.results[0].path, "vendor/generated.rs");
     }
 
     #[test]
