@@ -92,7 +92,7 @@ then the service returns `200` with `status: "not_configured"`, `configured: fal
 Given an authenticated local-session caller requests `GET /api/v1/auth/worker-status` and `SOURCEBOT_WORKER_STATUS_PATH` points at a readable JSON worker snapshot,
 then the service returns `200` with `status: "ok"`, `configured: true`, and the bounded JSON snapshot. Missing, invalid JSON, non-file, or oversized snapshots return a structured `status: "error"` response instead of panicking or reading unbounded data.
 
-This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. The worker-side writer now fails closed when the configured status target is an existing directory or its existing parent is a file, so the API is not asked to interpret silently misdirected status paths. It does not claim a production metrics API, durable worker metadata, a scheduler supervisor, retry orchestration, or broad observability parity.
+This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. The worker-side writer now fails closed when the configured status target contains control characters, is an existing directory, or has an existing parent that is a file, so the API is not asked to interpret silently misdirected status paths. It does not claim a production metrics API, durable worker metadata, a scheduler supervisor, retry orchestration, or broad observability parity.
 
 ### Authenticated repository-sync history
 Given an authenticated local-session caller requests `GET /api/v1/auth/repository-sync-jobs`,

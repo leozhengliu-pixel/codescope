@@ -264,6 +264,9 @@ fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
                     "SOURCEBOT_WORKER_STATUS_PATH must not include surrounding whitespace"
                 );
             }
+            if value.chars().any(char::is_control) {
+                anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must not include control characters");
+            }
             let path = PathBuf::from(value);
             validate_worker_status_path(&path)?;
             Ok(Some(path))
@@ -475,6 +478,24 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "SOURCEBOT_WORKER_STATUS_PATH must not include surrounding whitespace"
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_configured_with_control_characters() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var(
+            "SOURCEBOT_WORKER_STATUS_PATH",
+            format!("{}\nstatus.json", std::env::temp_dir().display()),
+        );
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("control-character status paths should fail before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_STATUS_PATH must not include control characters"
         );
     }
 
