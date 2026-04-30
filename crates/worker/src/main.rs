@@ -464,6 +464,20 @@ mod tests {
     }
 
     #[test]
+    fn worker_numeric_env_fails_closed_when_configured_with_sign_prefix() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("SOURCEBOT_WORKER_MAX_TICKS", "+1");
+        let error = worker_max_ticks_from_env()
+            .expect_err("signed numeric runtime configuration must fail closed");
+        std::env::remove_var("SOURCEBOT_WORKER_MAX_TICKS");
+
+        assert_eq!(
+            error.to_string(),
+            "SOURCEBOT_WORKER_MAX_TICKS must contain only ASCII digits"
+        );
+    }
+
+    #[test]
     fn worker_status_path_fails_closed_when_configured_with_surrounding_whitespace() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var(
@@ -844,6 +858,9 @@ fn parse_u64_env(name: &str, default: u64) -> anyhow::Result<u64> {
             }
             if value != trimmed {
                 anyhow::bail!("{name} must not include surrounding whitespace");
+            }
+            if value.starts_with('+') {
+                anyhow::bail!("{name} must contain only ASCII digits");
             }
             value
                 .parse::<u64>()
