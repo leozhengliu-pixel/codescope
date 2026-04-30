@@ -1802,6 +1802,77 @@ describe('App', () => {
     expect(screen.queryByLabelText('Search query')).not.toBeInTheDocument();
   });
 
+  it('loads repository branch and tag summaries on the repository detail page', async () => {
+    window.location.hash = '#/repos/repo_visible';
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === '/api/v1/repos/repo_visible') {
+        return jsonResponse({
+          repository: {
+            id: 'repo_visible',
+            name: 'visible-repo',
+            default_branch: 'main',
+            connection_id: 'conn-1',
+            sync_state: 'ready',
+          },
+          connection: {
+            id: 'conn-1',
+            name: 'GitHub App',
+            kind: 'github',
+          },
+        });
+      }
+
+      if (url === '/api/v1/repos/repo_visible/index-status') {
+        return jsonResponse({
+          repo_id: 'repo_visible',
+          status: 'indexed',
+          indexed_file_count: 1,
+          indexed_line_count: 10,
+          skipped_file_count: 0,
+          error: null,
+        });
+      }
+
+      if (url === '/api/v1/repos/repo_visible/refs') {
+        return jsonResponse({
+          repo_id: 'repo_visible',
+          refs: [
+            { kind: 'branch', name: 'main', target: '1111111111111111111111111111111111111111', is_default: true },
+            { kind: 'branch', name: 'feature/refs-ui', target: '2222222222222222222222222222222222222222', is_default: false },
+            { kind: 'tag', name: 'v1.0.0', target: '3333333333333333333333333333333333333333', is_default: false },
+          ],
+        });
+      }
+
+      if (url === '/api/v1/repos/repo_visible/tree?path=') {
+        return jsonResponse({ repo_id: 'repo_visible', path: '', entries: [] });
+      }
+
+      if (url === '/api/v1/repos/repo_visible/commits?limit=20') {
+        return jsonResponse({ repo_id: 'repo_visible', commits: [] });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('visible-repo')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Branches and tags' })).toBeInTheDocument();
+    expect(await screen.findByText('Visible branch and tag summaries only; revision picker and navigation parity remain separate.')).toBeInTheDocument();
+    expect(screen.getAllByText('main').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText('feature/refs-ui')).toBeInTheDocument();
+    expect(await screen.findByText('v1.0.0')).toBeInTheDocument();
+    expect(screen.getAllByText('Default branch').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText('111111111111')).toBeInTheDocument();
+    expect(await screen.findByText('222222222222')).toBeInTheDocument();
+    expect(await screen.findByText('333333333333')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/repos/repo_visible/refs');
+  });
+
   it('loads repository detail and browses directories and files from the browse api', async () => {
     window.location.hash = '#/repos/repo-42';
 

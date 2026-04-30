@@ -231,6 +231,18 @@ type CommitsResponse = {
   page_info?: CommitPageInfo;
 };
 
+type RefSummary = {
+  name: string;
+  target?: string | null;
+  kind: 'branch' | 'tag';
+  is_default?: boolean;
+};
+
+type RefsResponse = {
+  repo_id: string;
+  refs: RefSummary[];
+};
+
 type RepoRouteState = {
   repoId: string;
   initialPath: string | null;
@@ -2641,6 +2653,79 @@ function RepositoryIndexStatusPanel({ repoId }: { repoId: string }) {
   );
 }
 
+function RepositoryRefsPanel({ repoId }: { repoId: string }) {
+  const [refs, setRefs] = useState<RefSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    fetchJson<RefsResponse>(`/api/v1/repos/${repoId}/refs`)
+      .then((data) => {
+        if (!cancelled) {
+          if (data.repo_id !== repoId) {
+            throw new Error('branch and tag summaries did not match the requested repository');
+          }
+          setRefs(data.refs);
+          setError(null);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setRefs([]);
+          setError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId]);
+
+  const branches = refs.filter((ref) => ref.kind === 'branch');
+  const tags = refs.filter((ref) => ref.kind === 'tag');
+  const renderRef = (ref: RefSummary) => (
+    <li key={`${ref.kind}:${ref.name}:${ref.target ?? ''}`} style={{ display: 'grid', gap: 4 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <span style={{ fontWeight: 600 }}>{ref.name}</span>
+        {ref.is_default ? <span style={searchMetaBadgeStyle}>Default branch</span> : null}
+      </div>
+      {ref.target ? <code style={{ color: '#57606a' }}>{ref.target.slice(0, 12)}</code> : null}
+    </li>
+  );
+
+  return (
+    <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>Branches and tags</h3>
+      <div style={{ color: '#57606a', marginBottom: 12 }}>
+        Visible branch and tag summaries only; revision picker and navigation parity remain separate.
+      </div>
+      {loading ? <div>Loading branch and tag summaries…</div> : null}
+      {!loading && error ? <div>Branch and tag summaries unavailable: {error}</div> : null}
+      {!loading && !error && refs.length === 0 ? <div>No visible branches or tags found.</div> : null}
+      {!loading && !error && refs.length > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Branches</div>
+            {branches.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{branches.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible branches.</div>}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Tags</div>
+            {tags.length > 0 ? <ul style={{ display: 'grid', gap: 10, margin: 0, paddingLeft: 20 }}>{tags.map(renderRef)}</ul> : <div style={{ color: '#57606a' }}>No visible tags.</div>}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function RepoDetailPage({
   repoId,
   initialPath,
@@ -2754,6 +2839,7 @@ function RepoDetailPage({
         <Detail label="Connection kind" value={repo.connection.kind} />
       </div>
       <RepositoryIndexStatusPanel repoId={repoId} />
+      <RepositoryRefsPanel repoId={repoId} />
       <div style={{ marginTop: 20, padding: 16, borderRadius: 12, border: '1px solid #d8dee4', background: '#fff' }}>
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={fieldLabelStyle}>
