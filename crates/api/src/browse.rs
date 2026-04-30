@@ -770,6 +770,17 @@ fn run_git_show_blob(
         return Ok(None);
     }
 
+    let Some(size_bytes) = run_git_object_size(repo_root, &object)? else {
+        return Ok(None);
+    };
+    if size_bytes > BLOB_CONTENT_MAX_BYTES as u64 {
+        anyhow::bail!(
+            "blob exceeds {} byte read limit: {}",
+            BLOB_CONTENT_MAX_BYTES,
+            path
+        );
+    }
+
     let output = bounded_git_output(repo_root, &["show", &object])?;
 
     if output.status.success() {
@@ -835,6 +846,28 @@ fn run_git_object_type(repo_root: &PathBuf, object: &str) -> Result<Option<Strin
     Err(git_command_error(
         repo_root,
         &["cat-file", "-t", "<revision>:<path>"],
+        &output,
+    ))
+}
+
+fn run_git_object_size(repo_root: &PathBuf, object: &str) -> Result<Option<u64>> {
+    let output = bounded_git_output(repo_root, &["cat-file", "-s", object])?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8(output.stdout).context("git output was not utf-8")?;
+        let size = stdout.trim().parse::<u64>().with_context(|| {
+            format!("git cat-file -s returned non-numeric size for object {object}")
+        })?;
+        return Ok(Some(size));
+    }
+
+    if git_object_not_found_output(&output) {
+        return Ok(None);
+    }
+
+    Err(git_command_error(
+        repo_root,
+        &["cat-file", "-s", "<revision>:<path>"],
         &output,
     ))
 }
@@ -1709,7 +1742,7 @@ mod tests {
     }
 
     #[test]
-    fn local_browse_store_bounds_revision_blob_git_output() {
+    fn local_browse_store_rejects_oversized_revision_blob_before_streaming_contents() {
         let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
             "browse-revision-huge-blob",
             "hello world\n",
@@ -1723,10 +1756,10 @@ mod tests {
         let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
         let error = store
             .get_blob_at_revision("repo_test", "huge.txt", Some("HEAD"))
-            .expect_err("revision blob git output must be capture-bounded");
+            .expect_err("revision blob reads must check git object size before loading contents");
 
         assert!(
-            error.to_string().contains("git output exceeded"),
+            error.to_string().contains("blob exceeds"),
             "unexpected error: {error:#}"
         );
 
