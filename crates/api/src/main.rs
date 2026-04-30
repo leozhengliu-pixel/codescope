@@ -6749,18 +6749,7 @@ fn latest_local_sync_snapshot(
         return None;
     };
 
-    let job_artifact_root = std::path::Path::new(repo_path)
-        .join(".sourcebot")
-        .join("local-sync")
-        .join(local_sync_artifact_path_component(
-            &latest_successful_job.organization_id,
-        ))
-        .join(local_sync_artifact_path_component(
-            &latest_successful_job.repository_id,
-        ))
-        .join(local_sync_artifact_path_component(
-            &latest_successful_job.id,
-        ));
+    let job_artifact_root = local_sync_artifact_root(repo_path, latest_successful_job);
 
     Some(LocalSyncSnapshot {
         repo_root: std::path::PathBuf::from(repo_path),
@@ -6770,9 +6759,34 @@ fn latest_local_sync_snapshot(
     })
 }
 
+fn local_sync_artifact_root(repo_path: &str, job: &RepositorySyncJob) -> std::path::PathBuf {
+    let root = std::path::Path::new(repo_path)
+        .join(".sourcebot")
+        .join("local-sync");
+    let encoded_org = local_sync_artifact_path_component(&job.organization_id);
+    let encoded_repo = local_sync_artifact_path_component(&job.repository_id);
+    let encoded_job = local_sync_artifact_path_component(&job.id);
+    let encoded_root = root
+        .join(&encoded_org)
+        .join(&encoded_repo)
+        .join(&encoded_job);
+    if encoded_root.join("search-index.json").exists() || encoded_root.join("snapshot").exists() {
+        return encoded_root;
+    }
+
+    let legacy_org = legacy_local_sync_artifact_path_component(&job.organization_id);
+    let legacy_repo = legacy_local_sync_artifact_path_component(&job.repository_id);
+    let legacy_job = legacy_local_sync_artifact_path_component(&job.id);
+    if encoded_org == legacy_org && encoded_repo == legacy_repo && encoded_job == legacy_job {
+        return root.join(legacy_org).join(legacy_repo).join(legacy_job);
+    }
+
+    encoded_root
+}
+
 fn local_sync_artifact_path_component(component: &str) -> String {
     if component.is_empty() {
-        return "_".to_owned();
+        return "%00".to_owned();
     }
 
     let mut encoded = String::new();
@@ -6782,13 +6796,27 @@ fn local_sync_artifact_path_component(component: &str) -> String {
                 encoded.push(byte as char);
             }
             _ => {
-                encoded.push('_');
+                encoded.push('%');
                 encoded.push_str(&format!("{byte:02x}"));
-                encoded.push('_');
             }
         }
     }
     encoded
+}
+
+fn legacy_local_sync_artifact_path_component(component: &str) -> String {
+    let sanitized = component
+        .chars()
+        .map(|character| match character {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => character,
+            _ => '_',
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "_".to_owned()
+    } else {
+        sanitized
+    }
 }
 
 async fn create_ask_completion(
@@ -30400,21 +30428,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn local_sync_artifact_path_components_are_non_colliding() {
+        assert_ne!(
+            local_sync_artifact_path_component("job/latest"),
+            local_sync_artifact_path_component("job%2flatest"),
+            "slash-encoded ids must not collide with literal percent-delimited ids"
+        );
+        assert_ne!(
+            local_sync_artifact_path_component("job latest"),
+            local_sync_artifact_path_component("job%20latest"),
+            "space-encoded ids must not collide with literal percent-delimited ids"
+        );
+        assert_ne!(
+            local_sync_artifact_path_component(""),
+            local_sync_artifact_path_component("%00"),
+            "empty component sentinel must not collide with literal percent-encoded text"
+        );
+    }
+
     #[tokio::test]
     async fn search_latest_local_sync_artifact_uses_non_colliding_job_path_components() {
         let repo_root = unique_test_path("search-local-sync-job-path-collision-repo-root");
         let stale_job_root = repo_root
             .join(".sourcebot")
             .join("local-sync")
-            .join("org_acme")
-            .join("repo_local_import")
-            .join("job_latest");
+            .join(local_sync_artifact_path_component("org_acme"))
+            .join(local_sync_artifact_path_component("repo_local_import"))
+            .join(local_sync_artifact_path_component("job_latest"));
         let latest_job_root = repo_root
             .join(".sourcebot")
             .join("local-sync")
-            .join("org_acme")
-            .join("repo_local_import")
-            .join("job_2f_latest");
+            .join(local_sync_artifact_path_component("org_acme"))
+            .join(local_sync_artifact_path_component("repo_local_import"))
+            .join(local_sync_artifact_path_component("job/latest"));
         let stale_snapshot_root = stale_job_root.join("snapshot");
         let latest_snapshot_root = latest_job_root.join("snapshot");
         fs::create_dir_all(stale_snapshot_root.join("src")).unwrap();
@@ -30529,6 +30576,9 @@ mod tests {
         assert!(latest_payload.results[0]
             .line
             .contains("non_colliding_latest_job_marker"));
+
+        fs::remove_file(latest_job_root.join("search-index.json")).unwrap();
+        fs::remove_dir_all(&latest_snapshot_root).unwrap();
 
         let stale_response = app
             .oneshot(

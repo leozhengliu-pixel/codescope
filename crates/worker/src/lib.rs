@@ -1221,18 +1221,23 @@ fn local_repository_sync_manifest_path(repo_path: &str, job: &RepositorySyncJob)
 }
 
 fn safe_manifest_path_component(component: &str) -> String {
-    let sanitized = component
-        .chars()
-        .map(|character| match character {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-' => character,
-            _ => '_',
-        })
-        .collect::<String>();
-    if sanitized.is_empty() {
-        "_".to_owned()
-    } else {
-        sanitized
+    if component.is_empty() {
+        return "%00".to_owned();
     }
+
+    let mut encoded = String::new();
+    for byte in component.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' => {
+                encoded.push(byte as char);
+            }
+            _ => {
+                encoded.push('%');
+                encoded.push_str(&format!("{byte:02x}"));
+            }
+        }
+    }
+    encoded
 }
 
 fn local_repository_sync_manifest_content(
@@ -2078,10 +2083,21 @@ mod tests {
 
     #[test]
     fn local_sync_manifest_path_components_cannot_escape_manifest_root() {
-        assert_eq!(safe_manifest_path_component("../org/acme"), "___org_acme");
-        assert_eq!(safe_manifest_path_component("."), "_");
-        assert_eq!(safe_manifest_path_component(".."), "__");
+        assert_eq!(
+            safe_manifest_path_component("../org/acme"),
+            "%2e%2e%2forg%2facme"
+        );
+        assert_eq!(safe_manifest_path_component("."), "%2e");
+        assert_eq!(safe_manifest_path_component(".."), "%2e%2e");
         assert_eq!(safe_manifest_path_component("org_acme-1"), "org_acme-1");
+        assert_ne!(
+            safe_manifest_path_component("job/latest"),
+            safe_manifest_path_component("job%2flatest")
+        );
+        assert_ne!(
+            safe_manifest_path_component(""),
+            safe_manifest_path_component("%00")
+        );
     }
 
     #[test]
@@ -5482,13 +5498,10 @@ mod tests {
         assert_eq!(completed_job.synced_branch.as_deref(), Some("master"));
         assert_eq!(completed_job.synced_content_file_count, Some(2));
 
-        let manifest_path = repo_path
-            .join(".sourcebot")
-            .join("local-sync")
-            .join("org_acme")
-            .join("repo_sync_job_local_valid")
-            .join("sync_job_local_valid")
-            .join("manifest.txt");
+        let manifest_path = local_repository_sync_manifest_path(
+            repo_path.to_str().expect("temp repo path should be UTF-8"),
+            &completed_job,
+        );
         let manifest =
             fs::read_to_string(&manifest_path).expect("tracked-content manifest to exist");
         assert_eq!(
@@ -5611,13 +5624,13 @@ mod tests {
         assert_eq!(completed_job.error, None);
         assert_eq!(completed_job.synced_content_file_count, Some(1));
 
-        let search_index_path = repo_path
-            .join(".sourcebot")
-            .join("local-sync")
-            .join("org_acme")
-            .join("repo_sync_job_local_skipped_only")
-            .join("sync_job_local_skipped_only")
-            .join("search-index.json");
+        let search_index_path = local_repository_sync_manifest_path(
+            repo_path.to_str().expect("temp repo path should be UTF-8"),
+            &completed_job,
+        )
+        .parent()
+        .expect("manifest path should have a job directory")
+        .join("search-index.json");
         assert!(
             search_index_path.is_file(),
             "successful skipped-only local sync should still persist an indexed_empty artifact"
@@ -5694,13 +5707,13 @@ mod tests {
         assert_eq!(completed_job.status, RepositorySyncJobStatus::Succeeded);
         assert_eq!(completed_job.synced_content_file_count, Some(2));
 
-        let snapshot_dir = repo_path
-            .join(".sourcebot")
-            .join("local-sync")
-            .join("org_acme")
-            .join("repo_sync_job_local_spaced_path")
-            .join("sync_job_local_spaced_path")
-            .join("snapshot");
+        let snapshot_dir = local_repository_sync_manifest_path(
+            repo_path.to_str().expect("temp repo path should be UTF-8"),
+            &completed_job,
+        )
+        .parent()
+        .expect("manifest path should have a job directory")
+        .join("snapshot");
         assert_eq!(
             fs::read_to_string(snapshot_dir.join(spaced_path)).unwrap(),
             "tracked path with spaces\n"
