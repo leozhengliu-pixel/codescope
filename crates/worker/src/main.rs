@@ -209,6 +209,46 @@ fn worker_max_ticks_from_env() -> anyhow::Result<u64> {
     Ok(value)
 }
 
+fn validate_worker_status_path(path: &Path) -> anyhow::Result<()> {
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not be a symlink: {}",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH must point to a file, not directory: {}",
+                path.display()
+            );
+        }
+    }
+
+    for ancestor in path.ancestors().skip(1) {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(metadata) = fs::symlink_metadata(ancestor) else {
+            continue;
+        };
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH parent must not be a symlink: {}",
+                ancestor.display()
+            );
+        }
+        if !metadata.is_dir() {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH parent must be a directory when it exists: {}",
+                ancestor.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
     match env::var("SOURCEBOT_WORKER_STATUS_PATH") {
         Ok(value) => {
@@ -217,20 +257,7 @@ fn worker_status_path_from_env() -> anyhow::Result<Option<PathBuf>> {
                 anyhow::bail!("SOURCEBOT_WORKER_STATUS_PATH must not be empty when set");
             }
             let path = PathBuf::from(trimmed);
-            if path.is_dir() {
-                anyhow::bail!(
-                    "SOURCEBOT_WORKER_STATUS_PATH must point to a file, not directory: {}",
-                    path.display()
-                );
-            }
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() && parent.exists() && !parent.is_dir() {
-                    anyhow::bail!(
-                        "SOURCEBOT_WORKER_STATUS_PATH parent must be a directory when it exists: {}",
-                        parent.display()
-                    );
-                }
-            }
+            validate_worker_status_path(&path)?;
             Ok(Some(path))
         }
         Err(env::VarError::NotPresent) => Ok(None),
@@ -422,6 +449,75 @@ mod tests {
             error.to_string(),
             format!(
                 "SOURCEBOT_WORKER_STATUS_PATH parent must be a directory when it exists: {}",
+                parent.display()
+            )
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_target_is_symlink() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let target = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-symlink-target-{}",
+            std::process::id()
+        ));
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-symlink-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+        std::fs::write(&target, "existing status")
+            .expect("status symlink target fixture should be created");
+        std::os::unix::fs::symlink(&target, &path)
+            .expect("status symlink fixture should be created");
+        std::env::set_var("SOURCEBOT_WORKER_STATUS_PATH", &path);
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("symlink status target should fail before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&target);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not be a symlink: {}",
+                path.display()
+            )
+        );
+    }
+
+    #[test]
+    fn worker_status_path_fails_closed_when_existing_parent_is_symlink() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let target_dir = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-symlink-parent-target-{}",
+            std::process::id()
+        ));
+        let parent = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-symlink-parent-{}",
+            std::process::id()
+        ));
+        let path = parent.join("status.json");
+        let _ = std::fs::remove_file(&parent);
+        let _ = std::fs::remove_dir_all(&target_dir);
+        std::fs::create_dir(&target_dir)
+            .expect("status symlink parent target fixture should be created");
+        std::os::unix::fs::symlink(&target_dir, &parent)
+            .expect("status symlink parent fixture should be created");
+        std::env::set_var("SOURCEBOT_WORKER_STATUS_PATH", &path);
+
+        let error = super::worker_status_path_from_env()
+            .expect_err("symlink parent status path should fail before worker startup");
+
+        std::env::remove_var("SOURCEBOT_WORKER_STATUS_PATH");
+        let _ = std::fs::remove_file(&parent);
+        let _ = std::fs::remove_dir_all(&target_dir);
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH parent must not be a symlink: {}",
                 parent.display()
             )
         );

@@ -13,6 +13,7 @@ This document covers:
 - the shared `SOURCEBOT_DATA_DIR` runtime-path contract
 - explicit per-file path overrides for bootstrap, local-session, and organization state
 - local bring-up with `make api` and `make worker`
+- optional `SOURCEBOT_WORKER_STATUS_PATH` preflight/fail-closed status snapshot writing
 
 This document does **not** claim:
 - complete metadata migration automation or durable metadata parity
@@ -52,7 +53,7 @@ when the operator runs:
 ```bash
 make worker
 ```
-then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, processes one worker tick by default, and exits. Operators may explicitly set `SOURCEBOT_WORKER_MAX_TICKS=<positive integer up to 1000000>` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` to run a bounded multi-tick loop before exit; oversized tick counts fail closed before execution.
+then the worker starts with the same environment contract, reads the organization-state path from the shared runtime baseline unless explicitly overridden, validates any configured `SOURCEBOT_WORKER_STATUS_PATH` before writing a supervisor-readable snapshot, processes one worker tick by default, and exits. Operators may explicitly set `SOURCEBOT_WORKER_MAX_TICKS=<positive integer up to 1000000>` and `SOURCEBOT_WORKER_IDLE_SLEEP_MS=<non-negative integer>` to run a bounded multi-tick loop before exit; oversized tick counts fail closed before execution, and an existing status-path directory, symlink target/parent, or existing file-valued parent fails closed before startup/status writes.
 
 This worker baseline is intentionally limited to default one-tick local bring-up plus an explicit bounded multi-tick loop. It is not a supervised background service contract.
 
@@ -91,7 +92,7 @@ then the service returns `200` with `status: "not_configured"`, `configured: fal
 Given an authenticated local-session caller requests `GET /api/v1/auth/worker-status` and `SOURCEBOT_WORKER_STATUS_PATH` points at a readable JSON worker snapshot,
 then the service returns `200` with `status: "ok"`, `configured: true`, and the bounded JSON snapshot. Missing, invalid JSON, non-file, or oversized snapshots return a structured `status: "error"` response instead of panicking or reading unbounded data.
 
-This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. It does not claim a production metrics API, durable worker metadata, a heartbeat, scheduler supervision, retry orchestration, or broad observability parity.
+This endpoint is authenticated operator visibility for the local supervisor-readable worker status artifact only. The worker-side writer now fails closed when the configured status target is an existing directory or its existing parent is a file, so the API is not asked to interpret silently misdirected status paths. It does not claim a production metrics API, durable worker metadata, a scheduler supervisor, retry orchestration, or broad observability parity.
 
 ### Authenticated repository-sync history
 Given an authenticated local-session caller requests `GET /api/v1/auth/repository-sync-jobs`,
