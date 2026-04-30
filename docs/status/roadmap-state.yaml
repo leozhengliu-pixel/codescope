@@ -5,41 +5,31 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
+  head: bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
 last_completed_task:
-  id: task102_103_106_search_refs_generic_git_hardening
-  title: Stale-index artifact search, bounded repository refs, and Generic Git HEAD-name hardening
+  id: task103_refs_ui_visibility
+  title: Repository detail branch/tag summary visibility
   status: done
   summary: >-
-    Integrated three disjoint implementation-backed closures as one practical
-    replacement hardening batch rather than a docs/state-only slice. Search now
-    consults caller-visible local-sync search-index artifacts when the primary
-    startup search response is empty even if a visible repository has stale or
-    error primary index-status, while still preserving primary-match precedence.
-    Repository navigation now exposes authenticated bounded branch/tag ref
-    summaries from the visible commit store through GET
-    /api/v1/repos/{repo_id}/refs. Generic Git metadata probing now rejects
-    ambiguous refs/heads/HEAD branch-name advertisements before persisting
-    terminal remote metadata. Practical replacement remains incomplete and still
-    fails closed on production indexing lifecycle/recovery, frontend branch
-    picker parity, real provider fetch/import/reindex, broad retry/backoff and
-    supervision, identity/provider flows, deeper MCP client/session
-    interoperability, and production operator deployment evidence.
+    Shipped a bounded user-visible repository-navigation closure rather than a
+    docs/state-only update: the repository detail UI now fetches authenticated
+    GET /api/v1/repos/{repo_id}/refs, validates the response repo id, and renders
+    branch/tag summary visibility with short target revisions and loading, empty,
+    and error states. Acceptance, parity-gap, and final-audit wording now keep
+    the claim deliberately partial: this is summary visibility, not full branch
+    picker, revision-switching UX, provider fetch/import/reindex, or practical
+    replacement parity.
   tests:
-    - 'worker RED: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture failed before implementation because unscoped search skipped local-sync artifact fallback when a visible repo had primary index-status rows but zero primary matches'
-    - 'controller focused: cargo test -p sourcebot-api unscoped_search_falls_back_to_local_sync_artifact_when_primary_index_is_stale -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api local_sync_search_index_artifact -- --nocapture passed with one zero-test lib target plus 8 main-bin tests and 472 filtered out'
-    - 'worker RED: cargo test -p sourcebot-api commits::tests::local_commit_store_lists_branch_and_tag_refs failed before implementation because RefKind and CommitStore::list_refs did not exist'
-    - 'controller focused: cargo test -p sourcebot-api local_commit_store_lists_branch_and_tag_refs -- --nocapture passed with one zero-test lib target plus 1 main-bin test and 479 filtered out'
-    - 'controller broader: cargo test -p sourcebot-api commits::tests -- --nocapture passed with one zero-test lib target plus 20 main-bin tests and 460 filtered out'
-    - 'worker RED: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture failed before implementation because refs/heads/HEAD could be treated as a branch name'
-    - 'controller focused: cargo test -p sourcebot-worker generic_git_ls_remote_heads_head_branch_name_fails_closed -- --nocapture passed with 1 lib test, 84 filtered out, and zero-test nonmatching targets'
-    - 'controller broader: cargo test -p sourcebot-worker generic_git_ls_remote_heads -- --nocapture passed with 5 lib tests, 80 filtered out, and zero-test nonmatching targets'
-    - 'controller: cargo fmt --check passed'
-    - 'controller: git diff --check HEAD~3..HEAD passed before docs and git diff --check passed after docs'
-    - 'controller: added-lines security scan over HEAD~3..HEAD found no findings'
-    - 'independent integration review approved the committed range plus docs diff with no blocking auth/scope, path/revision safety, fail-closed, security, or docs-claim issues'
-  commit: 50bbe393332676a5b6f7fc725a9ef7a967fc14f9
+    - 'worker RED: npm test -- App.test.tsx -t "branch and tag summaries" failed before implementation with missing "Branches and tags" heading (1 failed, 186 skipped)'
+    - 'worker GREEN: npm test -- App.test.tsx -t "branch and tag summaries" passed in the isolated refs UI worktree with 1 passed and 186 skipped before controller integration'
+    - 'worker broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed in the isolated refs UI worktree with 11 passed and 176 skipped before controller integration'
+    - 'controller focused: npm test -- App.test.tsx -t "branch and tag summaries" passed with 1 passed and 186 skipped after cherry-pick and async assertion hardening'
+    - 'controller broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed with 9 passed and 178 skipped after integration'
+    - 'controller frontend build: npm run build passed in web/'
+    - 'controller: git diff --check passed'
+    - 'controller: added-lines security scan over b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e found no findings'
+    - 'independent review approved b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e with no blocking security, logic, async, auth-scope, unrelated-change, or docs-claim issues'
+  commit: bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -49,20 +39,53 @@ current_task:
     Continue Task 102 with the next meaningful production search/indexing
     runtime closure while the accelerated controller may also take adjacent
     high-value Task 103/105/106/107/108 blockers when scopes are disjoint and
-    the main worktree is clean. This batch closed three real hardening gaps:
-    unscoped/context search can use newer caller-visible local-sync artifacts
-    when primary search is empty despite stale/error primary index-status,
-    repository navigation exposes bounded authenticated branch/tag ref summaries
-    without claiming full frontend branch-picker parity, and Generic Git remote
-    metadata parsing rejects ambiguous refs/heads/HEAD branch-name advertisements.
-    Practical replacement remains incomplete. Remaining blockers still include
-    production-shaped indexing lifecycle/status and failure recovery, relevance
-    and pagination behavior at scale beyond bounded helpers, branch/ref picker UX
-    and deeper navigation polish, broader provider fetch/import/reindex, worker
-    scheduling and supervision with broad retry/backoff, OIDC/SSO and richer
-    admin/org flows, deeper MCP client/session interoperability, operator
-    runbook/deploy evidence, and the other release blockers in this roadmap.
+    the main worktree is clean. This run intentionally chose an adjacent Task
+    103 frontend closure because the backend /refs route had already landed but
+    the repository detail UI still lacked user-visible branch/tag summary
+    visibility. Practical replacement remains incomplete. Remaining blockers
+    still include production-shaped indexing lifecycle/status and failure
+    recovery, relevance and pagination behavior at scale beyond bounded helpers,
+    a full branch/ref picker and revision-switching UX beyond summary
+    visibility, broader provider fetch/import/reindex, worker scheduling and
+    supervision with broad retry/backoff, OIDC/SSO and richer admin/org flows,
+    deeper MCP client/session interoperability, operator runbook/deploy
+    evidence, and the other release blockers in this roadmap.
 history:
+  - id: task103_refs_ui_visibility
+    status: done
+    summary: >-
+      Closed a bounded user-visible repository-navigation gap: RepoDetailPage now
+      fetches the authenticated /api/v1/repos/{repo_id}/refs endpoint and renders
+      branch/tag summaries with short target revisions while docs fail closed on
+      full branch picker/revision-switching parity.
+    commit: bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
+    component_commits:
+      - 6076fc9a5b6c27d57c91af38a72cb5b676b0b40c
+      - bc88f86a0121d5db0e50def74a3ef1c7e7bd828e
+    tests:
+      - 'worker RED: npm test -- App.test.tsx -t "branch and tag summaries" failed before implementation with missing "Branches and tags" heading (1 failed, 186 skipped)'
+      - 'worker GREEN: npm test -- App.test.tsx -t "branch and tag summaries" passed in the isolated refs UI worktree with 1 passed and 186 skipped before controller integration'
+      - 'worker broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed in the isolated refs UI worktree with 11 passed and 176 skipped before controller integration'
+      - 'controller focused: npm test -- App.test.tsx -t "branch and tag summaries" passed with 1 passed and 186 skipped after cherry-pick and async assertion hardening'
+      - 'controller broader: npm test -- App.test.tsx -t "repository detail|commits|branch and tag" passed with 9 passed and 178 skipped after integration'
+      - 'controller frontend build: npm run build passed in web/'
+      - 'controller: git diff --check passed'
+      - 'controller: added-lines security scan over b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e found no findings'
+      - 'independent review approved b4ea1dc205281e0c8f55ae6101fad70836e92b53..bc88f86a0121d5db0e50def74a3ef1c7e7bd828e with no blocking security, logic, async, auth-scope, unrelated-change, or docs-claim issues'
+    review: >-
+      Independent review inspected the committed diff from
+      b4ea1dc205281e0c8f55ae6101fad70836e92b53 through bc88f86a0121d5db0e50def74a3ef1c7e7bd828e and approved with
+      no blocking issues after checking authenticated fetch scope via fetchJson,
+      stale async cancellation, requested-repo response validation, bounded docs
+      claims, test truthfulness, and unrelated-change scope.
+    workers: >-
+      One implementation worker was used because the selected frontend refs
+      closure touched the main web test/application surfaces and could be closed
+      without competing write scopes. Worker branch worker/refs-ui-20260430 in
+      /opt/data/projects/sourcebot-worktrees/refs-ui-worker produced commit
+      6076fc9a5b6c27d57c91af38a72cb5b676b0b40c, which was cherry-picked and
+      amended on master as bc88f86a0121d5db0e50def74a3ef1c7e7bd828e after controller-side async assertion hardening
+      and response repo-id validation.
   - id: task102_103_106_search_refs_generic_git_hardening
     status: done
     summary: >-
