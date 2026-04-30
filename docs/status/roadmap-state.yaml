@@ -5,40 +5,47 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
+  head: 5d3d88a962536404729a20b121215e0d941d1dd0
 last_completed_task:
-  id: task102_include_path_search
-  title: API-visible include-path filtering for local/index-artifact search
+  id: task102_103_108_accelerated_runtime_hardening
+  title: Accelerated search, code-navigation, and worker-runtime hardening batch
   status: done
   summary: >-
-    Closed an implementation-backed Task 102 search/index closure by adding repeated
-    `include_path` query parameter support to `/api/v1/search` and the local/index-artifact
-    search contract. Inclusion values are trimmed, blank values are ignored, and non-empty
-    values are matched case-insensitively as repo-relative path substrings before exclusion,
-    pagination, and `total_count` computation, giving users and API callers a bounded way
-    to narrow search results to selected path families without claiming glob/gitignore
-    policy, production indexing, relevance-at-scale, streaming, recovery, or full practical
-    replacement parity.
+    Closed a three-scope implementation-backed practical-replacement batch rather than a
+    docs-only or state-only slice. The Search/Index closure added bounded
+    `max_matches_per_file` support to `/api/v1/search` and the local/index-artifact
+    search contract so callers can cap repeated line hits per repository file before
+    pagination/counting. The Browse/Code-Nav closure hardened reference scans to reject
+    substring-only identifier matches in revision-backed and authorized local-sync
+    fallback paths. The Worker/Ops closure hardened local supervisor status snapshots so
+    newly created status files are private to the worker account (`0600`). Each claim is
+    bounded below production indexing, full code-navigation, provider sync, scheduling,
+    supervision, or practical replacement parity.
   tests:
-    - 'worker RED: sourcebot-search include_path failed on missing SearchOptions.include_paths before implementation'
-    - 'worker RED: sourcebot-api search_include_path returned total_count 3 instead of 2 before handler propagation'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search include_path -- --nocapture (1 passed, 67 filtered)'
-    - 'integrator: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_include_path -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 511 filtered)'
-    - 'integrator broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-search -- --nocapture (68 passed)'
-    - 'integrator broader: CARGO_TARGET_DIR=/opt/data/projects/sourcebot-rewrite/target cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests / 68 filtered; main 53 passed / 459 filtered)'
+    - 'worker Search RED: max_matches_per_file missing from SearchOptions/API propagation before implementation'
+    - 'worker Code-Nav RED: substring-only references such as prefix_symbol/symbol_suffix matched before boundary filtering'
+    - 'worker Worker RED: worker status snapshot file mode was 0644 before private-file creation hardening'
+    - 'integrator: cargo test -p sourcebot-search max_matches_per_file -- --nocapture (1 passed, 68 filtered)'
+    - 'integrator: cargo test -p sourcebot-api search_max_matches_per_file -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+    - 'integrator: cargo test -p sourcebot-api local_browse_store_revision_references_require_identifier_boundaries -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+    - 'integrator: cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+    - 'integrator broader: cargo test -p sourcebot-api references -- --nocapture (17 passed, 497 filtered)'
+    - 'integrator broader: cargo test -p sourcebot-api definitions -- --nocapture (12 passed, 502 filtered)'
+    - 'integrator: cargo test -p sourcebot-worker worker_status_snapshot_payload_creates_private_status_file -- --nocapture (main 1 passed; other worker targets 0 tests for selector)'
+    - 'integrator broader: cargo test -p sourcebot-search -- --nocapture (69 passed)'
+    - 'integrator broader: cargo test -p sourcebot-worker -- --nocapture (92 lib + 21 bin + 21 integration tests passed)'
     - 'cargo fmt --check'
-    - 'git diff --check HEAD~1..HEAD'
-    - 'git diff --check'
-    - 'added-lines security scan over HEAD~1 diff: 0 findings'
-    - 'cleanup: removed worker worktree, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    - 'git diff --check HEAD~3..HEAD'
+    - 'added-lines security scan over 800ebab..HEAD: 0 findings'
+    - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
   review: >-
-    Independent review of the integrated diff and coupled docs/report/final-audit wording
+    Independent integration review over `800ebabac1403c865abd1c47847e756d88c78254..HEAD`
     passed with no blocking security, logic, or truthfulness issues. The reviewer confirmed
-    repeated include_path values are URL-decoded, trimmed, blank-filtered, propagated through
-    SearchOptions, enforced by the local/index-artifact store before exclude/pagination/counting,
-    do not widen auth scope or change response shape, preserve exclude_path behavior, and keep
-    release claims bounded to substring convenience filtering.
-  commit: 22a85c68b0c7a22c5cadd6c4915538bcc8e6f682
+    the search per-file cap is bounded and applied before pagination/counting, code-nav
+    boundary filtering does not overclaim tree-sitter or full multi-language parity, and
+    worker status-file permission wording remains limited to newly created local status
+    snapshots rather than production supervision.
+  commit: 5d3d88a962536404729a20b121215e0d941d1dd0
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -46,16 +53,71 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap. Recent runs added
-    repeated API-visible `exclude_path` and `include_path` controls for bounded local/index-artifact
-    search result suppression/narrowing, following prior mode, case-sensitivity, language/path-filter,
-    deterministic ordering, pagination, and local-sync artifact fallback work. Production
-    search/indexing remains a major blocker: remaining work still includes a real indexing
-    pipeline beyond startup/local-sync artifacts, cross-branch/index availability semantics,
-    relevance and pagination guarantees at scale, richer filter validation and policy
-    controls, streaming search behavior, stale/degraded index status and recovery, and
-    final fail-closed release audit evidence. Prefer the next closure with implementation-backed
-    search/index runtime capability over docs-only paperwork.
+    repeated API-visible `exclude_path` and `include_path` controls plus a bounded
+    `max_matches_per_file` cap for local/index-artifact search result shaping, while the
+    same accelerated batch also hardened code-navigation reference boundaries and local
+    worker status-file permissions. Production search/indexing remains a major blocker:
+    remaining work still includes a real indexing pipeline beyond startup/local-sync
+    artifacts, cross-branch/index availability semantics, relevance and pagination
+    guarantees at scale, richer filter validation and policy controls, streaming search
+    behavior, stale/degraded index status and recovery, and final fail-closed release audit
+    evidence. Prefer the next closure with implementation-backed search/index runtime
+    capability over docs-only paperwork unless another practical-replacement blocker is
+    clearly higher value.
 history:
+  - id: task102_103_108_accelerated_runtime_hardening
+    status: done
+    summary: >-
+      Closed an accelerated three-scope implementation-backed batch instead of another
+      paperwork slice. Search gained bounded `max_matches_per_file` API/search-store
+      capping before pagination/counting; code navigation now rejects substring-only
+      reference matches on identifier boundaries for revision-backed and local-sync
+      fallback scans; and worker runtime status snapshots now create new local status
+      files with `0600` permissions. These are real user/operator hardening closures but
+      remain bounded below production search indexing, full code-navigation parity,
+      real provider execution, scheduling/supervision, or practical replacement readiness.
+    commit: 5d3d88a962536404729a20b121215e0d941d1dd0
+    component_commits:
+      - 9870f6e9153ef11a13d14fcafe9e9dbc79572fca
+      - 11abd495e50432f4bbbb3baea0912e5d38ac130e
+      - 5d3d88a962536404729a20b121215e0d941d1dd0
+    tests:
+      - 'worker Search RED: max_matches_per_file missing from SearchOptions/API propagation before implementation'
+      - 'worker Code-Nav RED: substring-only references matched before boundary filtering'
+      - 'worker Worker RED: status snapshot file mode was 0644 before private-file creation hardening'
+      - 'integrator: cargo test -p sourcebot-search max_matches_per_file -- --nocapture (1 passed, 68 filtered)'
+      - 'integrator: cargo test -p sourcebot-api search_max_matches_per_file -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+      - 'integrator: cargo test -p sourcebot-api local_browse_store_revision_references_require_identifier_boundaries -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+      - 'integrator: cargo test -p sourcebot-api repository_definitions_and_references_fall_back_to_authorized_local_sync_snapshot -- --nocapture (lib 0 tests / 68 filtered; main 1 passed / 513 filtered)'
+      - 'integrator broader: cargo test -p sourcebot-api references -- --nocapture (17 passed, 497 filtered)'
+      - 'integrator broader: cargo test -p sourcebot-api definitions -- --nocapture (12 passed, 502 filtered)'
+      - 'integrator: cargo test -p sourcebot-worker worker_status_snapshot_payload_creates_private_status_file -- --nocapture (main 1 passed; other worker targets 0 tests for selector)'
+      - 'integrator broader: cargo test -p sourcebot-search -- --nocapture (69 passed)'
+      - 'integrator broader: cargo test -p sourcebot-worker -- --nocapture (92 lib + 21 bin + 21 integration tests passed)'
+      - 'cargo fmt --check'
+      - 'git diff --check HEAD~3..HEAD'
+      - 'added-lines security scan over 800ebab..HEAD: 0 findings'
+      - 'cleanup: removed worker worktrees and pruned; sourcebot-worktrees is 4.0K'
+    review: >-
+      Independent integration review passed with no blocking security, logic, or truthfulness
+      issues. Non-blocking notes suggested future tests for `max_matches_per_file>100` and
+      pre-existing permissive status-file modes, but did not block this bounded closure.
+    workers:
+      - scope: Search/Index runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/search-runtime-20260430220727
+        worker_commit: 8dcbb66a7cf7779f63b4d71072785754490ca1b0
+        integrated_commit: 9870f6e9153ef11a13d14fcafe9e9dbc79572fca
+        result: merged
+      - scope: Browse/Code-Nav
+        worktree: /opt/data/projects/sourcebot-worktrees/browse-codenav-20260430220729
+        worker_commit: e09098b1d6e66e45d513603ff7d1023ce98a758a
+        integrated_commit: 11abd495e50432f4bbbb3baea0912e5d38ac130e
+        result: merged
+      - scope: Provider/Sync/Worker runtime
+        worktree: /opt/data/projects/sourcebot-worktrees/worker-sync-20260430220726
+        worker_commit: 83c34af1d129069194d96c4a955ca21a84bc5a63
+        integrated_commit: 5d3d88a962536404729a20b121215e0d941d1dd0
+        result: merged
   - id: task102_include_path_search
     status: done
     summary: >-
