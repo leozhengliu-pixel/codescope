@@ -3355,6 +3355,14 @@ async fn create_authenticated_search_context(
         visible_repo_ids_for_user(&organization_state, &session.user_id)
             .into_iter()
             .collect();
+    let repo_scope: Vec<String> = canonicalize_repo_scope(payload.repo_scope)
+        .into_iter()
+        .filter(|repo_id| visible_repo_ids.contains(repo_id))
+        .collect();
+    if repo_scope.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let timestamp = current_timestamp();
     let search_context = SearchContext {
         id: format!(
@@ -3367,7 +3375,7 @@ async fn create_authenticated_search_context(
         ),
         user_id: session.user_id,
         name,
-        repo_scope: payload.repo_scope,
+        repo_scope,
         created_at: timestamp.clone(),
         updated_at: timestamp,
     };
@@ -16668,10 +16676,62 @@ mod tests {
             .find(|context| context.id == created.id)
             .unwrap();
         assert_eq!(persisted_context.user_id, user_id);
-        assert_eq!(
-            persisted_context.repo_scope,
-            vec!["repo_sourcebot_rewrite", "repo_private"]
+        assert_eq!(persisted_context.repo_scope, vec!["repo_sourcebot_rewrite"]);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_search_contexts_post_rejects_empty_or_invisible_repo_scope() {
+        let organization_state_path =
+            unique_test_path("auth-search-contexts-create-scope-reject-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-search-contexts-create-scope-reject-sessions");
+        let user_id = "local_user_member";
+        write_organization_state_fixture(
+            &organization_state_path,
+            user_id,
+            &["repo_sourcebot_rewrite"],
         );
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        for repo_scope in [
+            serde_json::json!([]),
+            serde_json::json!([" ", "\t"]),
+            serde_json::json!(["repo_private"]),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/v1/auth/search-contexts")
+                        .header(header::AUTHORIZATION, authorization.clone())
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({
+                                "name": "Backend work",
+                                "repo_scope": repo_scope,
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let persisted: OrganizationState =
+                serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+            assert!(persisted.search_contexts.is_empty());
+        }
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
