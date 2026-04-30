@@ -4101,7 +4101,10 @@ async fn create_authenticated_oauth_client(
     let mut redirect_uris = Vec::with_capacity(payload.redirect_uris.len());
     for redirect_uri in payload.redirect_uris {
         let trimmed_redirect_uri = redirect_uri.trim();
-        if trimmed_redirect_uri.is_empty() {
+        if trimmed_redirect_uri.is_empty()
+            || !(trimmed_redirect_uri.starts_with("https://")
+                || trimmed_redirect_uri.starts_with("http://"))
+        {
             return Err(StatusCode::BAD_REQUEST);
         }
         redirect_uris.push(trimmed_redirect_uri.to_string());
@@ -25365,6 +25368,55 @@ mod tests {
                             organization_id: "   ".into(),
                             name: "   ".into(),
                             redirect_uris: vec!["   ".into()],
+                        })
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let persisted: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        assert!(persisted.oauth_clients.is_empty());
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn auth_oauth_clients_create_rejects_unsafe_redirect_uri_scheme_without_persisting() {
+        let organization_state_path = unique_test_path("auth-oauth-clients-unsafe-redirect-orgs");
+        let local_session_state_path =
+            unique_test_path("auth-oauth-clients-unsafe-redirect-sessions");
+        let user_id = "local_user_member";
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        write_organization_state_fixture_with_role(
+            &organization_state_path,
+            user_id,
+            OrganizationRole::Admin,
+            &[],
+        );
+        let app = test_app_with_config(AppConfig {
+            organization_state_path: organization_state_path.display().to_string(),
+            local_session_state_path: local_session_state_path.display().to_string(),
+            ..AppConfig::default()
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/oauth-clients")
+                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&CreateOAuthClientRequestBody {
+                            organization_id: "org_acme".into(),
+                            name: "Unsafe App".into(),
+                            redirect_uris: vec!["javascript:alert(document.domain)".into()],
                         })
                         .unwrap(),
                     ))
