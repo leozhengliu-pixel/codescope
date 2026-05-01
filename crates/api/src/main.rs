@@ -6542,6 +6542,10 @@ fn local_sync_error_index_status_from_artifact(
     repo_id: &str,
     artifact_path: &std::path::Path,
 ) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+    if !local_sync_search_index_artifact_parents_are_regular_dirs(artifact_path)? {
+        return Ok(None);
+    }
+
     let artifact_symlink_metadata = std::fs::symlink_metadata(artifact_path)?;
     if !artifact_symlink_metadata.is_file()
         || artifact_symlink_metadata.len() > LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES
@@ -6584,6 +6588,22 @@ fn local_sync_error_index_status_from_artifact(
     } else {
         Ok(None)
     }
+}
+
+fn local_sync_search_index_artifact_parents_are_regular_dirs(
+    artifact_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    for parent in artifact_path.ancestors().skip(1) {
+        if parent.as_os_str().is_empty() {
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(parent)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 fn local_sync_error_index_status_is_preservable(
@@ -32480,6 +32500,119 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent() {
+        let repo_root = unique_test_path("index-status-error-artifact-symlink-parent-repo-root");
+        let outside_root = unique_test_path("index-status-error-artifact-symlink-parent-outside");
+        let symlink_target = outside_root.join("local-sync");
+        let job_root = symlink_target
+            .join("org_acme")
+            .join("repo_local_import")
+            .join("job_success_latest");
+        fs::create_dir_all(&job_root).unwrap();
+        fs::create_dir_all(repo_root.join(".sourcebot")).unwrap();
+        std::os::unix::fs::symlink(
+            &symlink_target,
+            repo_root.join(".sourcebot").join("local-sync"),
+        )
+        .unwrap();
+        fs::write(
+            job_root.join("search-index.json"),
+            serde_json::json!({
+                "index_status": {
+                    "repo_id": "repo_local_import",
+                    "status": "error",
+                    "indexed_file_count": 0,
+                    "indexed_line_count": 0,
+                    "skipped_file_count": 0,
+                    "error": "attacker-controlled preserved local-sync error"
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let organization_state_path =
+            unique_test_path("index-status-error-artifact-symlink-parent-orgs");
+        let local_session_state_path =
+            unique_test_path("index-status-error-artifact-symlink-parent-sessions");
+        let user_id = "user_error_artifact_symlink_parent_index_status";
+        write_organization_state_fixture(&organization_state_path, user_id, &["repo_local_import"]);
+        let mut organization_state: OrganizationState =
+            serde_json::from_slice(&fs::read(&organization_state_path).unwrap()).unwrap();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: repo_root.display().to_string(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_success_latest".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local_import".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:09:00Z".into(),
+                started_at: Some("2026-04-21T00:09:01Z".into()),
+                finished_at: Some("2026-04-21T00:09:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("main".into()),
+                synced_content_file_count: Some(1),
+            });
+        fs::write(
+            &organization_state_path,
+            serde_json::to_vec(&organization_state).unwrap(),
+        )
+        .unwrap();
+
+        let authorization =
+            seed_local_session(&local_session_state_path.display().to_string(), user_id).await;
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                local_session_state_path: local_session_state_path.display().to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::new())),
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/repos/repo_local_import/index-status")
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload: RepositoryIndexStatus = read_json(response).await;
+        assert_eq!(payload.repo_id, "repo_local_import");
+        assert_eq!(payload.status, RepositoryIndexState::Error);
+        let error = payload.error.expect("malformed artifact error is reported");
+        assert!(
+            error.starts_with("malformed local-sync search index artifact:"),
+            "symlinked-parent artifacts should report the parser/validation failure, got {error}"
+        );
+        assert!(
+            !error.contains("attacker-controlled preserved local-sync error"),
+            "symlinked-parent error artifacts must not be preserved as authoritative status"
+        );
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_file(local_session_state_path).unwrap();
+        fs::remove_dir_all(repo_root).unwrap();
+        fs::remove_dir_all(outside_root).unwrap();
     }
 
     #[tokio::test]
