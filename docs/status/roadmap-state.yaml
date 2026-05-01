@@ -5,38 +5,53 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 499bb0bdcf80f6f670962566ad27f1956efa3632
+  head: 9fed7d75549e098e5b565760712efef61f624adf
 last_completed_task:
-  id: task102_local_sync_error_status_preservation
-  title: Preserve local-sync search artifact error status safely
+  id: task102_103_108_runtime_path_boundary_hardening_batch
+  title: Runtime path and identifier boundary hardening batch
   status: done
   summary: >-
-    Closed a bounded Task 102 search/index runtime hardening slice from the
-    accelerated worker batch. The API index-status fallback now preserves a
-    producer-authored local-sync search-index artifact error status when the
-    artifact cannot load as searchable content, while search requests still fail
-    closed for that artifact. The integrator fixed reviewer-found unsafe reopen
-    and weak-validation hazards by using nonblocking/no-follow bounded artifact
-    reads plus strict status validation, and rejected sibling worker outputs that
-    violated skipped-directory performance guardrails or had under-proven smoke
-    markers.
+    Closed one accelerated implementation-backed batch across three practical
+    replacement blocker areas without claiming full parity. Task 102 now rejects
+    preserved local-sync search-index error-status artifacts when an artifact
+    parent component is a symlink, so index-status fallback does not trust a
+    producer-authored error through an unsafe parent path. Task 103 now treats
+    Unicode alphanumeric characters plus `_` as identifier characters in fallback
+    reference matching, so symbols embedded in non-ASCII identifiers are not
+    surfaced as standalone code-navigation hits. Task 108 now refuses existing
+    hard-linked worker status snapshot targets before truncating/writing, closing
+    an operator-status filesystem integrity gap. Acceptance and parity docs were
+    updated with bounded claims, and the release verdict remains fail-closed:
+    production search/indexing, browse/code-navigation depth, and worker
+    supervision/runtime parity still have blockers.
   tests:
-    - 'worker RED/GREEN: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture (lib 0 tests; bin 1 passed after implementation)'
-    - 'integrator regression: cargo test -p sourcebot-api local_sync_error_index_status_rejects_invalid_error_statuses -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'integrator focused: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'integrator broader: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 38 passed)'
+    - 'worker RED/GREEN: cargo test -p sourcebot-api repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent -- --nocapture (lib 0 tests; bin 1 failed before implementation, then 1 passed)'
+    - 'integrator focused: cargo test -p sourcebot-api repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'integrator broader: cargo test -p sourcebot-api repository_index_status -- --nocapture (lib 0 tests; bin 9 passed)'
+    - 'worker RED/GREEN: cargo test -p sourcebot-api local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (bin 1 failed before implementation, then 1 passed after forced rebuild)'
+    - 'integrator focused: cargo test -p sourcebot-api local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'integrator focused: cargo test -p sourcebot-api code_nav_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'integrator broader: cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
+    - 'integrator broader: cargo test -p sourcebot-api browse::tests:: -- --nocapture (lib 0 tests; bin 44 passed)'
+    - 'worker RED/GREEN: cargo test -p sourcebot-worker worker_status_snapshot_payload_refuses_existing_hard_link_target -- --nocapture (failed before implementation, then covered by focused selector)'
+    - 'integrator focused: cargo test -p sourcebot-worker worker_status_snapshot_payload -- --nocapture (main 3 passed; other targets 0 filtered)'
+    - 'integrator broader: cargo test -p sourcebot-worker (94 lib tests, 22 main tests, and all worker smoke tests passed)'
     - 'cargo fmt --check'
     - 'git diff --check'
-    - 'added-lines security scan: 0 findings'
-    - 'independent re-review approved after integrator fixed unsafe direct open and stricter error-status validation'
+    - 'raw docs checks for symlink-parent artifact, Unicode-alphanumeric identifier boundary, and hard-linked status target wording'
+    - 'added-lines security scan from 54fcbb7a9b2e006d58dbd0d83f8a78b16e0934b6..HEAD plus docs: 0 findings'
+    - 'independent review approved with no security, logic, or docs-truthfulness blockers'
   review: >-
-    Independent review initially rejected the worker patch because the fallback
-    reopened the artifact with plain `File::open` and accepted weakly validated
-    producer-authored statuses. After the integrator added symlink metadata
-    checks, Unix `O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW`, post-open file/size checks,
-    bounded reads, and status validation for repo id, error state, zero counts,
-    and nonblank error text, re-review approved with no blockers.
-  commit: 499bb0bdcf80f6f670962566ad27f1956efa3632
+    Independent review approved the integrated diff and dirty docs. It verified
+    that the local-sync index-status error artifact path now rejects symlink and
+    non-directory parents before preserving error-status artifacts, the Unicode
+    reference boundary change consistently uses Unicode alphanumeric plus `_`,
+    worker status snapshots reject existing hard-linked targets during validation
+    and again after no-follow open before truncation, and the docs remain bounded
+    partial-parity claims. The reviewer only suggested clearer wording around
+    Unicode-alphanumeric-plus-underscore semantics and future openat/atomic-write
+    hardening; the wording was tightened before this state update.
+  commit: 9fed7d75549e098e5b565760712efef61f624adf
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -44,20 +59,69 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after the
-    local-sync artifact error-status preservation closure. Search/index status
-    and local-sync artifacts now fail closed for unreadable/malformed artifact
-    paths, preserve explicit producer error status safely for index-status
-    visibility, persist schema-v2 explicit indexed-path inventories for truthful
-    empty-file counts, and validate missing/duplicate/unsorted path inventories
-    before trusting file counts. Remaining production search/indexing blockers
-    still include a real indexing pipeline beyond startup and local-sync
-    artifacts, branch/index availability semantics, relevance and pagination
-    guarantees at scale, streaming behavior, stale/degraded index recovery, and
-    final fail-closed release audit evidence. Prefer the next closure with
-    implementation-backed search/index runtime capability over docs-only
-    paperwork unless another practical replacement blocker is clearly higher
-    value.
+    runtime path and identifier boundary hardening batch. Search/index status and
+    local-sync artifacts now fail closed for unreadable/malformed artifact paths,
+    reject symlink-parent preserved error-status artifacts, preserve explicit
+    producer error status safely for index-status visibility, persist schema-v2
+    explicit indexed-path inventories for truthful empty-file counts, and validate
+    missing/duplicate/unsorted path inventories before trusting file counts. The
+    latest batch also closed adjacent browse/code-navigation Unicode boundary and
+    worker-status hard-link hardening gaps, but remaining production
+    search/indexing blockers still include a real indexing pipeline beyond
+    startup and local-sync artifacts, branch/index availability semantics,
+    relevance and pagination guarantees at scale, streaming behavior,
+    stale/degraded index recovery, and final fail-closed release audit evidence.
+    Prefer the next closure with implementation-backed search/index runtime
+    capability over docs-only paperwork unless another practical replacement
+    blocker is clearly higher value.
 history:
+  - id: task102_103_108_runtime_path_boundary_hardening_batch
+    status: done
+    summary: >-
+      Integrated three disjoint implementation-worker closures: local-sync
+      search-index error-status artifact symlink-parent rejection, Unicode
+      alphanumeric-plus-underscore fallback reference boundaries, and hard-link
+      rejection for worker status snapshot writes. This is a real runtime/path
+      hardening batch with focused and broader tests plus bounded docs, not a
+      state-only or audit-only slice.
+    commit: 9fed7d75549e098e5b565760712efef61f624adf
+    component_commits:
+      - e832673a77865538d0bf2248c7722691c12625cc
+      - 0fcfbf6b7d26dd1227cb1b7a3a1523f4db3dcfd9
+      - f5a6674c2de5e44b2a24e07d2069a5627a18f3b6
+      - 9fed7d75549e098e5b565760712efef61f624adf
+    tests:
+      - 'cargo test -p sourcebot-api repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api repository_index_status -- --nocapture (lib 0 tests; bin 9 passed)'
+      - 'cargo test -p sourcebot-api local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api code_nav_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
+      - 'cargo test -p sourcebot-api browse::tests:: -- --nocapture (lib 0 tests; bin 44 passed)'
+      - 'cargo test -p sourcebot-worker worker_status_snapshot_payload -- --nocapture (main 3 passed; other targets 0 filtered)'
+      - 'cargo test -p sourcebot-worker (94 lib tests, 22 main tests, smoke tests passed)'
+      - 'cargo fmt --check'
+      - 'git diff --check'
+      - 'raw docs checks for the three bounded acceptance/parity wording updates'
+      - 'added-lines security scan: 0 findings'
+      - 'independent review approved with no blockers'
+    review: >-
+      Review approved the integrated code and docs, specifically checking
+      symlink-parent artifact rejection, hard-link status snapshot rejection,
+      Unicode-alphanumeric-plus-underscore boundary truthfulness, and bounded
+      partial-parity wording.
+    workers:
+      - scope: Search/Index runtime
+        worker_commit: 8ef4d83631e1f5866d08902e4490d5b9b3323798
+        integrated_commit: e832673a77865538d0bf2248c7722691c12625cc
+        result: merged
+      - scope: Browse/Code Navigation
+        worker_commit: b3644426c43c12666bd4e2ab25168e7d5e24cffd
+        integrated_commit: 0fcfbf6b7d26dd1227cb1b7a3a1523f4db3dcfd9
+        result: merged-after-controller-verification-and-commit
+      - scope: Provider/Sync/Worker runtime
+        worker_commit: 85f3b0ac55d3534d2d1ff8b2e96012bf4a57848a
+        integrated_commit: f5a6674c2de5e44b2a24e07d2069a5627a18f3b6
+        result: merged
   - id: task102_local_sync_error_status_preservation
     status: done
     summary: >-
