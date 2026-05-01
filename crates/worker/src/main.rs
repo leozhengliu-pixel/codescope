@@ -12,7 +12,7 @@ use std::{
     env, fs,
     fs::OpenOptions,
     io::Write,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -247,6 +247,12 @@ fn validate_worker_status_path(path: &Path) -> anyhow::Result<()> {
                 path.display()
             );
         }
+        if metadata.nlink() > 1 {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not have multiple hard links: {}",
+                path.display()
+            );
+        }
     }
 
     for ancestor in path.ancestors().skip(1) {
@@ -365,10 +371,17 @@ fn write_worker_status_snapshot(
 fn write_worker_status_snapshot_payload(path: &Path, payload: &[u8]) -> anyhow::Result<()> {
     const O_NOFOLLOW: i32 = 0o00400000;
 
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if !metadata.file_type().is_symlink() && metadata.nlink() > 1 {
+            anyhow::bail!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not have multiple hard links: {}",
+                path.display()
+            );
+        }
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
-        .truncate(true)
         .mode(0o600)
         .custom_flags(O_NOFOLLOW)
         .open(path)
@@ -378,6 +391,13 @@ fn write_worker_status_snapshot_payload(path: &Path, payload: &[u8]) -> anyhow::
                 path.display()
             )
         })?;
+    if file.metadata()?.nlink() > 1 {
+        anyhow::bail!(
+            "SOURCEBOT_WORKER_STATUS_PATH must not have multiple hard links: {}",
+            path.display()
+        );
+    }
+    file.set_len(0)?;
     file.write_all(payload)?;
     file.sync_all()?;
     Ok(())
@@ -774,6 +794,41 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn worker_status_snapshot_payload_refuses_existing_hard_link_target() {
+        let path = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-hardlink-{}.json",
+            std::process::id()
+        ));
+        let hard_link = std::env::temp_dir().join(format!(
+            "sourcebot-worker-status-hardlink-peer-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&hard_link);
+        std::fs::write(&path, "operator status should not be clobbered")
+            .expect("hardlink fixture target should be created");
+        std::fs::hard_link(&path, &hard_link).expect("hardlink fixture peer should be created");
+
+        let error = super::write_worker_status_snapshot_payload(&path, br#"{"completed":false}"#)
+            .expect_err("status payload writes must refuse hard-linked targets");
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "SOURCEBOT_WORKER_STATUS_PATH must not have multiple hard links: {}",
+                path.display()
+            )
+        );
+        assert_eq!(
+            std::fs::read_to_string(&hard_link).expect("hardlink peer should remain readable"),
+            "operator status should not be clobbered"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&hard_link);
     }
 
     #[test]
