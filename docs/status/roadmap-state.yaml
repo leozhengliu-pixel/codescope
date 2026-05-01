@@ -5,64 +5,104 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 522f630d11049fafaa84fa8ac56bce8139f26e11
+  head: 499bb0bdcf80f6f670962566ad27f1956efa3632
 last_completed_task:
-  id: task102_103_108_local_sync_runtime_hardening_batch
-  title: Search artifact inventory, code-nav fallback, and worker path hardening
+  id: task102_local_sync_error_status_preservation
+  title: Preserve local-sync search artifact error status safely
   status: done
   summary: >-
-    Closed an implementation-backed carry-over batch that was already integrated on
-    the main branch instead of launching more workers or producing state-only progress.
-    Search artifacts now persist and require a schema-v2 ordered `indexed_paths`
-    inventory so empty tracked files count truthfully and malformed/missing/duplicate
-    path inventories fail closed; code-navigation local-sync fallback hardening and
-    worker local-repository symlink-parent rejection from the ahead commits were
-    verified and closed with the same batch. This advances bounded runtime/search and
-    operator fail-closed behavior while preserving explicit blockers for a production
-    indexing pipeline, richer code-navigation semantics, worker supervision/retry
-    orchestration, and practical replacement readiness.
+    Closed a bounded Task 102 search/index runtime hardening slice from the
+    accelerated worker batch. The API index-status fallback now preserves a
+    producer-authored local-sync search-index artifact error status when the
+    artifact cannot load as searchable content, while search requests still fail
+    closed for that artifact. The integrator fixed reviewer-found unsafe reopen
+    and weak-validation hazards by using nonblocking/no-follow bounded artifact
+    reads plus strict status validation, and rejected sibling worker outputs that
+    violated skipped-directory performance guardrails or had under-proven smoke
+    markers.
   tests:
-    - 'focused Search RED/GREEN carry-over: cargo test -p sourcebot-search local_search_store_persists_artifact_when_indexed_files_include_empty_files -- --nocapture (1 passed)'
-    - 'focused Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_overstated_file_count -- --nocapture (1 passed)'
-    - 'focused Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture (1 passed)'
-    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_without_indexed_paths -- --nocapture (1 passed)'
-    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_duplicate_indexed_paths -- --nocapture (1 passed)'
-    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_indexed_paths -- --nocapture (1 passed)'
-    - 'broader Search: cargo test -p sourcebot-search -- --nocapture (74 passed; doc-tests 0)'
-    - 'broader Code-nav: cargo test -p sourcebot-api definitions -- --nocapture (lib 0 tests; bin 12 passed)'
-    - 'broader Code-nav: cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
-    - 'broader Worker: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (15 lib tests passed; other selector targets 0)'
+    - 'worker RED/GREEN: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture (lib 0 tests; bin 1 passed after implementation)'
+    - 'integrator regression: cargo test -p sourcebot-api local_sync_error_index_status_rejects_invalid_error_statuses -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'integrator focused: cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'integrator broader: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 38 passed)'
     - 'cargo fmt --check'
     - 'git diff --check'
-    - 'added-lines security scan over uncommitted carry-over diff: 0 findings'
-    - 'independent pre-commit review initially failed on optional indexed_paths; re-review passed after schema-v2 required indexed_paths plus missing/duplicate/unsorted regressions'
-    - 'cleanup: git worktree prune; git worktree list --porcelain confirmed only the main worktree; sourcebot-worktrees is 4.0K'
+    - 'added-lines security scan: 0 findings'
+    - 'independent re-review approved after integrator fixed unsafe direct open and stricter error-status validation'
   review: >-
-    Independent re-review passed with no blocking security or logic issues after the
-    reviewer-found optional-indexed-paths bug was fixed. The final review confirmed
-    current-schema persisted local-sync search-index artifacts require ordered
-    `indexed_paths`, file-count validation is exact, malformed line paths still fail
-    closed with established path errors, symlink/non-regular protections remain intact,
-    and docs keep production search/indexing parity partial.
-  commit: 522f630d11049fafaa84fa8ac56bce8139f26e11
+    Independent review initially rejected the worker patch because the fallback
+    reopened the artifact with plain `File::open` and accepted weakly validated
+    producer-authored statuses. After the integrator added symlink metadata
+    checks, Unix `O_NONBLOCK|O_CLOEXEC|O_NOFOLLOW`, post-open file/size checks,
+    bounded reads, and status validation for repo id, error state, zero counts,
+    and nonblank error text, re-review approved with no blockers.
+  commit: 499bb0bdcf80f6f670962566ad27f1956efa3632
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 from the practical replacement blocker roadmap after the latest
-    carry-over close-out. Search/index status and local-sync artifacts now fail closed
-    for unreadable/malformed artifact paths, persist schema-v2 explicit indexed-path
-    inventories for truthful empty-file counts, and validate missing/duplicate/unsorted
-    path inventories before trusting file counts. Remaining production search/indexing
-    blockers still include a real indexing pipeline beyond startup and local-sync
-    artifacts, branch/index availability semantics, relevance and pagination guarantees
-    at scale, streaming behavior, stale/degraded index recovery, and final fail-closed
-    release audit evidence. Prefer the next closure with implementation-backed
-    search/index runtime capability over docs-only paperwork unless another practical
-    replacement blocker is clearly higher value.
+    Continue Task 102 from the practical replacement blocker roadmap after the
+    local-sync artifact error-status preservation closure. Search/index status
+    and local-sync artifacts now fail closed for unreadable/malformed artifact
+    paths, preserve explicit producer error status safely for index-status
+    visibility, persist schema-v2 explicit indexed-path inventories for truthful
+    empty-file counts, and validate missing/duplicate/unsorted path inventories
+    before trusting file counts. Remaining production search/indexing blockers
+    still include a real indexing pipeline beyond startup and local-sync
+    artifacts, branch/index availability semantics, relevance and pagination
+    guarantees at scale, streaming behavior, stale/degraded index recovery, and
+    final fail-closed release audit evidence. Prefer the next closure with
+    implementation-backed search/index runtime capability over docs-only
+    paperwork unless another practical replacement blocker is clearly higher
+    value.
 history:
+  - id: task102_local_sync_error_status_preservation
+    status: done
+    summary: >-
+      Preserved operator-visible local-sync search-index artifact error status on
+      `/api/v1/repos/{repo_id}/index-status` without letting the same artifact
+      answer search results. This is a bounded implementation closure: it improves
+      fail-closed runtime/status truthfulness for local-sync artifact failures, and
+      it explicitly rejected two parallel worker outputs rather than integrating
+      unsafe or under-proven changes.
+    commit: 499bb0bdcf80f6f670962566ad27f1956efa3632
+    component_commits:
+      - 8a7d9a5f60da8508da79b643332ca70b886ea0fa
+      - 499bb0bdcf80f6f670962566ad27f1956efa3632
+    tests:
+      - 'cargo test -p sourcebot-api local_sync_error_index_status_rejects_invalid_error_statuses -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api requested_search_fails_closed_when_local_sync_search_index_artifact_status_is_error -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 38 passed)'
+      - 'cargo fmt --check'
+      - 'git diff --check'
+      - 'added-lines security scan: 0 findings'
+      - 'independent review rejected initial worker patch, then approved the integrator-fixed diff'
+    review: >-
+      Review found and the integrator fixed unsafe direct artifact reopen and weak
+      error-status validation. The final re-review approved the no-follow,
+      nonblocking, size-bounded artifact read and strict status preservation guard.
+    workers:
+      - scope: Search/Index API runtime
+        worker_commit: 8a7d9a5f60da8508da79b643332ca70b886ea0fa
+        integrated_commit: 499bb0bdcf80f6f670962566ad27f1956efa3632
+        result: merged-after-integrator-security-fix
+      - scope: Search crate index artifact skipped-file status
+        worker_commit: 68782b4527af985bad787584016a54b93ea5509d
+        integrated_commit: null
+        result: rejected-performance-guardrail-violation
+        note: >-
+          The worker recursively counted files under skipped heavy directories,
+          violating the bounded traversal rule for target/node_modules/.git/dist.
+      - scope: Operator smoke matrix local-index artifact evidence
+        worker_commit: e3a3b46604ab69ee7ca12fb50ee907146ad31e39
+        integrated_commit: null
+        result: rejected-under-proven-smoke-marker
+        note: >-
+          Review found a broken authenticated helper, sanitizer mismatch, and an
+          index-status assertion that could pass from startup status rather than
+          the fresh local-sync artifact.
   - id: task102_103_108_local_sync_runtime_hardening_batch
     status: done
     summary: >-
