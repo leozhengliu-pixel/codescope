@@ -58,6 +58,8 @@ use sourcebot_search::{
 use std::collections::{HashMap, HashSet};
 use std::io::{ErrorKind, Read};
 use std::net::SocketAddr;
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -6476,11 +6478,19 @@ async fn local_sync_snapshot_index_status_for_repo(
             .and_then(|search| search.repository_index_status(repo_id))
             {
                 Ok(status) => Ok(status),
-                Err(error) => Ok(Some(malformed_search_index_artifact_status(
-                    repo_id,
-                    &snapshot.search_index_artifact_path,
-                    error,
-                ))),
+                Err(error) => {
+                    if let Ok(Some(status)) = local_sync_error_index_status_from_artifact(
+                        repo_id,
+                        &snapshot.search_index_artifact_path,
+                    ) {
+                        return Ok(Some(status));
+                    }
+                    Ok(Some(malformed_search_index_artifact_status(
+                        repo_id,
+                        &snapshot.search_index_artifact_path,
+                        error,
+                    )))
+                }
             };
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -6513,6 +6523,82 @@ fn local_sync_legacy_snapshot_dir_is_usable(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
+}
+
+const LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES: u64 = 10 * 1024 * 1024;
+#[cfg(unix)]
+const LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_NONBLOCK: i32 = 0o4000;
+#[cfg(unix)]
+const LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_CLOEXEC: i32 = 0o2000000;
+#[cfg(unix)]
+const LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_NOFOLLOW: i32 = 0o400000;
+
+#[derive(Debug, Deserialize)]
+struct LocalSyncErrorIndexStatusArtifact {
+    index_status: RepositoryIndexStatus,
+}
+
+fn local_sync_error_index_status_from_artifact(
+    repo_id: &str,
+    artifact_path: &std::path::Path,
+) -> anyhow::Result<Option<RepositoryIndexStatus>> {
+    let artifact_symlink_metadata = std::fs::symlink_metadata(artifact_path)?;
+    if !artifact_symlink_metadata.is_file()
+        || artifact_symlink_metadata.len() > LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES
+    {
+        return Ok(None);
+    }
+
+    #[cfg(unix)]
+    let artifact_file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(
+            LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_NONBLOCK
+                | LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_CLOEXEC
+                | LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_O_NOFOLLOW,
+        )
+        .open(artifact_path)?;
+
+    #[cfg(not(unix))]
+    let artifact_file = std::fs::OpenOptions::new().read(true).open(artifact_path)?;
+
+    let artifact_metadata = artifact_file.metadata()?;
+    if !artifact_metadata.is_file()
+        || artifact_metadata.len() > LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES
+    {
+        return Ok(None);
+    }
+
+    let mut artifact_bytes = Vec::with_capacity(artifact_metadata.len() as usize);
+    artifact_file
+        .take(LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES + 1)
+        .read_to_end(&mut artifact_bytes)?;
+    if artifact_bytes.len() as u64 > LOCAL_SYNC_SEARCH_INDEX_ARTIFACT_MAX_BYTES {
+        return Ok(None);
+    }
+
+    let artifact: LocalSyncErrorIndexStatusArtifact = serde_json::from_slice(&artifact_bytes)?;
+    let status = artifact.index_status;
+    if local_sync_error_index_status_is_preservable(repo_id, &status) {
+        Ok(Some(status))
+    } else {
+        Ok(None)
+    }
+}
+
+fn local_sync_error_index_status_is_preservable(
+    repo_id: &str,
+    status: &RepositoryIndexStatus,
+) -> bool {
+    status.repo_id == repo_id
+        && status.status == RepositoryIndexState::Error
+        && status.indexed_file_count == 0
+        && status.indexed_line_count == 0
+        && status.skipped_file_count == 0
+        && status
+            .error
+            .as_deref()
+            .is_some_and(|error| !error.trim().is_empty())
 }
 
 fn malformed_search_index_artifact_status(
@@ -32701,6 +32787,48 @@ mod tests {
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_file(local_session_state_path).unwrap();
         fs::remove_dir_all(repo_root).unwrap();
+    }
+
+    #[test]
+    fn local_sync_error_index_status_rejects_invalid_error_statuses() {
+        let blank_error_status = RepositoryIndexStatus {
+            repo_id: "repo_local_import".into(),
+            status: RepositoryIndexState::Error,
+            indexed_file_count: 0,
+            indexed_line_count: 0,
+            skipped_file_count: 0,
+            error: Some("   ".into()),
+        };
+        assert!(!local_sync_error_index_status_is_preservable(
+            "repo_local_import",
+            &blank_error_status
+        ));
+
+        let content_carrying_status = RepositoryIndexStatus {
+            repo_id: "repo_local_import".into(),
+            status: RepositoryIndexState::Error,
+            indexed_file_count: 1,
+            indexed_line_count: 1,
+            skipped_file_count: 0,
+            error: Some("local-sync search indexing failed".into()),
+        };
+        assert!(!local_sync_error_index_status_is_preservable(
+            "repo_local_import",
+            &content_carrying_status
+        ));
+
+        let different_repo_status = RepositoryIndexStatus {
+            repo_id: "repo_hidden".into(),
+            status: RepositoryIndexState::Error,
+            indexed_file_count: 0,
+            indexed_line_count: 0,
+            skipped_file_count: 0,
+            error: Some("local-sync search indexing failed".into()),
+        };
+        assert!(!local_sync_error_index_status_is_preservable(
+            "repo_local_import",
+            &different_repo_status
+        ));
     }
 
     #[tokio::test]
