@@ -685,7 +685,7 @@ fn line_contains_symbol_reference(line: &str, symbol: &str) -> bool {
 }
 
 fn is_identifier_char(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphanumeric()
+    ch == '_' || ch.is_alphanumeric()
 }
 
 fn path_contains_skipped_directory(path: &str) -> bool {
@@ -1848,6 +1848,40 @@ mod tests {
             .unwrap();
 
         assert_eq!(tree, None);
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "browse-revision-unicode-reference-boundaries",
+            "hello world\n",
+            concat!(
+                "pub fn main() { target_symbol(); }\n",
+                "pub fn prefixed() { λtarget_symbol(); }\n",
+                "pub fn suffixed() { target_symbolλ(); }\n",
+            ),
+            "target/generated.rs",
+        );
+        let root = fixture.root;
+        initialize_git_repo(&root);
+
+        let store = LocalBrowseStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let references = store
+            .find_text_references_at_revision("repo_test", "target_symbol", "HEAD")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            references,
+            vec![ReferenceMatch {
+                path: "src/main.rs".into(),
+                line_number: 1,
+                line: "pub fn main() { target_symbol(); }".into(),
+            }],
+            "reference fallback must not report matches embedded in Unicode identifiers"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

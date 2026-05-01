@@ -5915,7 +5915,7 @@ fn line_contains_code_nav_symbol_reference(line: &str, symbol: &str) -> bool {
 }
 
 fn is_code_nav_identifier_char(ch: char) -> bool {
-    ch == '_' || ch.is_ascii_alphanumeric()
+    ch == '_' || ch.is_alphanumeric()
 }
 
 fn build_definitions_response(
@@ -7667,6 +7667,28 @@ mod tests {
         };
         assert_eq!(capability, "binary_blob");
         assert!(definitions.is_empty());
+    }
+
+    #[test]
+    fn code_nav_reference_boundaries_treat_unicode_letters_as_identifiers() {
+        assert!(line_contains_code_nav_symbol_reference(
+            "pub fn main() { target_symbol(); }",
+            "target_symbol"
+        ));
+        assert!(
+            !line_contains_code_nav_symbol_reference(
+                "pub fn prefixed() { λtarget_symbol(); }",
+                "target_symbol"
+            ),
+            "local-sync code-nav fallback must not match after a Unicode identifier character"
+        );
+        assert!(
+            !line_contains_code_nav_symbol_reference(
+                "pub fn suffixed() { target_symbolλ(); }",
+                "target_symbol"
+            ),
+            "local-sync code-nav fallback must not match before a Unicode identifier character"
+        );
     }
 
     #[test]
