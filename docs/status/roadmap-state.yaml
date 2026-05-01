@@ -5,53 +5,46 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 598948035fbe3e553b9819958e5daeb3b6eb8d86
+  head: 522f630d11049fafaa84fa8ac56bce8139f26e11
 last_completed_task:
-  id: task102_107_108_failclosed_runtime_batch
-  title: Search, MCP, and worker runtime fail-closed hardening
+  id: task102_103_108_local_sync_runtime_hardening_batch
+  title: Search artifact inventory, code-nav fallback, and worker path hardening
   status: done
   summary: >-
-    Closed an accelerated three-scope implementation-backed batch instead of a
-    docs-only or state-only micro-slice. Search/index status now converts an
-    unreadable local-sync search-index artifact path into a bounded redacted
-    malformed-artifact index error instead of a generic 500; MCP now exposes
-    crate-owned initialize/tools-list/tools-call result helpers with protocol
-    field names for downstream client/session wiring; and the worker now rejects
-    symlink local repository paths before spawning Git for local sync. These
-    closures improve fail-closed runtime/operator behavior while remaining below
-    production indexing, full MCP transport/session parity, worker supervision,
-    or practical replacement readiness.
+    Closed an implementation-backed carry-over batch that was already integrated on
+    the main branch instead of launching more workers or producing state-only progress.
+    Search artifacts now persist and require a schema-v2 ordered `indexed_paths`
+    inventory so empty tracked files count truthfully and malformed/missing/duplicate
+    path inventories fail closed; code-navigation local-sync fallback hardening and
+    worker local-repository symlink-parent rejection from the ahead commits were
+    verified and closed with the same batch. This advances bounded runtime/search and
+    operator fail-closed behavior while preserving explicit blockers for a production
+    indexing pipeline, richer code-navigation semantics, worker supervision/retry
+    orchestration, and practical replacement readiness.
   tests:
-    - 'worker Search RED: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status failed because unreadable artifact metadata returned 500 before implementation'
-    - 'worker Search GREEN: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'worker Search broader: cargo test -p sourcebot-api search_ -- --nocapture (54 passed)'
-    - 'worker Search broader: cargo test -p sourcebot-api local_sync_ -- --nocapture (37 passed)'
-    - 'worker Search broader: cargo test -p sourcebot-api repository_index_status_ -- --nocapture (8 passed)'
-    - 'worker MCP RED: cargo test -p sourcebot-mcp initialize_result_uses_mcp_protocol_field_names failed on unresolved initialize/tools result helpers before implementation'
-    - 'worker MCP GREEN: cargo test -p sourcebot-mcp initialize_result_uses_mcp_protocol_field_names -- --nocapture (1 passed)'
-    - 'worker MCP broader: cargo test -p sourcebot-mcp tools_ -- --nocapture (4 passed)'
-    - 'worker MCP broader: cargo test -p sourcebot-mcp -- --nocapture (13 passed; doc-tests 0)'
-    - 'worker Worker RED: local_repository_sync_symlink_repo_path_fails_closed_before_spawning_git failed because symlink paths reached Git spawn before implementation'
-    - 'worker Worker GREEN/broader: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (14 lib tests passed; non-lib selector targets 0)'
-    - 'worker Worker full: cargo test -p sourcebot-worker -- --nocapture (93 lib + 21 bin + 21 integration tests passed; doc-tests 0)'
-    - 'integrator: cargo test -p sourcebot-mcp -- --nocapture (13 passed; doc-tests 0)'
-    - 'integrator: cargo test -p sourcebot-api repository_index_status_local_sync_unreadable_artifact_path_reports_error_status -- --nocapture (lib 0; bin 1 passed)'
-    - 'integrator: cargo test -p sourcebot-api repository_index_status_ -- --nocapture (lib 0; bin 8 passed)'
-    - 'integrator: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (14 lib tests passed; non-lib selector targets 0)'
-    - 'integrator broader: cargo test -p sourcebot-api search_ -- --nocapture (lib 0; bin 54 passed)'
-    - 'integrator broader: cargo test -p sourcebot-worker -- --nocapture (93 lib + 21 bin + 21 integration tests passed; doc-tests 0)'
+    - 'focused Search RED/GREEN carry-over: cargo test -p sourcebot-search local_search_store_persists_artifact_when_indexed_files_include_empty_files -- --nocapture (1 passed)'
+    - 'focused Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_overstated_file_count -- --nocapture (1 passed)'
+    - 'focused Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture (1 passed)'
+    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_without_indexed_paths -- --nocapture (1 passed)'
+    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_duplicate_indexed_paths -- --nocapture (1 passed)'
+    - 'review-fix Search: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_indexed_paths -- --nocapture (1 passed)'
+    - 'broader Search: cargo test -p sourcebot-search -- --nocapture (74 passed; doc-tests 0)'
+    - 'broader Code-nav: cargo test -p sourcebot-api definitions -- --nocapture (lib 0 tests; bin 12 passed)'
+    - 'broader Code-nav: cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
+    - 'broader Worker: cargo test -p sourcebot-worker local_repository_sync -- --nocapture (15 lib tests passed; other selector targets 0)'
     - 'cargo fmt --check'
-    - 'git diff --check HEAD~3..HEAD and git diff --check'
-    - 'added-lines security scan over HEAD~3..HEAD: 0 findings'
-    - 'independent integration review over HEAD~3..HEAD passed with no blocking security, logic, or truthfulness issues'
-    - 'cleanup: removed all three worker worktrees, ran git worktree prune, confirmed only main worktree remains and sourcebot-worktrees is 4.0K'
+    - 'git diff --check'
+    - 'added-lines security scan over uncommitted carry-over diff: 0 findings'
+    - 'independent pre-commit review initially failed on optional indexed_paths; re-review passed after schema-v2 required indexed_paths plus missing/duplicate/unsorted regressions'
+    - 'cleanup: git worktree prune; git worktree list --porcelain confirmed only the main worktree; sourcebot-worktrees is 4.0K'
   review: >-
-    Independent integration review passed with no blocking issues. It confirmed the MCP
-    helpers do not widen auth scope, local-sync index-status now surfaces a redacted
-    fail-closed malformed-artifact status instead of generic server failure or mutable
-    snapshot fallback, worker local sync rejects final repo-path symlinks before Git
-    spawn, and docs/spec updates stay bounded to the implemented behavior.
-  commit: 598948035fbe3e553b9819958e5daeb3b6eb8d86
+    Independent re-review passed with no blocking security or logic issues after the
+    reviewer-found optional-indexed-paths bug was fixed. The final review confirmed
+    current-schema persisted local-sync search-index artifacts require ordered
+    `indexed_paths`, file-count validation is exact, malformed line paths still fail
+    closed with established path errors, symlink/non-regular protections remain intact,
+    and docs keep production search/indexing parity partial.
+  commit: 522f630d11049fafaa84fa8ac56bce8139f26e11
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -59,19 +52,65 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after the latest
-    accelerated hardening batch. Search/index status now fails closed with redacted
-    malformed-artifact status for unreadable local-sync search-index artifact paths,
-    and earlier runs added repeated `exclude_path`/`include_path`, bounded
-    `max_matches_per_file`, artifact-backed requested/unscoped/search-context fallback,
-    and related browse/source guards. Production search/indexing remains a major
-    blocker: remaining work still includes a real indexing pipeline beyond startup and
-    local-sync artifacts, cross-branch/index availability semantics, relevance and
-    pagination guarantees at scale, richer filter validation and policy controls,
-    streaming search behavior, stale/degraded index recovery, and final fail-closed
+    carry-over close-out. Search/index status and local-sync artifacts now fail closed
+    for unreadable/malformed artifact paths, persist schema-v2 explicit indexed-path
+    inventories for truthful empty-file counts, and validate missing/duplicate/unsorted
+    path inventories before trusting file counts. Remaining production search/indexing
+    blockers still include a real indexing pipeline beyond startup and local-sync
+    artifacts, branch/index availability semantics, relevance and pagination guarantees
+    at scale, streaming behavior, stale/degraded index recovery, and final fail-closed
     release audit evidence. Prefer the next closure with implementation-backed
-    search/index runtime capability over docs-only paperwork unless another
-    practical-replacement blocker is clearly higher value.
+    search/index runtime capability over docs-only paperwork unless another practical
+    replacement blocker is clearly higher value.
 history:
+  - id: task102_103_108_local_sync_runtime_hardening_batch
+    status: done
+    summary: >-
+      Closed the already-integrated carry-over batch and reviewer-forced search
+      artifact hardening tail. The batch contains search artifact count hardening,
+      code-navigation fallback hardening, worker symlink-parent rejection, and the
+      final schema-v2 `indexed_paths` inventory fix so local-sync artifacts can count
+      empty tracked files truthfully without accepting missing/duplicate/unsorted path
+      inventories. This is implementation-backed runtime hardening, not paperwork-only
+      progress and not a practical replacement release claim.
+    commit: 522f630d11049fafaa84fa8ac56bce8139f26e11
+    component_commits:
+      - 712a9d82cbb47db71a03ff3a7a83b710d8c846d3
+      - 6399ed17668262e833f06d1678152fec83759936
+      - 7843ed91c4220b6fa6a4da8cc9df8dae6daccb0a
+      - 522f630d11049fafaa84fa8ac56bce8139f26e11
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_persists_artifact_when_indexed_files_include_empty_files -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_overstated_file_count -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_status_count_mismatch -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_without_indexed_paths -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_duplicate_indexed_paths -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_unsorted_indexed_paths -- --nocapture (1 passed)'
+      - 'cargo test -p sourcebot-search -- --nocapture (74 passed; doc-tests 0)'
+      - 'cargo test -p sourcebot-api definitions -- --nocapture (lib 0 tests; bin 12 passed)'
+      - 'cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
+      - 'cargo test -p sourcebot-worker local_repository_sync -- --nocapture (15 lib tests passed; other selector targets 0)'
+      - 'cargo fmt --check'
+      - 'git diff --check'
+      - 'added-lines security scan: 0 findings'
+      - 'independent pre-commit review failed once, then passed after required indexed_paths/schema-v2 fix'
+      - 'worktree cleanup/prune confirmed only main worktree and sourcebot-worktrees at 4.0K'
+    review: >-
+      Independent review initially found a blocker where optional `indexed_paths` could
+      allow a current-schema artifact to omit the inventory and overstate file counts.
+      The final diff fixed that by requiring `indexed_paths`, bumping the schema to v2,
+      adding missing/duplicate/unsorted inventory regressions, and re-review passed.
+    workers:
+      - scope: Search/Index runtime
+        integrated_commit: 712a9d82cbb47db71a03ff3a7a83b710d8c846d3
+        followup_commit: 522f630d11049fafaa84fa8ac56bce8139f26e11
+        result: merged-plus-review-fix
+      - scope: Browse/Code navigation
+        integrated_commit: 6399ed17668262e833f06d1678152fec83759936
+        result: merged
+      - scope: Provider/Sync/Worker runtime
+        integrated_commit: 7843ed91c4220b6fa6a4da8cc9df8dae6daccb0a
+        result: merged
   - id: task102_107_108_failclosed_runtime_batch
     status: done
     summary: >-
