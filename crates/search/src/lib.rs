@@ -14,7 +14,7 @@ use std::{
 const DEFAULT_MAX_FILE_SIZE_BYTES: u64 = 1_000_000;
 const MAX_INDEX_ARTIFACT_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_INDEX_ARTIFACT_LINE_BYTES: usize = DEFAULT_MAX_FILE_SIZE_BYTES as usize;
-const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
+const INDEX_ARTIFACT_SCHEMA_VERSION: u32 = 2;
 const MAX_BOOLEAN_QUERY_BYTES: usize = 4096;
 const MAX_LITERAL_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
@@ -267,6 +267,7 @@ pub struct LocalSearchStore {
     repo_roots: HashMap<String, PathBuf>,
     max_file_size_bytes: u64,
     indexed_lines: HashMap<String, Vec<IndexedLine>>,
+    indexed_paths: HashMap<String, Vec<String>>,
     index_statuses: HashMap<String, RepositoryIndexStatus>,
 }
 
@@ -282,6 +283,7 @@ struct IndexedLine {
 #[serde(deny_unknown_fields)]
 struct PersistedIndexArtifact {
     schema_version: u32,
+    indexed_paths: Vec<String>,
     indexed_lines: Vec<IndexedLine>,
     index_status: RepositoryIndexStatus,
 }
@@ -310,6 +312,7 @@ impl LocalSearchStore {
             repo_roots,
             max_file_size_bytes,
             indexed_lines: HashMap::new(),
+            indexed_paths: HashMap::new(),
             index_statuses: HashMap::new(),
         };
         store.rebuild_index();
@@ -418,6 +421,7 @@ impl LocalSearchStore {
             repo_roots: HashMap::from([(repo_id.to_string(), PathBuf::new())]),
             max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
             indexed_lines: HashMap::from([(repo_id.to_string(), artifact.indexed_lines)]),
+            indexed_paths: HashMap::from([(repo_id.to_string(), artifact.indexed_paths)]),
             index_statuses: HashMap::from([(repo_id.to_string(), artifact.index_status)]),
         })
     }
@@ -438,8 +442,14 @@ impl LocalSearchStore {
             .get(repo_id)
             .cloned()
             .with_context(|| format!("missing index status for repository {repo_id}"))?;
+        let indexed_paths = self
+            .indexed_paths
+            .get(repo_id)
+            .cloned()
+            .with_context(|| format!("missing indexed paths for repository {repo_id}"))?;
         let artifact = PersistedIndexArtifact {
             schema_version: INDEX_ARTIFACT_SCHEMA_VERSION,
+            indexed_paths,
             indexed_lines,
             index_status,
         };
@@ -527,12 +537,20 @@ impl LocalSearchStore {
 
     fn rebuild_index(&mut self) {
         self.indexed_lines.clear();
+        self.indexed_paths.clear();
         self.index_statuses.clear();
 
         for (repo_id, root) in &self.repo_roots {
             match self.index_repo(root) {
-                Ok((lines, indexed_file_count, indexed_line_count, skipped_file_count)) => {
+                Ok((
+                    lines,
+                    indexed_paths,
+                    indexed_file_count,
+                    indexed_line_count,
+                    skipped_file_count,
+                )) => {
                     self.indexed_lines.insert(repo_id.clone(), lines);
+                    self.indexed_paths.insert(repo_id.clone(), indexed_paths);
                     self.index_statuses.insert(
                         repo_id.clone(),
                         RepositoryIndexStatus {
@@ -551,6 +569,7 @@ impl LocalSearchStore {
                 }
                 Err(error) => {
                     self.indexed_lines.insert(repo_id.clone(), Vec::new());
+                    self.indexed_paths.insert(repo_id.clone(), Vec::new());
                     self.index_statuses.insert(
                         repo_id.clone(),
                         RepositoryIndexStatus {
@@ -567,10 +586,14 @@ impl LocalSearchStore {
         }
     }
 
-    fn index_repo(&self, root: &Path) -> Result<(Vec<IndexedLine>, usize, usize, usize)> {
+    fn index_repo(
+        &self,
+        root: &Path,
+    ) -> Result<(Vec<IndexedLine>, Vec<String>, usize, usize, usize)> {
         validate_repository_root(root)?;
 
         let mut lines = Vec::new();
+        let mut indexed_paths = Vec::new();
         let mut indexed_file_count = 0;
         let mut indexed_line_count = 0;
         let mut skipped_file_count = 0;
@@ -578,6 +601,7 @@ impl LocalSearchStore {
             root,
             root,
             &mut lines,
+            &mut indexed_paths,
             &mut indexed_file_count,
             &mut indexed_line_count,
             &mut skipped_file_count,
@@ -587,8 +611,10 @@ impl LocalSearchStore {
                 .cmp(&right.path)
                 .then(left.line_number.cmp(&right.line_number))
         });
+        indexed_paths.sort();
         Ok((
             lines,
+            indexed_paths,
             indexed_file_count,
             indexed_line_count,
             skipped_file_count,
@@ -615,6 +641,7 @@ impl LocalSearchStore {
         root: &Path,
         current_path: &Path,
         lines: &mut Vec<IndexedLine>,
+        indexed_paths: &mut Vec<String>,
         indexed_file_count: &mut usize,
         indexed_line_count: &mut usize,
         skipped_file_count: &mut usize,
@@ -646,6 +673,7 @@ impl LocalSearchStore {
                     root,
                     &path,
                     lines,
+                    indexed_paths,
                     indexed_file_count,
                     indexed_line_count,
                     skipped_file_count,
@@ -686,6 +714,7 @@ impl LocalSearchStore {
             let relative_path = relative_path.to_string_lossy().replace('\\', "/");
 
             *indexed_file_count += 1;
+            indexed_paths.push(relative_path.clone());
             for (index, line) in contents.lines().enumerate() {
                 *indexed_line_count += 1;
                 lines.push(IndexedLine {
@@ -789,6 +818,33 @@ fn validate_index_artifact_parent_components(artifact_path: &Path) -> Result<()>
     Ok(())
 }
 
+fn validate_persisted_index_path(indexed_path: &str, artifact_path: &Path) -> Result<()> {
+    if indexed_path.len() > MAX_INDEXED_PATH_BYTES {
+        anyhow::bail!(
+            "oversized search index artifact path '{}' in {}: path is {} bytes, maximum is {} bytes",
+            indexed_path,
+            artifact_path.display(),
+            indexed_path.len(),
+            MAX_INDEXED_PATH_BYTES
+        );
+    }
+    if !is_safe_persisted_index_path(indexed_path) {
+        anyhow::bail!(
+            "unsafe search index artifact path '{}' in {}",
+            indexed_path,
+            artifact_path.display()
+        );
+    }
+    if should_skip_file(Path::new(indexed_path)) {
+        anyhow::bail!(
+            "ignored search index artifact path '{}' in {}: persisted indexes must not expose skipped runtime, generated, or binary paths",
+            indexed_path,
+            artifact_path.display()
+        );
+    }
+    Ok(())
+}
+
 fn validate_persisted_index_artifact(
     artifact: &PersistedIndexArtifact,
     expected_repo_id: &str,
@@ -829,18 +885,50 @@ fn validate_persisted_index_artifact(
         );
     }
 
+    for indexed_line in &artifact.indexed_lines {
+        validate_persisted_index_path(&indexed_line.path, artifact_path)?;
+    }
+
     let unique_indexed_paths: BTreeSet<&str> = artifact
         .indexed_lines
         .iter()
         .map(|indexed_line| indexed_line.path.as_str())
         .collect();
-    let actual_indexed_file_count = unique_indexed_paths.len();
-    if artifact.index_status.indexed_file_count != actual_indexed_file_count {
+    let mut seen_indexed_paths = BTreeSet::new();
+    let mut previous_indexed_path: Option<&str> = None;
+    for indexed_path in &artifact.indexed_paths {
+        validate_persisted_index_path(indexed_path, artifact_path)?;
+        if !seen_indexed_paths.insert(indexed_path.as_str()) {
+            anyhow::bail!(
+                "duplicate search index artifact indexed path '{}' in {}",
+                indexed_path,
+                artifact_path.display()
+            );
+        }
+        if previous_indexed_path.is_some_and(|previous| indexed_path.as_str() < previous) {
+            anyhow::bail!(
+                "unsorted search index artifact indexed path '{}' in {}: persisted paths must be ordered",
+                indexed_path,
+                artifact_path.display()
+            );
+        }
+        previous_indexed_path = Some(indexed_path.as_str());
+    }
+    for indexed_line_path in &unique_indexed_paths {
+        if !seen_indexed_paths.contains(indexed_line_path) {
+            anyhow::bail!(
+                "search index artifact indexed line path '{}' is missing from indexed_paths in {}",
+                indexed_line_path,
+                artifact_path.display()
+            );
+        }
+    }
+    if artifact.index_status.indexed_file_count != artifact.indexed_paths.len() {
         anyhow::bail!(
-            "search index artifact status file count mismatch in {}: status reports {} indexed files, artifact contains indexed lines from {} unique paths",
+            "search index artifact status file count mismatch in {}: status reports {} indexed files, artifact lists {} indexed paths",
             artifact_path.display(),
             artifact.index_status.indexed_file_count,
-            actual_indexed_file_count
+            artifact.indexed_paths.len()
         );
     }
 
@@ -901,29 +989,7 @@ fn validate_persisted_index_artifact(
     let mut seen_line_keys = BTreeSet::new();
     let mut previous_line_key: Option<(&str, usize)> = None;
     for indexed_line in &artifact.indexed_lines {
-        if indexed_line.path.len() > MAX_INDEXED_PATH_BYTES {
-            anyhow::bail!(
-                "oversized search index artifact path '{}' in {}: path is {} bytes, maximum is {} bytes",
-                indexed_line.path,
-                artifact_path.display(),
-                indexed_line.path.len(),
-                MAX_INDEXED_PATH_BYTES
-            );
-        }
-        if !is_safe_persisted_index_path(&indexed_line.path) {
-            anyhow::bail!(
-                "unsafe search index artifact path '{}' in {}",
-                indexed_line.path,
-                artifact_path.display()
-            );
-        }
-        if should_skip_file(Path::new(&indexed_line.path)) {
-            anyhow::bail!(
-                "ignored search index artifact path '{}' in {}: persisted indexes must not expose skipped runtime, generated, or binary paths",
-                indexed_line.path,
-                artifact_path.display()
-            );
-        }
+        validate_persisted_index_path(&indexed_line.path, artifact_path)?;
         if indexed_line.line.len() > MAX_INDEX_ARTIFACT_LINE_BYTES {
             anyhow::bail!(
                 "oversized search index artifact line content for '{}:{}' in {}: line is {} bytes, maximum is {} bytes",
@@ -1856,6 +1922,7 @@ mod tests {
                     },
                 ],
             )]),
+            indexed_paths: HashMap::new(),
             index_statuses: HashMap::from([(
                 "repo_test".to_string(),
                 RepositoryIndexStatus {
@@ -1935,6 +2002,7 @@ mod tests {
                     },
                 ],
             )]),
+            indexed_paths: HashMap::new(),
             index_statuses: HashMap::from([(
                 "repo_test".to_string(),
                 RepositoryIndexStatus {
@@ -2019,6 +2087,7 @@ mod tests {
                     },
                 ],
             )]),
+            indexed_paths: HashMap::new(),
             index_statuses: HashMap::from([(
                 "repo_test".to_string(),
                 RepositoryIndexStatus {
@@ -3236,6 +3305,8 @@ mod tests {
         let mut tabbed_artifact_json = artifact_json.clone();
         tabbed_artifact_json["indexed_lines"][0]["path"] =
             serde_json::Value::String("README\tfixture.md".to_string());
+        tabbed_artifact_json["indexed_paths"][0] =
+            serde_json::Value::String("README\tfixture.md".to_string());
         fs::write(
             &artifact_path,
             serde_json::to_vec(&tabbed_artifact_json).unwrap(),
@@ -3342,6 +3413,28 @@ mod tests {
     }
 
     #[test]
+    fn local_search_store_persists_artifact_when_indexed_files_include_empty_files() {
+        let fixture = repo_tree_fixture::CanonicalRepoTreeRoot::create(
+            "search-empty-indexed-file",
+            "build_router is documented here\n",
+            "fn build_router() {}\nfn other() {}\n",
+            "target/generated.txt",
+        );
+        let root = fixture.root;
+        fs::write(root.join("empty.rs"), "").unwrap();
+        let store = LocalSearchStore::new(HashMap::from([("repo_test".to_string(), root.clone())]));
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .expect("empty indexed files should not make the artifact inconsistent");
+        LocalSearchStore::from_index_artifact("repo_test", &artifact_path)
+            .expect("artifact with indexed empty files should load");
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_search_store_rejects_persisted_index_artifact_overstated_file_count() {
         let (store, root) = create_test_store();
         let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
@@ -3369,6 +3462,91 @@ mod tests {
     }
 
     #[test]
+    fn local_search_store_rejects_persisted_index_artifact_without_indexed_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json
+            .as_object_mut()
+            .expect("artifact should be a JSON object")
+            .remove("indexed_paths");
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("current-schema artifacts without indexed_paths must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("failed to parse local search index artifact"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_duplicate_indexed_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_paths"] = serde_json::json!(["README.md", "README.md"]);
+        artifact_json["index_status"]["indexed_file_count"] = serde_json::Value::from(2);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("duplicate indexed_paths entries must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("duplicate search index artifact indexed path"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_unsorted_indexed_paths() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["indexed_paths"] = serde_json::json!(["src/lib.rs", "README.md"]);
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact("repo_test", &artifact_path) {
+            Ok(_) => panic!("unsorted indexed_paths entries must fail closed"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("unsorted search index artifact indexed path"),
+            "unexpected error: {error:#}"
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn local_search_store_write_rejects_inconsistent_status_before_replacing_artifact() {
         let (store, root) = create_test_store();
         let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
@@ -3381,6 +3559,7 @@ mod tests {
             repo_roots: HashMap::from([("repo_test".to_string(), root.clone())]),
             max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
             indexed_lines: store.indexed_lines.clone(),
+            indexed_paths: store.indexed_paths.clone(),
             index_statuses: HashMap::from([(
                 "repo_test".to_string(),
                 RepositoryIndexStatus {
@@ -3432,6 +3611,12 @@ mod tests {
             repo_roots: HashMap::from([("repo_test".to_string(), root.clone())]),
             max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
             indexed_lines: HashMap::from([("repo_test".to_string(), oversized_lines)]),
+            indexed_paths: HashMap::from([(
+                "repo_test".to_string(),
+                (0..11_000)
+                    .map(|index| format!("file-{index:05}.rs"))
+                    .collect(),
+            )]),
             index_statuses: HashMap::from([(
                 "repo_test".to_string(),
                 RepositoryIndexStatus {
