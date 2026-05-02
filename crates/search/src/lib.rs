@@ -20,6 +20,8 @@ const MAX_LITERAL_QUERY_BYTES: usize = 4096;
 const MAX_REGEX_QUERY_BYTES: usize = 1024;
 const MAX_REGEX_COMPILED_SIZE_BYTES: usize = 256 * 1024;
 const MAX_PATH_FILTER_BYTES: usize = 256;
+const MAX_PATH_FILTER_COUNT: usize = 64;
+const MAX_PATH_FILTER_TOTAL_BYTES: usize = 1024;
 const MAX_INDEXED_PATH_BYTES: usize = 4096;
 #[cfg(unix)]
 const O_NONBLOCK: i32 = 0o4000;
@@ -1115,6 +1117,38 @@ fn is_safe_persisted_index_path(path: &str) -> bool {
     saw_component
 }
 
+fn validate_search_option_path_filters(filters: &[String], filter_kind: &str) -> Result<()> {
+    if filters.len() > MAX_PATH_FILTER_COUNT {
+        anyhow::bail!(
+            "{filter_kind} path filter count is too large: {} filters, maximum is {} filters",
+            filters.len(),
+            MAX_PATH_FILTER_COUNT
+        );
+    }
+
+    let mut total_bytes = 0usize;
+    for filter in filters {
+        let filter = filter.trim();
+        if filter.len() > MAX_PATH_FILTER_BYTES {
+            anyhow::bail!(
+                "{filter_kind} path filter is too large: filter is {} bytes, maximum is {} bytes",
+                filter.len(),
+                MAX_PATH_FILTER_BYTES
+            );
+        }
+        total_bytes += filter.len();
+        if total_bytes > MAX_PATH_FILTER_TOTAL_BYTES {
+            anyhow::bail!(
+                "{filter_kind} path filter budget is too large: filters total {} bytes, maximum is {} bytes",
+                total_bytes,
+                MAX_PATH_FILTER_TOTAL_BYTES
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn filter_excluded_paths(results: &mut Vec<SearchResult>, exclude_paths: &[String]) {
     let exclude_paths = exclude_paths
         .iter()
@@ -1199,6 +1233,8 @@ impl SearchStore for LocalSearchStore {
     ) -> Result<SearchResponse> {
         let query = query.trim();
         let requested_repo_id = repo_id.map(str::trim);
+        validate_search_option_path_filters(&options.include_paths, "include")?;
+        validate_search_option_path_filters(&options.exclude_paths, "exclude")?;
         let matcher = QueryMatcher::from_query(query, options.clone());
 
         let mut repos: Vec<&String> = match requested_repo_id {
@@ -2064,6 +2100,109 @@ mod tests {
         assert_eq!(second_page.pagination.total_count, 2);
         assert!(!second_page.pagination.has_more);
         assert_eq!(second_page.results[0].path, "vendor/generated.rs");
+    }
+
+    #[test]
+    fn option_path_filters_reject_oversized_runtime_filters() {
+        let store = LocalSearchStore {
+            repo_roots: HashMap::from([("repo_test".to_string(), PathBuf::new())]),
+            max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
+            indexed_lines: HashMap::from([(
+                "repo_test".to_string(),
+                vec![IndexedLine {
+                    path: "src/lib.rs".to_string(),
+                    line_number: 1,
+                    line: "fn bounded_filter_marker() {}".to_string(),
+                }],
+            )]),
+            indexed_paths: HashMap::new(),
+            index_statuses: HashMap::from([(
+                "repo_test".to_string(),
+                RepositoryIndexStatus {
+                    repo_id: "repo_test".to_string(),
+                    status: RepositoryIndexState::Indexed,
+                    indexed_file_count: 1,
+                    indexed_line_count: 1,
+                    skipped_file_count: 0,
+                    error: None,
+                },
+            )]),
+        };
+        let oversized_filter = "s".repeat(MAX_PATH_FILTER_BYTES + 1);
+
+        let include_error = store
+            .search_with_options(
+                "bounded_filter_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    include_paths: vec![oversized_filter.clone()],
+                    ..SearchOptions::default()
+                },
+            )
+            .expect_err("oversized include path filters must fail closed");
+        assert!(
+            include_error
+                .to_string()
+                .contains("include path filter is too large"),
+            "unexpected error: {include_error:#}"
+        );
+
+        let exclude_error = store
+            .search_with_options(
+                "bounded_filter_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    exclude_paths: vec![oversized_filter],
+                    ..SearchOptions::default()
+                },
+            )
+            .expect_err("oversized exclude path filters must fail closed");
+        assert!(
+            exclude_error
+                .to_string()
+                .contains("exclude path filter is too large"),
+            "unexpected error: {exclude_error:#}"
+        );
+
+        let too_many_filters = (0..65)
+            .map(|index| format!("src/filter_{index}"))
+            .collect::<Vec<_>>();
+        let too_many_error = store
+            .search_with_options(
+                "bounded_filter_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    include_paths: too_many_filters,
+                    ..SearchOptions::default()
+                },
+            )
+            .expect_err("too many include path filters must fail closed");
+        assert!(
+            too_many_error
+                .to_string()
+                .contains("include path filter count is too large"),
+            "unexpected error: {too_many_error:#}"
+        );
+
+        let aggregate_oversized_filters = (0..9)
+            .map(|index| format!("{}-{index}", "p".repeat(128)))
+            .collect::<Vec<_>>();
+        let aggregate_error = store
+            .search_with_options(
+                "bounded_filter_marker",
+                Some("repo_test"),
+                SearchOptions {
+                    exclude_paths: aggregate_oversized_filters,
+                    ..SearchOptions::default()
+                },
+            )
+            .expect_err("aggregate oversized exclude path filters must fail closed");
+        assert!(
+            aggregate_error
+                .to_string()
+                .contains("exclude path filter budget is too large"),
+            "unexpected error: {aggregate_error:#}"
+        );
     }
 
     #[test]
