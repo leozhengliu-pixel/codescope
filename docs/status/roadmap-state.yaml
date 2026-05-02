@@ -5,41 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: b6577a8aa90883bebc1f1d898ee4782887adba37
+  head: e2aa42e5432b8cf6bcc1869c3fbafdd44409f640
 last_completed_task:
-  id: task102_persisted_index_artifact_repo_id_normalization
-  title: Persisted search-index artifact repo-id normalization fail-closed guard
+  id: task102_runtime_option_path_filter_bounds
+  title: Bound runtime SearchOptions path filters
   status: done
   summary: >-
-    Closed a bounded Task 102 search/index runtime hardening slice by rejecting
-    persisted local-sync search-index artifacts whose expected repository id or
-    embedded index_status.repo_id contains leading or trailing whitespace. This
-    prevents a malformed artifact from being accepted under a non-normalized
-    repo identifier before the artifact-backed LocalSearchStore is constructed,
-    keeping local-sync search/index-status fallback fail-closed on malformed
-    producer metadata. The closure is intentionally narrow: it strengthens the
-    bounded repo-local artifact baseline and does not claim production indexing,
-    real provider fetch/import/reindex, background supervision, retry/backoff,
-    relevance/pagination parity at scale, or full practical replacement parity.
+    Closed a bounded Task 102 search/index runtime hardening slice by making
+    LocalSearchStore fail closed when runtime SearchOptions include/exclude path
+    filters are too large individually, too numerous, or too large in aggregate.
+    This closes the reviewer-identified gap where direct runtime option filters
+    could still drive attacker-controlled O(results * filter_count) work even
+    after individual path-filter byte limits were added. The closure remains
+    deliberately narrow: it strengthens bounded local/index-artifact search
+    execution and does not claim production indexing, real provider
+    fetch/import/reindex, background supervision, retry/backoff, relevance and
+    pagination guarantees at scale, or full practical replacement parity.
   tests:
-    - 'RED worker evidence: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids (running 1 test; failed before implementation)'
-    - 'focused controller verification: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids -- --nocapture (1 passed; 74 filtered out)'
-    - 'artifact-family verification: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture (35 passed; 40 filtered out)'
-    - 'broader search crate: cargo test -p sourcebot-search (75 passed; doc-tests 0)'
+    - 'RED controller evidence: cargo test -p sourcebot-search option_path_filters_reject_oversized_runtime_filters -- --nocapture failed before the reviewer-forced count/aggregate fix because 65 include filters were accepted'
+    - 'focused controller verification: cargo test -p sourcebot-search option_path_filters_reject_oversized_runtime_filters -- --nocapture (1 passed; 75 filtered out)'
+    - 'path-filter family verification: cargo test -p sourcebot-search path_filter -- --nocapture (4 passed; 72 filtered out)'
+    - 'broader search selector: cargo test -p sourcebot-search search -- --nocapture (68 passed; 8 filtered out)'
+    - 'broader search crate: cargo test -p sourcebot-search -- --nocapture (76 passed; doc-tests 0)'
     - 'cargo fmt --check'
     - 'git diff --check origin/master..HEAD'
-    - 'added-lines security scan over origin/master..HEAD: SECURITY_SCAN_OK; added_lines=39'
-    - 'independent review approved origin/master..HEAD; reviewer also ran the focused whitespace-padded repo-id selector'
+    - 'added-lines security scan over origin/master..HEAD: SECURITY_SCAN_OK; added_lines=80'
+    - 'independent review initially blocked on unbounded filter count/aggregate bytes; amended closure re-review passed with no security or logic issues'
   review: >-
-    Independent review approved the integrated Task 102 range with no blocking
-    issues. It confirmed the only production change rejects persisted search-index
-    artifacts when either the requested/expected repo_id or embedded
-    index_status.repo_id has leading/trailing whitespace, before repo-id matching
-    and map construction. Review found no auth/scope widening, path-safety issue,
-    or security regression; it noted only that separate single-sided padding tests
-    could be future defense-in-depth because the shared condition directly covers
-    both sides.
-  commit: b6577a8aa90883bebc1f1d898ee4782887adba37
+    Independent review first rejected the worker-integrated version because it
+    only capped each individual runtime path filter while leaving the number of
+    include/exclude filters and their aggregate bytes unbounded. The integrator
+    added a RED regression for 65 include filters plus aggregate oversized
+    exclude filters, implemented count and total-byte budgets at the
+    LocalSearchStore boundary, reran focused and broader sourcebot-search
+    verification, amended the substantive commit, and the independent re-review
+    passed with no blocking security or logic findings.
+  commit: e2aa42e5432b8cf6bcc1869c3fbafdd44409f640
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -47,7 +48,7 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after closing
-    the persisted search-index artifact repo-id normalization guard. Search/index
+    the runtime SearchOptions include/exclude path-filter bounds. Search/index
     status and local-sync artifacts now fail closed for unreadable/malformed
     artifact paths, reject symlink-parent preserved error-status artifacts,
     preserve explicit producer error status safely for index-status visibility,
@@ -57,18 +58,54 @@ current_task:
     bytes before filtering, preserve the mixed primary-index plus caller-authorized
     local-sync artifact fallback contract, require safe revision plus branch
     metadata for local-sync fallback candidates, surface bounded search-index
-    handoff metadata from the worker, and reject non-normalized persisted artifact
-    repo identifiers before artifact-backed search/index fallback can be trusted.
-    Adjacent browse and provider/runtime hardening also reject local-sync snapshot
-    roots reached through symlinked parent paths and regular-file local repo_path
-    values before Git spawn. Remaining production search/indexing blockers still
-    include a real indexing pipeline beyond startup and local-sync artifacts,
-    branch/index availability semantics, relevance and pagination guarantees at
-    scale, streaming behavior, stale/degraded index recovery, and final fail-closed
-    release audit evidence. Prefer the next closure with implementation-backed
-    search/index runtime capability over docs-only paperwork unless another
-    practical replacement blocker is clearly higher value.
+    handoff metadata from the worker, reject non-normalized persisted artifact
+    repo identifiers, and bound direct runtime SearchOptions path filters by
+    individual size, filter count, and aggregate bytes before local search work is
+    performed. Adjacent browse and provider/runtime hardening also reject
+    local-sync snapshot roots reached through symlinked parent paths and
+    regular-file local repo_path values before Git spawn. Remaining production
+    search/indexing blockers still include a real indexing pipeline beyond
+    startup and local-sync artifacts, branch/index availability semantics,
+    relevance and pagination guarantees at scale, streaming behavior,
+    stale/degraded index recovery, and final fail-closed release audit evidence.
+    Prefer the next closure with implementation-backed search/index runtime
+    capability over docs-only paperwork unless another practical replacement
+    blocker is clearly higher value.
 history:
+  - id: task102_runtime_option_path_filter_bounds
+    status: done
+    summary: >-
+      Integrated one isolated search/index implementation worker and then widened
+      the closure just enough to resolve an independent-review blocker. The final
+      amended commit adds real runtime fail-closed enforcement for direct
+      SearchOptions path filters: individual filter bytes, filter count, and
+      aggregate bytes are all bounded before local search evaluates result-path
+      filters. This is a real search/index runtime hardening closure, not a
+      docs-only or state-only micro-slice, while broader production indexing and
+      release-parity blockers remain explicit.
+    commit: e2aa42e5432b8cf6bcc1869c3fbafdd44409f640
+    component_commits:
+      - e2aa42e5432b8cf6bcc1869c3fbafdd44409f640
+    worker_commits:
+      - 9c4ce4fd02f1f0190c04f47620bffd44bf68675b
+    tests:
+      - 'RED worker evidence: cargo test -p sourcebot-search option_path_filters_reject_oversized_runtime_filters -- --nocapture failed before implementation because oversized include filters were accepted'
+      - 'RED integrator evidence: cargo test -p sourcebot-search option_path_filters_reject_oversized_runtime_filters -- --nocapture failed after first review because 65 include filters were accepted'
+      - 'cargo test -p sourcebot-search option_path_filters_reject_oversized_runtime_filters -- --nocapture (1 passed; 75 filtered out)'
+      - 'cargo test -p sourcebot-search path_filter -- --nocapture (4 passed; 72 filtered out)'
+      - 'cargo test -p sourcebot-search search -- --nocapture (68 passed; 8 filtered out)'
+      - 'cargo test -p sourcebot-search -- --nocapture (76 passed; doc-tests 0)'
+      - 'cargo fmt --check'
+      - 'git diff --check origin/master..HEAD'
+      - 'added-lines security scan over origin/master..HEAD: SECURITY_SCAN_OK; added_lines=80'
+      - 'independent re-review approved amended origin/master..HEAD after count/aggregate budget fix'
+    review: >-
+      The first independent review found the worker commit still left filter
+      count and aggregate path-filter bytes unbounded. The integrator added the
+      missing RED coverage, count and aggregate budget enforcement, reran focused
+      and broad sourcebot-search verification, amended the substantive commit,
+      and the follow-up independent review passed with no security concerns or
+      logic errors.
   - id: task102_persisted_index_artifact_repo_id_normalization
     status: done
     summary: >-
