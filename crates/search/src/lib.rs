@@ -866,6 +866,15 @@ fn validate_persisted_index_artifact(
         );
     }
 
+    if expected_repo_id != expected_repo_id.trim()
+        || artifact.index_status.repo_id != artifact.index_status.repo_id.trim()
+    {
+        anyhow::bail!(
+            "non-normalized search index artifact repo_id in {}: persisted indexes must use repo_ids without leading or trailing whitespace",
+            artifact_path.display()
+        );
+    }
+
     if artifact.index_status.repo_id != expected_repo_id {
         anyhow::bail!(
             "search index artifact repo_id mismatch in {}: expected '{}', found '{}'",
@@ -4035,6 +4044,36 @@ mod tests {
                 "unexpected error for {blank_repo_id:?}: {error:#}"
             );
         }
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids() {
+        let (store, root) = create_test_store();
+        let artifact_path = root.join(".sourcebot").join("local-sync-index.json");
+
+        store
+            .write_index_artifact("repo_test", &artifact_path)
+            .unwrap();
+        let mut artifact_json: serde_json::Value =
+            serde_json::from_slice(&fs::read(&artifact_path).unwrap()).unwrap();
+        artifact_json["index_status"]["repo_id"] =
+            serde_json::Value::String(" repo_test ".to_string());
+        fs::write(&artifact_path, serde_json::to_vec(&artifact_json).unwrap()).unwrap();
+
+        let error = match LocalSearchStore::from_index_artifact(" repo_test ", &artifact_path) {
+            Ok(_) => {
+                panic!("persisted index whitespace-padded repo_id must fail closed")
+            }
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("non-normalized search index artifact repo_id"),
+            "unexpected error: {error:#}"
+        );
 
         fs::remove_dir_all(root).unwrap();
     }
