@@ -1619,11 +1619,13 @@ fn validate_local_repository_sync_repo_path(repo_path: &str) -> Result<(), Strin
         return Err("local repository repo_path must be absolute".to_owned());
     }
 
-    if fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err("local repository repo_path must not be a symlink".to_owned());
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            return Err("local repository repo_path must not be a symlink".to_owned());
+        }
+        if !metadata.is_dir() {
+            return Err("local repository repo_path must be a directory".to_owned());
+        }
     }
 
     if path.ancestors().skip(1).any(|ancestor| {
@@ -4869,6 +4871,64 @@ mod tests {
         );
 
         fs::remove_dir_all(repo_path).unwrap();
+    }
+
+    #[test]
+    fn local_repository_sync_regular_file_repo_path_fails_before_git_preflight() {
+        let root = std::env::temp_dir().join(format!(
+            "sourcebot-worker-file-local-git-repo-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let repo_path = root.join("not-a-directory");
+        fs::write(&repo_path, "not a directory").unwrap();
+        let fake_git_path = root.join("fake-git");
+        let marker_path = root.join("git-invoked");
+        fs::write(
+            &fake_git_path,
+            format!(
+                "#!/bin/sh\ntouch '{}'\nprintf 'git should not be invoked for regular-file repo_path\\n' >&2\nexit 2\n",
+                marker_path.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_git_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_git_path, permissions).unwrap();
+
+        let state = OrganizationState {
+            connections: vec![local_connection(repo_path.display().to_string())],
+            repository_sync_jobs: vec![local_repository_sync_job(
+                "sync_job_local_file_path",
+                RepositorySyncJobStatus::Running,
+                "2026-04-26T10:01:00Z",
+            )],
+            ..OrganizationState::default()
+        };
+        let failed_job = complete_local_repository_sync_job_with_git_command_if_applicable(
+            &state,
+            &state.repository_sync_jobs[0],
+            "2026-04-26T10:02:00Z",
+            fake_git_path.as_os_str(),
+            Duration::from_secs(2),
+        )
+        .expect("regular-file local repository path should terminally fail the job");
+
+        assert_eq!(failed_job.id, "sync_job_local_file_path");
+        assert_eq!(failed_job.status, RepositorySyncJobStatus::Failed);
+        assert_eq!(
+            failed_job.error.as_deref(),
+            Some("local repository sync preflight failed: local repository repo_path must be a directory")
+        );
+        assert!(
+            !marker_path.exists(),
+            "local repository sync must validate regular-file repo_path before invoking git"
+        );
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
