@@ -5,47 +5,41 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 4e4878809be7b4052ba15eb21685b773ef2496d3
+  head: b6577a8aa90883bebc1f1d898ee4782887adba37
 last_completed_task:
-  id: task102_local_sync_safe_branch_metadata_handoff
-  title: Local-sync search/index safe branch metadata and worker handoff observability
+  id: task102_persisted_index_artifact_repo_id_normalization
+  title: Persisted search-index artifact repo-id normalization fail-closed guard
   status: done
   summary: >-
-    Closed a clean-ahead carry-over Task 102 batch that had already landed three
-    substantive commits but had not yet been recorded in roadmap state or pushed.
-    Local-sync search/index-status fallback now requires safe producer branch
-    metadata alongside the previously safe revision gate before trusting successful
-    local-sync artifacts, accepts only the explicit detached-HEAD sentinel, and
-    fails closed for blank or unsafe branch names so generated status/search
-    surfaces cannot embed untrusted branch metadata. The worker side now rejects a
-    regular-file local repository path before spawning Git and surfaces bounded
-    local-sync search-index handoff metadata in operator-visible evidence. This
-    advances real search/index/runtime safety and observability, but it remains a
-    bounded local-sync artifact baseline rather than production indexing, real
-    provider fetch/import/reindex, background supervision, retry/backoff, or full
-    practical replacement parity.
+    Closed a bounded Task 102 search/index runtime hardening slice by rejecting
+    persisted local-sync search-index artifacts whose expected repository id or
+    embedded index_status.repo_id contains leading or trailing whitespace. This
+    prevents a malformed artifact from being accepted under a non-normalized
+    repo identifier before the artifact-backed LocalSearchStore is constructed,
+    keeping local-sync search/index-status fallback fail-closed on malformed
+    producer metadata. The closure is intentionally narrow: it strengthens the
+    bounded repo-local artifact baseline and does not claim production indexing,
+    real provider fetch/import/reindex, background supervision, retry/backoff,
+    relevance/pagination parity at scale, or full practical replacement parity.
   tests:
-    - 'focused worker path guard: cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
-    - 'focused worker real local Git: cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
-    - 'focused API unsafe branch gate: cargo test -p sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_blank_or_unsafe_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'focused API detached HEAD branch gate: cargo test -p sourcebot-api local_sync_snapshot_accepts_detached_head_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'broader API local-sync selector: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 41 passed)'
-    - 'broader worker crate: cargo test -p sourcebot-worker (95 lib + 22 main + 21 smoke tests passed; doc tests 0)'
+    - 'RED worker evidence: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids (running 1 test; failed before implementation)'
+    - 'focused controller verification: cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids -- --nocapture (1 passed; 74 filtered out)'
+    - 'artifact-family verification: cargo test -p sourcebot-search persisted_index_artifact -- --nocapture (35 passed; 40 filtered out)'
+    - 'broader search crate: cargo test -p sourcebot-search (75 passed; doc-tests 0)'
     - 'cargo fmt --check'
     - 'git diff --check origin/master..HEAD'
-    - 'added-lines security scan over origin/master..HEAD: 0 findings'
-    - 'independent review approved origin/master..HEAD with no auth/scope/path-safety, branch-metadata, worker handoff, security, or docs-claim blockers; reviewer additionally ran local_sync_snapshot (12 API/bin tests) and focused worker selectors'
+    - 'added-lines security scan over origin/master..HEAD: SECURITY_SCAN_OK; added_lines=39'
+    - 'independent review approved origin/master..HEAD; reviewer also ran the focused whitespace-padded repo-id selector'
   review: >-
-    Independent review inspected /opt/data/projects/sourcebot-rewrite origin/master..HEAD and
-    approved the three-commit clean-ahead closure. It confirmed the API now rejects
-    blank, whitespace, refs/*, leading-dash, reflog/range/glob/control-character,
-    unsafe slash/dot, and other unsafe branch metadata before selecting local-sync
-    fallback candidates, while accepting detached HEAD only through an explicit
-    safe sentinel. It also confirmed worker repo_path validation rejects regular
-    files before Git spawn, search-index handoff metadata remains bounded, and the
-    updated acceptance wording does not overclaim production indexing or provider
-    sync parity.
-  commit: 4e4878809be7b4052ba15eb21685b773ef2496d3
+    Independent review approved the integrated Task 102 range with no blocking
+    issues. It confirmed the only production change rejects persisted search-index
+    artifacts when either the requested/expected repo_id or embedded
+    index_status.repo_id has leading/trailing whitespace, before repo-id matching
+    and map construction. Review found no auth/scope widening, path-safety issue,
+    or security regression; it noted only that separate single-sided padding tests
+    could be future defense-in-depth because the shared condition directly covers
+    both sides.
+  commit: b6577a8aa90883bebc1f1d898ee4782887adba37
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -53,27 +47,55 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after closing
-    the clean-ahead local-sync branch metadata and worker handoff observability
-    batch. Search/index status and local-sync artifacts now fail closed for
-    unreadable/malformed artifact paths, reject symlink-parent preserved
-    error-status artifacts, preserve explicit producer error status safely for
-    index-status visibility, persist schema-v2 explicit indexed-path inventories
-    for truthful empty-file counts, validate missing/duplicate/unsorted path
-    inventories before trusting file counts, bound repeated include_path/exclude_path
-    query values by trimmed bytes before filtering, preserve the mixed primary-index
-    plus caller-authorized local-sync artifact fallback contract, and now require
-    safe revision plus branch metadata for local-sync fallback candidates while
-    surfacing bounded search-index handoff metadata from the worker. Adjacent browse
-    and provider/runtime hardening also reject local-sync snapshot roots reached
-    through symlinked parent paths and regular-file local repo_path values before
-    Git spawn. Remaining production search/indexing blockers still include a real
-    indexing pipeline beyond startup and local-sync artifacts, branch/index
-    availability semantics, relevance and pagination guarantees at scale, streaming
-    behavior, stale/degraded index recovery, and final fail-closed release audit
-    evidence. Prefer the next closure with implementation-backed search/index
-    runtime capability over docs-only paperwork unless another practical replacement
-    blocker is clearly higher value.
+    the persisted search-index artifact repo-id normalization guard. Search/index
+    status and local-sync artifacts now fail closed for unreadable/malformed
+    artifact paths, reject symlink-parent preserved error-status artifacts,
+    preserve explicit producer error status safely for index-status visibility,
+    persist schema-v2 explicit indexed-path inventories for truthful empty-file
+    counts, validate missing/duplicate/unsorted path inventories before trusting
+    file counts, bound repeated include_path/exclude_path query values by trimmed
+    bytes before filtering, preserve the mixed primary-index plus caller-authorized
+    local-sync artifact fallback contract, require safe revision plus branch
+    metadata for local-sync fallback candidates, surface bounded search-index
+    handoff metadata from the worker, and reject non-normalized persisted artifact
+    repo identifiers before artifact-backed search/index fallback can be trusted.
+    Adjacent browse and provider/runtime hardening also reject local-sync snapshot
+    roots reached through symlinked parent paths and regular-file local repo_path
+    values before Git spawn. Remaining production search/indexing blockers still
+    include a real indexing pipeline beyond startup and local-sync artifacts,
+    branch/index availability semantics, relevance and pagination guarantees at
+    scale, streaming behavior, stale/degraded index recovery, and final fail-closed
+    release audit evidence. Prefer the next closure with implementation-backed
+    search/index runtime capability over docs-only paperwork unless another
+    practical replacement blocker is clearly higher value.
 history:
+  - id: task102_persisted_index_artifact_repo_id_normalization
+    status: done
+    summary: >-
+      Integrated one isolated implementation worker instead of launching a docs-only
+      or state-only micro-slice. The worker added a RED/GREEN sourcebot-search
+      regression and production validation so malformed local-sync search-index
+      artifacts with whitespace-padded repo identifiers fail closed before
+      artifact-backed search/index-status fallback can trust them. This advances a
+      real search/index runtime safety boundary while leaving broader production
+      indexing and release-parity blockers explicit.
+    commit: b6577a8aa90883bebc1f1d898ee4782887adba37
+    component_commits:
+      - b6577a8aa90883bebc1f1d898ee4782887adba37
+    tests:
+      - 'cargo test -p sourcebot-search local_search_store_rejects_persisted_index_artifact_whitespace_padded_repo_ids -- --nocapture (1 passed; 74 filtered out)'
+      - 'cargo test -p sourcebot-search persisted_index_artifact -- --nocapture (35 passed; 40 filtered out)'
+      - 'cargo test -p sourcebot-search (75 passed; doc-tests 0)'
+      - 'cargo fmt --check'
+      - 'git diff --check origin/master..HEAD'
+      - 'added-lines security scan over origin/master..HEAD: SECURITY_SCAN_OK; added_lines=39'
+      - 'independent review approved origin/master..HEAD; reviewer also ran the focused whitespace-padded repo-id selector'
+    review: >-
+      Independent review found the change fail-closed and scoped: both the expected
+      repo id and persisted index_status.repo_id are rejected when non-normalized,
+      existing artifact validation remains intact, no auth/scope or path-safety
+      widening was introduced, and docs did not need a new user/operator claim for
+      this malformed-artifact hardening.
   - id: task102_local_sync_safe_branch_metadata_handoff
     status: done
     summary: >-
