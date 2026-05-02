@@ -5,53 +5,42 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 9fed7d75549e098e5b565760712efef61f624adf
+  head: 80826ed23a8cf5e7590ee92065257842eeb72bcf
 last_completed_task:
-  id: task102_103_108_runtime_path_boundary_hardening_batch
-  title: Runtime path and identifier boundary hardening batch
+  id: task102_105_search_path_filter_and_local_sync_path_hardening
+  title: Search path-filter and local sync repo-path hardening
   status: done
   summary: >-
-    Closed one accelerated implementation-backed batch across three practical
-    replacement blocker areas without claiming full parity. Task 102 now rejects
-    preserved local-sync search-index error-status artifacts when an artifact
-    parent component is a symlink, so index-status fallback does not trust a
-    producer-authored error through an unsafe parent path. Task 103 now treats
-    Unicode alphanumeric characters plus `_` as identifier characters in fallback
-    reference matching, so symbols embedded in non-ASCII identifiers are not
-    surfaced as standalone code-navigation hits. Task 108 now refuses existing
-    hard-linked worker status snapshot targets before truncating/writing, closing
-    an operator-status filesystem integrity gap. Acceptance and parity docs were
-    updated with bounded claims, and the release verdict remains fail-closed:
-    production search/indexing, browse/code-navigation depth, and worker
-    supervision/runtime parity still have blockers.
+    Closed carry-over implementation evidence from two already-integrated runtime
+    hardening commits and the coupled acceptance/parity docs sync. Search API
+    repeated include_path/exclude_path query parameters now fail closed when any
+    trimmed value exceeds the bounded path-filter byte limit before allocating or
+    applying filters, while preserving the mixed primary-index plus
+    caller-authorized local-sync artifact fallback contract for repositories that
+    lack primary hits. Local repository-sync jobs now reject existing regular-file
+    repo_path values before invoking Git, aligning the local path boundary with
+    the existing blank/padded/relative/symlink/control-character fail-closed
+    checks. This advances practical replacement hardening without claiming full
+    production search/indexing or provider/runtime parity.
   tests:
-    - 'worker RED/GREEN: cargo test -p sourcebot-api repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent -- --nocapture (lib 0 tests; bin 1 failed before implementation, then 1 passed)'
-    - 'integrator focused: cargo test -p sourcebot-api repository_index_status_does_not_preserve_error_artifact_through_symlinked_parent -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'integrator broader: cargo test -p sourcebot-api repository_index_status -- --nocapture (lib 0 tests; bin 9 passed)'
-    - 'worker RED/GREEN: cargo test -p sourcebot-api local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (bin 1 failed before implementation, then 1 passed after forced rebuild)'
-    - 'integrator focused: cargo test -p sourcebot-api local_browse_store_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'integrator focused: cargo test -p sourcebot-api code_nav_reference_boundaries_treat_unicode_letters_as_identifiers -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'integrator broader: cargo test -p sourcebot-api references -- --nocapture (lib 0 tests; bin 17 passed)'
-    - 'integrator broader: cargo test -p sourcebot-api browse::tests:: -- --nocapture (lib 0 tests; bin 44 passed)'
-    - 'worker RED/GREEN: cargo test -p sourcebot-worker worker_status_snapshot_payload_refuses_existing_hard_link_target -- --nocapture (failed before implementation, then covered by focused selector)'
-    - 'integrator focused: cargo test -p sourcebot-worker worker_status_snapshot_payload -- --nocapture (main 3 passed; other targets 0 filtered)'
-    - 'integrator broader: cargo test -p sourcebot-worker (94 lib tests, 22 main tests, and all worker smoke tests passed)'
+    - 'focused API: cargo test -p sourcebot-api search_rejects_oversized_path_filter_query_parameters -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'broader API: cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests; bin 55 passed)'
+    - 'focused worker: cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; main/smoke targets 0 filtered)'
+    - 'broader worker: cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture (lib 22 passed; other targets 0 filtered)'
     - 'cargo fmt --check'
     - 'git diff --check'
-    - 'raw docs checks for symlink-parent artifact, Unicode-alphanumeric identifier boundary, and hard-linked status target wording'
-    - 'added-lines security scan from 54fcbb7a9b2e006d58dbd0d83f8a78b16e0934b6..HEAD plus docs: 0 findings'
-    - 'independent review approved with no security, logic, or docs-truthfulness blockers'
+    - 'raw docs checks for byte-bounded search path filters, mixed primary/local-sync fallback wording, whole-request malformed artifact fail-closed wording, and regular-file repo_path wording'
+    - 'added-lines security scan over origin/master..HEAD plus dirty docs: 0 findings'
+    - 'independent integration review approved with no security, logic, or docs-truthfulness blockers'
   review: >-
-    Independent review approved the integrated diff and dirty docs. It verified
-    that the local-sync index-status error artifact path now rejects symlink and
-    non-directory parents before preserving error-status artifacts, the Unicode
-    reference boundary change consistently uses Unicode alphanumeric plus `_`,
-    worker status snapshots reject existing hard-linked targets during validation
-    and again after no-follow open before truncation, and the docs remain bounded
-    partial-parity claims. The reviewer only suggested clearer wording around
-    Unicode-alphanumeric-plus-underscore semantics and future openat/atomic-write
-    hardening; the wording was tightened before this state update.
-  commit: 9fed7d75549e098e5b565760712efef61f624adf
+    Independent review approved the origin/master..HEAD implementation range and
+    the coupled docs-sync diff. It found no security, logic, or docs-truthfulness
+    blockers; it confirmed the search path-filter byte bound and regular-file
+    local repo_path rejection are scoped, tested, and documented without
+    overclaiming full practical replacement parity. The only suggestion was a
+    future aggregate count/total-size cap for repeated include/exclude path
+    parameters.
+  commit: 80826ed23a8cf5e7590ee92065257842eeb72bcf
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -59,14 +48,17 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after the
-    runtime path and identifier boundary hardening batch. Search/index status and
-    local-sync artifacts now fail closed for unreadable/malformed artifact paths,
-    reject symlink-parent preserved error-status artifacts, preserve explicit
-    producer error status safely for index-status visibility, persist schema-v2
-    explicit indexed-path inventories for truthful empty-file counts, and validate
-    missing/duplicate/unsorted path inventories before trusting file counts. The
-    latest batch also closed adjacent browse/code-navigation Unicode boundary and
-    worker-status hard-link hardening gaps, but remaining production
+    search path-filter and local sync repo-path hardening close-out. Search/index
+    status and local-sync artifacts now fail closed for unreadable/malformed
+    artifact paths, reject symlink-parent preserved error-status artifacts,
+    preserve explicit producer error status safely for index-status visibility,
+    persist schema-v2 explicit indexed-path inventories for truthful empty-file
+    counts, validate missing/duplicate/unsorted path inventories before trusting
+    file counts, bound repeated include_path/exclude_path query values by trimmed
+    bytes before filtering, and preserve the mixed primary-index plus
+    caller-authorized local-sync artifact fallback contract for repositories
+    lacking primary hits. Adjacent provider/runtime hardening now also rejects
+    regular-file local repo_path values before Git spawn. Remaining production
     search/indexing blockers still include a real indexing pipeline beyond
     startup and local-sync artifacts, branch/index availability semantics,
     relevance and pagination guarantees at scale, streaming behavior,
@@ -75,6 +67,49 @@ current_task:
     capability over docs-only paperwork unless another practical replacement
     blocker is clearly higher value.
 history:
+  - id: task102_105_search_path_filter_and_local_sync_path_hardening
+    status: done
+    summary: >-
+      Closed a carry-over implementation-backed hardening batch instead of
+      launching new workers: the main branch was already ahead with search API
+      path-filter bounds and worker local repo_path regular-file rejection, while
+      the worktree held only coupled acceptance/parity docs. The controller
+      reran focused and broader API/worker selectors, synced the docs, obtained
+      independent review, and recorded the batch as real runtime hardening rather
+      than a state-only or paperwork micro-slice.
+    commit: 80826ed23a8cf5e7590ee92065257842eeb72bcf
+    component_commits:
+      - dc34457cd1ef06928402cf6e5eecffc8582c8c58
+      - a13570040ac4094da33eb6a35ff225954b9fc295
+      - 80826ed23a8cf5e7590ee92065257842eeb72bcf
+    tests:
+      - 'cargo test -p sourcebot-api search_rejects_oversized_path_filter_query_parameters -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests; bin 55 passed)'
+      - 'cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; main/smoke targets 0 filtered)'
+      - 'cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture (lib 22 passed; other targets 0 filtered)'
+      - 'cargo fmt --check'
+      - 'git diff --check'
+      - 'raw docs checks for the bounded search/local-sync wording updates'
+      - 'added-lines security scan: 0 findings'
+      - 'independent integration review approved with no blockers'
+    review: >-
+      Independent review approved the committed implementation range and docs
+      diff, checking scoped code changes, test evidence, byte-bounded search path
+      filter wording, mixed primary/local-sync fallback wording, whole-request
+      malformed artifact fail-closed wording, and regular-file repo_path wording.
+    workers:
+      - scope: Search/Index runtime
+        worker_commit: null
+        integrated_commit: dc34457cd1ef06928402cf6e5eecffc8582c8c58
+        result: carry-over-main-commit-verified-and-documented
+      - scope: Provider/Sync/Worker
+        worker_commit: null
+        integrated_commit: a13570040ac4094da33eb6a35ff225954b9fc295
+        result: carry-over-main-commit-verified-and-documented
+      - scope: Docs/evidence sync
+        worker_commit: null
+        integrated_commit: 80826ed23a8cf5e7590ee92065257842eeb72bcf
+        result: controller-docs-sync-commit
   - id: task102_103_108_runtime_path_boundary_hardening_batch
     status: done
     summary: >-
