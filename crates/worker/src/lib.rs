@@ -774,13 +774,24 @@ fn run_local_repository_sync_execution(
         timeout,
         output_limit_bytes,
     )?;
-    write_local_repository_sync_search_index(repo_path, job)?;
-    write_local_repository_sync_manifest(repo_path, job, &head, &branch, &content_paths)?;
+    let search_index_artifact = write_local_repository_sync_search_index(repo_path, job)?;
+    write_local_repository_sync_manifest(
+        repo_path,
+        job,
+        &head,
+        &branch,
+        &content_paths,
+        &search_index_artifact,
+    )?;
     tracing::info!(
         repo_path = %repo_path,
         head = %head,
         current_branch = %branch,
         content_file_count = content_paths.len(),
+        search_index_artifact = %search_index_artifact.path.display(),
+        search_index_indexed_file_count = search_index_artifact.status.indexed_file_count,
+        search_index_indexed_line_count = search_index_artifact.status.indexed_line_count,
+        search_index_skipped_file_count = search_index_artifact.status.skipped_file_count,
         "completed bounded local repository sync Git content snapshot"
     );
     Ok(LocalRepositorySyncExecution {
@@ -969,10 +980,15 @@ fn safe_tracked_content_relative_path(content_path: &str) -> Result<PathBuf, Str
     }
 }
 
+struct LocalRepositorySyncSearchIndexArtifact {
+    path: PathBuf,
+    status: sourcebot_search::RepositoryIndexStatus,
+}
+
 fn write_local_repository_sync_search_index(
     repo_path: &str,
     job: &RepositorySyncJob,
-) -> Result<(), String> {
+) -> Result<LocalRepositorySyncSearchIndexArtifact, String> {
     let manifest_path = local_repository_sync_manifest_path(repo_path, job);
     let job_dir = manifest_path.parent().ok_or_else(|| {
         format!(
@@ -1020,7 +1036,35 @@ fn write_local_repository_sync_search_index(
                 "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to persist local search index artifact {}: {error}",
                 artifact_path.display()
             )
-        })
+        })?;
+    let persisted_status = sourcebot_search::LocalSearchStore::from_index_artifact(
+        &job.repository_id,
+        &artifact_path,
+    )
+    .and_then(|artifact_store| {
+        sourcebot_search::SearchStore::repository_index_status(
+            &artifact_store,
+            &job.repository_id,
+        )?
+        .ok_or_else(|| anyhow::anyhow!("missing persisted index status for repository {}", job.repository_id))
+    })
+    .map_err(|error| {
+        format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: failed to verify local search index artifact {}: {error}",
+            artifact_path.display()
+        )
+    })?;
+    if persisted_status != index_status {
+        return Err(format!(
+            "{LOCAL_REPOSITORY_SYNC_EXECUTION_FAILURE_PREFIX}: local search index artifact status changed after persistence for repository {}",
+            job.repository_id
+        ));
+    }
+
+    Ok(LocalRepositorySyncSearchIndexArtifact {
+        path: artifact_path,
+        status: persisted_status,
+    })
 }
 
 fn write_local_repository_sync_manifest(
@@ -1029,6 +1073,7 @@ fn write_local_repository_sync_manifest(
     revision: &str,
     branch: &str,
     content_paths: &[String],
+    search_index_artifact: &LocalRepositorySyncSearchIndexArtifact,
 ) -> Result<(), String> {
     let manifest_path = local_repository_sync_manifest_path(repo_path, job);
     let manifest_dir = manifest_path.parent().ok_or_else(|| {
@@ -1045,7 +1090,12 @@ fn write_local_repository_sync_manifest(
     })?;
 
     let tmp_path = manifest_path.with_extension("txt.tmp");
-    let manifest = local_repository_sync_manifest_content(revision, branch, content_paths);
+    let manifest = local_repository_sync_manifest_content(
+        revision,
+        branch,
+        content_paths,
+        search_index_artifact,
+    );
     if let Err(error) = fs::write(&tmp_path, manifest) {
         let _ = fs::remove_file(&tmp_path);
         return Err(format!(
@@ -1284,10 +1334,15 @@ fn local_repository_sync_manifest_content(
     revision: &str,
     branch: &str,
     content_paths: &[String],
+    search_index_artifact: &LocalRepositorySyncSearchIndexArtifact,
 ) -> String {
     let mut manifest = format!(
-        "revision={revision}\nbranch={branch}\ntracked_content_file_count={}\ntracked_content_paths:\n",
-        content_paths.len()
+        "revision={revision}\nbranch={branch}\ntracked_content_file_count={}\nsearch_index_artifact={}\nsearch_index_indexed_file_count={}\nsearch_index_indexed_line_count={}\nsearch_index_skipped_file_count={}\ntracked_content_paths:\n",
+        content_paths.len(),
+        search_index_artifact.path.display(),
+        search_index_artifact.status.indexed_file_count,
+        search_index_artifact.status.indexed_line_count,
+        search_index_artifact.status.skipped_file_count,
     );
     for path in content_paths {
         manifest.push_str(path);
@@ -5818,10 +5873,15 @@ mod tests {
         );
         let manifest =
             fs::read_to_string(&manifest_path).expect("tracked-content manifest to exist");
+        let expected_search_index_path = manifest_path
+            .parent()
+            .expect("manifest path should have a job directory")
+            .join("search-index.json");
         assert_eq!(
             manifest,
             format!(
-                "revision={expected_head}\nbranch=master\ntracked_content_file_count=2\ntracked_content_paths:\nREADME.md\nsrc/lib.rs\n"
+                "revision={expected_head}\nbranch=master\ntracked_content_file_count=2\nsearch_index_artifact={}\nsearch_index_indexed_file_count=2\nsearch_index_indexed_line_count=2\nsearch_index_skipped_file_count=0\ntracked_content_paths:\nREADME.md\nsrc/lib.rs\n",
+                expected_search_index_path.display()
             )
         );
         assert!(
