@@ -5,68 +5,107 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: f2410a52fb9b32d208244612d26f1d2e90666f7e
+  head: 4e4878809be7b4052ba15eb21685b773ef2496d3
 last_completed_task:
-  id: task103_local_sync_snapshot_symlink_parent_hardening
-  title: Local-sync browse snapshot symlink-parent hardening
+  id: task102_local_sync_safe_branch_metadata_handoff
+  title: Local-sync search/index safe branch metadata and worker handoff observability
   status: done
   summary: >-
-    Integrated the successful Browse/Code Navigation worker closure from the
-    accelerated batch. No-revision repository tree/blob/code-navigation local-sync
-    snapshot fallback now reuses the hardened snapshot usability check and fails
-    closed when the snapshot root or any lexical ancestor is a symlink or
-    non-directory, preventing local-sync browse fallback from trusting a snapshot
-    tree reached through a redirected parent path. This is a bounded path-safety
-    hardening for the already-shipped local-sync browse fallback, not full
-    browse/code-navigation parity or production indexing readiness.
+    Closed a clean-ahead carry-over Task 102 batch that had already landed three
+    substantive commits but had not yet been recorded in roadmap state or pushed.
+    Local-sync search/index-status fallback now requires safe producer branch
+    metadata alongside the previously safe revision gate before trusting successful
+    local-sync artifacts, accepts only the explicit detached-HEAD sentinel, and
+    fails closed for blank or unsafe branch names so generated status/search
+    surfaces cannot embed untrusted branch metadata. The worker side now rejects a
+    regular-file local repository path before spawning Git and surfaces bounded
+    local-sync search-index handoff metadata in operator-visible evidence. This
+    advances real search/index/runtime safety and observability, but it remains a
+    bounded local-sync artifact baseline rather than production indexing, real
+    provider fetch/import/reindex, background supervision, retry/backoff, or full
+    practical replacement parity.
   tests:
-    - 'RED worker: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture failed before implementation because the route returned 200 OK through a symlinked snapshot parent'
-    - 'focused API: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'broader tree API: cargo test -p sourcebot-api repository_tree -- --nocapture (lib 0 tests; bin 3 passed)'
-    - 'broader blob API: cargo test -p sourcebot-api repo_blob -- --nocapture (lib 0 tests; bin 12 passed)'
-    - 'broader local-sync API: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 39 passed)'
+    - 'focused worker path guard: cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
+    - 'focused worker real local Git: cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
+    - 'focused API unsafe branch gate: cargo test -p sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_blank_or_unsafe_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'focused API detached HEAD branch gate: cargo test -p sourcebot-api local_sync_snapshot_accepts_detached_head_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'broader API local-sync selector: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 41 passed)'
+    - 'broader worker crate: cargo test -p sourcebot-worker (95 lib + 22 main + 21 smoke tests passed; doc tests 0)'
     - 'cargo fmt --check'
-    - 'git diff --check'
+    - 'git diff --check origin/master..HEAD'
     - 'added-lines security scan over origin/master..HEAD: 0 findings'
-    - 'independent integration review approved with no security, path-safety, auth/scope, logic, or docs-claim blockers; reviewer also ran local_sync_snapshot (10 passed)'
+    - 'independent review approved origin/master..HEAD with no auth/scope/path-safety, branch-metadata, worker handoff, security, or docs-claim blockers; reviewer additionally ran local_sync_snapshot (12 API/bin tests) and focused worker selectors'
   review: >-
-    Independent review approved origin/master..HEAD. It inspected the actual diff
-    in crates/api/src/main.rs and confirmed the shared snapshot usability check
-    walks symlink_metadata over the snapshot path and ancestors, fails closed for
-    symlinks/non-directories/missing paths, preserves the existing auth/scope
-    boundary before local-sync fallback, and does not introduce docs overclaims.
-    It noted as non-blocking that deployments with symlinked higher-level paths
-    will now fail closed for this fallback, which is consistent with the closure.
-  commit: f2410a52fb9b32d208244612d26f1d2e90666f7e
+    Independent review inspected /opt/data/projects/sourcebot-rewrite origin/master..HEAD and
+    approved the three-commit clean-ahead closure. It confirmed the API now rejects
+    blank, whitespace, refs/*, leading-dash, reflog/range/glob/control-character,
+    unsafe slash/dot, and other unsafe branch metadata before selecting local-sync
+    fallback candidates, while accepting detached HEAD only through an explicit
+    safe sentinel. It also confirmed worker repo_path validation rejects regular
+    files before Git spawn, search-index handoff metadata remains bounded, and the
+    updated acceptance wording does not overclaim production indexing or provider
+    sync parity.
+  commit: 4e4878809be7b4052ba15eb21685b773ef2496d3
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
   title: Production search/indexing runtime parity
   status: pending
   summary: >-
-    Continue Task 102 from the practical replacement blocker roadmap after the
-    accelerated batch integrated one adjacent Task 103 path-safety closure and
-    the Search/Index plus Provider/Worker implementation workers failed before
-    producing commits because the provider returned HTTP 503/no available
-    accounts. Search/index status and local-sync artifacts now fail closed for
+    Continue Task 102 from the practical replacement blocker roadmap after closing
+    the clean-ahead local-sync branch metadata and worker handoff observability
+    batch. Search/index status and local-sync artifacts now fail closed for
     unreadable/malformed artifact paths, reject symlink-parent preserved
     error-status artifacts, preserve explicit producer error status safely for
     index-status visibility, persist schema-v2 explicit indexed-path inventories
     for truthful empty-file counts, validate missing/duplicate/unsorted path
     inventories before trusting file counts, bound repeated include_path/exclude_path
-    query values by trimmed bytes before filtering, and preserve the mixed
-    primary-index plus caller-authorized local-sync artifact fallback contract for
-    repositories lacking primary hits. Adjacent browse/runtime hardening now also
-    rejects local-sync snapshot roots reached through symlinked parent paths, and
-    provider/runtime hardening rejects regular-file local repo_path values before
+    query values by trimmed bytes before filtering, preserve the mixed primary-index
+    plus caller-authorized local-sync artifact fallback contract, and now require
+    safe revision plus branch metadata for local-sync fallback candidates while
+    surfacing bounded search-index handoff metadata from the worker. Adjacent browse
+    and provider/runtime hardening also reject local-sync snapshot roots reached
+    through symlinked parent paths and regular-file local repo_path values before
     Git spawn. Remaining production search/indexing blockers still include a real
     indexing pipeline beyond startup and local-sync artifacts, branch/index
-    availability semantics, relevance and pagination guarantees at scale,
-    streaming behavior, stale/degraded index recovery, and final fail-closed
-    release audit evidence. Prefer the next closure with implementation-backed
-    search/index runtime capability over docs-only paperwork unless another
-    practical replacement blocker is clearly higher value.
+    availability semantics, relevance and pagination guarantees at scale, streaming
+    behavior, stale/degraded index recovery, and final fail-closed release audit
+    evidence. Prefer the next closure with implementation-backed search/index
+    runtime capability over docs-only paperwork unless another practical replacement
+    blocker is clearly higher value.
 history:
+  - id: task102_local_sync_safe_branch_metadata_handoff
+    status: done
+    summary: >-
+      Closed clean-ahead carry-over instead of launching new workers: the main repo
+      already contained three unpushed implementation commits for Task 102/106
+      local-sync safety and worker handoff observability, while roadmap-state still
+      pointed at the previous Task 103 closure. This closure verified, reviewed,
+      documented in state, and pushed the existing product work rather than creating
+      another paperwork slice or starting competing worktrees.
+    commit: 4e4878809be7b4052ba15eb21685b773ef2496d3
+    component_commits:
+      - 63a9a53d3f7739b9d21f55ed0b2bb3d72efdbcdb
+      - 51c7d2cfa3f25526522a87fdc99cfdbbb98e1c83
+      - 4e4878809be7b4052ba15eb21685b773ef2496d3
+    tests:
+      - 'cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
+      - 'cargo test -p sourcebot-worker succeeds_for_real_local_git_repository_path -- --nocapture (lib 1 passed; non-lib targets 0 tests)'
+      - 'cargo test -p sourcebot-api local_sync_snapshot_ignores_successful_jobs_with_blank_or_unsafe_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api local_sync_snapshot_accepts_detached_head_branch_metadata -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 41 passed)'
+      - 'cargo test -p sourcebot-worker (95 lib + 22 main + 21 smoke tests passed; doc tests 0)'
+      - 'cargo fmt --check'
+      - 'git diff --check origin/master..HEAD'
+      - 'added-lines security scan over origin/master..HEAD: 0 findings'
+      - 'independent review approved origin/master..HEAD; reviewer additionally ran cargo test -p sourcebot-api local_sync_snapshot -- --nocapture (bin 12 passed), the regular-file worker selector, and the real-local-Git worker selector'
+    review: >-
+      Independent review approved the clean-ahead range with no blocking issues and
+      no uncommitted changes. The reviewer found the branch metadata validation
+      fail-closed, the worker regular-file repo_path guard correctly placed before
+      Git spawn, the handoff metadata bounded, and the docs claims limited to
+      local-sync artifact/status observability rather than production indexing or
+      provider parity.
   - id: task103_local_sync_snapshot_symlink_parent_hardening
     status: done
     summary: >-
