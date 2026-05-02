@@ -7078,6 +7078,20 @@ fn is_valid_local_sync_snapshot_revision(revision: &str) -> bool {
             .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
 }
 
+fn is_valid_local_sync_snapshot_branch(branch: &str) -> bool {
+    !branch.trim().is_empty()
+        && branch == branch.trim()
+        && !branch.starts_with('-')
+        && !branch.starts_with("refs/")
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch.ends_with('.')
+        && !branch.ends_with('/')
+        && !branch
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
+}
+
 fn latest_local_sync_snapshot(
     organization_state: &OrganizationState,
     repo_id: &str,
@@ -7094,6 +7108,10 @@ fn latest_local_sync_snapshot(
                     .synced_revision
                     .as_deref()
                     .is_some_and(is_valid_local_sync_snapshot_revision)
+                && job
+                    .synced_branch
+                    .as_deref()
+                    .is_some_and(is_valid_local_sync_snapshot_branch)
         })
         .max_by(|left, right| {
             left.finished_at
@@ -7659,6 +7677,59 @@ mod tests {
                 )
                 .is_none(),
                 "local-sync fallback must reject unsafe synced_revision metadata {unsafe_revision:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_sync_snapshot_ignores_successful_jobs_with_blank_or_unsafe_branch_metadata() {
+        for unsafe_branch in [
+            "",
+            "   ",
+            "refs/heads/main",
+            "feature..main",
+            "feature@{0}",
+            "--upload-pack=/tmp/pwn",
+            "feature*glob",
+            "feature[glob]",
+            "feature\\path",
+        ] {
+            let mut organization_state = OrganizationState::default();
+            organization_state.connections.push(Connection {
+                id: "conn_local".into(),
+                name: "Local".into(),
+                kind: ConnectionKind::Local,
+                config: Some(ConnectionConfig::Local {
+                    repo_path: "/tmp/sourcebot-local-sync-repo".into(),
+                }),
+            });
+            organization_state
+                .repository_sync_jobs
+                .push(RepositorySyncJob {
+                    id: "job_unsafe_branch".into(),
+                    organization_id: "org_acme".into(),
+                    repository_id: "repo_local".into(),
+                    connection_id: "conn_local".into(),
+                    status: RepositorySyncJobStatus::Succeeded,
+                    queued_at: "2026-04-21T00:03:00Z".into(),
+                    started_at: Some("2026-04-21T00:03:01Z".into()),
+                    finished_at: Some("2026-04-21T00:03:02Z".into()),
+                    error: None,
+                    synced_revision: Some("abc123".into()),
+                    synced_branch: Some(unsafe_branch.into()),
+                    synced_content_file_count: Some(1),
+                });
+
+            let authorized_organization_ids = HashSet::from(["org_acme".to_string()]);
+
+            assert!(
+                latest_local_sync_snapshot(
+                    &organization_state,
+                    "repo_local",
+                    &authorized_organization_ids,
+                )
+                .is_none(),
+                "local-sync search/index fallback must reject unsafe synced_branch metadata {unsafe_branch:?}"
             );
         }
     }

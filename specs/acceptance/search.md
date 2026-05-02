@@ -39,6 +39,7 @@
 - Binary/generated extensions are excluded by default regardless of extension casing.
 - Queries that hit generated/minified/vendor content must be suppressible by policy.
 - Branches missing an index should surface partial availability rather than silent omission.
+- Local-sync search/index fallback only considers successful sync-job snapshots that carry both safe non-empty `synced_revision` and safe non-empty `synced_branch` metadata; blank branch metadata, fully qualified `refs/...` names, leading-dash values, revision-range/ref-log syntax, glob metacharacters, control characters, and unsafe separators are treated as unavailable rather than searchable/index-status candidates.
 
 ## Black-box examples
 - Opening `#/search` shows a dedicated code-search page with the existing query input, repository filter, boolean/literal/regex mode selector, bounded result-page summary, previous/next controls backed by `/api/v1/search?limit=20&offset=...`, and direct links into `#/repos/:repoId?path=...&from=search` so a user can jump from a match into repository source without losing obvious search-route context.
