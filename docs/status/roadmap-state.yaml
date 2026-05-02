@@ -5,42 +5,39 @@ roadmap:
 project:
   repo_path: /opt/data/projects/sourcebot-rewrite
   branch: master
-  head: 80826ed23a8cf5e7590ee92065257842eeb72bcf
+  head: f2410a52fb9b32d208244612d26f1d2e90666f7e
 last_completed_task:
-  id: task102_105_search_path_filter_and_local_sync_path_hardening
-  title: Search path-filter and local sync repo-path hardening
+  id: task103_local_sync_snapshot_symlink_parent_hardening
+  title: Local-sync browse snapshot symlink-parent hardening
   status: done
   summary: >-
-    Closed carry-over implementation evidence from two already-integrated runtime
-    hardening commits and the coupled acceptance/parity docs sync. Search API
-    repeated include_path/exclude_path query parameters now fail closed when any
-    trimmed value exceeds the bounded path-filter byte limit before allocating or
-    applying filters, while preserving the mixed primary-index plus
-    caller-authorized local-sync artifact fallback contract for repositories that
-    lack primary hits. Local repository-sync jobs now reject existing regular-file
-    repo_path values before invoking Git, aligning the local path boundary with
-    the existing blank/padded/relative/symlink/control-character fail-closed
-    checks. This advances practical replacement hardening without claiming full
-    production search/indexing or provider/runtime parity.
+    Integrated the successful Browse/Code Navigation worker closure from the
+    accelerated batch. No-revision repository tree/blob/code-navigation local-sync
+    snapshot fallback now reuses the hardened snapshot usability check and fails
+    closed when the snapshot root or any lexical ancestor is a symlink or
+    non-directory, preventing local-sync browse fallback from trusting a snapshot
+    tree reached through a redirected parent path. This is a bounded path-safety
+    hardening for the already-shipped local-sync browse fallback, not full
+    browse/code-navigation parity or production indexing readiness.
   tests:
-    - 'focused API: cargo test -p sourcebot-api search_rejects_oversized_path_filter_query_parameters -- --nocapture (lib 0 tests; bin 1 passed)'
-    - 'broader API: cargo test -p sourcebot-api search_ -- --nocapture (lib 0 tests; bin 55 passed)'
-    - 'focused worker: cargo test -p sourcebot-worker local_repository_sync_regular_file_repo_path_fails_before_git_preflight -- --nocapture (lib 1 passed; main/smoke targets 0 filtered)'
-    - 'broader worker: cargo test -p sourcebot-worker repository_sync_claim_tick -- --nocapture (lib 22 passed; other targets 0 filtered)'
+    - 'RED worker: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture failed before implementation because the route returned 200 OK through a symlinked snapshot parent'
+    - 'focused API: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture (lib 0 tests; bin 1 passed)'
+    - 'broader tree API: cargo test -p sourcebot-api repository_tree -- --nocapture (lib 0 tests; bin 3 passed)'
+    - 'broader blob API: cargo test -p sourcebot-api repo_blob -- --nocapture (lib 0 tests; bin 12 passed)'
+    - 'broader local-sync API: cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 39 passed)'
     - 'cargo fmt --check'
     - 'git diff --check'
-    - 'raw docs checks for byte-bounded search path filters, mixed primary/local-sync fallback wording, whole-request malformed artifact fail-closed wording, and regular-file repo_path wording'
-    - 'added-lines security scan over origin/master..HEAD plus dirty docs: 0 findings'
-    - 'independent integration review approved with no security, logic, or docs-truthfulness blockers'
+    - 'added-lines security scan over origin/master..HEAD: 0 findings'
+    - 'independent integration review approved with no security, path-safety, auth/scope, logic, or docs-claim blockers; reviewer also ran local_sync_snapshot (10 passed)'
   review: >-
-    Independent review approved the origin/master..HEAD implementation range and
-    the coupled docs-sync diff. It found no security, logic, or docs-truthfulness
-    blockers; it confirmed the search path-filter byte bound and regular-file
-    local repo_path rejection are scoped, tested, and documented without
-    overclaiming full practical replacement parity. The only suggestion was a
-    future aggregate count/total-size cap for repeated include/exclude path
-    parameters.
-  commit: 80826ed23a8cf5e7590ee92065257842eeb72bcf
+    Independent review approved origin/master..HEAD. It inspected the actual diff
+    in crates/api/src/main.rs and confirmed the shared snapshot usability check
+    walks symlink_metadata over the snapshot path and ancestors, fails closed for
+    symlinks/non-directories/missing paths, preserves the existing auth/scope
+    boundary before local-sync fallback, and does not introduce docs overclaims.
+    It noted as non-blocking that deployments with symlinked higher-level paths
+    will now fail closed for this fallback, which is consistent with the closure.
+  commit: f2410a52fb9b32d208244612d26f1d2e90666f7e
 current_task:
   id: task102
   parent_task: practical-replacement-blockers
@@ -48,25 +45,68 @@ current_task:
   status: pending
   summary: >-
     Continue Task 102 from the practical replacement blocker roadmap after the
-    search path-filter and local sync repo-path hardening close-out. Search/index
-    status and local-sync artifacts now fail closed for unreadable/malformed
-    artifact paths, reject symlink-parent preserved error-status artifacts,
-    preserve explicit producer error status safely for index-status visibility,
-    persist schema-v2 explicit indexed-path inventories for truthful empty-file
-    counts, validate missing/duplicate/unsorted path inventories before trusting
-    file counts, bound repeated include_path/exclude_path query values by trimmed
-    bytes before filtering, and preserve the mixed primary-index plus
-    caller-authorized local-sync artifact fallback contract for repositories
-    lacking primary hits. Adjacent provider/runtime hardening now also rejects
-    regular-file local repo_path values before Git spawn. Remaining production
-    search/indexing blockers still include a real indexing pipeline beyond
-    startup and local-sync artifacts, branch/index availability semantics,
-    relevance and pagination guarantees at scale, streaming behavior,
-    stale/degraded index recovery, and final fail-closed release audit evidence.
-    Prefer the next closure with implementation-backed search/index runtime
-    capability over docs-only paperwork unless another practical replacement
-    blocker is clearly higher value.
+    accelerated batch integrated one adjacent Task 103 path-safety closure and
+    the Search/Index plus Provider/Worker implementation workers failed before
+    producing commits because the provider returned HTTP 503/no available
+    accounts. Search/index status and local-sync artifacts now fail closed for
+    unreadable/malformed artifact paths, reject symlink-parent preserved
+    error-status artifacts, preserve explicit producer error status safely for
+    index-status visibility, persist schema-v2 explicit indexed-path inventories
+    for truthful empty-file counts, validate missing/duplicate/unsorted path
+    inventories before trusting file counts, bound repeated include_path/exclude_path
+    query values by trimmed bytes before filtering, and preserve the mixed
+    primary-index plus caller-authorized local-sync artifact fallback contract for
+    repositories lacking primary hits. Adjacent browse/runtime hardening now also
+    rejects local-sync snapshot roots reached through symlinked parent paths, and
+    provider/runtime hardening rejects regular-file local repo_path values before
+    Git spawn. Remaining production search/indexing blockers still include a real
+    indexing pipeline beyond startup and local-sync artifacts, branch/index
+    availability semantics, relevance and pagination guarantees at scale,
+    streaming behavior, stale/degraded index recovery, and final fail-closed
+    release audit evidence. Prefer the next closure with implementation-backed
+    search/index runtime capability over docs-only paperwork unless another
+    practical replacement blocker is clearly higher value.
 history:
+  - id: task103_local_sync_snapshot_symlink_parent_hardening
+    status: done
+    summary: >-
+      Integrated the one successful worker from a three-scope accelerated batch:
+      Browse/Code Navigation now fails closed when no-revision local-sync snapshot
+      fallback would traverse a symlinked snapshot parent. This was chosen over a
+      docs-only micro-slice because it hardens a real user-facing repository tree
+      and blob/code-navigation fallback path with RED/GREEN evidence, while the
+      Search/Index and Provider/Worker workers failed cleanly from provider 503s
+      before producing commits.
+    commit: f2410a52fb9b32d208244612d26f1d2e90666f7e
+    component_commits:
+      - f2410a52fb9b32d208244612d26f1d2e90666f7e
+    tests:
+      - 'RED: cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture failed with 200 OK before implementation'
+      - 'cargo test -p sourcebot-api repository_tree_local_sync_snapshot_fails_closed_when_snapshot_parent_is_symlink -- --nocapture (lib 0 tests; bin 1 passed)'
+      - 'cargo test -p sourcebot-api repository_tree -- --nocapture (lib 0 tests; bin 3 passed)'
+      - 'cargo test -p sourcebot-api repo_blob -- --nocapture (lib 0 tests; bin 12 passed)'
+      - 'cargo test -p sourcebot-api local_sync -- --nocapture (lib 0 tests; bin 39 passed)'
+      - 'cargo fmt --check'
+      - 'git diff --check'
+      - 'added-lines security scan: 0 findings'
+      - 'independent integration review approved with no blockers; reviewer ran local_sync_snapshot (10 passed)'
+    review: >-
+      Independent review approved the path-safety hardening, auth/scope
+      preservation, normal local-sync semantics, and bounded docs claims with no
+      security or logic blockers.
+    workers:
+      - scope: Search/Index runtime
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-503-cleaned-no-diff
+      - scope: Browse/Code Navigation
+        worker_commit: 40b3b15ff834e95622f6da1563e7086b935d9e00
+        integrated_commit: f2410a52fb9b32d208244612d26f1d2e90666f7e
+        result: integrated-and-verified
+      - scope: Provider/Sync/Worker
+        worker_commit: null
+        integrated_commit: null
+        result: failed-provider-503-cleaned-no-diff
   - id: task102_105_search_path_filter_and_local_sync_path_hardening
     status: done
     summary: >-
