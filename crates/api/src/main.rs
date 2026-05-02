@@ -7079,17 +7079,26 @@ fn is_valid_local_sync_snapshot_revision(revision: &str) -> bool {
 }
 
 fn is_valid_local_sync_snapshot_branch(branch: &str) -> bool {
-    !branch.trim().is_empty()
-        && branch == branch.trim()
+    if branch == "HEAD" {
+        return true;
+    }
+    !branch.is_empty()
+        && branch != "@"
         && !branch.starts_with('-')
         && !branch.starts_with("refs/")
-        && !branch.contains("..")
-        && !branch.contains("@{")
         && !branch.ends_with('.')
         && !branch.ends_with('/')
-        && !branch
-            .chars()
-            .any(|ch| ch.is_control() || matches!(ch, '^' | '~' | ':' | '?' | '*' | '[' | '\\'))
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch.contains("//")
+        && branch.split('/').all(|component| {
+            !component.is_empty() && !component.starts_with('.') && !component.ends_with(".lock")
+        })
+        && !branch.bytes().any(|byte| {
+            byte <= 0x20
+                || byte == 0x7f
+                || matches!(byte, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\')
+        })
 }
 
 fn latest_local_sync_snapshot(
@@ -7686,9 +7695,15 @@ mod tests {
         for unsafe_branch in [
             "",
             "   ",
+            "feature main",
             "refs/heads/main",
             "feature..main",
             "feature@{0}",
+            "feature//main",
+            ".hidden",
+            "feature/.hidden",
+            "feature.lock",
+            "feature/foo.lock",
             "--upload-pack=/tmp/pwn",
             "feature*glob",
             "feature[glob]",
@@ -7732,6 +7747,44 @@ mod tests {
                 "local-sync search/index fallback must reject unsafe synced_branch metadata {unsafe_branch:?}"
             );
         }
+    }
+
+    #[test]
+    fn local_sync_snapshot_accepts_detached_head_branch_metadata() {
+        let mut organization_state = OrganizationState::default();
+        organization_state.connections.push(Connection {
+            id: "conn_local".into(),
+            name: "Local".into(),
+            kind: ConnectionKind::Local,
+            config: Some(ConnectionConfig::Local {
+                repo_path: "/tmp/sourcebot-local-sync-repo".into(),
+            }),
+        });
+        organization_state
+            .repository_sync_jobs
+            .push(RepositorySyncJob {
+                id: "job_detached_head".into(),
+                organization_id: "org_acme".into(),
+                repository_id: "repo_local".into(),
+                connection_id: "conn_local".into(),
+                status: RepositorySyncJobStatus::Succeeded,
+                queued_at: "2026-04-21T00:03:00Z".into(),
+                started_at: Some("2026-04-21T00:03:01Z".into()),
+                finished_at: Some("2026-04-21T00:03:02Z".into()),
+                error: None,
+                synced_revision: Some("abc123".into()),
+                synced_branch: Some("HEAD".into()),
+                synced_content_file_count: Some(1),
+            });
+
+        let authorized_organization_ids = HashSet::from(["org_acme".to_string()]);
+
+        assert!(latest_local_sync_snapshot(
+            &organization_state,
+            "repo_local",
+            &authorized_organization_ids,
+        )
+        .is_some());
     }
 
     #[test]
