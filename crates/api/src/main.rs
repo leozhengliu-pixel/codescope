@@ -6657,6 +6657,7 @@ const MAX_SEARCH_RESULT_LIMIT: usize = 500;
 const MAX_SEARCH_RESULT_OFFSET: usize = 10_000;
 const MAX_SEARCH_QUERY_BYTES: usize = 1024;
 const MAX_SEARCH_MATCHES_PER_FILE: usize = 100;
+const MAX_SEARCH_PATH_FILTER_BYTES: usize = 256;
 
 async fn search_repository_contents(
     State(state): State<AppState>,
@@ -6689,6 +6690,8 @@ async fn search_repository_contents(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let include_paths = parse_include_path_query_values(raw_query.as_deref())?;
+    let exclude_paths = parse_exclude_path_query_values(raw_query.as_deref())?;
 
     let requested_context_id = match query.context_id.as_deref().map(str::trim) {
         Some("") => return Err(StatusCode::NOT_FOUND),
@@ -6732,8 +6735,8 @@ async fn search_repository_contents(
     let search_options = SearchOptions {
         mode: search_mode,
         case_sensitive: query.case_sensitive,
-        include_paths: parse_include_path_query_values(raw_query.as_deref()),
-        exclude_paths: parse_exclude_path_query_values(raw_query.as_deref()),
+        include_paths,
+        exclude_paths,
         max_matches_per_file: query.max_matches_per_file,
     };
 
@@ -6863,24 +6866,36 @@ fn sort_search_results_by_repo_path_line(results: &mut [sourcebot_search::Search
     });
 }
 
-fn parse_include_path_query_values(raw_query: Option<&str>) -> Vec<String> {
+fn parse_include_path_query_values(raw_query: Option<&str>) -> Result<Vec<String>, StatusCode> {
     parse_repeated_path_query_values(raw_query, "include_path")
 }
 
-fn parse_exclude_path_query_values(raw_query: Option<&str>) -> Vec<String> {
+fn parse_exclude_path_query_values(raw_query: Option<&str>) -> Result<Vec<String>, StatusCode> {
     parse_repeated_path_query_values(raw_query, "exclude_path")
 }
 
-fn parse_repeated_path_query_values(raw_query: Option<&str>, parameter_name: &str) -> Vec<String> {
+fn parse_repeated_path_query_values(
+    raw_query: Option<&str>,
+    parameter_name: &str,
+) -> Result<Vec<String>, StatusCode> {
     let Some(raw_query) = raw_query else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
-    form_urlencoded::parse(raw_query.as_bytes())
-        .filter_map(|(key, value)| (key == parameter_name).then_some(value))
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect()
+    let mut values = Vec::new();
+    for (_, value) in
+        form_urlencoded::parse(raw_query.as_bytes()).filter(|(key, _)| key == parameter_name)
+    {
+        let value = value.trim().to_string();
+        if value.len() > MAX_SEARCH_PATH_FILTER_BYTES {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if !value.is_empty() {
+            values.push(value);
+        }
+    }
+
+    Ok(values)
 }
 
 fn search_visible_authorized_repositories(
@@ -30962,6 +30977,74 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(oversized_offset_response.status(), StatusCode::BAD_REQUEST);
+
+        fs::remove_file(organization_state_path).unwrap();
+        fs::remove_dir_all(search_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_rejects_oversized_path_filter_query_parameters() {
+        let search_root = unique_test_path("search-oversized-path-filter-root");
+        fs::create_dir_all(search_root.join("src")).unwrap();
+        fs::write(
+            search_root.join("src").join("lib.rs"),
+            "pub fn oversized_path_filter_marker() {}\n",
+        )
+        .unwrap();
+
+        let organization_state_path = unique_test_path("search-oversized-path-filter-orgs");
+        write_organization_state_fixture(
+            &organization_state_path,
+            LOCAL_BOOTSTRAP_ADMIN_USER_ID,
+            &["repo_sourcebot_rewrite"],
+        );
+        let app = test_app_with_search_store(
+            AppConfig {
+                organization_state_path: organization_state_path.display().to_string(),
+                bootstrap_state_path: unique_test_path("search-oversized-path-filter-bootstrap")
+                    .display()
+                    .to_string(),
+                local_session_state_path: unique_test_path("search-oversized-path-filter-sessions")
+                    .display()
+                    .to_string(),
+                ..AppConfig::default()
+            },
+            Arc::new(LocalSearchStore::new(HashMap::from([(
+                "repo_sourcebot_rewrite".to_string(),
+                search_root.clone(),
+            )]))),
+        );
+        let authorization = bootstrap_and_login(&app).await;
+        let oversized_filter = "a".repeat(MAX_SEARCH_PATH_FILTER_BYTES + 1);
+
+        let include_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/search?q=oversized_path_filter_marker&repo_id=repo_sourcebot_rewrite&include_path={oversized_filter}"
+                    ))
+                    .header(header::AUTHORIZATION, authorization.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(include_response.status(), StatusCode::BAD_REQUEST);
+
+        let exclude_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/search?q=oversized_path_filter_marker&repo_id=repo_sourcebot_rewrite&exclude_path={oversized_filter}"
+                    ))
+                    .header(header::AUTHORIZATION, authorization)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(exclude_response.status(), StatusCode::BAD_REQUEST);
 
         fs::remove_file(organization_state_path).unwrap();
         fs::remove_dir_all(search_root).unwrap();
